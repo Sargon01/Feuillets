@@ -41,6 +41,7 @@ class FakeElement {
   remove() { if (!this.parentElement) return; const i = this.parentElement.children.indexOf(this); if (i >= 0) this.parentElement.children.splice(i, 1); this.parentElement = null; }
   removeAttribute(name) { this.attrs.delete(name); }
   setAttribute(name, value) { this.attrs.set(name, String(value)); }
+  getAttribute(name) { return this.attrs.get(name) || null; }
   querySelector(selector) {
     const names = selector.split(",").map((v) => v.trim().toUpperCase());
     return descendants(this).slice(1).find((el) => names.includes(el.tagName)) || null;
@@ -55,9 +56,15 @@ function descendants(root) { return [root, ...root.children.flatMap(descendants)
 function heading() { return new FakeElement("h1", { text: "Titre" }); }
 function text() { return new FakeElement("p", { text: "Un paragraphe" }); }
 function list() { const el = new FakeElement("ul"); el.createEl("li", { text: "Item" }); return el; }
+function callout() { const el = new FakeElement("div"); el.setAttribute("data-callout", "note"); return el; }
 function media() {
   const el = new FakeElement("p");
   el.createEl("img");
+  return el;
+}
+function audio() {
+  const el = new FakeElement("p");
+  el.createEl("audio");
   return el;
 }
 
@@ -75,16 +82,19 @@ function assertClose(actual, expected, tolerance = 0.01) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `attendu ~${expected}, obtenu ${actual}`);
 }
 
-test("classifyPresentationBlock : reconnaît heading/media/list/text/other", () => {
+test("classifyPresentationBlock : reconnaît heading/media/list/text/callout/other", () => {
   assert.equal(classifyPresentationBlock(heading()), "heading");
   assert.equal(classifyPresentationBlock(media()), "media");
   assert.equal(classifyPresentationBlock(list()), "list");
   assert.equal(classifyPresentationBlock(text()), "text");
+  const note = callout(); note.setAttribute("data-callout", "note");
+  assert.equal(classifyPresentationBlock(note), "callout");
   assert.equal(classifyPresentationBlock(new FakeElement("hr")), "other");
 });
 
-test("isAutonomousMediaBlock : refuse texte direct, liste, blockquote, table, plusieurs médias", () => {
+test("isAutonomousMediaBlock : refuse texte direct, liste, blockquote, table, plusieurs médias et audio", () => {
   assert.equal(isAutonomousMediaBlock(media()), true);
+  assert.equal(isAutonomousMediaBlock(audio()), false);
   const withText = media(); withText.text = "légende";
   assert.equal(isAutonomousMediaBlock(withText), false);
   const withList = media(); withList.createEl("li");
@@ -126,9 +136,25 @@ test("C : TEXT MEDIA TEXT => FLOW uniquement (aucun candidat)", () => {
   assert.deepEqual(candidatesFor(inner), []);
 });
 
-test("D : TEXT TEXT => FLOW uniquement (aucun candidat)", () => {
+test("D : TEXT TEXT => 5 candidats SPLIT texte–texte", () => {
   const inner = slideOf(text(), text());
-  assert.deepEqual(candidatesFor(inner), []);
+  const candidates = candidatesFor(inner);
+  assert.deepEqual(candidates.map((candidate) => candidate.id), ["split-35-65", "split-42-58", "split-50-50", "split-58-42", "split-65-35"]);
+  for (const candidate of candidates) {
+    assert.equal(candidate.geometry, "split");
+    assert.equal(candidate.mediaPosition, null);
+    assert.deepEqual(candidate.cellAIndexes, [0]);
+    assert.deepEqual(candidate.cellBIndexes, [1]);
+  }
+});
+
+test("texte–texte accepte les listes et callouts, mais refuse les structures non compatibles", () => {
+  assert.equal(candidatesFor(slideOf(text(), list())).length, 5);
+  assert.equal(candidatesFor(slideOf(text(), callout())).length, 5);
+  assert.equal(candidatesFor(slideOf(callout(), callout())).length, 5);
+  assert.deepEqual(candidatesFor(slideOf(text(), text(), text())), []);
+  assert.deepEqual(candidatesFor(slideOf(text(), new FakeElement("div"))), []);
+  assert.deepEqual(candidatesFor(slideOf(text(), new FakeElement("h3"), text())), []);
 });
 
 test("E : MEDIA MEDIA => FLOW uniquement dans ce lot (aucun candidat)", () => {
@@ -146,10 +172,17 @@ test("generatePresentationCandidates : plan PUR, aucun HTMLElement", () => {
   }
 });
 
-test("isPresentationTitleSlide : première slide sans média seulement", () => {
+test("isPresentationTitleSlide : règle exacte heading seul ou heading + heading/text", () => {
+  assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(heading()))), true);
+  assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(heading(), heading()))), true);
   assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(heading(), text()))), true);
-  assert.equal(isPresentationTitleSlide(1, descriptorsForSlide(slideOf(heading(), text()))), false);
+  assert.equal(isPresentationTitleSlide(1, descriptorsForSlide(slideOf(heading()))), false);
+  assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(text()))), false);
+  assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(heading(), list()))), false);
   assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(heading(), media()))), false);
+  assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(heading(), new FakeElement("hr")))), false);
+  assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(heading(), text(), text()))), false);
+  assert.equal(isPresentationTitleSlide(0, descriptorsForSlide(slideOf(heading(), heading(), list()))), false);
 });
 
 // ===== classement des candidats =====
@@ -210,6 +243,20 @@ test("choosePresentationCandidate : égalité totale => premier candidat conserv
   assert.equal(winner, "A");
 });
 
+test("choosePresentationCandidate : texte–texte mediaArea=0 privilégie minTextWidth, puis le candidat valide", () => {
+  const candidates = [
+    { id: "split-42-58", overflowPx: 0, mediaArea: 0, minTextWidth: 420 },
+    { id: "split-50-50", overflowPx: 0, mediaArea: 0, minTextWidth: 500 },
+    { id: "split-58-42", overflowPx: 0, mediaArea: 0, minTextWidth: 460 },
+  ];
+  assert.equal(choosePresentationCandidate(candidates), "split-50-50");
+  assert.equal(choosePresentationCandidate([
+    { ...candidates[0], overflowPx: 20 },
+    { ...candidates[1], overflowPx: 0 },
+    { ...candidates[2], overflowPx: 10 },
+  ]), "split-50-50");
+});
+
 test("choosePresentationCandidate : liste vide => null", () => {
   assert.equal(choosePresentationCandidate([]), null);
 });
@@ -227,6 +274,15 @@ test("normalizePresentationMediaCell : marque le bloc et les wrappers jusqu'à l
   assert.equal(cell.classes.has(PRESENTATION_MEDIA_WRAPPER_CLASS), false);
   assert.equal(img.attrs.has("width"), false);
   assert.equal("width" in img.style, false);
+});
+
+test("normalizePresentationMediaCell : ignore un audio", () => {
+  const cell = new FakeElement("div");
+  const mediaBlock = cell.createEl("p");
+  const audioEl = mediaBlock.createEl("audio");
+  audioEl.setAttribute("width", "300");
+  normalizePresentationMediaCell(cell, mediaBlock);
+  assert.equal(audioEl.attrs.has("width"), true);
 });
 
 // ===== fausse alerte overflow (image intrinsèque grande, contain) =====

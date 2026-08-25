@@ -2,13 +2,9 @@ import { splitFrontmatter } from "../services/frontmatter.js";
 
 /** Ligne `---` isolée (0-3 espaces autorisés) : une frontière logique.
  * 4+ espaces ou 1+ tab = bloc de code indentés, jamais des frontières.
- * `> [!pagebreak]` et `> [!saut-page]` top-level sont aussi des frontières.
  * `***` et `___` restent des séparateurs Markdown ordinaires, jamais des
  * frontières — voir la documentation du module. */
 const LOGICAL_BOUNDARY = /^[ ]{0,3}---[ \t]*$/;
-const DIRECTIVE_PAGEBREAK = /^[ ]{0,3}>\s*\[!(pagebreak|saut-page)\]/;
-const CALLOUT_LINE = /^\s*>/;
-const NESTED_CALLOUT = /^\s*>\s*>/;
 // Regex pour détecter une ligne avec fence (backticks ou tildes)
 // Note: pour les OUVERTURES, le texte après les backticks est autorisé (ex: ``` md)
 // Pour les FERMETURES, voir le code qui valide séparément
@@ -33,8 +29,6 @@ export interface MarkdownLogicalUnitSource {
  * logiques et découpe le corps (hors frontmatter) en unités — walk ligne à
  * ligne :
  * - Une ligne `---` isolée referme l'unité courante
- * - Une directive `> [!pagebreak]` ou `> [!saut-page]` top-level referme
- *   l'unité courante ET est consommée (retirée du contenu)
  * - SAUF à l'intérieur d'une fence (```` ``` ```` ou `~~~`) ouverte, où rien
  *   n'est une frontière. Une fence ne se referme que par le même caractère
  *   (backtick/tilde) avec une longueur >= à celle de l'ouverture ; une
@@ -43,9 +37,7 @@ export interface MarkdownLogicalUnitSource {
  * Le frontmatter YAML initial est retiré avant ce walk par `splitFrontmatter`,
  * donc ses propres `---` ne sont jamais vus ici.
  *
- * Découpeur Présentation générique partagé — même logique que l'ancien
- * découpeur (`src/services/presentation.ts`), avec support additionnel
- * pour les directives pagebreak/saut-page.
+ * Découpeur Présentation générique partagé.
  */
 function splitMarkdownLogicalUnitsInternal(markdown: string): MarkdownLogicalUnitSource[] {
   const { frontmatter, body } = splitFrontmatter(markdown);
@@ -100,28 +92,9 @@ function splitMarkdownLogicalUnitsInternal(markdown: string): MarkdownLogicalUni
 
     // Vérifier si c'est une frontière structurelle
     const isBoundary = !fence && LOGICAL_BOUNDARY.test(line);
-    const isPagebreakDirective = !fence && DIRECTIVE_PAGEBREAK.test(line) && !NESTED_CALLOUT.test(line);
-
-    if (isBoundary || isPagebreakDirective) {
+    if (isBoundary) {
       // Frontière structurelle : marquer le bucket
       bucketOfLine[i] = bucketIndex;
-
-      if (isPagebreakDirective) {
-        linesToInclude[i] = false; // Ne pas inclure la directive elle-même
-        consumedByCallout.add(i);
-
-        // Consommer toutes les lignes de continuation du callout
-        for (let j = i + 1; j < bodyLines.length; j++) {
-          const nextLine = bodyLines[j];
-          if (CALLOUT_LINE.test(nextLine) && !NESTED_CALLOUT.test(nextLine)) {
-            linesToInclude[j] = false;
-            bucketOfLine[j] = bucketIndex;
-            consumedByCallout.add(j);
-          } else {
-            break;
-          }
-        }
-      }
 
       // NE PAS faire de flush ici - attendre une ligne de contenu réel
       inFrontierGroup = true;
@@ -199,4 +172,3 @@ export function splitMarkdownLogicalUnits(markdown: string): string[] {
 export function splitMarkdownLogicalUnitsWithRanges(markdown: string): MarkdownLogicalUnitSource[] {
   return splitMarkdownLogicalUnitsInternal(markdown);
 }
-

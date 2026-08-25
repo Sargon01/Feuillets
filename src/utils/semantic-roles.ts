@@ -133,11 +133,6 @@ export function semanticRoleForElement(el: Element): SemanticRole | null {
   return callout ? SEMANTIC_ROLE_ALIASES[callout] || null : null;
 }
 
-export function isSemanticPageBreak(el: Element): boolean {
-  const callout = el.getAttribute("data-callout")?.trim().toLowerCase();
-  return callout === "saut-page" || callout === "pagebreak";
-}
-
 /** Texte du titre déjà rendu par Obsidian (`.callout-title-inner`), ou null
  * si le callout n'a pas de titre — jamais recalculé, uniquement lu. */
 function calloutTitleText(el: Element): string | null {
@@ -169,9 +164,6 @@ export function applySemanticRoles(root: HTMLElement): { roles: number; pageBrea
       }
       applyRoleMarkerIcon(el, role);
       roles++;
-    } else if (isSemanticPageBreak(el)) {
-      el.classList.add("feuillets-pagebreak");
-      pageBreaks++;
     }
   });
   return { roles, pageBreaks };

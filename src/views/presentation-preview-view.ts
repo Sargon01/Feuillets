@@ -23,7 +23,7 @@
  * appliqué pour tenir dans le panneau — jamais de recomposition selon la
  * largeur.
  */
-import { ItemView, TFile, type App, type WorkspaceLeaf } from "obsidian";
+import { ItemView, TFile, setIcon, Notice, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_PRESENTATION_PREVIEW } from "../constants.js";
 import {
   presentationScale,
@@ -31,13 +31,18 @@ import {
   splitPresentationMarkdownWithRanges,
   type PresentationSlideSource,
 } from "../services/presentation.js";
+import { loadLayoutStore, layoutOverridesForFile } from "../services/layout-store.js";
+import { createPresentationSlideAnchor, resolvePresentationSlideLayouts, replacePresentationSlideLayout, type ResolvedPresentationSlideLayouts } from "../services/presentation-layout-overrides.js";
+import { saveLayoutStore } from "../services/layout-store.js";
+import { PresentationLayoutModal } from "../ui/presentation-layout-modal.js";
+import { resolveSourceAnchor } from "../services/source-anchor.js";
 import {
   renderPresentationSlide,
   PRESENTATION_SLIDE_WIDTH,
   PRESENTATION_SLIDE_HEIGHT,
   type RenderedPresentationSlide,
 } from "../services/presentation-slide-renderer.js";
-import { getRoleEditorDisplay } from "../utils/presentation-helpers.js";
+import { getPresentationTheme, getRoleEditorDisplay } from "../utils/presentation-helpers.js";
 import { t } from "../i18n/index.js";
 
 const BASE_WIDTH = PRESENTATION_SLIDE_WIDTH;
@@ -66,14 +71,18 @@ export type PresentationPreviewEditorLike = {
 type MarkdownLeafView = { file?: unknown; editor?: PresentationPreviewEditorLike };
 
 type PresentationPreviewSlideRecord = RenderedPresentationSlide;
+type PresentationPluginLike = { app: App; settings: FeuilletsSettings; getProjectFolder(): import("obsidian").TFolder | null };
 
 export class PresentationPreviewView extends ItemView {
+  private readonly plugin?: PresentationPluginLike;
   file: TFile | null = null;
   slides: PresentationSlideSource[] = [];
   activeIndex = 0;
   deckGeneration = 0;
   currentRecord: PresentationPreviewSlideRecord | null = null;
   private lastRenderedMarkdown: string | null = null;
+  private fullMarkdown = "";
+  resolvedSlideLayouts: ResolvedPresentationSlideLayouts = new Map();
   private linkedWorkLeaf: WorkspaceLeaf | null = null;
 
   rootEl: HTMLElement | null = null;
@@ -85,6 +94,7 @@ export class PresentationPreviewView extends ItemView {
   emptyEl: HTMLElement | null = null;
   previousButton: HTMLButtonElement | null = null;
   nextButton: HTMLButtonElement | null = null;
+  layoutButton: HTMLButtonElement | null = null;
   measurementHostEl: HTMLElement | null = null;
 
   private resizeObserver: ResizeObserver | null = null;
@@ -92,6 +102,8 @@ export class PresentationPreviewView extends ItemView {
   private cursorPollTimer: number | null = null;
   private lastCursorLine: number | null = null;
   private closed = false;
+
+  constructor(leaf: WorkspaceLeaf, plugin?: PresentationPluginLike) { super(leaf); this.plugin = plugin; }
 
   getViewType(): string { return VIEW_PRESENTATION_PREVIEW; }
   getDisplayText(): string {
@@ -110,6 +122,9 @@ export class PresentationPreviewView extends ItemView {
     this.previousButton = this.navButton(toolbar, "‹", t("presentation.previous"), () => void this.previous());
     this.counterEl = toolbar.createSpan({ cls: "feuillets-presentation-counter" });
     this.nextButton = this.navButton(toolbar, "›", t("presentation.next"), () => void this.next());
+    this.layoutButton = toolbar.createEl("button", { cls: "feuillets-presentation-button", attr: { "aria-label": t("presentation.layout") } });
+    setIcon(this.layoutButton, "layout-template");
+    this.registerDomEvent(this.layoutButton, "click", () => void this.openLayoutModal());
 
     this.stageEl = this.rootEl.createDiv({ cls: "feuillets-presentation-stage" });
     // Wrapper pour le scaling : représente la vraie taille visuelle après réduction.
@@ -173,6 +188,15 @@ export class PresentationPreviewView extends ItemView {
 
   private async applyMarkdown(markdown: string, options: { preferCursor: boolean }): Promise<void> {
     this.slides = splitPresentationMarkdownWithRanges(markdown);
+    this.fullMarkdown = markdown;
+    const root = this.plugin?.getProjectFolder();
+    if (this.plugin && root && this.file && this.file.path.startsWith(`${root.path}/`)) {
+      const relative = this.file.path.slice(root.path.length + 1);
+      const store = await loadLayoutStore(this.app, this.plugin.settings);
+      this.resolvedSlideLayouts = resolvePresentationSlideLayouts(markdown, this.slides, layoutOverridesForFile(store, relative));
+    } else {
+      this.resolvedSlideLayouts = new Map();
+    }
     let desiredIndex = Math.max(0, Math.min(this.activeIndex, Math.max(0, this.slides.length - 1)));
     if (options.preferCursor) {
       const editor = this.findLinkedEditor();
@@ -227,6 +251,7 @@ export class PresentationPreviewView extends ItemView {
     const source = this.slides[this.activeIndex];
     const controller = new AbortController();
     const roleEditorDisplay = getRoleEditorDisplay(this.app);
+    const theme = getPresentationTheme(this.app, this.file?.path ?? "");
     const record = await renderPresentationSlide({
       app: this.app,
       component: this,
@@ -240,6 +265,8 @@ export class PresentationPreviewView extends ItemView {
       isGenerationStale: () => generation !== this.deckGeneration,
       onMediaResolved: () => this.handleImageResolved(generation),
       roleEditorDisplay,
+      theme,
+      layoutOverride: this.resolvedSlideLayouts.get(this.activeIndex)?.layout ?? null,
     });
     if (generation !== this.deckGeneration) {
       // Une nouvelle génération a démarré pendant l'attente async : abandonnée.
@@ -353,6 +380,7 @@ export class PresentationPreviewView extends ItemView {
     if (this.counterEl) this.counterEl.setText(`${total ? this.activeIndex + 1 : 0} / ${total}`);
     if (this.previousButton) this.previousButton.disabled = this.activeIndex <= 0 || !total;
     if (this.nextButton) this.nextButton.disabled = !total || this.activeIndex >= total - 1;
+    if (this.layoutButton) this.layoutButton.disabled = !this.file || !total || !this.plugin || !this.plugin.getProjectFolder() || !createPresentationSlideAnchor(this.fullMarkdown, this.slides[this.activeIndex]);
     if (!total) {
       if (!this.emptyEl && this.rootEl) {
         this.emptyEl = this.rootEl.createDiv({ cls: "feuillets-presentation-empty" });
@@ -371,6 +399,42 @@ export class PresentationPreviewView extends ItemView {
     const button = parent.createEl("button", { cls: "feuillets-presentation-button", attr: { "aria-label": tooltip }, text: label });
     this.registerDomEvent(button, "click", action);
     return button;
+  }
+
+  async refreshPresentationLayout(filePath: string): Promise<void> {
+    if (!this.file || this.file.path !== filePath) return;
+    const markdown = await this.app.vault.read(this.file);
+    await this.applyMarkdown(markdown, { preferCursor: false });
+  }
+
+  private async openLayoutModal(): Promise<void> {
+    if (!this.file || !this.slides[this.activeIndex]) return;
+    const anchor = createPresentationSlideAnchor(this.fullMarkdown, this.slides[this.activeIndex]);
+    const root = this.plugin?.getProjectFolder();
+    if (!anchor || !root || !this.file.path.startsWith(`${root.path}/`)) {
+      new Notice(t("presentation.layoutChanged"));
+      return;
+    }
+    const current = this.resolvedSlideLayouts.get(this.activeIndex)?.layout ?? null;
+    new PresentationLayoutModal(this.app, current, async (layout) => {
+      if (!this.file) return;
+      const plugin = this.plugin;
+      if (!plugin) return;
+      const freshMarkdown = await this.app.vault.read(this.file);
+      const freshSlides = splitPresentationMarkdownWithRanges(freshMarkdown);
+      const freshRange = resolveSourceAnchor(anchor, freshMarkdown);
+      if (!freshRange) { new Notice(t("presentation.layoutChanged")); return; }
+      const targetIndex = freshSlides.findIndex((slide) => {
+        const candidate = createPresentationSlideAnchor(freshMarkdown, slide);
+        return !!candidate && candidate.start <= freshRange.start && candidate.end >= freshRange.end;
+      });
+      if (targetIndex < 0) { new Notice(t("presentation.layoutChanged")); return; }
+      const relative = this.file.path.slice(root.path.length + 1);
+      const store = await loadLayoutStore(this.app, plugin.settings);
+      const next = replacePresentationSlideLayout(store, relative, freshMarkdown, freshSlides, targetIndex, layout);
+      await saveLayoutStore(this.app, plugin.settings, next);
+      await this.applyMarkdown(freshMarkdown, { preferCursor: false });
+    }).open();
   }
 }
 

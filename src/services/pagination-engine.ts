@@ -165,8 +165,8 @@ function isFrontPage(node: Element): boolean {
   return node.classList.contains("feuillets-frontpage");
 }
 
-function isPedagogicalPageBreak(node: Element): boolean {
-  return node.classList.contains("feuillets-pagebreak");
+function isManualPageBreak(node: Element): boolean {
+  return node.classList.contains("feuillets-page-break-before");
 }
 
 function isHeading(node: Element): boolean {
@@ -306,10 +306,7 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
       const original = pending.shift();
       if (!original) break;
       const source = original.cloneNode(true) as Element;
-      if (isPedagogicalPageBreak(source)) {
-        if (page.nodes.length) nextPage();
-        continue;
-      }
+      if (isManualPageBreak(source) && page.nodes.length) nextPage();
       const front = isFrontPage(source);
       if (isForcedPage(source, geometry) && page.nodes.length) nextPage(front);
       else if (front) page = createPage(true);

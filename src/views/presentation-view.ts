@@ -11,14 +11,16 @@
  */
 import { ItemView, TFile, setIcon, type App } from "obsidian";
 import { VIEW_PRESENTATION } from "../constants.js";
-import { splitPresentationMarkdown, presentationScale } from "../services/presentation.js";
+import { splitPresentationMarkdownWithRanges, presentationScale, type PresentationSlideSource } from "../services/presentation.js";
+import { loadLayoutStore, layoutOverridesForFile } from "../services/layout-store.js";
+import { resolvePresentationSlideLayouts, type ResolvedPresentationSlideLayouts } from "../services/presentation-layout-overrides.js";
 import {
   renderPresentationSlide,
   PRESENTATION_SLIDE_WIDTH,
   PRESENTATION_SLIDE_HEIGHT,
   type RenderedPresentationSlide,
 } from "../services/presentation-slide-renderer.js";
-import { getRoleEditorDisplay } from "../utils/presentation-helpers.js";
+import { getPresentationTheme, getRoleEditorDisplay } from "../utils/presentation-helpers.js";
 import { t } from "../i18n/index.js";
 
 const BASE_WIDTH = PRESENTATION_SLIDE_WIDTH;
@@ -40,10 +42,15 @@ function styleEl(el: HTMLElement, styles: Partial<CSSStyleDeclaration>): void {
 }
 
 type PresentationSlideRecord = RenderedPresentationSlide;
+type PresentationPluginLike = { app: App; settings: FeuilletsSettings; getProjectFolder(): import("obsidian").TFolder | null };
 
 export class PresentationView extends ItemView {
+  private readonly plugin?: PresentationPluginLike;
   private file: TFile | null = null;
   private slidesMarkdown: string[] = [];
+  private slides: PresentationSlideSource[] = [];
+  private fullMarkdown = "";
+  private resolvedSlideLayouts: ResolvedPresentationSlideLayouts = new Map();
   private activeIndex = 0;
   private deckGeneration = 0;
   private slideRecords: PresentationSlideRecord[] = [];
@@ -61,6 +68,7 @@ export class PresentationView extends ItemView {
   private measurementHostEl: HTMLElement | null = null;
   private refreshTimer: number | null = null;
 
+  constructor(leaf: import("obsidian").WorkspaceLeaf, plugin?: PresentationPluginLike) { super(leaf); this.plugin = plugin; }
   getViewType(): string { return VIEW_PRESENTATION; }
   getDisplayText(): string { return `${t("presentation.display")} — ${this.file?.basename || this.file?.name || t("presentation.empty")}`; }
   getIcon(): string { return "presentation"; }
@@ -112,7 +120,9 @@ export class PresentationView extends ItemView {
     this.file = file;
     if (changed) this.activeIndex = 0;
     const markdown = await this.app.vault.read(file);
-    this.slidesMarkdown = splitPresentationMarkdown(markdown);
+    this.fullMarkdown = markdown;
+    this.slides = splitPresentationMarkdownWithRanges(markdown);
+    this.slidesMarkdown = this.slides.map((slide) => slide.markdown);
     this.activeIndex = Math.max(0, Math.min(this.activeIndex, Math.max(0, this.slidesMarkdown.length - 1)));
     await this.rebuildDeck();
   }
@@ -120,6 +130,11 @@ export class PresentationView extends ItemView {
   async refreshRoleDisplay(): Promise<void> {
     if (!this.file || !this.slidesMarkdown.length || !this.deckEl) return;
     await this.rebuildDeck();
+  }
+
+  async refreshPresentationLayout(filePath: string): Promise<void> {
+    if (!this.file || this.file.path !== filePath) return;
+    await this.openFile(this.file);
   }
 
   async next(): Promise<void> { this.setActiveIndex(this.activeIndex + 1); }
@@ -172,6 +187,15 @@ export class PresentationView extends ItemView {
       return;
     }
 
+    const root = this.plugin?.getProjectFolder();
+    if (this.plugin && root && this.file.path.startsWith(`${root.path}/`)) {
+      const relative = this.file.path.slice(root.path.length + 1);
+      const store = await loadLayoutStore(this.app, this.plugin.settings);
+      this.resolvedSlideLayouts = resolvePresentationSlideLayouts(this.fullMarkdown, this.slides, layoutOverridesForFile(store, relative));
+    } else {
+      this.resolvedSlideLayouts = new Map();
+    }
+
     const records: PresentationSlideRecord[] = [];
     for (let i = 0; i < this.slidesMarkdown.length; i++) {
       const record = await this.renderSlide(i, generation);
@@ -201,6 +225,7 @@ export class PresentationView extends ItemView {
   private async renderSlide(index: number, generation: number): Promise<PresentationSlideRecord> {
     const controller = new AbortController();
     const roleEditorDisplay = getRoleEditorDisplay(this.app);
+    const theme = getPresentationTheme(this.app, this.file?.path ?? "");
     return renderPresentationSlide({
       app: this.app,
       component: this,
@@ -214,6 +239,8 @@ export class PresentationView extends ItemView {
       isGenerationStale: () => generation !== this.deckGeneration,
       onMediaResolved: () => this.handleImageResolved(index, generation),
       roleEditorDisplay,
+      theme,
+      layoutOverride: this.resolvedSlideLayouts.get(index)?.layout ?? null,
     });
   }
 

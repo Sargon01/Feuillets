@@ -1,11 +1,13 @@
 import { Notice, Platform } from "obsidian";
 import type { App } from "obsidian";
 import { composeDocumentMedia, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
+import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
 import { paginateDom, paginateDomCooperatively, type CooperativePaginationOptions, type PaginationGeometry, type PaginationPage } from "./pagination-engine.js";
 import { resolvePageGeometry } from "./page-geometry.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
+import type { ContentVariant } from "./content-variants.js";
 
 type PdfFootnote = {
   id: string;
@@ -23,6 +25,7 @@ type PdfExportInput = {
   author: string;
   sourcePath: string;
   segments?: PdfExportSegment[];
+  contentVariant?: ContentVariant | null;
 };
 
 type PaginationResult = {
@@ -177,7 +180,7 @@ function prepareManuscriptPagination(
       columnCount,
       columnGapPt,
       headingPageBreaks: headingPageBreakPolicy(logicalTpl),
-      css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(logicalTpl),
+      css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(logicalTpl),
     },
   };
 }
@@ -265,7 +268,7 @@ export function paginateManuscript(
     columnGapPt,
     headingPageBreaks: headingPageBreakPolicy(logicalTpl),
     // Scoped in a shadow root by the engine, never injected into Obsidian's document.
-    css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(logicalTpl),
+    css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(logicalTpl),
   });
 
   /* Bandes en-tête/pied : même règle que la géométrie — le gabarit résolu
@@ -434,7 +437,7 @@ export async function paginateManuscriptCooperatively(
 }
 
 /** PDF via la boîte de dialogue d'impression du système */
-export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: PdfExportInput): Promise<void> {
+export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant }: PdfExportInput): Promise<void> {
   if (Platform.isMobile) {
     new Notice(
       "L'export PDF n'est disponible que sur desktop pour l'instant — utilise EPUB ou Word (.docx) sur mobile."
@@ -443,7 +446,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   }
 
   const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes, images } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
+  const { containerEl, footnotes, images } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null);
   if (tpl.profile === "document") composeDocumentMedia(containerEl, images);
 
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
@@ -463,7 +466,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
 
   const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, title, author);
 
-  const css = templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl);
+  const css = templateToCss(tpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(tpl);
   /* MÊME helper que paginateManuscript ci-dessus : la règle @page du document
      d'impression ne peut plus diverger du format réellement paginé (§26). */
   const { size: pageSize, orientation } = physicalPageGeometry(tpl, settings);

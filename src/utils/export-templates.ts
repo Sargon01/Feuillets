@@ -437,40 +437,6 @@ export function templateToCss(tpl: ExportTemplate) {
     ] : []),
     ".feuillets-doc-media-landscape-context.feuillets-doc-media-stacked { display: block; }",
     ".feuillets-doc-media-landscape-context.feuillets-doc-media-stacked .feuillets-doc-media-figure { margin-bottom: 1em; }",
-    /* Surcharge locale `%% image: … %%` (LOT 3A) : alignement de BLOC — jamais
-       de float/position absolue — et largeur explicite en % du content box.
-       `feuillets-image-width-*` (posée après les alignements ci-dessous dans
-       la feuille de styles) l'emporte sur le `width: fit-content` par défaut
-       quand une largeur est précisée ; sinon le bloc se contente de la taille
-       naturelle de l'image, seulement déplacé par les marges. */
-    ".feuillets-image-placement-left, .feuillets-image-placement-center, .feuillets-image-placement-right { width: fit-content; max-width: 100%; }",
-    ".feuillets-image-placement-left { margin-left: 0; margin-right: auto; }",
-    ".feuillets-image-placement-center { margin-left: auto; margin-right: auto; }",
-    ".feuillets-image-placement-right { margin-left: auto; margin-right: 0; }",
-    ".feuillets-image-placement-full { width: 100%; margin-left: 0; margin-right: 0; }",
-    ".feuillets-image-placement-left .feuillets-doc-media-figure img, .feuillets-image-placement-center .feuillets-doc-media-figure img, .feuillets-image-placement-right .feuillets-doc-media-figure img, .feuillets-image-placement-full .feuillets-doc-media-figure img { display: block; max-width: 100%; height: auto; margin: 0 auto; }",
-    ".feuillets-image-width-25 { width: 25%; } .feuillets-image-width-33 { width: 33%; } .feuillets-image-width-40 { width: 40%; } .feuillets-image-width-50 { width: 50%; } .feuillets-image-width-60 { width: 60%; } .feuillets-image-width-67 { width: 67%; } .feuillets-image-width-75 { width: 75%; } .feuillets-image-width-100 { width: 100%; }",
-    ".feuillets-image-width-25 .feuillets-doc-media-figure img, .feuillets-image-width-33 .feuillets-doc-media-figure img, .feuillets-image-width-40 .feuillets-doc-media-figure img, .feuillets-image-width-50 .feuillets-doc-media-figure img, .feuillets-image-width-60 .feuillets-doc-media-figure img, .feuillets-image-width-67 .feuillets-doc-media-figure img, .feuillets-image-width-75 .feuillets-doc-media-figure img, .feuillets-image-width-100 .feuillets-doc-media-figure img { width: 100%; }",
-    /* Compositions explicites `%% colonnes: … %%` (LOT 3B) — transversal à
-       tous les profils/modes (aucun gate profile/mode ici, contrairement au
-       pairing média+rôle automatique plus bas) : Grid, jamais de float ni
-       de position absolue, largeurs en fr (jamais en px). Le gap/align-
-       items reprend tel quel la valeur déjà centralisée du pairing média+
-       rôle (.feuillets-document-media-role-pair, plus bas) plutôt que
-       d'inventer une nouvelle échelle. */
-    ".feuillets-columns { display: grid; width: 100%; gap: 14pt; align-items: start; break-inside: avoid; page-break-inside: avoid; margin: 10pt 0; }",
-    ".feuillets-columns-40-60 { grid-template-columns: 40fr 60fr; }",
-    ".feuillets-columns-50-50 { grid-template-columns: 1fr 1fr; }",
-    ".feuillets-columns-60-40 { grid-template-columns: 60fr 40fr; }",
-    ".feuillets-column { min-width: 0; }",
-    /* Une image de colonne occupe toute la largeur de SA colonne, ratio
-       naturel préservé (jamais d'étirement vertical), top-alignée (héritée
-       de `align-items: start` ci-dessus) — spécificité (0,1,1) qui l'emporte
-       volontairement sur les classes ponctuelles `feuillets-image-placement-*`/
-       `feuillets-image-width-*` du LOT 3A (spécificité (0,1,0)) si la même
-       image en portait déjà : 3B décide seul de la largeur dans ce cas,
-       jamais de double réduction (§16 du lot) — sans !important. */
-    ".feuillets-column-media img { display: block; width: 100%; max-width: 100%; height: auto; margin: 0; }",
     ".feuillets-sheet { display: grid; grid-template-columns: 148mm 148mm; width: 297mm; height: 210mm; box-sizing: border-box; page-break-after: always; break-after: page; }",
     ".feuillets-sheet-panel { width: 148mm; height: 210mm; min-width: 0; min-height: 0; box-sizing: border-box; }",
     ".feuillets-sheet-panel .pdf-page { page-break-after: auto; break-after: auto; }",
@@ -517,7 +483,7 @@ export function templateToCss(tpl: ExportTemplate) {
       ".feuillets-document-media-role-pair-stacked { display: block; }",
       ".feuillets-document-media-role-pair > * { min-width: 0; }",
       ".feuillets-document-media-role-pair-stacked > :first-child { margin-bottom: 10pt; }",
-      ".feuillets-directive, .feuillets-pagebreak { display: none; }",
+      ".feuillets-directive { display: none; }",
     ] : []),
     /* Repli rouge/rouge/vert du profil Document pédagogique A4 — une
        `colorHex` explicite sur le niveau (headings.h1/h2/h3) prime : même

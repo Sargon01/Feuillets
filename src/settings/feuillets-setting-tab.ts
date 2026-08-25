@@ -68,6 +68,7 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   applyLiveTypoClasses(): void;
   syncProjectEditorScope(): void;
   refreshPresentationRoleDisplay(): Promise<void>;
+  refreshPresentationAppearance(): Promise<void>;
   applyIndentClass(): void;
   applyLeanInterfaceClasses(): void;
   removeConcentrationCounter(): void;

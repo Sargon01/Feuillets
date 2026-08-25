@@ -6,6 +6,7 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import { compile } from "../src/services/compile-export.js";
 import { exportDocx } from "../src/services/export-docx.js";
 import { exportEpub } from "../src/services/export-epub.js";
+import { renderManuscriptHtml } from "../src/services/export-render.js";
 
 /* Item 3 du chantier « Compilation professionnelle — Lot 1 » : DOCX et EPUB
  * partagent un seul pipeline de rendu (renderManuscriptHtml*, voir
@@ -46,7 +47,11 @@ class FakeElement {
   }
   get classList() {
     const self = this;
-    return { contains: (name) => (self.getAttribute("class") || "").split(/\s+/).includes(name) };
+    return {
+      contains: (name) => (self.getAttribute("class") || "").split(/\s+/).includes(name),
+      add: (...names) => self.setAttribute("class", [...new Set(`${self.getAttribute("class") || ""} ${names.join(" ")}`.trim().split(/\s+/))].join(" ")),
+      remove: (...names) => self.setAttribute("class", (self.getAttribute("class") || "").split(/\s+/).filter((name) => !names.includes(name)).join(" ")),
+    };
   }
   get innerHTML() {
     if (!this.children.length) return this._text;
@@ -58,6 +63,9 @@ class FakeElement {
   }
   setAttribute(name, value) {
     this._attributes.set(name, String(value));
+  }
+  removeAttribute(name) {
+    this._attributes.delete(name);
   }
   getAttribute(name) {
     return this._attributes.get(name) ?? null;
@@ -169,6 +177,30 @@ function setRenderer(render) {
     MarkdownRenderer.render = previous;
   };
 }
+
+test("pipeline Document réel : une solution exclue disparaît après nettoyage Obsidian", async () => {
+  const restoreDom = installDom();
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    assert.equal(markdown, "texte normal\n\n[!solution]\ntexte solution\n\ntexte normal");
+    container.appendChild(el("p", "texte normal"));
+    container.appendChild(el("div", "texte solution", { class: "callout", "data-callout": "solution" }));
+    container.appendChild(el("p", "texte normal"));
+  };
+  try {
+    const result = await renderManuscriptHtml({}, "texte normal\n\n[!solution]\ntexte solution\n\ntexte normal", "Feuillet.md", [], {
+      id: "without-solution",
+      name: "Sans solution",
+      excludedRoles: ["solution"],
+      questionAnswerSpace: "keep",
+    });
+    assert.deepEqual(result.containerEl.children.map((child) => child.textContent), ["texte normal", "texte normal"]);
+    assert.equal(result.containerEl.textContent, "texte normaltexte normal");
+  } finally {
+    MarkdownRenderer.render = previous;
+    restoreDom();
+  }
+});
 
 /** Rendu markdown->DOM minimal mais fidèle : titres `# `, un appel/def de
  *  note par scène, reconnu par des marqueurs simples plutôt qu'un vrai

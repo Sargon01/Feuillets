@@ -1,4 +1,4 @@
-import { setIcon, type App, type TFile, type TFolder } from "obsidian";
+import { Notice, setIcon, type App, type TFile, type TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
 import { FirstPagePanel, type FirstPagePanelPlugin } from "./first-page-panel.js";
 import { FrontMatterPanel, type FrontMatterPanelPlugin } from "./front-matter-panel.js";
@@ -8,6 +8,18 @@ import { BibliographyPanel, type BibliographyPanelPlugin } from "./bibliography-
 import { AnnexesPanel, type AnnexesPanelPlugin } from "./annexes-panel.js";
 import { LayoutEditor, type LayoutEditorPlugin } from "./layout-editor.js";
 import { CompileSelectionModal, manuscriptBodyFiles } from "./selection-modals.js";
+import { ConfirmModal } from "./basic-modals.js";
+import { ContentVariantModal, contentVariantErrorNoticeKey } from "./content-variant-modal.js";
+import {
+  ContentVariantsFileCorruptedError,
+  createContentVariant,
+  deleteContentVariant,
+  loadContentVariants,
+  selectContentVariant,
+  updateContentVariant,
+  type ContentVariant,
+  type ContentVariantsStore,
+} from "../services/content-variants.js";
 import type { DefaultSettings } from "../default-settings.js";
 
 /* Même intersection que FeuilletsSettingTab (settings/feuillets-setting-tab.ts) :
@@ -25,7 +37,7 @@ type CompositionSettings = FeuilletsSettings & DefaultSettings;
  * disparaissent en tant que rubriques séparées.
  * Passe ergonomique finale : trois groupes (AVANT, MANUSCRIT, APRÈS) avec
  * sous-pages respectant l'ordre de compilation réel. */
-type CompositionSection = "summary" | "before" | "manuscript" | "after" | "firstPage" | "frontMatter" | "structure";
+type CompositionSection = "summary" | "before" | "manuscript" | "variants" | "after" | "firstPage" | "frontMatter" | "structure";
 
 export type EditionCompositionContentPlugin = FirstPagePanelPlugin
   & FrontMatterPanelPlugin
@@ -143,6 +155,7 @@ export class EditionCompositionContent {
       this.selectedSection === "summary" ? this.renderSummary(body)
       : this.selectedSection === "before" ? this.renderBeforeSubpage(body)
       : this.selectedSection === "manuscript" ? this.renderManuscriptSubpage(body)
+      : this.selectedSection === "variants" ? this.renderVariantsSubpage(body)
       : this.selectedSection === "after" ? this.renderAfterSubpage(body)
       : this.selectedSection === "firstPage" ? this.renderFirstPageSubpage(body)
       : this.selectedSection === "frontMatter" ? this.renderFrontMatterSubpage(body)
@@ -159,6 +172,7 @@ export class EditionCompositionContent {
   private subpageTitle(section: CompositionSection): string {
     if (section === "before") return t("compositionSummary.beforeManuscript");
     if (section === "manuscript") return t("compositionSummary.theManuscript");
+    if (section === "variants") return t("contentVariants.title");
     if (section === "after") return t("compositionSummary.afterManuscript");
     if (section === "firstPage") return t("preview.export.firstPage");
     if (section === "frontMatter") return t("frontMatter.sectionTitle");
@@ -168,6 +182,7 @@ export class EditionCompositionContent {
 
   private parentSection(section: CompositionSection): CompositionSection {
     if (section === "firstPage" || section === "frontMatter") return "before";
+    if (section === "variants") return "manuscript";
     if (section === "structure") return "manuscript";
     return "summary";
   }
@@ -268,7 +283,94 @@ export class EditionCompositionContent {
   /** Composition → Le manuscrit : deux entrées (Contenu, Structure). */
   private async renderManuscriptSubpage(body: HTMLElement): Promise<void> {
     this.renderManuscriptContentRow(body);
+    let status: string | null = null;
+    try {
+      const store = await loadContentVariants(this.app, this.plugin.settings);
+      const selected = store.variants.find((variant) => variant.id === store.selectedVariantId);
+      status = selected?.name || null;
+    } catch (error) {
+      if (!(error instanceof ContentVariantsFileCorruptedError)) throw error;
+      status = t("contentVariants.errorStatus");
+    }
+    this.renderSummaryRow(body, t("contentVariants.title"), status, () => void this.navigateTo("variants"));
     this.renderSummaryRow(body, t("compositionSummary.structureRow"), null, () => void this.navigateTo("structure"));
+  }
+
+  private async renderVariantsSubpage(body: HTMLElement): Promise<void> {
+    body.createDiv({ cls: "feuillets-content-variants-hint", text: t("contentVariants.optionalHint") });
+    let store: ContentVariantsStore;
+    try {
+      store = await loadContentVariants(this.app, this.plugin.settings);
+    } catch (error) {
+      if (!(error instanceof ContentVariantsFileCorruptedError)) throw error;
+      body.createDiv({ cls: "feuillets-content-variants-error", text: t("contentVariants.invalidFile") });
+      return;
+    }
+    if (store.variants.length === 0) {
+      body.createDiv({ cls: "feuillets-content-variants-empty", text: t("contentVariants.empty") });
+    } else {
+      const row = body.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
+      row.createSpan({ cls: "feuillets-properties-key", text: t("contentVariants.use") });
+      const select = row.createEl("select");
+      select.createEl("option", { value: "", text: t("contentVariants.none") });
+      for (const variant of store.variants) select.createEl("option", { value: variant.id, text: variant.name });
+      select.value = store.selectedVariantId || "";
+      select.setAttribute("aria-label", t("contentVariants.use"));
+      select.addEventListener("change", () => {
+        this.renderPromise = this.changeSelectedVariant(select.value || null);
+      });
+    }
+    for (const variant of store.variants) this.renderVariantRow(body, variant);
+    const add = body.createEl("button", { text: t("contentVariants.newVariant"), cls: "feuillets-content-variant-add" });
+    add.addEventListener("click", () => this.openVariantModal(null));
+  }
+
+  private renderVariantRow(parent: HTMLElement, variant: ContentVariant): void {
+    const row = parent.createDiv({ cls: "feuillets-project-row feuillets-edition-action-row" });
+    row.createSpan({ cls: "feuillets-project-row-label", text: variant.name });
+    const actions = row.createDiv({ cls: "feuillets-project-row-actions" });
+    const edit = actions.createEl("button", { text: t("contentVariants.edit") });
+    edit.addEventListener("click", (event) => { event.stopPropagation(); this.openVariantModal(variant); });
+    const remove = actions.createEl("button", { text: t("contentVariants.delete") });
+    remove.addEventListener("click", (event) => {
+      event.stopPropagation();
+      new ConfirmModal(this.app, t("contentVariants.deleteTitle"), t("contentVariants.deleteMessage", { name: variant.name }), t("contentVariants.delete"),
+        () => this.removeVariant(variant.id)).open();
+    });
+  }
+
+  private openVariantModal(variant: ContentVariant | null): void {
+    new ContentVariantModal(this.app, variant, async (draft) => {
+      if (variant) await updateContentVariant(this.app, this.plugin.settings, variant.id, draft);
+      else await createContentVariant(this.app, this.plugin.settings, draft.name, draft.excludedRoles, draft.questionAnswerSpace);
+      await this.refreshCurrentSection();
+      await this.onChangeOpt?.();
+    }).open();
+  }
+
+  private async changeSelectedVariant(id: string | null): Promise<void> {
+    try {
+      await selectContentVariant(this.app, this.plugin.settings, id);
+      await this.refreshCurrentSection();
+      await this.onChangeOpt?.();
+    } catch (error) {
+      new Notice(t(contentVariantErrorNoticeKey(error)));
+    }
+  }
+
+  private async removeVariant(id: string): Promise<void> {
+    try {
+      await deleteContentVariant(this.app, this.plugin.settings, id);
+      await this.refreshCurrentSection();
+      await this.onChangeOpt?.();
+    } catch (error) {
+      new Notice(t(contentVariantErrorNoticeKey(error)));
+    }
+  }
+
+  private async refreshCurrentSection(): Promise<void> {
+    this.renderPromise = this.renderBody();
+    await this.renderPromise;
   }
 
   /** Composition → Après le manuscrit : Table des matières, Bibliographie,

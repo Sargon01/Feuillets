@@ -10,6 +10,13 @@ import { getLocale, t } from "../i18n/index.js";
 import { TitlePageMiniature } from "./title-page-miniature.js";
 import { isPedagogicalA4Template } from "../utils/export-templates.js";
 import { SEMANTIC_PALETTE } from "../utils/semantic-roles.js";
+import {
+  PRESENTATION_THEME_IDS,
+  isPresentationThemeId,
+  presentationThemeForFile,
+  resolvePresentationTheme,
+} from "../services/presentation-theme.js";
+import { PresentationThemeModal } from "./presentation-theme-modal.js";
 
 export type LayoutSelection = string | null;
 export type ExportTemplateOption = { key: string; label: string };
@@ -38,7 +45,8 @@ export type LayoutSummaryPage =
   | "heading-h6"
   | "elements"
   | "blockquote"
-  | "scene-divider";
+  | "scene-divider"
+  | "slides";
 /** Navigation du mode "workspace" — CORRECTIF PROMPT 2/3 : "rail" est le
  * comportement historique (colonne latérale Page/Corps/Titres/Citation,
  * espace central), "summary" une navigation alternative pour le panneau
@@ -48,6 +56,7 @@ export type LayoutWorkspaceNavigation = "rail" | "summary";
 export type LayoutEditorPlugin = {
   settings: FeuilletsSettings;
   saveSettings(): Promise<void>;
+  refreshPresentationAppearance?(): Promise<void>;
 };
 /** Alias interne — LayoutEditor lui-même continue d'utiliser ce nom en
  * interne, seul le type exporté pour les autres modules (Composition, §6 du
@@ -76,6 +85,10 @@ export type LayoutEditorOptions = {
    * d'afficher ou non son « Retour à Édition » : aucun état partagé, aucune
    * donnée, aucun déclenchement de leaf. */
   onNavigationRootChange?: (isRoot: boolean) => void;
+  initialSummaryPage?: LayoutSummaryPage;
+  onSummaryPageChange?: (page: LayoutSummaryPage) => void;
+  presentationProjectPath?: string | null;
+  onPresentationAppearanceChange?: () => void | Promise<void>;
 };
 
 /** Étiquette affichée pour un RÔLE de page de titre — utilisée par
@@ -136,6 +149,9 @@ export class LayoutEditor {
   /** Sidebar embedded — informateur racine du sommaire summary (voir
    * LayoutEditorOptions.onNavigationRootChange). */
   onNavigationRootChange: ((isRoot: boolean) => void) | undefined;
+  onSummaryPageChange: ((page: LayoutSummaryPage) => void) | undefined;
+  presentationProjectPath: string | null;
+  onPresentationAppearanceChange: (() => void | Promise<void>) | undefined;
 
   template!: ExportTemplateV2;
   styles: TitlePageStyles;
@@ -160,7 +176,7 @@ export class LayoutEditor {
   workspaceNavigation: LayoutWorkspaceNavigation;
   /** Page actuellement affichée en navigation "summary" — "home" =
    * sommaire affiché, autres = sous-pages. Sans effet en "rail". */
-  private summaryPage: LayoutSummaryPage = "home";
+  private summaryPage: LayoutSummaryPage;
   /** Maquette de la page de titre — montée UNIQUEMENT sous « Première page »
    * en mode workspace (§28), et strictement le MÊME composant que celui du
    * LayoutModal (§29). `null` partout ailleurs. */
@@ -177,6 +193,9 @@ export class LayoutEditor {
     this.onSelectionChange = options.onSelectionChange;
     this.onSaved = options.onSaved;
     this.onNavigationRootChange = options.onNavigationRootChange;
+    this.onSummaryPageChange = options.onSummaryPageChange;
+    this.presentationProjectPath = options.presentationProjectPath ?? null;
+    this.onPresentationAppearanceChange = options.onPresentationAppearanceChange;
     this.styles = {};
     this.roles = [];
     this.selected = null;
@@ -185,6 +204,7 @@ export class LayoutEditor {
     this.navigationButtons = {};
     this.navEl = null;
     this.workspaceNavigation = options.workspaceNavigation || "rail";
+    this.summaryPage = options.initialSummaryPage ?? "home";
     if (this.mode === "modal" && host) this.inspectorEl = host;
   }
 
@@ -319,10 +339,19 @@ export class LayoutEditor {
     this.renderSummarySubRow(list, "elements", "modal.layout.categoryElements", () => {
       return "";
     });
+
+    this.renderSummarySubRow(list, "slides", "layoutWorkspace.slides", () => {
+      return this.activePresentationTheme().name;
+    });
   }
 
   private openSummaryPage(page: LayoutSummaryPage): void {
+    this.setSummaryPage(page);
+  }
+
+  private setSummaryPage(page: LayoutSummaryPage): void {
     this.summaryPage = page;
+    this.onSummaryPageChange?.(page);
     this.renderWorkspace();
   }
 
@@ -389,6 +418,9 @@ export class LayoutEditor {
         this.selected = "blockquote";
         this.renderSceneDividerInspector(this.inspectorEl);
         if (this.onSelectionChange) this.onSelectionChange("blockquote");
+        break;
+      case "slides":
+        this.renderSlidesInspector(this.inspectorEl);
         break;
     }
   }
@@ -509,8 +541,7 @@ export class LayoutEditor {
     text.textContent = ` ${t(this.summaryPageLabelKey(parent))}`;
 
     backBtn.addEventListener("click", () => {
-      this.summaryPage = parent;
-      this.renderWorkspace();
+      this.setSummaryPage(parent);
     });
   }
 
@@ -537,6 +568,7 @@ export class LayoutEditor {
     elements: "home",
     blockquote: "elements",
     "scene-divider": "elements",
+    slides: "home",
   };
 
   /** Libellé affiché par le bouton Retour — le nom de la page parente. */
@@ -546,6 +578,7 @@ export class LayoutEditor {
       case "text": return "modal.layout.categoryText";
       case "headings": return "modal.layout.categoryHeadings";
       case "elements": return "modal.layout.categoryElements";
+      case "slides": return "layoutWorkspace.slides";
       default: return "layoutWorkspace.displayText";
     }
   }
@@ -573,7 +606,77 @@ export class LayoutEditor {
       case "elements": return "modal.layout.categoryElements";
       case "blockquote": return "modal.layout.blockquoteLabel";
       case "scene-divider": return "modal.layout.sceneSeparatorLabel";
+      case "slides": return "layoutWorkspace.slides";
       default: return null;
+    }
+  }
+
+  private activePresentationTheme() {
+    const path = this.presentationProjectPath;
+    return presentationThemeForFile(
+      { ...this.plugin.settings, projectFolder: path ?? undefined },
+      path ?? "",
+      getLocale(),
+    );
+  }
+
+  private renderSlidesInspector(host: HTMLElement): void {
+    const settings = this.plugin.settings;
+    const themes = settings.presentationThemes ?? {};
+    const projectPath = this.presentationProjectPath;
+    const activeProjectMeta = projectPath ? settings.projectMeta?.[projectPath] : undefined;
+    const projectTheme = isPresentationThemeId(activeProjectMeta?.presentationTheme)
+      ? activeProjectMeta.presentationTheme
+      : "";
+    const globalTheme = isPresentationThemeId(settings.presentationTheme) ? settings.presentationTheme : "classic";
+
+    host.createEl("h5", { text: t("layoutWorkspace.slidesUsage") });
+    const projectSetting = new Setting(host).setName(t("layoutWorkspace.projectTheme"));
+    projectSetting.addDropdown((dropdown) => {
+      dropdown.addOption("", t("layoutWorkspace.defaultThemeOption", { theme: resolvePresentationTheme(globalTheme, themes, getLocale()).name }));
+      for (const id of PRESENTATION_THEME_IDS) dropdown.addOption(id, resolvePresentationTheme(id, themes, getLocale()).name);
+      dropdown.setValue(projectTheme);
+      dropdown.setDisabled(!projectPath);
+      dropdown.onChange(async (value) => {
+        if (!projectPath) return;
+        if (!settings.projectMeta?.[projectPath]) settings.projectMeta[projectPath] = {};
+        if (isPresentationThemeId(value)) settings.projectMeta[projectPath].presentationTheme = value;
+        else delete settings.projectMeta[projectPath].presentationTheme;
+        await this.plugin.saveSettings();
+        await this.plugin.refreshPresentationAppearance?.();
+        await this.onPresentationAppearanceChange?.();
+        this.renderWorkspace();
+      });
+    });
+    if (!projectPath) projectSetting.setDesc(t("layoutWorkspace.noActiveProject"));
+
+    new Setting(host)
+      .setName(t("layoutWorkspace.defaultTheme"))
+      .addDropdown((dropdown) => {
+        for (const id of PRESENTATION_THEME_IDS) dropdown.addOption(id, resolvePresentationTheme(id, themes, getLocale()).name);
+        dropdown.setValue(globalTheme);
+        dropdown.onChange(async (value) => {
+          if (!isPresentationThemeId(value)) return;
+          settings.presentationTheme = value;
+          await this.plugin.saveSettings();
+          await this.plugin.refreshPresentationAppearance?.();
+          await this.onPresentationAppearanceChange?.();
+          this.renderWorkspace();
+        });
+      });
+
+    new Setting(host).setName(t("layoutWorkspace.activeTheme")).setDesc(this.activePresentationTheme().name);
+
+    host.createEl("h5", { text: t("layoutWorkspace.slidesThemes") });
+    for (const id of PRESENTATION_THEME_IDS) {
+      new Setting(host)
+        .setName(resolvePresentationTheme(id, themes, getLocale()).name)
+        .addButton((button) => button.setButtonText(t("layoutWorkspace.editTheme")).onClick(() => {
+          new PresentationThemeModal(this.app, this.plugin, id, async () => {
+            await this.onPresentationAppearanceChange?.();
+            this.renderWorkspace();
+          }).open();
+        }));
     }
   }
 

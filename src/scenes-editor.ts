@@ -12,6 +12,7 @@ import {
 } from "obsidian";
 
 import { addOpenWithPreviewItem } from "./views/preview-view.js";
+import { duplicateLayoutForFile, loadLayoutStore, saveLayoutStore, splitLayoutForFiles, mergeLayoutForFiles } from "./services/layout-store.js";
 import { t } from "./i18n/index.js";
 import {
   normalizeTags,
@@ -651,6 +652,8 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         { name: "filename", label: t("scenesEditor.field.fileName"), value: String(defaultTitle) },
       ],
       async (values) => {
+        const root = plugin.getProjectFolder();
+        const layoutBefore = root ? await loadLayoutStore(plugin.app, plugin.settings) : null;
         const folder = file.parent?.path || "";
         const safe = sanitizeFileBasename(
           values.filename || defaultTitle,
@@ -693,6 +696,16 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
             editor.getCursor("from"),
             editor.offsetToPos(content.length)
           );
+        }
+        if (layoutBefore && root) {
+          const sourceRelative = file.path.startsWith(`${root.path}/`) ? file.path.slice(root.path.length + 1) : file.path;
+          const targetFile = plugin.app.vault.getAbstractFileByPath(path);
+          if (targetFile instanceof TFile) {
+            const contentA = editor.getValue();
+            const contentB = await plugin.app.vault.read(targetFile);
+            const updated = splitLayoutForFiles(layoutBefore, sourceRelative, sourceRelative, contentA, targetFile.path.slice(root.path.length + 1), contentB);
+            await saveLayoutStore(plugin.app, plugin.settings, updated);
+          }
         }
         new Notice(t("scenesEditor.notice.created", { unit: unit.charAt(0).toUpperCase() + unit.slice(1), name: safe }));
       }
@@ -758,6 +771,14 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
           delete fm2.resume;
           delete fm2.objectif;
         });
+        const root = plugin.getProjectFolder();
+        if (root) {
+          const relativeSource = file.path.startsWith(`${root.path}/`) ? file.path.slice(root.path.length + 1) : file.path;
+          const relativeTarget = copied.path.startsWith(`${root.path}/`) ? copied.path.slice(root.path.length + 1) : copied.path;
+          const layout = await loadLayoutStore(plugin.app, plugin.settings);
+          const updated = duplicateLayoutForFile(layout, relativeSource, relativeTarget, await plugin.app.vault.read(copied));
+          if (updated.overrides.length !== layout.overrides.length) await saveLayoutStore(plugin.app, plugin.settings, updated);
+        }
         new Notice(t("scenesEditor.notice.duplicated", { unit: unitCap, name: safe }));
       }
     ).open();
@@ -808,6 +829,8 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
    * le menu contextuel reste possible. */
   plugin.duplicateManyScenes = async (files: TFile[]): Promise<void> => {
     let created = 0;
+    const root = plugin.getProjectFolder();
+    let layout = root ? await loadLayoutStore(plugin.app, plugin.settings) : null;
     for (const file of files) {
       if (!(file instanceof TFile) || !plugin.isSceneFile(file)) continue;
       const fm: Record<string, unknown> = Object.assign({}, plugin.fmOf(file));
@@ -842,7 +865,13 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         delete fm2.objectif;
       });
       created++;
+      if (layout && root) {
+        const sourceRelative = file.path.startsWith(`${root.path}/`) ? file.path.slice(root.path.length + 1) : file.path;
+        const targetRelative = copied.path.startsWith(`${root.path}/`) ? copied.path.slice(root.path.length + 1) : copied.path;
+        layout = duplicateLayoutForFile(layout, sourceRelative, targetRelative, await plugin.app.vault.read(copied));
+      }
     }
+    if (layout && root) await saveLayoutStore(plugin.app, plugin.settings, layout);
     const unit = plugin.unitLabel();
     new Notice(
       created > 0
@@ -1070,9 +1099,13 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
     }
     const joiner = keepSeparator ? plugin.settings.mergeNotesSeparator : "\n\n";
     let mergedCount = 0;
+    const root = plugin.getProjectFolder();
+    const layoutBefore = root ? await loadLayoutStore(plugin.app, plugin.settings) : null;
+    const sourcePaths: string[] = [];
     for (const source of sources) {
       if (!(source instanceof TFile) || source.path === target.path) continue;
       try {
+        sourcePaths.push(source.path);
         const raw = await plugin.app.vault.read(source);
         const sourceBody = splitBody(raw);
         const sourceFm: Record<string, unknown> = Object.assign({}, plugin.fmOf(source));
@@ -1106,6 +1139,12 @@ export function initScenesEditor(plugin: ScenesEditorPlugin): void {
         );
         return;
       }
+    }
+    if (layoutBefore && root && mergedCount > 0) {
+      const targetContent = await plugin.app.vault.read(target);
+      const sourceRelative = sourcePaths.map((path) => path.startsWith(`${root.path}/`) ? path.slice(root.path.length + 1) : path);
+      const targetRelative = target.path.startsWith(`${root.path}/`) ? target.path.slice(root.path.length + 1) : target.path;
+      await saveLayoutStore(plugin.app, plugin.settings, mergeLayoutForFiles(layoutBefore, sourceRelative, targetRelative, targetContent));
     }
     new Notice(t("scenesEditor.notice.mergeCompleted", { target: plugin.shortTitleFor(target) }));
   };

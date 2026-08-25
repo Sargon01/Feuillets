@@ -95,6 +95,19 @@ test("applySourceMarkers : pose l'attribut sur le bloc SUIVANT et retire le marq
   assert.equal(root.children[0], body);
 });
 
+test("applySourceMarkers : transfère le repère au premier bloc restant", () => {
+  const marker = new Node("p", `${SOURCE_MARKER_PREFIX}Roman/Ch1/Scene.md`);
+  const excluded = new Node("div", "Solution exclue.");
+  const remaining = new Node("p", "Premier bloc conservé.");
+  const root = container(marker, excluded, remaining);
+  excluded.remove();
+
+  applySourceMarkers(root);
+
+  assert.equal(remaining.getAttribute(SOURCE_PATH_ATTR), "Roman/Ch1/Scene.md");
+  assert.equal(root.children.includes(marker), false);
+});
+
 test("applySourceMarkers : plusieurs scènes, chacune repérée dans l'ordre", () => {
   const root = container(
     new Node("p", `${SOURCE_MARKER_PREFIX}a.md`),

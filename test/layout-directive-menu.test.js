@@ -69,7 +69,7 @@ test("§45 — hors projet Feuillets : « Disposition… » absente", () => {
   assert.equal(menu.items.find((i) => i.title === t("editorMenu.layoutDirective")), undefined);
 });
 
-test("§45 — bloc non admissible (titre) : « Disposition… » absente", () => {
+test("§45 — titre : « Disposition… » présente pour la pagination", () => {
   const { manuscript, file } = projectFiles();
   const { plugin, handlers } = editorMenuHarness(manuscript);
   plugin.registerLayoutDirectiveContextMenu();
@@ -78,10 +78,10 @@ test("§45 — bloc non admissible (titre) : « Disposition… » absente", () =
   const menu = new Menu();
   cb(menu, fakeEditor("# Titre\n\nTexte.", 0), markdownView(file));
 
-  assert.equal(menu.items.find((i) => i.title === t("editorMenu.layoutDirective")), undefined);
+  assert.ok(menu.items.find((i) => i.title === t("editorMenu.layoutDirective")));
 });
 
-test("§45 — texte isolé sans composition possible : « Disposition… » absente", () => {
+test("§45 — texte isolé : « Disposition… » présente pour la pagination", () => {
   const { manuscript, file } = projectFiles();
   const { plugin, handlers } = editorMenuHarness(manuscript);
   plugin.registerLayoutDirectiveContextMenu();
@@ -90,7 +90,7 @@ test("§45 — texte isolé sans composition possible : « Disposition… » abs
   const menu = new Menu();
   cb(menu, fakeEditor("Un paragraphe seul.", 0), markdownView(file));
 
-  assert.equal(menu.items.find((i) => i.title === t("editorMenu.layoutDirective")), undefined);
+  assert.ok(menu.items.find((i) => i.title === t("editorMenu.layoutDirective")));
 });
 
 test("§45 — pas de MarkdownView (ex. autre type de vue) : jamais d'entrée", () => {

@@ -270,7 +270,7 @@ export function blockToParagraphs(
   tpl: ExportTemplate,
   headings: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle } = {},
   images: ExportImages = new Map(),
-  frontOverride: { style?: TitlePageStyle | null; isTitleLine?: boolean } | null = null,
+  frontOverride: { style?: TitlePageStyle | null; isTitleLine?: boolean; manualPageBreak?: boolean } | null = null,
 ): Paragraph[] {
   if (!el || el.nodeType !== ELEMENT_NODE) return [];
   const tag = el.tagName;
@@ -288,7 +288,7 @@ export function blockToParagraphs(
     return [
       new Paragraph({
         heading: HEADING_MAP[tag],
-        pageBreakBefore: frontOverride ? false : pageBreak,
+        pageBreakBefore: !!frontOverride?.manualPageBreak || (frontOverride ? false : pageBreak),
         alignment: frontOverride ? frontAlignment(frontOverride) : undefined,
         spacing: frontOverride ? frontSpacing(frontOverride) : undefined,
         children: inlineChildren(
@@ -303,6 +303,7 @@ export function blockToParagraphs(
   if (tag === "P") {
     const paragraphs = [
       new Paragraph({
+        pageBreakBefore: !!frontOverride?.manualPageBreak,
         alignment: frontOverride ? frontAlignment(frontOverride) : alignmentFor(tpl),
         indent: frontOverride
           ? frontOverride.style && (frontOverride.style.marginLeftPt != null || frontOverride.style.marginRightPt != null)
@@ -335,6 +336,7 @@ export function blockToParagraphs(
     const children = Array.from(el.children);
     return children.flatMap((child, index) => [
       new Paragraph({
+        pageBreakBefore: index === 0 && !!frontOverride?.manualPageBreak,
         style: "FeuilletsCitation",
         alignment: frontOverride ? AlignmentType.CENTER : undefined,
         spacing: frontOverride ? FRONT_PAGE_LINE_SPACING : quote && (quote.marginTopPt != null || quote.marginBottomPt != null)
@@ -357,6 +359,7 @@ export function blockToParagraphs(
     return Array.from(el.children).map((li, i) => {
       const prefix = tag === "UL" ? "• " : `${i + 1}. `;
       return new Paragraph({
+        pageBreakBefore: i === 0 && !!frontOverride?.manualPageBreak,
         spacing: frontOverride ? FRONT_PAGE_LINE_SPACING : undefined,
         alignment: frontOverride ? AlignmentType.CENTER : undefined,
         children: [new TextRun(prefix), ...inlineChildren(li, footnoteIdByHref, images)],

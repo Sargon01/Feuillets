@@ -119,6 +119,7 @@ declare type ProjectMeta = {
   /** Clé de PROJECT_MODES (utils/project-modes.js) : "fiction", "nonfiction"… */
   type?: string;
   description?: string;
+  presentationTheme?: import("./services/presentation-theme.js").PresentationThemeId;
   author?: string;
   /** Palette propre au projet ; sinon repli sur settings.labels (labelColor). */
   labels?: Label[];
@@ -449,6 +450,8 @@ declare type FeuilletsSettings = {
    *  champ ci-dessous ABSENT de DEFAULT_SETTINGS, donc undefined tant
    *  qu'aucun projet n'a été choisi — d'où le garde de labelColor(). */
   projectFolder?: string;
+  presentationTheme: import("./services/presentation-theme.js").PresentationThemeId;
+  presentationThemes: import("./services/presentation-theme.js").PresentationThemeCustomizations;
   /** Tags favoris (settings/feuillets-setting-tab.ts), toujours lus avec
    *  un repli `|| []` : absent de DEFAULT_SETTINGS, jamais initialisé. */
   favoriteTags?: string[];

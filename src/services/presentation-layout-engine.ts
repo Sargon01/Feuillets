@@ -19,8 +19,10 @@
 /** Le moteur ne connaît que trois géométries. Pas de géométrie métier. */
 export type PresentationGeometry = "flow" | "split" | "stack";
 
+export type PresentationLayoutOverride = "flow" | "columns" | "image-left" | "image-right";
+
 /** Nature d'un bloc direct de slide, telle que déterminée par classifyPresentationBlock. */
-export type PresentationBlockKind = "heading" | "media" | "list" | "text" | "other";
+export type PresentationBlockKind = "heading" | "media" | "list" | "text" | "callout" | "other";
 
 /** Descripteur PUR d'un bloc — jamais de HTMLElement conservé au-delà de l'appel. */
 export type PresentationBlockDescriptor = {
@@ -40,7 +42,7 @@ export type PresentationCandidatePlan = {
   cellBIndexes: number[];
   cellARatio: number;
   cellBRatio: number;
-  mediaPosition: "a" | "b";
+  mediaPosition: "a" | "b" | null;
 };
 
 /** Mesure PURE d'un candidat, produite hors écran par l'appelant puis comparée ici. */
@@ -56,6 +58,13 @@ const SPLIT_RATIOS: ReadonlyArray<readonly [number, number]> = [
   [50, 50],
   [58, 42],
 ];
+const TEXT_TEXT_SPLIT_RATIOS: ReadonlyArray<readonly [number, number]> = [
+  [35, 65],
+  [42, 58],
+  [50, 50],
+  [58, 42],
+  [65, 35],
+];
 const STACK_RATIOS: ReadonlyArray<readonly [number, number]> = [
   [65, 35],
   [60, 40],
@@ -69,6 +78,7 @@ type PresentationElementLike = {
   childNodes?: ArrayLike<{ nodeType?: number; textContent?: string | null }>;
   querySelector(selector: string): PresentationElementLike | null;
   querySelectorAll(selector: string): ArrayLike<PresentationElementLike>;
+  getAttribute?(name: string): string | null;
 };
 
 /** « Texte direct significatif » : couvre à la fois le DOM réel (nœuds texte) et la
@@ -82,12 +92,12 @@ function hasSignificantDirectText(el: PresentationElementLike): boolean {
 
 /**
  * Détection média autonome : enfant direct P/FIGURE/DIV contenant
- * exactement un img/video/audio, sans li/blockquote/table, sans texte direct
+ * exactement un img ou video, sans li/blockquote/table, sans texte direct
  * significatif. Aucune dépendance à une classe privée Obsidian.
  */
 export function isAutonomousMediaBlock(el: PresentationElementLike): boolean {
   if (!["P", "FIGURE", "DIV"].includes(el.tagName)) return false;
-  const media = Array.from(el.querySelectorAll("img, video, audio"));
+  const media = Array.from(el.querySelectorAll("img, video"));
   if (media.length !== 1) return false;
   if (el.querySelector("li, blockquote, table")) return false;
   if (hasSignificantDirectText(el)) return false;
@@ -97,6 +107,7 @@ export function isAutonomousMediaBlock(el: PresentationElementLike): boolean {
 /** Classe un bloc direct de slide rendue en l'un des cinq PresentationBlockKind. */
 export function classifyPresentationBlock(el: PresentationElementLike): PresentationBlockKind {
   if (/^H[1-6]$/.test(el.tagName)) return "heading";
+  if (el.getAttribute?.("data-callout") !== null && el.getAttribute?.("data-callout") !== undefined) return "callout";
   if (isAutonomousMediaBlock(el)) return "media";
   if (el.tagName === "UL" || el.tagName === "OL") return "list";
   if (el.tagName === "P" || el.tagName === "BLOCKQUOTE") return "text";
@@ -109,17 +120,19 @@ export function descriptorsForSlide(inner: { children: ArrayLike<PresentationEle
 }
 
 /**
- * Première slide, sans média : reste FLOW mais reçoit un traitement de
- * composition sobre (titre + sous-titre centrés). N'introduit aucune
- * géométrie supplémentaire — un simple indicateur pour l'appelant.
+ * Première slide de titre : exactement un ou deux blocs significatifs, avec
+ * un heading en premier et, au plus, un heading ou un texte en second.
  */
 export function isPresentationTitleSlide(index: number, blocks: PresentationBlockDescriptor[]): boolean {
   if (index !== 0) return false;
-  return !blocks.some((b) => b.kind === "media");
+  if (blocks.length < 1 || blocks.length > 2) return false;
+  if (blocks[0].kind !== "heading") return false;
+  return blocks.length === 1 || blocks[1].kind === "heading" || blocks[1].kind === "text";
 }
 
 /**
  * Génère les candidats SPLIT/STACK PURS. Règles exactes :
+ *  - sans média, exactement deux blocs text/list/callout => 3 candidats SPLIT ;
  *  - nombre de médias autonomes != 1 => FLOW forcé => [] ;
  *  - contenu des deux côtés du média => FLOW forcé => [] ;
  *  - seuls headings + 1 média (pas d'autre contenu) => FLOW forcé => [] ;
@@ -145,6 +158,20 @@ export function generatePresentationCandidates(blocks: PresentationBlockDescript
 
   const nonHeaderBlocks = blocks.slice(firstNonHeaderIndex);
   const mediaCount = nonHeaderBlocks.filter((b) => b.kind === "media").length;
+  if (mediaCount === 0) {
+    if (nonHeaderBlocks.length !== 2 || nonHeaderBlocks.some((b) => !["text", "list", "callout"].includes(b.kind))) return [];
+    const [first, second] = nonHeaderBlocks;
+    return TEXT_TEXT_SPLIT_RATIOS.map(([a, b]) => ({
+      id: `split-${a}-${b}`,
+      geometry: "split",
+      headingIndexes,
+      cellAIndexes: [first.index],
+      cellBIndexes: [second.index],
+      cellARatio: a,
+      cellBRatio: b,
+      mediaPosition: null,
+    }));
+  }
   if (mediaCount !== 1) return [];
 
   const mediaPos = nonHeaderBlocks.findIndex((b) => b.kind === "media");
@@ -234,7 +261,7 @@ type PresentationMediaEl = {
  */
 export function normalizePresentationMediaCell(cell: PresentationMediaHost, mediaBlock: PresentationMediaHost & PresentationMediaEl): void {
   mediaBlock.classList.add(PRESENTATION_MEDIA_BLOCK_CLASS);
-  const mediaEls = Array.from(mediaBlock.querySelectorAll("img, video, audio"));
+  const mediaEls = Array.from(mediaBlock.querySelectorAll("img, video"));
   for (const mediaEl of mediaEls) {
     mediaEl.removeAttribute("width");
     mediaEl.removeAttribute("height");

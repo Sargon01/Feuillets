@@ -446,7 +446,7 @@ test("LayoutEditor : workspaceNavigation: \"rail\" explicite conserve la navigat
   }
 });
 
-test("LayoutEditor : workspaceNavigation: \"summary\" affiche exactement Page/Texte/Titres/Éléments, dans cet ordre", async () => {
+test("LayoutEditor : workspaceNavigation: \"summary\" affiche les rubriques papier et Diapos dans cet ordre", async () => {
   const restore = installSettingStub();
   try {
     const { editor, host } = buildEditor({ workspaceNavigation: "summary" });
@@ -457,6 +457,7 @@ test("LayoutEditor : workspaceNavigation: \"summary\" affiche exactement Page/Te
       t("modal.layout.categoryText"),
       t("modal.layout.categoryHeadings"),
       t("modal.layout.categoryElements"),
+      t("layoutWorkspace.slides"),
     ]);
   } finally {
     restore();
@@ -600,8 +601,8 @@ test("LayoutEditor : Retour à Mise en page revient au sommaire sans modifier le
     const backBtn = allElements(host).find((el) => el.classes.has("feuillets-back-btn"));
     backBtn.events.get("click")();
 
-    assert.ok(allElements(host).some((el) => el.classes.has("feuillets-layout-summary")), "le sommaire des 4 domaines réapparaît");
-    assert.equal(summaryLabels(host).length, 4, "4 domaines affichés (Page, Texte, Titres, Éléments)");
+    assert.ok(allElements(host).some((el) => el.classes.has("feuillets-layout-summary")), "le sommaire réapparaît");
+    assert.equal(summaryLabels(host).length, 5, "5 rubriques affichées, dont Diapos");
     assert.equal(JSON.stringify(editor.template), before, "le template n'est pas modifié par Retour");
   } finally {
     restore();
@@ -647,6 +648,7 @@ test("DOM summary TEST 1 — HOME contient Page, Texte, Titres, Éléments, sans
       t("modal.layout.categoryText"),
       t("modal.layout.categoryHeadings"),
       t("modal.layout.categoryElements"),
+      t("layoutWorkspace.slides"),
     ]);
     assert.equal(allElements(host).some((el) => el.classes.has("feuillets-layout-summary-back")), false, "pas de bouton Retour sur le HOME");
     assert.equal(currentInspector(host), undefined, "aucun inspecteur détaillé sur le HOME");
@@ -738,6 +740,7 @@ test("DOM summary TEST 5 — Retour Mise en page : menu Page disparu, le HOME re
       t("modal.layout.categoryText"),
       t("modal.layout.categoryHeadings"),
       t("modal.layout.categoryElements"),
+      t("layoutWorkspace.slides"),
     ], "le HOME revient");
     assert.equal(allElements(host).some((el) => el.classes.has("feuillets-layout-summary-back")), false, "plus de bouton Retour sur le HOME");
   } finally {
@@ -911,13 +914,14 @@ test("MICRO grammaire §26.1 — HOME Mise en page : chaque ligne contient label
     await editor.load();
 
     const rows = summaryRows(host);
-    assert.equal(rows.length, 4, "Page, Texte, Titres, Éléments");
-    // Page, Texte, Titres portent un status ; Éléments n'en a pas.
+    assert.equal(rows.length, 5, "Page, Texte, Titres, Éléments, Diapos");
+    // Page, Texte, Titres et Diapos portent un status ; Éléments n'en a pas.
     assertSingleLineRow(rows[0], { needsStatus: true });
     assertSingleLineRow(rows[1], { needsStatus: true });
     assertSingleLineRow(rows[2], { needsStatus: true });
     assertSingleLineRow(rows[3], { needsStatus: false });
     assert.equal(directChild(rows[3], "feuillets-layout-summary-status"), undefined, "Éléments sans status");
+    assertSingleLineRow(rows[4], { needsStatus: true });
   } finally {
     restore();
   }

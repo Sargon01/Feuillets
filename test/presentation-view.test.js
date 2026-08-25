@@ -147,7 +147,7 @@ test("PresentationView — SPLIT, STACK et FLOW : état inchangé après aller-r
   MarkdownRenderer.render = async (_app, markdown, container) => {
     if (markdown === "SPLIT") { heading(container, "T"); knownMedia(container, 70, 100); paragraph(container, "texte"); }
     else if (markdown === "STACK") { heading(container, "T"); knownMedia(container, 180, 100); paragraph(container, "texte"); }
-    else { heading(container, "T"); paragraph(container, "un"); paragraph(container, "deux"); }
+    else { heading(container, "T"); paragraph(container, "un"); paragraph(container, "deux"); paragraph(container, "trois"); }
   };
   try {
     const { view, file } = setup("SPLIT\n---\nSTACK\n---\nFLOW");

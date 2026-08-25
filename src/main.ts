@@ -36,7 +36,7 @@ import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
 import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
-import { PreviewView, openWithPreview, openPresentationPaperPreview } from "./views/preview-view.js";
+import { PreviewView, openWithPreview } from "./views/preview-view.js";
 import { ScriveningsView, type ScriveningsEditorContext } from "./views/scrivenings-view.js";
 import { PresentationView, openPresentation } from "./views/presentation-view.js";
 import { PresentationPreviewView, openPresentationPreview } from "./views/presentation-preview-view.js";
@@ -102,8 +102,8 @@ import { NewSheetModal, ConfirmModal } from "./ui/basic-modals.js";
 import { FootnoteCheckModal } from "./ui/footnote-modals.js";
 import { FileStatsModal } from "./ui/stats-modal.js";
 import { AnnotationPopover } from "./ui/annotation-popover.js";
-import { LayoutDirectiveModal } from "./ui/layout-directive-modal.js";
-import { resolveLayoutDirectiveContext, computeLayoutDirectiveEdit } from "./utils/editor-layout-directives.js";
+import { LayoutDirectiveModal, type LayoutDirectiveValues } from "./ui/layout-directive-modal.js";
+import { resolveLayoutDirectiveContext } from "./utils/editor-layout-directives.js";
 import {
   toManuscriptRelativePath,
   remapAnnotationsAfterRename,
@@ -111,6 +111,11 @@ import {
   type AnnotationStyle,
 } from "./services/annotations.js";
 import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename } from "./services/work-notes.js";
+import { remapLayoutAfterRename, removeLayoutAfterDelete, LayoutFileCorruptedError } from "./services/layout-store.js";
+import { createSourceAnchor } from "./services/source-anchor.js";
+import { applyDocumentLayoutChanges, documentLayoutValuesForTarget, type DocumentLayoutTarget } from "./services/document-layout-actions.js";
+import { pageBreakAnchorsForFile } from "./services/document-layout-actions.js";
+import { documentLayoutPageBreakPlugin, setDocumentLayoutPageBreakAnchors } from "./utils/cm-document-layout.js";
 import {
   AnnotationEditorController,
   DEFAULT_ANNOTATION_ANCHOR,
@@ -127,7 +132,6 @@ import {
   type AnchorRect,
 } from "./utils/cm-annotation-highlighter.js";
 import { emptyLinesPlugin } from "./utils/cm-empty-lines.js";
-import { feuilletsDirectivePlugin } from "./utils/cm-feuillets-directives.js";
 import { nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension, applyNativeReviewThreadHighlights, clearNativeReviewThreadHighlights } from "./utils/cm-native-review-highlighter.js";
 import { comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension } from "./utils/cm-comparison-decorations.js";
 import { listNativeReviewSessions } from "./services/native-review-exchange.js";
@@ -147,7 +151,6 @@ import {
   grammarContextMenuExtension,
   applyGrammarHighlights,
 } from "./utils/cm-grammar-highlighter.js";
-import { stripLegacyGrammarSettings, cleanupLegacyEnginesOnDisk } from "./services/legacy-grammar-cleanup.js";
 import {
   TextAnalysisRegistry,
   createPublicApi,
@@ -505,6 +508,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerTextEditingCommands();
     this.registerFootnoteContextMenu();
     this.registerLayoutDirectiveContextMenu();
+    this.registerDocumentLayoutPageBreakSync();
     this.registerAnnotationCommands();
     this.registerAnnotationContextMenu();
     this.registerParagraphReorderCommand();
@@ -525,7 +529,9 @@ class FeuilletsPlugin extends Plugin {
     this.registerEditorExtension([nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension((id, target) => void this.openNativeReviewThread(id, target))]);
     this.registerEditorExtension([comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension()]);
     this.registerEditorExtension(emptyLinesPlugin);
-    this.registerEditorExtension(feuilletsDirectivePlugin);
+    this.registerEditorExtension(documentLayoutPageBreakPlugin);
+    const initialLayoutFile = this.app.workspace.getActiveFile();
+    if (initialLayoutFile) void this.refreshDocumentLayoutPageBreaks(initialLayoutFile);
     this.registerEditorExtension(paragraphIndentPlugin);
     this.registerEditorExtension(createParagraphReorderExtension());
 
@@ -540,8 +546,6 @@ class FeuilletsPlugin extends Plugin {
         }
       }
     });
-
-    cleanupLegacyEnginesOnDisk(this.app, this.manifest);
 
     /* Un compagnon peut s'enregistrer/se retirer à tout moment (installation,
        rechargement du greffon) : le panneau ouvert doit suivre. `register()`
@@ -572,8 +576,8 @@ class FeuilletsPlugin extends Plugin {
     // LOT 1 — cœur technique uniquement : pas encore d'entrée Binder/commande
     // pour ouvrir cette vue (voir views/scrivenings-view.ts).
     this.registerView(VIEW_SCRIVENINGS, (leaf) => new ScriveningsView(leaf, this));
-    this.registerView(VIEW_PRESENTATION, (leaf) => new PresentationView(leaf));
-    this.registerView(VIEW_PRESENTATION_PREVIEW, (leaf) => new PresentationPreviewView(leaf));
+    this.registerView(VIEW_PRESENTATION, (leaf) => new PresentationView(leaf, this));
+    this.registerView(VIEW_PRESENTATION_PREVIEW, (leaf) => new PresentationPreviewView(leaf, this));
   }
 
   registerRibbonIcons() {
@@ -643,16 +647,6 @@ class FeuilletsPlugin extends Plugin {
         const file = markdownView?.file;
         if (!markdownView || !(file instanceof TFile) || file.extension !== "md") return false;
         if (!checking) void openPresentationPreview(this.app, markdownView.leaf, file);
-        return true;
-      },
-    });
-    this.addCommand({
-      id: "present-current-file-paper-preview",
-      name: t("presentation.paper.command"),
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveFile();
-        if (!(file instanceof TFile) || file.extension !== "md") return false;
-        if (!checking) void openPresentationPaperPreview(this.app, this, file);
         return true;
       },
     });
@@ -1266,12 +1260,28 @@ class FeuilletsPlugin extends Plugin {
   }
 
   async refreshPresentationRoleDisplay(): Promise<void> {
+    await this.refreshPresentationAppearance();
+  }
+
+  async refreshPresentationAppearance(): Promise<void> {
     const refreshes: Promise<void>[] = [];
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PRESENTATION)) {
       if (leaf.view instanceof PresentationView) refreshes.push(leaf.view.refreshRoleDisplay());
     }
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PRESENTATION_PREVIEW)) {
       if (leaf.view instanceof PresentationPreviewView) refreshes.push(leaf.view.refreshRoleDisplay());
+    }
+    await Promise.all(refreshes);
+  }
+
+  async refreshPresentationLayoutsForFile(path: string): Promise<void> {
+    const refreshes: Promise<void>[] = [];
+    const refreshable = (view: unknown): view is { refreshPresentationLayout(filePath: string): Promise<void> } =>
+      typeof view === "object" && view !== null && "refreshPresentationLayout" in view && typeof (view as { refreshPresentationLayout?: unknown }).refreshPresentationLayout === "function";
+    for (const viewType of [VIEW_PRESENTATION, VIEW_PRESENTATION_PREVIEW]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(viewType)) {
+        if (refreshable(leaf.view)) refreshes.push(leaf.view.refreshPresentationLayout(path));
+      }
     }
     await Promise.all(refreshes);
   }
@@ -1305,6 +1315,14 @@ class FeuilletsPlugin extends Plugin {
       }
       this.refreshView();
     };
+    const knownProjectContexts = (): FeuilletsSettings[] => {
+      const paths = new Set<string>();
+      if (this.settings.projectFolder) paths.add(this.settings.projectFolder);
+      for (const path of this.settings.projects || []) paths.add(path);
+      return [...paths]
+        .map((projectFolder) => ({ ...this.settings, projectFolder }))
+        .filter((settings) => getProjectFolder(this.app, settings) !== null);
+    };
 
     this.registerEvent(this.app.vault.on("create", (file) => {
       if (this.isLayoutReady) refresh();
@@ -1320,6 +1338,11 @@ class FeuilletsPlugin extends Plugin {
         }
         this.refreshView();
       }
+      for (const settings of knownProjectContexts()) {
+        void removeLayoutAfterDelete(this.app, settings, file.path).catch((error: unknown) => {
+          if (error instanceof LayoutFileCorruptedError) console.warn("Feuillets layout.json delete maintenance", file.path, error);
+        });
+      }
     }));
 
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
@@ -1332,6 +1355,11 @@ class FeuilletsPlugin extends Plugin {
         this.remapResearchFolderLinks(oldPath, file.path);
         void remapAnnotationsAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         void remapWorkNotesAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
+        for (const settings of knownProjectContexts()) {
+          void remapLayoutAfterRename(this.app, settings, oldPath, file.path).catch((error: unknown) => {
+            if (error instanceof LayoutFileCorruptedError) console.warn("Feuillets layout.json rename maintenance", oldPath, file.path, error);
+          });
+        }
       }
     }));
     this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
@@ -1840,10 +1868,8 @@ class FeuilletsPlugin extends Plugin {
     if (!hasSubmenu) addActions(menu, actions.slice(1), true);
   }
 
-  /** LOT 3D — entrée « Disposition… » du menu contextuel éditeur : interface
-   * visuelle pour écrire/modifier/retirer proprement les directives 3A/3B
-   * (`%% image: … %%`, `%% colonnes: … %%`, `%% dessous %%`) sans jamais les
-   * taper à la main. N'apparaît que dans une vraie MarkdownView appartenant
+  /** Entrée « Disposition… » du menu contextuel éditeur. N'apparaît que dans
+   * une vraie MarkdownView appartenant
    * à un projet Feuillets (même portée que `.feuillets-project-editor`,
    * isFileInsideProject — jamais dupliquée, §3 du lot) et seulement si le
    * bloc sous le curseur est compatible 3A ou 3B (resolveLayoutDirectiveContext,
@@ -1858,15 +1884,49 @@ class FeuilletsPlugin extends Plugin {
         if (!context) return;
         menu.addItem((item) => {
           item.setTitle(t("editorMenu.layoutDirective")).setIcon("layout-panel-left").onClick(() => {
-            new LayoutDirectiveModal(this.app, context, (result) => {
-              const edit = computeLayoutDirectiveEdit(editor.getValue(), context, result);
-              if (!edit) return;
-              editor.replaceRange(edit.text, { line: edit.fromLine, ch: 0 }, { line: edit.toLine, ch: 0 });
-            }).open();
+            const file = view.file;
+            if (file) void this.openLayoutDirectiveModal(editor, file, context);
           });
         });
       })
     );
+  }
+
+  async openLayoutDirectiveModal(editor: { getValue(): string }, file: TFile, context: ReturnType<typeof resolveLayoutDirectiveContext>): Promise<void> {
+    if (!context) return;
+    const root = this.getProjectFolder();
+    if (!root) return;
+    const text = editor.getValue();
+    const target: DocumentLayoutTarget = {
+      questionAnchor: context.question ? createSourceAnchor(text, context.question.anchor.startOffset, context.question.anchor.endOffset) || undefined : undefined,
+      paginationAnchor: context.pagination ? context.block.anchor : undefined,
+    };
+    const values: LayoutDirectiveValues = await documentLayoutValuesForTarget(this.app, this.settings, root.path, file, text, target);
+    new LayoutDirectiveModal(this.app, context, values, async (next) => {
+      const lines = next.question?.mode === "lines" ? next.question.lines : undefined;
+      const amount = next.question?.mode === "space" ? next.question.amount : undefined;
+      const unit = next.question?.mode === "space" ? next.question.unit : undefined;
+      if (next.question?.mode === "lines" && (lines === undefined || !Number.isInteger(lines) || lines <= 0)) { new Notice("Le nombre de lignes doit être un entier positif."); return; }
+      if (next.question?.mode === "space" && (amount === undefined || !Number.isInteger(amount) || amount <= 0 || !unit)) { new Notice("La hauteur de réponse doit être une valeur positive."); return; }
+      await applyDocumentLayoutChanges(this.app, this.settings, root.path, file, editor.getValue(), target, next);
+      await this.refreshDocumentLayoutPageBreaks(file);
+      this.app.workspace.getLeavesOfType(VIEW_PREVIEW).forEach((leaf) => { if (leaf.view instanceof PreviewView) void leaf.view.refreshPreview(); });
+    }).open();
+  }
+
+  async refreshDocumentLayoutPageBreaks(file: TFile): Promise<void> {
+    const root = this.getProjectFolder();
+    if (!root) return;
+    setDocumentLayoutPageBreakAnchors(file.path, await pageBreakAnchorsForFile(this.app, this.settings, root.path, file));
+  }
+
+  registerDocumentLayoutPageBreakSync(): void {
+    const refresh = (file: TFile | null): void => { if (file) void this.refreshDocumentLayoutPageBreaks(file); };
+    this.registerEvent(this.app.workspace.on("file-open", refresh));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      const file = this.app.workspace.getActiveFile();
+      refresh(file);
+    }));
   }
 
   /* ---------- Annotations de relecture (surlignage éditeur, lot 3) ----------
@@ -2879,11 +2939,6 @@ class FeuilletsPlugin extends Plugin {
        jamais castée en bloc vers FeuilletsSettings. */
     const raw: unknown = await this.loadData();
     const data: Record<string, unknown> = isSettingsRecord(raw) ? raw : {};
-    /* Correction grammaticale retirée en 1.4.5 : on purge ses clés avant la
-       fusion, sinon Object.assign les reconduirait indéfiniment dans
-       data.json. Aucune autre clé n'est touchée — voir
-       services/legacy-grammar-cleanup.ts. */
-    const legacyGrammarStripped = stripLegacyGrammarSettings(data);
     /* DEFAULT_SETTINGS (default-settings.ts) n'a pas wordGoal / povFilter /
        listPanePreviewField / listPanePreviewLines — écart préexistant avec
        FeuilletsSettings (types.d.ts) qui les déclare non optionnels, sans
@@ -2986,7 +3041,6 @@ class FeuilletsPlugin extends Plugin {
     // listPanePreviewField — voir default-settings.js/utils/project-modes.js)
     if (this.settings.cardContent === "resume") this.settings.cardContent = "summary";
     if (this.settings.listPanePreviewField === "resume") this.settings.listPanePreviewField = "summary";
-    if (legacyGrammarStripped) await this.saveSettings();
   }
 
   async saveSettings() {

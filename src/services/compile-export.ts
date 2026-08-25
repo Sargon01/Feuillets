@@ -31,6 +31,9 @@ import { generateSummary, generateTableOfContents } from "./contents-generator.j
 import type { GeneratedContentsKind } from "./generated-contents.js";
 import { generateTableOfIllustrations } from "./tables-generator.js";
 import { bibliographyEntries, generateBibliography } from "./bibliography-generator.js";
+import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "./layout-store.js";
+import { injectDocumentLayoutMarkers } from "./document-layout.js";
+import { selectedContentVariant, type ContentVariant } from "./content-variants.js";
 
 /** Les deux noms reconnus pour le dossier Annexes, à la RACINE du dossier
  * Manuscrit — même convention de double reconnaissance (FR/EN) que
@@ -74,13 +77,14 @@ export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", 
 /** @typedef {{ filPlaceholders: Record<string, string>; filOrigins: Record<string, string>; filResolved: string[] }} NarrativeThreadState */
 
 /** @typedef {{ name: string; fileName: string; folderTitles: boolean; chapterTitles: boolean; sceneTitles: boolean; separator: string; [key: string]: unknown }} PresetConfig */
-type CompileSegment = { path: string | null; text: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part" };
+type CompileSegment = { path: string | null; text: string; renderText?: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part" };
 /** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[] }} CompileResult */
 /** @typedef {{ markdown: string; title: string; author: string; sourcePath: string; segments?: CompileSegment[] }} ExportContext */
 
 type NativeExportSegment = {
   path: string | null;
   text: string;
+  renderText?: string;
   frontType?: string;
   generatedType?: GeneratedContentsKind;
   sourceTitle?: string | null;
@@ -95,6 +99,7 @@ type NativeExportContext = {
   author: string;
   sourcePath: string;
   segments: NativeExportSegment[];
+  contentVariant: ContentVariant | null;
 };
 
 type PresetConfig = {
@@ -326,6 +331,7 @@ export async function compile(
   }
 
   const P = activePresetConfig(settings);
+  const layoutStore = await loadLayoutStore(app, settings);
   const parts: string[] = [];
   let count = 0;
   const fileSet = new Set(filesToCompile.map((f) => f.path));
@@ -335,7 +341,7 @@ export async function compile(
    * @param {string|null|undefined} frontType
    * @returns {Promise<string>}
    */
-  const readBody = async (file: TFile, frontType: string | null | undefined = null): Promise<string> => {
+  const readBody = async (file: TFile, frontType: string | null | undefined = null): Promise<{ text: string; renderText: string }> => {
     const isFrontPage = !!frontType;
     let content: string;
     try {
@@ -355,7 +361,10 @@ export async function compile(
        c'était le défaut où l'aperçu affichait un YAML absent de l'export.
        Il corrige au passage le frontmatter VIDE (`---` suivi de `---`), que
        l'expression locale précédente laissait fuir dans le texte compilé. */
+    const relativeLayoutPath = relativeLayoutFilePath(folder.path, file.path) || file.path;
+    const renderSource = injectDocumentLayoutMarkers(content, layoutOverridesForFile(layoutStore, relativeLayoutPath));
     content = stripFrontmatter(content);
+    let renderContent = stripFrontmatter(renderSource);
     /* Page Front : on ne rogne PAS les lignes vides de tête/queue comme pour
        une scène normale — sur une page de titre en composition libre, ces
        lignes-là sont la mise en page elle-même (voir
@@ -363,6 +372,7 @@ export async function compile(
        (fin de fichier standard) est retiré, sinon il compterait comme une
        ligne vide supplémentaire non voulue. */
     content = isFrontPage ? content.replace(/\n$/, "") : content.trim();
+    renderContent = isFrontPage ? renderContent.replace(/\n$/, "") : renderContent.trim();
 
     /* Transformations communes à tout texte compilé, extraites pour pouvoir
        s'appliquer aussi bloc par bloc sur une page de titre à rôles (voir
@@ -400,10 +410,11 @@ export async function compile(
           return b.role ? `${TITLE_ROLE_MARKER}${b.role}\n\n${c}` : c;
         })
         .join("\n\n");
-      return embedHardBreaks(md);
+      return { text: embedHardBreaks(md), renderText: embedHardBreaks(md) };
     }
 
     content = applyTextTransforms(content);
+    renderContent = applyTextTransforms(renderContent);
 
     /* On ne SUPPRIME jamais les lignes vides : en Markdown, la ligne vide
        SÉPARE deux paragraphes. Sur une page Front en composition libre
@@ -412,8 +423,8 @@ export async function compile(
        preserveBlankLinesForFrontPage. Le corps de roman normal, lui, garde
        ses paragraphes séparés, leur apparence étant décidée par le style
        (interligne, alinéa) et non par des lignes vides. */
-    if (isFrontPage) content = preserveBlankLinesForFrontPage(content);
-    return embedHardBreaks(content);
+    if (isFrontPage) { content = preserveBlankLinesForFrontPage(content); renderContent = preserveBlankLinesForFrontPage(renderContent); }
+    return { text: embedHardBreaks(content), renderText: embedHardBreaks(renderContent) };
   };
 
   /* En parallèle de `parts` (texte plat, inchangé — utilisé par Pandoc/EPUB
@@ -487,18 +498,21 @@ export async function compile(
     const sourceSubtitle = compiledSubtitleFor(app, file) || null;
 
     if (isFront) {
-      push(body, file.path, normalizedFrontType, targetParts, targetSegments);
+      push(body.text, file.path, normalizedFrontType, targetParts, targetSegments);
+      targetSegments[targetSegments.length - 1].renderText = body.renderText;
       Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
       count++;
       return;
     }
 
     const wantTitle = role === "scene" ? P.sceneTitles : P.chapterTitles;
-    const title = resolvedFileTitleMarkdown(app, file, body, wantTitle, depth + 1);
+    const title = resolvedFileTitleMarkdown(app, file, body.text, wantTitle, depth + 1);
     if (title) {
-      push(`${title}\n\n${body}`, file.path, null, targetParts, targetSegments);
+      push(`${title}\n\n${body.text}`, file.path, null, targetParts, targetSegments);
+      targetSegments[targetSegments.length - 1].renderText = `${title}\n\n${body.renderText}`;
     } else {
-      push(body, file.path, null, targetParts, targetSegments);
+      push(body.text, file.path, null, targetParts, targetSegments);
+      targetSegments[targetSegments.length - 1].renderText = body.renderText;
     }
     Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
     if (title) targetSegments[targetSegments.length - 1].startsWithGeneratedTitle = true;
@@ -741,8 +755,10 @@ export async function compile(
      l'utilisatrice selon le format exporté. */
   if (settings.footnoteRenumberOnCompile !== false) {
     const renumberedParts = renumberFootnotesAcrossTexts(parts);
+    const renderTexts = segments.map((segment) => segment.renderText ?? segment.text);
+    const renumberedRenderTexts = renumberFootnotesAcrossTexts(renderTexts);
     for (let idx = 0; idx < segments.length; idx++) {
-      segments[idx] = { ...segments[idx], text: renumberedParts[idx] };
+      segments[idx] = { ...segments[idx], text: renumberedParts[idx], renderText: segments[idx].renderText === undefined ? undefined : renumberedRenderTexts[idx] };
     }
     parts.length = 0;
     parts.push(...renumberedParts);
@@ -985,10 +1001,11 @@ async function exportViaNative(
     const outputFolder = await getOutputFolder(app, settings);
     const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
     const baseName = resolveOutputBaseName(settings, baseNameOverride);
-    const segments: NativeExportSegment[] = result.segments.map(({ path, text, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType }) =>
-      frontType === null ? { path, text, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) } : { path, text, frontType, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) }
+    const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType }) =>
+      frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) } : { path, text, ...(renderText !== undefined ? { renderText } : {}), frontType, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) }
     );
-    const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments };
+    const contentVariant = await selectedContentVariant(app, settings);
+    const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments, contentVariant };
 
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);

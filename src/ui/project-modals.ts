@@ -23,6 +23,7 @@ type ProjectModalsPlugin = {
   ensureFolder(path: string): Promise<TAbstractFile>;
   initProjectStructure(identity?: { title?: string; author?: string }): Promise<void>;
   saveSettings(): Promise<void>;
+  refreshPresentationAppearance?(): Promise<void>;
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;
   syncProjectEditorScope?(): void;

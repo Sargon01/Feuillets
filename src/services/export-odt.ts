@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages } from "./export-render.js";
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { escapeXml } from "../utils/xml.js";
+import type { ContentVariant } from "./content-variants.js";
 
 /** Premier nom de la liste `fontFamily` CSS du modèle (ex. "'Times New
  * Roman', Times, serif" -> "Times New Roman") : ODF ne connaît pas les
@@ -50,6 +51,7 @@ type ExportInput = {
   author: string;
   sourcePath: string;
   segments?: ExportSegment[];
+  contentVariant?: ContentVariant | null;
 };
 
 type OdtOptions = {
@@ -85,6 +87,7 @@ function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   }
 
   const childrenXml = Array.from(element.childNodes).map((n) => domToOdtContent(n, opts)).join("");
+  const manualBreak = element.classList?.contains("feuillets-page-break-before") ? ' fo:break-before="page"' : "";
 
   if (tag === "strong" || tag === "b") {
     return `<text:span text:style-name="Bold">${childrenXml}</text:span>`;
@@ -101,10 +104,10 @@ function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   }
   if (/^h[1-6]$/.test(tag)) {
     const level = tag.slice(1);
-    return `<text:h text:style-name="Heading_20_${level}" text:outline-level="${level}">${childrenXml}</text:h>`;
+    return `<text:h text:style-name="Heading_20_${level}" text:outline-level="${level}"${manualBreak}>${childrenXml}</text:h>`;
   }
   if (tag === "p") {
-    return `<text:p text:style-name="${opts.frontStyle || "Standard"}">${childrenXml}</text:p>`;
+    return `<text:p text:style-name="${opts.frontStyle || "Standard"}"${manualBreak}>${childrenXml}</text:p>`;
   }
   if (tag === "blockquote") {
     return `<text:p text:style-name="${opts.frontStyle || "Quotations"}">${childrenXml}</text:p>`;
@@ -146,9 +149,9 @@ function footnotesEndSectionXml(footnotes: RenderedFootnote[]): string {
 }
 
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
-export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Uint8Array> {
+export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
+  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null);
 
   const fontName = primaryFontName(template.body.fontFamily);
   const { body, page, headings } = template;

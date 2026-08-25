@@ -14,7 +14,7 @@ import { createDefaultExportTemplateV2 } from "../services/export-template-v2.js
 import { ConfirmModal, promptText } from "./basic-modals.js";
 import { UlyssesImportModal } from "./ulysses-import-modal.js";
 import { WordTemplateImportModal } from "./word-template-import-modal.js";
-import { LayoutEditor, type LayoutEditorOptions } from "./layout-editor.js";
+import { LayoutEditor, type LayoutEditorOptions, type LayoutSummaryPage } from "./layout-editor.js";
 import { EditionCompositionContent, type EditionCompositionContentPlugin } from "./edition-composition-content.js";
 
 export type EditionWorkspaceMode = "composition" | "layout";
@@ -23,6 +23,7 @@ export type EditionWorkspacePlugin = {
   settings: FeuilletsSettings & { exportTemplate: string };
   saveSettings(): Promise<void>;
   getProjectFolder(): TFolder | null;
+  refreshPresentationAppearance?(): Promise<void>;
 } & EditionCompositionContentPlugin;
 
 export type EditionWorkspaceContentOptions = {
@@ -32,6 +33,8 @@ export type EditionWorkspaceContentOptions = {
   linkedPreviewLeaf?: WorkspaceLeaf | null;
   /** Informe la sidebar si le composant actif est revenu à sa page racine. */
   onNavigationRootChange?: (isRoot: boolean) => void;
+  layoutSummaryPage?: LayoutSummaryPage;
+  onLayoutSummaryPageChange?: (page: LayoutSummaryPage) => void;
 };
 
 interface RefreshableView {
@@ -60,6 +63,8 @@ export class EditionWorkspaceContent {
   editor: LayoutEditor | null = null;
   private previewLeaf: WorkspaceLeaf | null;
   private onNavigationRootChange: ((isRoot: boolean) => void) | undefined;
+  private layoutSummaryPage: LayoutSummaryPage;
+  private onLayoutSummaryPageChange: ((page: LayoutSummaryPage) => void) | undefined;
   private modeBodyEl: HTMLElement | null = null;
   private compositionContent: EditionCompositionContent | null = null;
   /** Promesse du rendu lancé par setMode(), utile aux hôtes qui changent de
@@ -78,6 +83,8 @@ export class EditionWorkspaceContent {
     this.mode = options.initialMode || "composition";
     this.previewLeaf = options.linkedPreviewLeaf ?? null;
     this.onNavigationRootChange = options.onNavigationRootChange;
+    this.layoutSummaryPage = options.layoutSummaryPage ?? "home";
+    this.onLayoutSummaryPageChange = options.onLayoutSummaryPageChange;
   }
 
   setLinkedPreview(leaf: WorkspaceLeaf | null): void {
@@ -149,6 +156,10 @@ export class EditionWorkspaceContent {
       mode: "workspace",
       workspaceNavigation: "summary",
       onChange: () => void this.refreshLinkedPreview(),
+      initialSummaryPage: this.layoutSummaryPage,
+      onSummaryPageChange: (page) => this.onLayoutSummaryPageChange?.(page),
+      presentationProjectPath: this.plugin.getProjectFolder()?.path ?? null,
+      onPresentationAppearanceChange: () => this.refreshLinkedPreview(),
     };
     if (this.onNavigationRootChange) {
       layoutOptions.onNavigationRootChange = (isRoot) => this.onNavigationRootChange?.(isRoot);

@@ -8,24 +8,16 @@ import {
 } from "../services/compile-scope.js";
 import { ItemView, MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_PREVIEW } from "../constants.js";
-import {
-  buildPresentationPaperUnits,
-  presentationPaperScale,
-  planAdaptivePair,
-  shouldAdoptAdaptivePair,
-  ADAPTIVE_PAIR_CLASS,
-  ADAPTIVE_CONTENT_CLASS,
-  ADAPTIVE_MEDIA_CLASS,
-  ADAPTIVE_PAIR_ORIENTATION_CLASS,
-  type AdaptivePairPlan,
-} from "../services/presentation-paper.js";
 import type { ScriveningsScrollAnchor } from "../utils/cm-scrivenings-scroll.js";
 import { resolveExportTemplate, updateTemplateTitlePage } from "../services/export-templates-custom.js";
-import { paginateManuscript, paginateManuscriptCooperatively, logicalPageGeometryFor, pageContentGeometry } from "../services/export-pdf.js";
+import { paginateManuscript, paginateManuscriptCooperatively } from "../services/export-pdf.js";
 import { shouldGenerateGenericTitlePage } from "../services/export-template-v2.js";
 import { composeDocumentMedia, renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
+import { hasRemainingDocumentLayoutMarker } from "../services/document-layout.js";
+import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "../services/layout-store.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
+import { selectedContentVariant } from "../services/content-variants.js";
 import { runExportWorkflow } from "../services/export-workflow.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, splitFrontmatter, stripFrontmatter } from "../services/frontmatter.js";
@@ -64,6 +56,7 @@ import {
 type PreviewCompileSegment = {
   path: string | null;
   text: string;
+  renderText?: string;
   frontType?: string | null;
   /** Nombre de blocs de TITRE ARTIFICIEL (titre de scène, éventuel
    * sous-titre) que PreviewView a insérés en tête de `text`, avant le corps
@@ -339,158 +332,6 @@ export function previewTemplateCss(tpl: ResolvedExportTemplate): string {
   return templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl);
 }
 
-/** Support papier (sourceMode "presentation-paper") — structure DOM imposée
- * par unité (voir `renderPresentationPaperSource`, preview-view.ts) :
- *
- *   .feuillets-presentation-paper-page      (page papier physique — jamais
- *                                             fragmentée, une seule slide)
- *     .feuillets-presentation-paper-wrapper  (dimensions VISUELLES : natural
- *                                             × scale, posées en JS après
- *                                             mesure — voir
- *                                             applyPresentationPaperFit)
- *       .feuillets-presentation-paper-inner  (dimensions naturelles pour la
- *                                             mesure ; reçoit
- *                                             transform: scale(...))
- *
- * `position: absolute` sur l'inner (dans un wrapper `position: relative` +
- * `overflow: hidden`) est la seule façon de sortir l'inner du flux normal :
- * un `transform: scale()` seul NE modifie PAS l'empreinte en flux de son
- * élément (qui resterait celle, non réduite, de l'inner) — sans cela, une
- * unité réduite laisserait un blanc résiduel sous elle, et une unité qui
- * déborde continuerait de déborder visuellement de sa page.
- *
- * Neutralise UNIQUEMENT les propriétés physiques de fragmentation
- * (page-break-before/after, break-before/after) sur les titres, dans le
- * scope STRICT `.feuillets-presentation-paper-page` — la règle `h1 {
- * page-break-before: always }` du gabarit (templateToCss) a une spécificité
- * plus faible (élément seul) que ce sélecteur (classe + élément) : elle est
- * donc écrasée SANS `!important`, sans toucher au mode Document (hors de ce
- * scope, la règle du gabarit s'applique normalement). Apparence, taille,
- * couleur et marges typographiques des titres restent celles du gabarit.
- *
- * Chrome visuel « feuille physique » (limites de page identifiables) : le
- * document srcdoc de l'iframe (voir ui/template-preview.ts) n'hérite JAMAIS
- * des variables CSS d'Obsidian — une frontière de document en bloque
- * totalement la cascade, `var(--xxx)` y résout donc toujours son repli. Les
- * pages `.pdf-page` du mode Document (déjà dans cette même iframe) suivent
- * déjà cette contrainte : leur ombre/rayon vivent en literals identiques
- * dans `ui/template-preview.ts` (`PAGE_GAP_PX`, `box-shadow`), jamais une
- * variable Obsidian. Les règles ci-dessous reprennent EXACTEMENT ces mêmes
- * valeurs (aucune nouvelle couleur), pour que chaque page papier reste
- * identifiable comme une feuille distincte du fond de l'Aperçu — le fond
- * `#ffffff` de la page (posée en style inline, voir
- * `renderPresentationPaperSource`) tranche déjà sur le fond de la zone
- * Aperçu (`var(--background-secondary, #f0f2f5)`, déjà posé pour TOUT
- * mode — voir `body {…}` dans mountTemplatePreview) : seul manquait
- * l'espacement/l'ombre entre pages successives, qui les faisait paraître
- * comme une seule feuille continue. Géométrie/scale/nombre de pages : jamais
- * touchés ici (uniquement marge externe + ombre/rayon, hors du flux mesuré
- * par `applyPresentationPaperFit`).
- *
- * Contient aussi la mise en grille du repli « paire adaptative »
- * (`.feuillets-presentation-paper-adaptive-pair/-content/-media`) — voir
- * `services/presentation-paper.ts` (`planAdaptivePair`) pour l'éligibilité et
- * `tryAdaptivePresentationPair`/`buildAdaptivePairCandidate` ci-dessous pour
- * la construction et la mesure du candidat. Ces classes ne sont posées que
- * dans `inner` (jamais par le moteur Document, jamais dans l'export réel) :
- * purement locales au support papier de l'Aperçu. */
-/** Sous-ensemble minimal de `Document` utilisé pour construire et mesurer le
- * DOM du support papier — celui de `frame.contentDocument`, une iframe
- * ORDINAIRE dont rien ne garantit qu'elle porte les helpers Obsidian
- * (`createDiv`, `.win`, etc. — voir `applyPresentationPaperFit`,
- * `tryAdaptivePresentationPair`, `buildAdaptivePairCandidate`). Volontairement
- * dépourvu de `defaultView`/`createElementNS`/`createDocumentFragment` : cela
- * suffit à faire sortir ce DOM du champ d'`obsidianmd/prefer-create-el`, qui
- * ne recommande `doc.win.createDiv()` que pour un `Document` complet — un
- * choix de typage honnête, pas un contournement, puisque ce code n'utilise
- * jamais rien d'autre que `createElement`/`querySelectorAll` standards. */
-type PaperDocument = Pick<Document, "createElement" | "querySelectorAll">;
-
-/* Le linter obsidianmd (no-static-styles-assignment) interdit les
- * affectations littérales `.style.xxx = "…"` ; même motif que `styleEl()`
- * dans presentation-view.ts / presentation-preview-view.ts /
- * presentation-slide-renderer.ts — ici pour
- * le seul cas du support papier qui en a besoin (la sonde de mesure
- * hors-écran de `tryAdaptivePresentationPair`). */
-function stylePaperEl(el: HTMLElement, styles: Partial<CSSStyleDeclaration>): void {
-  Object.assign(el.style, styles);
-}
-
-const PRESENTATION_PAPER_CSS = [
-  ".feuillets-presentation-paper-wrapper {",
-  "  position: relative;",
-  "  overflow: hidden;",
-  "}",
-  ".feuillets-presentation-paper-inner {",
-  "  position: absolute;",
-  "  top: 0;",
-  "  left: 0;",
-  "  transform-origin: top left;",
-  "}",
-  ".feuillets-presentation-paper-page h1,",
-  ".feuillets-presentation-paper-page h2,",
-  ".feuillets-presentation-paper-page h3,",
-  ".feuillets-presentation-paper-page h4,",
-  ".feuillets-presentation-paper-page h5,",
-  ".feuillets-presentation-paper-page h6 {",
-  "  page-break-before: auto;",
-  "  break-before: auto;",
-  "  page-break-after: auto;",
-  "  break-after: auto;",
-  "}",
-  // Même traitement visuel que `.pdf-page` (mode Document, ui/template-preview.ts) :
-  // même ombre, même rayon, même espacement entre pages successives —
-  // uniquement le chrome de la Preview, jamais la géométrie/le contenu mesuré.
-  ".feuillets-presentation-paper-page {",
-  "  margin: 0 auto 1.5rem auto;",
-  "  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);",
-  "  border-radius: 2px;",
-  "}",
-  ".feuillets-presentation-paper-page:last-child {",
-  "  margin-bottom: 0;",
-  "}",
-  // Repli « paire adaptative » (voir presentation-paper.ts, planAdaptivePair,
-  // et tryAdaptivePresentationPair/buildAdaptivePairCandidate ci-dessus) :
-  // grille ~60/40, contenu et média posés côte à côte. `.adaptive-pair` seule
-  // pose l'ordre par défaut (contenu à 60 %, média à 40 %, ordre DOM
-  // contenu-puis-média) ; `-media-first` l'inverse (média à 40 %, DOM
-  // média-puis-contenu) — jamais une troisième variante, jamais un ratio
-  // configurable.
-  ".feuillets-presentation-paper-adaptive-pair {",
-  "  display: grid;",
-  "  grid-template-columns: 3fr 2fr;",
-  "  align-items: start;",
-  "  gap: 1.5em;",
-  "}",
-  ".feuillets-presentation-paper-adaptive-pair-media-first {",
-  "  grid-template-columns: 2fr 3fr;",
-  "}",
-  ".feuillets-presentation-paper-adaptive-content {",
-  "  display: flex;",
-  "  flex-direction: column;",
-  "  gap: 1em;",
-  "  min-width: 0;",
-  "}",
-  // Média entier, jamais rogné : la colonne se contente de centrer le bloc
-  // média déjà composé par le moteur Document (feuillets-doc-media-block),
-  // dont l'image conserve son ratio d'aspect naturel (déjà garanti par le
-  // moteur Document — voir composeDocumentMedia, export-render.ts — ; les
-  // règles ci-dessous ne font que l'empêcher de dépasser sa colonne, jamais
-  // de le déformer ni de le recadrer).
-  ".feuillets-presentation-paper-adaptive-media {",
-  "  display: flex;",
-  "  align-items: flex-start;",
-  "  justify-content: center;",
-  "  min-width: 0;",
-  "}",
-  ".feuillets-presentation-paper-adaptive-media img,",
-  ".feuillets-presentation-paper-adaptive-media .feuillets-doc-media-block,",
-  ".feuillets-presentation-paper-adaptive-media .feuillets-doc-media-figure {",
-  "  max-width: 100%;",
-  "  width: auto;",
-  "  height: auto;",
-  "}",
-].join("\n");
 
 /** Un élément encore présent dans le document ? Répond « oui » quand
  * l'environnement n'expose pas `isConnected` (tests hors navigateur) : mieux
@@ -502,33 +343,6 @@ function isStillAttached(el: HTMLElement): boolean {
 /** Échappe les guillemets d'un chemin inséré dans un sélecteur d'attribut. */
 function escapeAttr(value: string): string {
   return value.replace(/["\\]/g, "\\$&");
-}
-
-/** Construit la section footnotes HTML pour le support papier Présentation.
- * Retourne une chaîne HTML vide si la liste est vide (zéro modification du DOM).
- * Les backref sont supprimées du HTML de chaque note via un vrai parsing DOM
- * (DOMParser), jamais une regex sur du HTML. */
-function buildPresentationPaperFootnotesHtml(footnotes: Array<{ id: string; html: string }>): string {
-  if (!footnotes || footnotes.length === 0) return "";
-
-  const footnoteItems = footnotes
-    .map((fn) => {
-      const parsed = new DOMParser().parseFromString(fn.html, "text/html");
-      parsed.body
-        .querySelectorAll("a.footnote-backref, .footnote-backref")
-        .forEach((el) => el.remove());
-      return `<li id="${escapeAttr(fn.id)}">${parsed.body.innerHTML}</li>`;
-    })
-    .join("\n");
-
-  return `
-    <div class="pdf-footnotes-section">
-      <hr>
-      <ol>
-        ${footnoteItems}
-      </ol>
-    </div>
-  `;
 }
 
 /**
@@ -648,21 +462,9 @@ export class PreviewView extends ItemView {
    * d'onglet et évite de re-rendre à l'identique. */
   displayedPath: string | null = null;
 
-  /** Mode source : "document" (rendu normal) ou "presentation-paper"
-   * (présentation convertie en papier). État de SESSION uniquement. */
-  sourceMode: "document" | "presentation-paper" = "document";
-
   private frameLoaded = false;
   private pendingZoom: { scale: number; mode: ZoomMode } | null = null;
   private resizeObserver: ResizeObserver | null = null;
-
-  /** Support papier — un ResizeObserver PAR unité `.feuillets-presentation-paper-inner`
-   * de l'iframe COURANTE, posé par `applyPresentationPaperFit()` pour réagir
-   * à un chargement d'image asynchrone (voir son commentaire). Vidé et
-   * déconnecté à chaque remplacement d'iframe (onFrameLoad) et à la
-   * fermeture de la vue (onClose) — jamais ailleurs, jamais laissé pointer
-   * vers le document d'une iframe déjà détachée. */
-  private presentationPaperObservers: ResizeObserver[] = [];
 
   /** Micro-correctif « message Preview résiduel » — référence directe au
    * message affiché par `showMessage()` (ex. « Aucun feuillet du projet
@@ -767,14 +569,6 @@ export class PreviewView extends ItemView {
     }
   }
 
-  /** Change le mode source (document ou presentation-paper) et rafraîchit
-   * l'aperçu. État de SESSION uniquement — jamais persisté. */
-  async setSourceMode(mode: "document" | "presentation-paper"): Promise<void> {
-    if (this.sourceMode === mode) return;
-    this.sourceMode = mode;
-    this.refreshTabHeader();
-    await this.refreshPreview();
-  }
 
   /** LOT 3 — pont Continu → Preview : pose EXACTEMENT le même CompileScope
    * que Continu vient de résoudre (via setCompileScope() EXISTANT, aucun
@@ -848,21 +642,6 @@ export class PreviewView extends ItemView {
    * modifie ni `previewMode`, ni le contenu rendu, ni `displayedPath` (qui
    * reste au service de ses mécanismes historiques). */
   getDisplayText(): string {
-    // Mode presentation-paper : titre spécifique
-    if (this.sourceMode === "presentation-paper") {
-      const scope = this.compileScope;
-      if (scope) {
-        if (scope.type === "file") {
-          const file = this.app.vault.getAbstractFileByPath(scope.path);
-          const name = file instanceof TFile ? file.basename : this.lastPathSegment(scope.path).replace(/\.md$/i, "");
-          return t("presentation.paper.display", { name });
-        }
-      }
-      const name = this.displayedPath ? this.displayedPath.split("/").pop() : null;
-      return name
-        ? t("presentation.paper.display", { name: name.replace(/\.md$/i, "") })
-        : t("presentation.paper.title");
-    }
 
     // Mode document normal
     const scope = this.compileScope;
@@ -1479,15 +1258,7 @@ export class PreviewView extends ItemView {
   /** Point de passage commun à `collectSource()` — n'applique plus AUCUNE
    * transformation du Markdown : le Markdown collecté reste STRICTEMENT
    * celui que verrait le mode document, quel que soit `sourceMode`.
-   *
-   * Le mode presentation-paper ne reconcatène plus les slides en un
-   * Markdown virtuel (ancienne approche `buildPresentationPaperMarkdown`,
-   * retirée) — il découpe `source.markdown` en unités papier
-   * (`buildPresentationPaperUnits`) et rend CHAQUE unité séparément, dans
-   * `renderPresentationPaperSource()` (voir `renderPreviewSource`, qui
-   * bascule vers cette branche dédiée). Conservée comme point d'extension
-   * unique — un futur sourceMode qui aurait réellement besoin de
-   * transformer le Markdown passerait par ici. */
+   *   * transformer le Markdown passerait par ici. */
   private applySourceModeTransformation(source: PreviewSource): PreviewSource {
     return source;
   }
@@ -1863,17 +1634,6 @@ export class PreviewView extends ItemView {
     onLoaded?: () => void,
     cooperatively = false
   ): Promise<void> {
-    /* Support papier : branche de rendu ENTIÈREMENT séparée — voir
-       `renderPresentationPaperSource()`. Le pipeline document ci-dessous
-       (renderManuscriptHtml[WithFrontPages] → composeDocumentMedia →
-       paginateManuscript[Cooperatively] → mountTemplatePreview) reste
-       STRICTEMENT inchangé pour sourceMode "document" ; il n'est jamais
-       invoqué en mode presentation-paper, qui ne repasse JAMAIS les slides
-       concaténées dans le paginator Document général (voir rapport). */
-    if (this.sourceMode === "presentation-paper") {
-      await this.renderPresentationPaperSource(source, generation, anchor, finish, onLoaded);
-      return;
-    }
 
     const settings = this.plugin.settings;
     const author = settings.manuscriptAuthor || "";
@@ -1930,35 +1690,49 @@ export class PreviewView extends ItemView {
     let containerEl: HTMLElement;
     let footnotes: Array<{ id: string; html: string; text: string }>;
     let images = new Map<HTMLImageElement, { width: number; height: number }>();
+    const contentVariant = await selectedContentVariant(this.app, settings);
     if (source.segments && source.segments.length) {
       const separator = activePresetConfig(settings).separator || "\n\n";
+      /* Le rendu du manuscrit doit combiner les marqueurs de source et le
+         texte de présentation éventuel (layout.json). On passe donc des
+         segments déjà préparés, sans le champ renderText : le renderer
+         conserve ainsi les marqueurs injectés dans `text`, y compris pour
+         les pages Front. */
+      const previewSegments = source.segments.map(({ renderText: _renderText, ...segment }) => ({
+        ...segment,
+        text: _renderText ?? segment.text,
+      }));
+      const blocksByPath = await this.buildBlocksByPath(source.segments);
+      if (generation !== this.refreshGeneration) return;
       const rendered = await renderManuscriptHtmlWithFrontPages(
         this.app,
-        markManuscript(source.segments, separator),
-        markSegments(source.segments),
-        source.sourcePath
+        markManuscript(previewSegments, separator),
+        markSegments(previewSegments),
+        source.sourcePath,
+        contentVariant,
+        (container) => {
+          applyBlockSourceMarkers(container, blocksByPath);
+        },
+        (container) => {
+          applySourceMarkers(container);
+        },
       );
       containerEl = rendered.containerEl;
       footnotes = rendered.footnotes;
       images = rendered.images;
       if (generation !== this.refreshGeneration) return;
-      /* Repères de BLOC (clic Aperçu → éditeur, voir preview-source-map.ts)
-         AVANT applySourceMarkers : ce dernier retire les marqueurs dont
-         applyBlockSourceMarkers a encore besoin pour délimiter chaque
-         feuillet. `buildBlocksByPath` peut relire un fichier
-         (titleLeadingSkipFor) : reconfirmer la génération après l'attente. */
-      const blocksByPath = await this.buildBlocksByPath(source.segments);
-      if (generation !== this.refreshGeneration) return;
-      applyBlockSourceMarkers(containerEl, blocksByPath);
-      applySourceMarkers(containerEl);
     } else {
-      const rendered = await renderManuscriptHtml(this.app, source.markdown, source.sourcePath);
+      const layoutStore = await loadLayoutStore(this.app, settings);
+      const root = this.plugin?.getProjectFolder();
+      const relative = root ? relativeLayoutFilePath(root.path, source.sourcePath) : null;
+      const rendered = await renderManuscriptHtml(this.app, source.markdown, source.sourcePath, relative ? layoutOverridesForFile(layoutStore, relative) : [], contentVariant);
       containerEl = rendered.containerEl;
       footnotes = rendered.footnotes;
       images = rendered.images;
       if (generation !== this.refreshGeneration) return;
     }
 
+    if (hasRemainingDocumentLayoutMarker(containerEl)) throw new Error("Marqueur de mise en page Document résiduel dans le DOM.");
     if (tpl.profile === "document") composeDocumentMedia(containerEl, images);
 
     /* Page de titre générique : seulement pour le manuscrit complet, et
@@ -2030,291 +1804,7 @@ export class PreviewView extends ItemView {
     this.pendingFrame = frame;
   }
 
-  /** Support papier — branche de rendu dédiée (voir `renderPreviewSource`,
-   * qui y bascule pour `sourceMode === "presentation-paper"`).
-   *
-   * Chemin : `source.markdown` → `buildPresentationPaperUnits()` (splitter
-   * Présentation déjà validé, AUCUNE reconcaténation) → pour CHAQUE unité,
-   * rendu Document isolé (`renderManuscriptHtml` + `composeDocumentMedia`,
-   * jamais `paginateManuscript`, qui fragmenterait l'unité) → une page
-   * papier physique par unité (`.feuillets-presentation-paper-page`), à la
-   * géométrie EXACTE du gabarit actif (`logicalPageGeometryFor` +
-   * `pageContentGeometry`, le même calcul que le pipeline Document). Le fit
-   * (mesure + échelle) n'a lieu qu'une fois l'iframe chargée — voir
-   * `applyPresentationPaperFit()`, appelée depuis `onFrameLoad()`. */
-  private async renderPresentationPaperSource(
-    source: PreviewSource,
-    generation: number,
-    anchor: ScrollAnchor | null,
-    finish: (status: PreviewStatus) => void,
-    onLoaded?: () => void
-  ): Promise<void> {
-    const settings = this.plugin.settings;
-    const tpl = await resolveExportTemplate(this.app, settings, settings.exportTemplate);
-    const css = previewTemplateCss(tpl) + PRESENTATION_PAPER_CSS;
-
-    // Géométrie de la zone imprimable : EXACTEMENT le calcul du pipeline
-    // Document (voir prepareManuscriptPagination/paginateManuscript,
-    // services/export-pdf.ts) — jamais une constante A4 codée en dur ici,
-    // jamais la taille de la fenêtre ou du panneau Preview.
-    const geometry = logicalPageGeometryFor(tpl, settings);
-    const templateMargins = tpl.marginsCm;
-    const mTop = templateMargins?.top ?? settings.pdfMarginTop ?? 2.5;
-    const mBottom = templateMargins?.bottom ?? settings.pdfMarginBottom ?? 2.5;
-    const mLeft = templateMargins?.left ?? settings.pdfMarginLeft ?? 2.5;
-    const mRight = templateMargins?.right ?? settings.pdfMarginRight ?? 2.5;
-    const contentArea = pageContentGeometry(geometry.widthMm, geometry.heightMm, mTop, mBottom, mLeft, mRight);
-
-    // Une unité par slide non vide — jamais d'unité vide, jamais de
-    // frontière (---, [!pagebreak], [!saut-page]) dans unit.markdown : voir
-    // services/presentation-paper.ts, qui délègue au splitter Présentation
-    // déjà validé (splitPresentationMarkdownWithRanges).
-    const units = buildPresentationPaperUnits(source.markdown).filter((unit) => unit.markdown.trim().length > 0);
-
-    const pageHtmlParts: string[] = [];
-    for (const unit of units) {
-      // Rendu Document EXISTANT, isolé PAR unité — jamais le renderer 16:9
-      // Présentation (presentation-slide-renderer.ts), jamais un second
-      // moteur Markdown.
-      const rendered = await renderManuscriptHtml(this.app, unit.markdown, source.sourcePath);
-      if (generation !== this.refreshGeneration) return;
-      if (tpl.profile === "document") composeDocumentMedia(rendered.containerEl, rendered.images);
-
-      // Récupérer les footnotes déjà extraites par renderManuscriptHtml
-      const innerHtml = Array.from(rendered.containerEl.children).map((el) => el.outerHTML).join("\n");
-      const footnotesHtml = buildPresentationPaperFootnotesHtml(rendered.footnotes);
-
-      pageHtmlParts.push(`
-        <div class="feuillets-presentation-paper-page" style="
-          width: ${geometry.widthMm}mm;
-          height: ${geometry.heightMm}mm;
-          padding-top: ${mTop}cm;
-          padding-bottom: ${mBottom}cm;
-          padding-left: ${mLeft}cm;
-          padding-right: ${mRight}cm;
-          box-sizing: border-box;
-          position: relative;
-          background: #ffffff;
-          color: #111111;
-        ">
-          <div class="feuillets-presentation-paper-wrapper">
-            <div
-              class="feuillets-presentation-paper-inner"
-              style="width: ${contentArea.widthPx}px;"
-              data-paper-avail-w="${contentArea.widthPx}"
-              data-paper-avail-h="${contentArea.heightPx}"
-            >${innerHtml}${footnotesHtml}</div>
-          </div>
-        </div>
-      `);
-    }
-
-    const pagesHtml = pageHtmlParts.join("\n");
-    if (generation !== this.refreshGeneration) return;
-
-    this.displayedPath = this.mode === "manuscript" ? null : source.subtitle;
-    this.updateUI();
-
-    if (!this.scaledContainer) return;
-    this.pendingFrame?.remove();
-    const frame = mountTemplatePreview(
-      this.scaledContainer,
-      css,
-      pagesHtml,
-      this.zoomScale,
-      this.mode,
-      (loadedFrame) => {
-        this.onFrameLoad(generation, loadedFrame, anchor);
-        if (onLoaded) onLoaded();
-        else finish("fresh");
-      }
-    );
-    if (this.previewFrame) frame.addClass("is-preview-frame-loading");
-    this.pendingFrame = frame;
-  }
-
-  /** Support papier — ajuste CHAQUE `.feuillets-presentation-paper-page` une
-   * fois l'iframe réellement chargée (appelée depuis `onFrameLoad`, jamais
-   * avant : la mesure exige un DOM peint). Pour une unité :
-   *
-   * 1. mesure `.feuillets-presentation-paper-inner` (scrollWidth/scrollHeight
-   *    — dimensions NATURELLES, transform ignoré) ;
-   * 2. calcule `presentationPaperScale()` contre la zone imprimable posée en
-   *    attributs `data-paper-avail-*` (voir `renderPresentationPaperSource`) ;
-   * 3. pose `transform: scale(...)` sur l'inner (transform-origin top left)
-   *    et les dimensions VISUELLES (natural × scale) sur le wrapper, pour
-   *    qu'aucune taille non-échelle ne fasse déborder la page.
-   *
-   * Un ResizeObserver PAR unité, posé sur l'inner (jamais le wrapper, que
-   * NOUS redimensionnons — l'observer boucherait sur lui-même), réagit à un
-   * chargement d'image asynchrone : SEULS naturalWidth/naturalHeight/scale/
-   * dimensions du wrapper/transform de l'inner sont recalculés — jamais un
-   * rerendu Markdown, jamais une repagination, jamais une page créée ou
-   * supprimée. `transform` ne modifie pas scrollWidth/scrollHeight : aucune
-   * boucle de rétroaction possible. */
-  private applyPresentationPaperFit(frame: HTMLIFrameElement): void {
-    const doc: PaperDocument | null = frame.contentDocument;
-    if (!doc) return;
-    const pages = Array.from(doc.querySelectorAll<HTMLElement>(".feuillets-presentation-paper-page"));
-    if (!pages.length) return;
-
-    const fitOne = (page: HTMLElement): number | null => {
-      const wrapper = page.querySelector<HTMLElement>(".feuillets-presentation-paper-wrapper");
-      const inner = page.querySelector<HTMLElement>(".feuillets-presentation-paper-inner");
-      if (!wrapper || !inner) return null;
-      const availableWidth = Number(inner.getAttribute("data-paper-avail-w")) || inner.offsetWidth;
-      const availableHeight = Number(inner.getAttribute("data-paper-avail-h")) || inner.offsetHeight;
-      const naturalWidth = inner.scrollWidth;
-      const naturalHeight = inner.scrollHeight;
-      const scale = presentationPaperScale(availableWidth, availableHeight, naturalWidth, naturalHeight);
-      // `transform-origin: top left` est POSÉE UNE FOIS pour toutes en CSS
-      // statique (PRESENTATION_PAPER_CSS, `.feuillets-presentation-paper-inner`)
-      // — jamais en JS ici : seule `transform` change réellement d'une mesure
-      // à l'autre.
-      inner.style.transform = `scale(${scale})`;
-      wrapper.style.width = `${naturalWidth * scale}px`;
-      wrapper.style.height = `${naturalHeight * scale}px`;
-      return scale;
-    };
-
-    /* PHASE 1 — fit de base, SANS logique adaptative : chaque page est
-       construite puis fittée, une par une, avant toute tentative
-       d'optimisation. À l'issue de cette phase, TOUTES les pages sont déjà
-       visibles et utilisables (wrapper dimensionné, inner mis à l'échelle) —
-       c'est ce qui garantit qu'une erreur en phase 2 ne peut jamais laisser
-       une page (ou les suivantes) sans dimensions. */
-    const naturalScales = new Map<HTMLElement, number>();
-    for (const page of pages) {
-      const scale = fitOne(page);
-      if (scale !== null) naturalScales.set(page, scale);
-    }
-
-    /* PHASE 2 — optimisation « paire adaptative », tentée UNE SEULE FOIS par
-       page, jamais depuis le ResizeObserver posé plus bas (qui ne fait que
-       réappliquer `fitOne` sur la structure déjà choisie). Chaque page est
-       traitée indépendamment : une optimisation qui échoue ou lève — voir
-       `tryAdaptivePresentationPair`/`buildAdaptivePairCandidate` — est
-       interceptée ICI et ne modifie jamais le DOM naturel de sa page (voir
-       le commentaire de `tryAdaptivePresentationPair`), déjà fitté en phase 1
-       ; elle n'interrompt JAMAIS le traitement des pages suivantes. */
-    for (const page of pages) {
-      const inner = page.querySelector<HTMLElement>(".feuillets-presentation-paper-inner");
-      const naturalScale = naturalScales.get(page);
-      // Garde-fou explicite : une slide qui porte des notes de bas de page
-      // (`.pdf-footnotes-section`, voir `buildPresentationPaperFootnotesHtml`)
-      // ne doit JAMAIS se voir proposer la paire adaptative — la recomposition
-      // en deux colonnes casserait la mise en page verticale attendue des
-      // notes. `planAdaptivePair` n'a aucune connaissance des footnotes ; ce
-      // guard est donc la SEULE protection, indépendante de son verdict.
-      const hasFootnotes = inner?.querySelector(".pdf-footnotes-section") !== null;
-      if (inner && naturalScale !== undefined && naturalScale < 1 && !hasFootnotes) {
-        try {
-          this.tryAdaptivePresentationPair(doc, page, inner, naturalScale);
-        } catch (error) {
-          // Échec de l'optimisation : le DOM naturel de `inner` — jamais
-          // modifié avant la décision finale — reste la solution de secours.
-          console.error("Feuillets : repli « paire adaptative » du support papier en échec, DOM naturel conservé.", error);
-        }
-        // Refit systématique, adoption ou non : coûte une mesure de plus,
-        // garantit que le wrapper reflète toujours le DOM réellement présent.
-        fitOne(page);
-      }
-      if (inner && typeof ResizeObserver !== "undefined") {
-        const observer = new ResizeObserver(() => fitOne(page));
-        observer.observe(inner);
-        this.presentationPaperObservers.push(observer);
-      }
-    }
-  }
-
-  /** Support papier — repli « paire adaptative » (voir presentation-paper.ts,
-   * `planAdaptivePair`) : appelée UNE SEULE FOIS par page, jamais depuis le
-   * ResizeObserver (voir `applyPresentationPaperFit`). N'agit QUE si
-   * `naturalScale < 1` (appelant) et si `planAdaptivePair` juge la slide
-   * éligible ; construit alors un candidat, le mesure RÉELLEMENT hors-écran
-   * (attaché à la page, jamais affiché — `visibility: hidden`), et ne
-   * l'adopte que si `shouldAdoptAdaptivePair` le confirme meilleur que le
-   * rendu naturel. Sinon, le DOM naturel de `inner` reste intact : rien n'est
-   * jamais retiré ni modifié avant que la décision ne soit prise. */
-  private tryAdaptivePresentationPair(doc: PaperDocument, page: HTMLElement, inner: HTMLElement, naturalScale: number): void {
-    const children = Array.from(inner.children) as HTMLElement[];
-    const plan = planAdaptivePair(children);
-    if (!plan) return;
-
-    const availableWidth = Number(inner.getAttribute("data-paper-avail-w")) || inner.offsetWidth;
-    const availableHeight = Number(inner.getAttribute("data-paper-avail-h")) || inner.offsetHeight;
-
-    const candidate = this.buildAdaptivePairCandidate(doc, children, plan);
-    // Mesure hors-écran : attaché au DOM réel (nécessaire à toute mesure de
-    // layout), mais jamais visible — `visibility: hidden` plutôt que
-    // `display: none`, qui empêcherait toute mise en page (donc toute
-    // mesure). Retiré dans un `finally` : que la mesure lève ou non, la page
-    // ne doit jamais garder de sonde orpheline attachée.
-    const probe = doc.createElement("div");
-    stylePaperEl(probe, { position: "absolute", visibility: "hidden", pointerEvents: "none", width: `${availableWidth}px` });
-    probe.appendChild(candidate);
-    page.appendChild(probe);
-    let candidateWidth: number;
-    let candidateHeight: number;
-    try {
-      candidateWidth = candidate.scrollWidth;
-      candidateHeight = candidate.scrollHeight;
-    } finally {
-      probe.remove();
-    }
-
-    const candidateScale = presentationPaperScale(availableWidth, availableHeight, candidateWidth, candidateHeight);
-    if (!shouldAdoptAdaptivePair(naturalScale, candidateScale)) return; // DOM naturel conservé tel quel
-
-    // `candidate` reste détaché (retiré avec `probe` ci-dessus) : ses enfants
-    // sont déplacés directement dans `inner`, qui ne perd son contenu naturel
-    // qu'À CET INSTANT PRÉCIS — jamais avant que le candidat n'ait été
-    // mesuré et retenu.
-    inner.replaceChildren(...Array.from(candidate.children));
-  }
-
-  /** Construit — à partir de CLONES, jamais des nœuds réels avant décision
-   * (voir tryAdaptivePresentationPair) — la structure imposée par le plan :
-   * les titres H1-H3 initiaux inchangés (règle 7, pleine largeur), puis UNE
-   * paire `ADAPTIVE_PAIR_CLASS` contenant `ADAPTIVE_CONTENT_CLASS` (les blocs
-   * de contenu regroupés, dans leur ordre d'origine) et `ADAPTIVE_MEDIA_CLASS`
-   * (le média seul), dans l'ordre visuel donné par `plan.orientation`. */
-  private buildAdaptivePairCandidate(doc: PaperDocument, children: HTMLElement[], plan: AdaptivePairPlan): HTMLDivElement {
-    const root = doc.createElement("div");
-    for (let i = 0; i < plan.bodyStart; i++) root.appendChild(children[i].cloneNode(true));
-
-    const pair = doc.createElement("div");
-    pair.className = `${ADAPTIVE_PAIR_CLASS} ${ADAPTIVE_PAIR_ORIENTATION_CLASS[plan.orientation]}`;
-
-    const contentGroup = doc.createElement("div");
-    contentGroup.className = ADAPTIVE_CONTENT_CLASS;
-    for (const i of plan.contentIndices) contentGroup.appendChild(children[i].cloneNode(true));
-
-    const mediaGroup = doc.createElement("div");
-    mediaGroup.className = ADAPTIVE_MEDIA_CLASS;
-    mediaGroup.appendChild(children[plan.mediaIndex].cloneNode(true));
-
-    if (plan.orientation === "content-media") {
-      pair.appendChild(contentGroup);
-      pair.appendChild(mediaGroup);
-    } else {
-      pair.appendChild(mediaGroup);
-      pair.appendChild(contentGroup);
-    }
-    root.appendChild(pair);
-    return root;
-  }
-
-  /** Déconnecte et vide les ResizeObserver du support papier — appelée
-   * juste avant qu'une iframe (support papier ou non) ne soit remplacée
-   * (onFrameLoad) et à la fermeture de la vue (onClose). Sans effet si
-   * aucun observer n'est posé (mode document, ou support papier sans
-   * ResizeObserver disponible dans l'environnement). */
-  private disconnectPresentationPaperObservers(): void {
-    if (!this.presentationPaperObservers.length) return;
-    for (const observer of this.presentationPaperObservers) observer.disconnect();
-    this.presentationPaperObservers = [];
-  }
+  /** Iframe lifecycle for the Document preview. */
 
   private onFrameLoad(generation: number, frame: HTMLIFrameElement, anchor: ScrollAnchor | null): void {
     if (generation !== this.refreshGeneration) {
@@ -2322,14 +1812,6 @@ export class PreviewView extends ItemView {
       if (this.pendingFrame === frame) this.pendingFrame = null;
       return;
     }
-
-    /* Les observers du support papier pointent vers le DOCUMENT de l'iframe
-       qui va être remplacée (ou retirée si ce même sourceMode reste actif :
-       `applyPresentationPaperFit` ci-dessous en repose d'ARBITRAIREMENT
-       nouveaux, sur la nouvelle iframe) — jamais laissés pointer vers un
-       document détaché, quel que soit le sourceMode d'arrivée (§13). */
-    this.disconnectPresentationPaperObservers();
-
     if (this.previewFrame && this.previewFrame !== frame) this.previewFrame.remove();
     this.previewFrame = frame;
     this.pendingFrame = null;
@@ -2337,7 +1819,6 @@ export class PreviewView extends ItemView {
     this.frameLoaded = true;
 
     this.measureNaturalDimensions();
-    if (this.sourceMode === "presentation-paper") this.applyPresentationPaperFit(frame);
 
     if (this.pendingZoom) {
       const { scale, mode } = this.pendingZoom;
@@ -4026,7 +3507,6 @@ export class PreviewView extends ItemView {
       this.resizeObserver.disconnect();
       this.resizeObserver = null;
     }
-    this.disconnectPresentationPaperObservers();
     this.cancelSceneRefresh();
     this.syncScrollerCleanup?.();
     this.syncScrollerCleanup = null;
@@ -4090,7 +3570,6 @@ interface ScopeableView {
    * `openScopeWithPreview`, `openScopeWithPreviewBesideLeaf`,
    * `openWithPreview`. `setSourceMode` garantit déjà le no-op quand le mode
    * est inchangé : aucun second garde-fou n'est posé ici. */
-  setSourceMode?(mode: "document" | "presentation-paper"): Promise<void>;
 }
 
 function isScopeableView(view: unknown): view is ScopeableView {
@@ -4151,13 +3630,7 @@ export async function openScopeWithPreview(app: App, scope: CompileScope): Promi
      `FeuilletsPlugin.loadDeferredViews()`. */
   if (leaf?.isDeferred) await leaf.loadIfDeferred();
   const view = leaf?.view;
-  if (isScopeableView(view)) {
-    // Chemin NORMAL : une PreviewView réutilisée qui affichait le Support
-    // papier ne doit jamais y rester — reset AVANT setCompileScope, pour que
-    // le rendu de la portée demandée passe par le pipeline Document
-    // historique dès son premier rafraîchissement (jamais celui du papier).
-    await view.setSourceMode?.("document");
-    await view.setCompileScope(scope);
+  if (isScopeableView(view)) {    await view.setCompileScope(scope);
   }
 }
 
@@ -4212,10 +3685,6 @@ export async function openScopeWithPreviewBesideLeaf(
     const continuSource = isContinuSourceView(workLeaf.view) ? workLeaf.view : null;
     view.setContinuSource?.(continuSource);
 
-    // Chemin NORMAL : reset AVANT le scope, même raison que
-    // `openScopeWithPreview` — une Preview réutilisée en Support papier ne
-    // doit jamais y rester accrochée pour un scope Continu/Binder normal.
-    await view.setSourceMode?.("document");
 
     if (!view.compileScope || !compileScopesEqual(view.compileScope, scope)) {
       await view.setCompileScope(scope);
@@ -4334,61 +3803,7 @@ export async function openWithPreview(
     // Chemin NORMAL : reset AVANT le scope, même raison que
     // `openScopeWithPreview` — une Preview réutilisée en Support papier ne
     // doit jamais y rester accrochée pour un « Ouvrir avec aperçu » normal.
-    if (typeof view.setSourceMode === "function") {
-      await view.setSourceMode("document");
-    }
     await view.setCompileScope(fileScope);
-  }
-
-  // 5. Le focus reste à l'écriture, pas à l'aperçu.
-  workspace.setActiveLeaf(editorLeaf, { focus: true });
-}
-
-/**
- * Ouvre (ou réutilise) l'Aperçu Feuillets en mode presentation-paper,
- * transformant les slides en pages papier.
- *
- * Suit exactement le même pattern que `openWithPreview` : une feuille
- * adjacente à l'éditeur, réutilisée si elle existe déjà. Le mode source
- * est posé par `setSourceMode` — le fichier actif reste le scope utilisé.
- */
-export async function openPresentationPaperPreview(
-  app: App,
-  plugin: PreviewViewPlugin,
-  file: TFile
-): Promise<void> {
-  const { workspace } = app;
-
-  // 1. Le feuillet, dans la feuille active (ou une nouvelle si aucune).
-  const editorLeaf = workspace.getLeaf(false);
-  await editorLeaf.openFile(file, { active: true });
-
-  // 2. Résoudre le projectRoot et construire la portée file.
-  const root = plugin.getProjectFolder();
-  const projectRootPath = root ? root.path : (file.parent ? file.parent.path : file.path);
-  const fileScope = createFileScope(projectRootPath, file.path);
-
-  // Conservé temporairement pour compatibilité
-  plugin.settings.previewMode = "scene";
-  await plugin.saveSettings?.();
-
-  // 3. Une feuille adjacente, sauf si un aperçu est déjà ouvert quelque part.
-  const existing = workspace.getLeavesOfType(VIEW_PREVIEW);
-  let previewLeaf: WorkspaceLeaf | null = existing[0] || null;
-  if (!previewLeaf) {
-    previewLeaf = workspace.getLeaf("split");
-    await previewLeaf.setViewState({ type: VIEW_PREVIEW, active: false });
-  }
-  if (previewLeaf) void workspace.revealLeaf(previewLeaf);
-
-  if (previewLeaf?.isDeferred) await previewLeaf.loadIfDeferred();
-
-  // 4. Transmettre la portée file à l'instance réelle de PreviewView
-  // et passer en mode presentation-paper.
-  const view = previewLeaf?.view as PreviewView | undefined;
-  if (view && typeof view.setCompileScope === "function") {
-    await view.setCompileScope(fileScope);
-    await view.setSourceMode("presentation-paper");
   }
 
   // 5. Le focus reste à l'écriture, pas à l'aperçu.

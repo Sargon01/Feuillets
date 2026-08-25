@@ -11,6 +11,7 @@ import type { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { ResearchView } from "./research-view.js";
 import { TextAnalysisView } from "./text-analysis-view.js";
 import { EditionWorkspaceContent, type EditionWorkspacePlugin } from "../ui/edition-workspace-content.js";
+import type { LayoutSummaryPage } from "../ui/layout-editor.js";
 import { EditionDocsContent, type EditionDocsContentPlugin } from "../ui/edition-docs-content.js";
 import { ExportPanel, type ExportPanelPlugin } from "../ui/export-panel.js";
 import { createProjectScope } from "../services/compile-scope.js";
@@ -104,6 +105,7 @@ export class SidebarFeuilletsView extends ItemView {
   activeTab: SidebarTab;
   relecturePage: RelecturePage;
   editionPage: EditionPage;
+  private layoutSummaryPage: LayoutSummaryPage = "home";
   subViews: SidebarSubViews;
   /** Conteneur dédié de la barre « Retour à Édition » (rendue QUE lorsque
    * le contenu enfant est sur sa page racine) — jamais la barre elle-même
@@ -355,6 +357,8 @@ export class SidebarFeuilletsView extends ItemView {
             initialMode: "composition",
             linkedPreviewLeaf: this.existingProjectPreviewLeaf(),
             onNavigationRootChange: (isRoot) => this.setEditionChildAtRoot(isRoot),
+            layoutSummaryPage: this.layoutSummaryPage,
+            onLayoutSummaryPageChange: (page) => { this.layoutSummaryPage = page; },
           }
         );
         await content.render();
@@ -368,6 +372,8 @@ export class SidebarFeuilletsView extends ItemView {
             initialMode: "layout",
             linkedPreviewLeaf: this.existingProjectPreviewLeaf(),
             onNavigationRootChange: (isRoot) => this.setEditionChildAtRoot(isRoot),
+            layoutSummaryPage: this.layoutSummaryPage,
+            onLayoutSummaryPageChange: (page) => { this.layoutSummaryPage = page; },
           }
         );
         await content.render();

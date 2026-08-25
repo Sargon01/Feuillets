@@ -2,7 +2,10 @@ import { Component, MarkdownRenderer, Notice, TFile } from "obsidian";
 import type { App } from "obsidian";
 import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
 import { applySemanticRoles } from "../utils/semantic-roles.js";
-import { applyFeuilletsDirectiveMarkers, prepareFeuilletsDirectives } from "../utils/feuillets-directives.js";
+import { applyDocumentLayoutMarkers, injectDocumentLayoutMarkers } from "./document-layout.js";
+import type { LayoutOverride } from "./layout-store.js";
+import { applyContentVariant } from "./content-variant-render.js";
+import type { ContentVariant } from "./content-variants.js";
 
 type RenderedFootnote = {
   id: string;
@@ -31,6 +34,7 @@ type RenderedManuscript = {
 
 type ExportRenderSegment = {
   text: string;
+  renderText?: string;
   frontType?: string | null;
 };
 
@@ -70,7 +74,11 @@ const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, ImageMime>> = {
 export async function renderManuscriptHtml(
   app: App,
   markdown: string,
-  sourcePath: string
+  sourcePath: string,
+  overrides: LayoutOverride[] = [],
+  variant: ContentVariant | null = null,
+  beforeVariant?: (container: HTMLElement) => void | Promise<void>,
+  afterVariant?: (container: HTMLElement) => void | Promise<void>,
 ): Promise<RenderedManuscript> {
   /* Créé via l'helper Obsidian createDiv() : l'élément appartient au
      document principal Obsidian mais reste détaché du début à la fin de
@@ -80,16 +88,20 @@ export async function renderManuscriptHtml(
   const component = new Component();
   component.load();
   try {
-    await MarkdownRenderer.render(app, prepareFeuilletsDirectives(markdown), container, sourcePath, component);
+    const renderMarkdown = overrides.length ? injectDocumentLayoutMarkers(markdown, overrides) : markdown;
+    await MarkdownRenderer.render(app, renderMarkdown, container, sourcePath, component);
     applySemanticRoles(container);
-    applyFeuilletsDirectiveMarkers(container);
+    applyDocumentLayoutMarkers(container);
+    stripObsidianCruft(container);
+    await beforeVariant?.(container);
+    applyContentVariant(container, variant);
+    await afterVariant?.(container);
   } finally {
     component.unload();
   }
 
   const { images, missingResources } = await inlineImages(app, container, sourcePath);
   const footnotes = extractFootnotes(container);
-  stripObsidianCruft(container);
 
   /* Signalé ici, au point unique partagé par les 4 exporteurs natifs
      (EPUB/DOCX/ODT/PDF appellent tous renderManuscriptHtml*) — plutôt que
@@ -174,45 +186,17 @@ function isSemanticRoleBlock(node: Element | null): node is HTMLElement {
   return !!node && node.classList.contains("feuillets-semantic-role");
 }
 
-/* ===== Surcharge locale `%% image: … %%` (LOT 3A) =====
- * applyFeuilletsDirectiveMarkers (feuillets-directives.ts) pose ces classes
- * directement sur l'<img> pendant le rendu — un emplacement qui survit à
- * stripObsidianCruft (lequel ne retire que les attributs data-*, jamais les
- * classes). composeDocumentMedia les retrouve ici, avant toute décision
- * portrait/paysage automatique, et les transfère sur le wrapper média final. */
-const IMAGE_PLACEMENT_CLASSES = new Set([
-  "feuillets-image-placement-left",
-  "feuillets-image-placement-center",
-  "feuillets-image-placement-right",
-  "feuillets-image-placement-full",
-]);
-const IMAGE_WIDTH_CLASS_RE = /^feuillets-image-width-(?:25|33|40|50|60|67|75|100)$/;
-
-/** Retire de `image` puis renvoie les classes de surcharge posées par la
- * directive `image:` — jamais générées ailleurs, donc un simple filtre sur
- * les classes déjà présentes suffit à retrouver l'éventuelle surcharge, sans
- * dépendance à un attribut data-* qui n'aurait pas survécu au strip. */
-function takeImageOverrideClasses(image: HTMLImageElement): string[] {
-  const classes = (image.className || "").split(/\s+/).filter((cls) => IMAGE_PLACEMENT_CLASSES.has(cls) || IMAGE_WIDTH_CLASS_RE.test(cls));
-  if (classes.length) image.classList.remove(...classes);
-  return classes;
-}
-
 function composeDocumentMediaRoles(container: HTMLElement): void {
   const children = () => Array.from(container.children);
   for (const media of children()) {
     if (!media.classList.contains(DOCUMENT_MEDIA_BLOCK) || media.classList.contains("feuillets-document-media-role-pair")) continue;
     const marker = media.nextElementSibling;
-    const hasDirective = media.classList.contains("feuillets-directive-dessous") || !!media.querySelector(".feuillets-directive-dessous");
     const role = marker;
     if (!isSemanticRoleBlock(role)) continue;
-
     const pair = createDiv({ cls: "feuillets-document-media-role-pair" });
-    pair.classList.add(hasDirective ? "feuillets-document-media-role-pair-stacked" : "feuillets-document-media-role-pair-side");
+    pair.classList.add("feuillets-document-media-role-pair-side");
     container.insertBefore(pair, media);
     pair.appendChild(media);
-    media.classList.remove("feuillets-directive-dessous");
-    media.querySelectorAll(".feuillets-directive-dessous").forEach((el) => el.classList.remove("feuillets-directive-dessous"));
     pair.appendChild(role);
   }
   container.querySelectorAll(".feuillets-directive, .feuillets-directive-dessous").forEach((marker) => marker.remove());
@@ -224,22 +208,6 @@ export function composeDocumentMedia(container: HTMLElement, images: Map<HTMLIma
   for (const [image, dimensions] of images) {
     const block = directBlockForImage(container, image);
     if (!block || block.className.includes(DOCUMENT_MEDIA_BLOCK)) continue;
-
-    /* Une surcharge explicite désactive UNIQUEMENT la décision automatique
-       portrait/paysage pour CETTE image (§18 du lot) : wrapper + figure
-       simples, alignement/largeur par classes, jamais de contenu latéral ni
-       de flux flottant. Le pairing média+rôle (composeDocumentMediaRoles,
-       plus bas) reste appliqué ensuite exactement comme pour le chemin
-       automatique — la directive ne décide que de l'alignement/largeur. */
-    const overrideClasses = takeImageOverrideClasses(image);
-    if (overrideClasses.length) {
-      const overrideWrapper = createDiv({ cls: `${DOCUMENT_MEDIA_BLOCK} ${overrideClasses.join(" ")}` });
-      const overrideFigure = createDiv({ cls: "feuillets-doc-media-figure" });
-      container.insertBefore(overrideWrapper, block);
-      overrideFigure.appendChild(block);
-      overrideWrapper.appendChild(overrideFigure);
-      continue;
-    }
 
     const portrait = isPortraitLike(dimensions, block.nextElementSibling);
     const wrapper = createDiv({ cls: `${DOCUMENT_MEDIA_BLOCK} ${portrait ? DOCUMENT_MEDIA_PORTRAIT : DOCUMENT_MEDIA_LANDSCAPE}` });
@@ -363,17 +331,20 @@ export async function renderManuscriptHtmlWithFrontPages(
   app: App,
   markdown: string,
   segments: ExportRenderSegment[] | null | undefined,
-  sourcePath: string
+  sourcePath: string,
+  variant: ContentVariant | null = null,
+  beforeVariant?: (container: HTMLElement) => void | Promise<void>,
+  afterVariant?: (container: HTMLElement) => void | Promise<void>,
 ): Promise<RenderedManuscript> {
-  if (!segments || !segments.length || !segments.some((s) => s.frontType)) {
-    return renderManuscriptHtml(app, markdown, sourcePath);
+  if (!segments || !segments.length || (!segments.some((s) => s.frontType) && !segments.some((s) => s.renderText !== undefined))) {
+    return renderManuscriptHtml(app, markdown, sourcePath, [], variant, beforeVariant, afterVariant);
   }
   const markedMarkdown = segments
     .map((seg) =>
-      seg.frontType ? `FEUILLETS-FRONT:${seg.frontType}\n\n${seg.text}\n\n${FRONT_END}` : seg.text
+      seg.frontType ? `FEUILLETS-FRONT:${seg.frontType}\n\n${seg.renderText ?? seg.text}\n\n${FRONT_END}` : (seg.renderText ?? seg.text)
     )
     .join("\n\n");
-  const result = await renderManuscriptHtml(app, markedMarkdown, sourcePath);
+  const result = await renderManuscriptHtml(app, markedMarkdown, sourcePath, [], variant, beforeVariant, afterVariant);
   wrapFrontPagesInDom(result.containerEl);
   tagTitleRolesInDom(result.containerEl);
   return result;
@@ -606,7 +577,9 @@ async function inlineImages(
       const mime = IMAGE_MIME_BY_EXTENSION[ext] || "image/png";
       const dataUri = `data:${mime};base64,${b64}`;
       img.setAttribute("src", dataUri);
-      const { width, height } = await naturalSizeOf(dataUri);
+      const natural = await naturalSizeOf(dataUri);
+      const requested = requestedImageSize(img, natural);
+      const { width, height } = requested;
       const caption = realCaption(img.getAttribute("alt"), file);
       if (caption) {
         // Créés via createEl() : img appartient à container (voir
@@ -625,6 +598,27 @@ async function inlineImages(
     }
   }
   return { images, missingResources: Array.from(missingResources) };
+}
+
+function positiveNumber(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number.parseFloat(value.replace(/px$/i, "").trim());
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function inlineStyleValue(img: HTMLImageElement, property: string): number | null {
+  const style = img.getAttribute("style") || "";
+  const match = style.match(new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;]+)`, "i"));
+  return match ? positiveNumber(match[1]) : null;
+}
+
+function requestedImageSize(img: HTMLImageElement, natural: ImageDimensions): ImageDimensions {
+  const width = positiveNumber(img.getAttribute("width")) ?? inlineStyleValue(img, "width");
+  const height = positiveNumber(img.getAttribute("height")) ?? inlineStyleValue(img, "height");
+  if (width && height) return { width, height };
+  if (width) return { width, height: width * natural.height / natural.width };
+  if (height) return { width: height * natural.width / natural.height, height };
+  return natural;
 }
 
 /** Dimensions réelles d'une image déjà encodée en data: URI — nécessaire

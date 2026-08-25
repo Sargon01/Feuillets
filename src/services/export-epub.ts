@@ -1,9 +1,11 @@
 import JSZip from "jszip";
 import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
+import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { templateV2ToEpubCss } from "./export-template-v2-css.js";
 import { escapeXml } from "../utils/xml.js";
+import type { ContentVariant } from "./content-variants.js";
 
 type ExportSegment = {
   text: string;
@@ -16,6 +18,7 @@ type ExportInput = {
   author: string;
   sourcePath: string;
   segments?: ExportSegment[];
+  contentVariant?: ContentVariant | null;
 };
 
 type ExportFootnote = {
@@ -57,11 +60,11 @@ function footnotesXhtml(footnotes: ExportFootnote[]): string {
  * (markdown, sortie de compile()) : un seul flux XHTML continu, pas de
  * découpage par chapitre en v1 (portée assumée — voir plan). Utilise
  * jszip (pur JS, aucune dépendance Node) : fonctionne desktop et mobile. */
-export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Uint8Array> {
+export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath);
+  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null);
   const bodyXhtml = serializeXhtmlBody(containerEl);
-  const css = templateV2ToEpubCss(template) + FRONT_PAGE_CSS;
+  const css = templateV2ToEpubCss(template) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS;
   const lang = settings.epubLanguage || "fr";
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
      page Front de type "titre" — voir même choix dans export-docx.js. */

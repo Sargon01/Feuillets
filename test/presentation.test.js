@@ -22,9 +22,22 @@ test("Présentation : découpe les slides, retire le frontmatter et ignore les s
 });
 
 test("Présentation : ne coupe ni les fences, ni les citations, ni les séparateurs Markdown ordinaires", () => {
-  assert.deepEqual(splitPresentationMarkdown("```text\n---\n```\n---\n# Deux"), ["```text\n---\n```", "# Deux"]);
+  assert.deepEqual(splitPresentationMarkdown("```text\n---\n> callout\n***\n```\n---\n# Deux"), ["```text\n---\n> callout\n***\n```", "# Deux"]);
   assert.deepEqual(splitPresentationMarkdown("~~~\n---\n~~~\n---\n# Deux"), ["~~~\n---\n~~~", "# Deux"]);
   assert.deepEqual(splitPresentationMarkdown("> ---\n\n***\n\n___"), ["> ---\n\n***\n\n___"]);
+});
+
+test("Présentation : grand deck de 200 slides conserve l'ordre et le mapping des lignes", () => {
+  const markdown = Array.from({ length: 200 }, (_, i) => `# Slide ${i + 1}\nContenu ${i + 1}`).join("\n---\n");
+  const slides = splitPresentationMarkdownWithRanges(markdown);
+  assert.equal(slides.length, 200);
+  assert.equal(slides[0].markdown, "# Slide 1\nContenu 1");
+  assert.equal(slides[99].markdown, "# Slide 100\nContenu 100");
+  assert.equal(slides[199].markdown, "# Slide 200\nContenu 200");
+  assert.equal(presentationSlideIndexForLine(slides, slides[0].startLine), 0);
+  assert.equal(presentationSlideIndexForLine(slides, slides[99].startLine + 1), 99);
+  assert.equal(presentationSlideIndexForLine(slides, slides[199].startLine + 1), 199);
+  assert.equal(new Set(slides.map((slide) => slide.markdown)).size, 200);
 });
 
 test("Présentation : le scale reste uniforme et plafonné à 1", () => {

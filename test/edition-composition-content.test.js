@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { Setting, TFolder } from "obsidian";
 import { EditionCompositionContent } from "../src/ui/edition-composition-content.js";
+import { contentVariantsFilePath, createContentVariant, selectedContentVariant } from "../src/services/content-variants.js";
+import { setLocale, t } from "../src/i18n/index.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
 /* Micro-correctif « ne plus embarquer d'ItemView dans BoardView » :
@@ -234,6 +236,112 @@ test("EditionCompositionContent : plus de nav permanente Contenu/Structure/Notes
     // Pas d'éléments détaillés dans le sommaire principal
     assert.ok(!contentEl.querySelector('[aria-label="Inclure la page de titre"]'), "pas de contenu Première page");
     assert.ok(!contentEl.querySelector('[aria-label="Renuméroter les notes dans le document compilé"]'), "pas de contenu Structure");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("EditionCompositionContent : Le manuscrit expose Contenu, Variantes puis Structure", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    const manuscript = contentEl.querySelectorAll(".feuillets-project-row")[1];
+    manuscript.click();
+    await view.renderPromise;
+    const labels = contentEl.querySelectorAll(".feuillets-project-row").map((row) => row.querySelector(".feuillets-project-row-label")?.textContent);
+    assert.deepEqual(labels, ["Contenu du manuscrit", "Variantes de contenu", "Structure du manuscrit"]);
+    const variantsRow = contentEl.querySelectorAll(".feuillets-project-row")[1];
+    assert.equal(variantsRow.textContent.includes("Complète"), false);
+    assert.equal(variantsRow.textContent.includes("Aucune"), false);
+    assert.equal(variantsRow.textContent.includes("Sans variante"), false);
+  } finally {
+    restoreDom();
+  }
+});
+
+test("EditionCompositionContent : un fichier corrompu conserve Contenu et Structure et signale Erreur", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    await app.vault.create(contentVariantsFilePath(app, plugin.settings), "not json");
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    assert.ok(contentEl.textContent.includes("Contenu du manuscrit"));
+    assert.ok(contentEl.textContent.includes("Structure du manuscrit"));
+    assert.ok(contentEl.textContent.includes("Erreur"));
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    assert.ok(contentEl.textContent.includes("Le fichier des variantes de contenu est invalide."));
+    assert.equal(contentEl.querySelector("select"), null);
+    assert.equal(contentEl.querySelector(".feuillets-content-variant-add"), null);
+  } finally {
+    restoreDom();
+  }
+});
+
+test("EditionCompositionContent : aucune variante n'affiche ni sélecteur vide ni choix Sans variante", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    assert.equal(contentEl.querySelector("select"), null);
+    assert.ok(contentEl.textContent.includes("Nouvelle variante…"));
+    assert.equal(contentEl.textContent.includes("Sans variante"), false);
+  } finally {
+    restoreDom();
+  }
+});
+
+test("ContentVariantModal : vocabulaire des rôles et texte sans rôle sont localisés", () => {
+  setLocale("fr");
+  assert.equal(t("contentVariants.modal.includedRoles"), "Rôles inclus");
+  assert.equal(t("contentVariants.modal.roleHint"), "Le texte sans rôle est toujours inclus.");
+  setLocale("en");
+  assert.equal(t("contentVariants.modal.includedRoles"), "Included roles");
+  assert.equal(t("contentVariants.modal.roleHint"), "Text without a role is always included.");
+  setLocale("fr");
+});
+
+test("EditionCompositionContent : sous-page Variantes reste sous Le manuscrit et persiste la sélection", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    const first = await createContentVariant(app, plugin.settings, "Lecture courte");
+    const second = await createContentVariant(app, plugin.settings, "Lecture longue");
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    assert.ok(contentEl.textContent.includes("Facultatif. Le texte sans rôle est toujours inclus."));
+    assert.ok(contentEl.textContent.includes("Sans variante"));
+    assert.ok(contentEl.textContent.includes(first.name));
+    assert.ok(contentEl.textContent.includes(second.name));
+    assert.equal(contentEl.querySelector("select")?.value, "");
+    const select = contentEl.querySelector("select");
+    select.value = first.id;
+    select.dispatch("change", { target: select });
+    await view.renderPromise;
+    assert.equal((await selectedContentVariant(app, plugin.settings))?.id, first.id);
+    const back = contentEl.querySelector(".feuillets-composition-back");
+    back.click();
+    await view.renderPromise;
+    assert.equal(contentEl.textContent.includes(first.name), true);
+    assert.equal(contentEl.textContent.includes("WorkspaceLeaf"), false);
   } finally {
     restoreDom();
   }

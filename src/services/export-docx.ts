@@ -34,10 +34,12 @@ import {
 } from "./export-docx-style.js";
 import { blockToParagraphs } from "./docx-blocks.js";
 import { generatedContentsDescriptor, type GeneratedContentsKind } from "./generated-contents.js";
+import type { ContentVariant } from "./content-variants.js";
 
 type ExportSegment = {
   path?: string | null;
   text: string;
+  renderText?: string;
   frontType?: string;
   generatedType?: GeneratedContentsKind;
   sourceTitle?: string | null;
@@ -87,6 +89,7 @@ type ExportInput = {
   author: string;
   sourcePath: string;
   segments?: ExportSegment[];
+  contentVariant?: ContentVariant | null;
 };
 
 type RenderedFootnote = {
@@ -143,7 +146,7 @@ type ExportDocxSettings = FeuilletsSettings & {
    services/docx-review-import.js. */
 
 /** Génère un fichier Word (.docx) avec gestion des en-têtes/pieds et numérotation des pages */
-export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments }: ExportInput): Promise<Buffer> {
+export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant }: ExportInput): Promise<Buffer> {
   /* Ces champs sont fournis par DEFAULT_SETTINGS ; FeuilletsSettings les
      garde ouverts pendant la migration progressive pour les autres services. */
   const docxSettings = settings as ExportDocxSettings;
@@ -178,8 +181,8 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   const isManuscriptTemplate = template.profile === "manuscript";
   const allSegments = segments ?? [];
   const renderSegments = allSegments.filter((segment) => segment.generatedType !== "summary" && segment.generatedType !== "toc");
-  const renderMarkdown = segments && segments.length ? markedMarkdownFor(renderSegments) : markdown;
-  const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath);
+  const renderMarkdown = segments && segments.length ? markedMarkdownFor(renderSegments.map((segment) => ({ ...segment, text: segment.renderText ?? segment.text }))) : markdown;
+  const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath, [], contentVariant ?? null);
 
   const footnoteIdByHref = new Map<string, number>();
   const footnoteMap: Record<string, { children: Paragraph[] }> = {};
@@ -368,7 +371,8 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
         frontOverride = { isTitleLine };
       }
     }
-    const paras = blockToParagraphs(child, footnoteIdByHref, tpl, headings, images, frontOverride);
+    const blockOverride = child.classList.contains("feuillets-page-break-before") ? { ...(frontOverride || {}), manualPageBreak: true } : frontOverride;
+    const paras = blockToParagraphs(child, footnoteIdByHref, tpl, headings, images, blockOverride);
     (currentFrontBuffer || bodyParagraphs).push(...paras);
   }
   if (openBookmarkLinkId != null) {

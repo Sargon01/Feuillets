@@ -284,6 +284,19 @@ export function resourcesSubfolderPath(app: App, resourcesPath: string, newName:
   return normalizePath(`${resourcesPath}/${newName}`);
 }
 
+/** Chemin du sous-dossier réservé aux fichiers internes de Feuillets.
+ * Reconnaît les variantes historiques sans jamais créer quoi que ce soit. */
+export function internalResourcesFolderPath(app: App, root: TFolder): string {
+  return resourcesSubfolderPath(
+    app,
+    resourcesFolderPath(app, root),
+    FEUILLETS_RESOURCE_FOLDERS.assets,
+    "Assets",
+    "Visuels",
+    "Internal resources",
+  );
+}
+
 export function depthOf(app: App, settings: FeuilletsSettings, node: ProjectNode): number {
   const root = getProjectFolder(app, settings);
   if (!root) return 0;

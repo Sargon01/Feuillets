@@ -31,6 +31,8 @@ export type DefaultSettings = {
   liveJustify: boolean;
   readingMatchLive: boolean;
   roleEditorDisplay: "callouts" | "compact";
+  presentationTheme: "classic" | "course" | "ivory" | "slate";
+  presentationThemes: import("./services/presentation-theme.js").PresentationThemeCustomizations;
   readingFontSize: number;
   lineHeight: number;
   textWidth: number;
@@ -239,6 +241,8 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   liveJustify: false,
   readingMatchLive: true,
   roleEditorDisplay: "callouts",
+  presentationTheme: "classic",
+  presentationThemes: {},
   readingFontSize: 0,
   lineHeight: 0,
   textWidth: 0,

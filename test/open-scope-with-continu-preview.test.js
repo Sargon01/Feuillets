@@ -497,29 +497,6 @@ test("I. Preview absente : workLeaf active AVANT le split, getLeaf(\"split\") ap
   assert.equal(calls.setActiveLeaf[calls.setActiveLeaf.length - 1].leaf, workLeaf, "le tout dernier appel cible workLeaf");
 });
 
-test("I bis. Preview réutilisée initialement en Support papier : openScopeWithPreviewBesideLeaf la ramène en document AVANT le scope demandé", async () => {
-  const project = buildProject();
-  const scope = createFileScope(project.root.path, project.a.path);
-  const existingPreview = {
-    view: fakePreviewView(createFileScope(project.root.path, project.b.path), "presentation-paper"),
-  };
-  const workLeaf = { isDeferred: false, loadIfDeferred: async () => {}, view: fakeContinuView(scope) };
-  const { workspace, previewLeaves } = buildWorkspace({ previewLeaves: [existingPreview] });
-  const app = buildApp(project, workspace);
-
-  await openScopeWithPreviewBesideLeaf(app, scope, workLeaf);
-
-  assert.deepEqual(existingPreview.view.setSourceModeCalls, ["document"], "le chemin NORMAL réinitialise toujours sourceMode à document");
-  assert.equal(existingPreview.view.sourceMode, "document");
-  assert.deepEqual(existingPreview.view.compileScope, scope, "le scope demandé est bien appliqué, pas conservé au hasard");
-  assert.equal(previewLeaves.length, 1, "aucun doublon");
-
-  // Ordre : le reset sourceMode précède le scope — jamais l'inverse, pour
-  // qu'une Preview réutilisée ne rende jamais le pipeline papier avec un
-  // scope qui n'en est pas un.
-  assert.deepEqual(existingPreview.view.callOrder, ["setSourceMode", "setCompileScope"], "setSourceMode(\"document\") précède toujours setCompileScope");
-});
-
 test("J. Preview déjà existante : aucune nouvelle leaf, aucun split, réutilisée sans être déplacée", async () => {
   const project = buildProject();
   const scope = createFileScope(project.root.path, project.a.path);

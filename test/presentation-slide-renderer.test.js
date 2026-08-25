@@ -3,7 +3,8 @@ import test from "node:test";
 import { MarkdownRenderer, Component } from "obsidian";
 import { renderPresentationSlide, PRESENTATION_SLIDE_WIDTH, PRESENTATION_SLIDE_HEIGHT } from "../src/services/presentation-slide-renderer.js";
 import { presentationContainedMediaSize } from "../src/services/presentation-layout-engine.js";
-import { SEMANTIC_ROLES } from "../src/utils/semantic-roles.js";
+import { resolvePresentationTheme } from "../src/services/presentation-theme.js";
+import { SEMANTIC_ROLES, SEMANTIC_PALETTE } from "../src/utils/semantic-roles.js";
 
 /* FakeElement DOM factice — même convention que test/presentation-view.test.js
    (le renderer est testé ici directement, sans passer par une View). */
@@ -35,6 +36,7 @@ class FakeElement {
       if (typeof value !== "function") clone.style[key] = value;
     }
     if (this.tagName === "IMG") { clone.complete = this.complete; clone.naturalWidth = this.naturalWidth; clone.naturalHeight = this.naturalHeight; }
+    if (this.tagName === "VIDEO") { clone.videoWidth = 0; clone.videoHeight = 0; }
     if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true));
     return clone;
   }
@@ -48,6 +50,7 @@ class FakeElement {
   removeAttribute(name) { this.attrs.delete(name); }
   getBoundingClientRect() { return { width: this.clientWidth, height: this.clientHeight, top: 0, left: 0, right: this.clientWidth, bottom: this.clientHeight }; }
   addEventListener(type, listener, options = {}) { this._listeners.push({ type, listener, once: options?.once, signal: options?.signal }); }
+  removeEventListener(type, listener) { this._listeners = this._listeners.filter((entry) => entry.type !== type || entry.listener !== listener); }
   dispatch(type) {
     for (const entry of [...this._listeners]) {
       if (entry.type !== type) continue;
@@ -86,6 +89,51 @@ function knownMedia(container, w, h) {
   img.complete = true; img.naturalWidth = w; img.naturalHeight = h;
   return { media, img };
 }
+function unknownVideo(container) {
+  const media = container.createEl("p");
+  const video = media.createEl("video");
+  video.videoWidth = 0; video.videoHeight = 0;
+  return { media, video };
+}
+function knownVideo(container, w, h) {
+  const media = container.createEl("p");
+  const video = media.createEl("video");
+  video.videoWidth = w; video.videoHeight = h;
+  return { media, video };
+}
+
+function citationCallout(container, paragraphCount, nested = false, role = "citation") {
+  const callout = container.createEl("div", { cls: `callout feuillets-semantic-role feuillets-role-${role}`, attr: { "data-callout": role } });
+  callout.createEl("div", { cls: "callout-title", text: "Citation" });
+  const content = callout.createEl("div", { cls: "callout-content" });
+  if (nested) {
+    const wrapper = content.createEl("div");
+    for (let i = 0; i < paragraphCount; i++) wrapper.createEl("p", { text: `Paragraphe ${i + 1}` });
+  } else {
+    for (let i = 0; i < paragraphCount; i++) content.createEl("p", { text: `Paragraphe ${i + 1}` });
+  }
+  return callout;
+}
+
+function directCallout(container, role, title) {
+  const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": role } });
+  callout.createEl("div", { cls: "callout-title", text: title });
+  callout.createEl("div", { cls: "callout-content", text: `${title} contenu` });
+  return callout;
+}
+
+function speakerNotesCallout(container, text = "Note orale") {
+  const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "speaker-notes" } });
+  callout.createEl("div", { cls: "callout-title", text: "Speaker notes" });
+  callout.createEl("div", { cls: "callout-content", text });
+  return callout;
+}
+
+function nestedSpeakerNotesCallout(container) {
+  const source = directCallout(container, "source", "Source");
+  speakerNotesCallout(source.querySelector(".callout-content"), "Note imbriquée");
+  return source;
+}
 
 function render(markdown, extra = {}) {
   const measurementHost = new FakeElement();
@@ -118,6 +166,31 @@ function withForcedCellSize(width, height, fn) {
   return fn().finally(() => { FakeElement.prototype.createDiv = originalCreateDiv; });
 }
 
+function withForcedTextTextCellOverflow(overflowPx, fn) {
+  const originalCreateDiv = FakeElement.prototype.createDiv;
+  FakeElement.prototype.createDiv = function forcedCreateDiv(options = {}) {
+    const el = originalCreateDiv.call(this, options);
+    if (options.cls === "feuillets-presentation-render-cell") el.scrollWidth = el.clientWidth + overflowPx;
+    return el;
+  };
+  return fn().finally(() => { FakeElement.prototype.createDiv = originalCreateDiv; });
+}
+
+function withProfileOverflow(normalOverflowPx, compactOverflowPx, fn) {
+  const originalCreateDiv = FakeElement.prototype.createDiv;
+  let contentRegions = 0;
+  FakeElement.prototype.createDiv = function profileOverflowCreateDiv(options = {}) {
+    const el = originalCreateDiv.call(this, options);
+    if (options.cls?.includes("feuillets-presentation-render-content")) {
+      contentRegions++;
+      const overflowPx = contentRegions <= 6 ? normalOverflowPx : compactOverflowPx;
+      el.scrollHeight = el.clientHeight + overflowPx;
+    }
+    return el;
+  };
+  return Promise.resolve(fn(() => contentRegions)).finally(() => { FakeElement.prototype.createDiv = originalCreateDiv; });
+}
+
 function assertClose(actual, expected, tolerance = 0.01) {
   assert.ok(Math.abs(actual - expected) <= tolerance, `attendu ~${expected}, obtenu ${actual}`);
 }
@@ -125,6 +198,699 @@ function assertClose(actual, expected, tolerance = 0.01) {
 test("PRESENTATION_SLIDE_WIDTH/HEIGHT : surface fixe 1280×720", () => {
   assert.equal(PRESENTATION_SLIDE_WIDTH, 1280);
   assert.equal(PRESENTATION_SLIDE_HEIGHT, 720);
+});
+
+test("SPEAKER NOTES : callout top-level retiré du rendu et diagnostiqué", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre"); paragraph(container, "Contenu visible"); speakerNotesCallout(container, "Ne pas projeter");
+  };
+  try {
+    const { result } = await render("# Titre\n\nContenu\n\n> [!speaker-notes]\n> Ne pas projeter");
+    assert.equal(result.hasSpeakerNotes, true);
+    assert.equal(result.section.getAttribute("data-speaker-notes"), "true");
+    assert.equal(result.inner.innerText.includes("Ne pas projeter"), false);
+    assert.equal(result.inner.querySelector('.callout[data-callout="speaker-notes"]'), null);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("SPEAKER NOTES : absence, plusieurs notes et note imbriquée", async () => {
+  const previous = MarkdownRenderer.render;
+  try {
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Sans note"); paragraph(container, "Visible"); };
+    const without = await render("# Sans note");
+    assert.equal(without.result.hasSpeakerNotes, false);
+    assert.equal(without.result.section.getAttribute("data-speaker-notes"), null);
+
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Deux notes"); speakerNotesCallout(container, "Premier contenu"); speakerNotesCallout(container, "Second contenu"); };
+    const multiple = await render("# Deux notes");
+    assert.equal(multiple.result.hasSpeakerNotes, true);
+    assert.equal(multiple.result.inner.innerText.includes("Premier contenu"), false);
+    assert.equal(multiple.result.inner.innerText.includes("Second contenu"), false);
+    assert.equal(multiple.result.section.getAttribute("data-speaker-notes"), "true");
+
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Imbriquée"); nestedSpeakerNotesCallout(container); };
+    const nested = await render("# Imbriquée");
+    assert.equal(nested.result.hasSpeakerNotes, false);
+    assert.equal(Array.from(nested.result.inner.querySelectorAll(".callout")).some((callout) => callout.getAttribute("data-callout") === "source"), true);
+    assert.equal(nested.result.inner.innerText.includes("Note imbriquée"), true);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("SPEAKER NOTES : title, texte-texte, grouped-callout, media et overrides restent inchangés", async () => {
+  const previous = MarkdownRenderer.render;
+  try {
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Cours"); container.createEl("h2", { text: "Sous-titre" }); speakerNotesCallout(container, "Plan"); };
+    const title = await render("# Cours\n\n## Sous-titre\n\n> [!speaker-notes]\n> Plan", { index: 0 });
+    assert.equal(title.result.section.getAttribute("data-title-slide"), "true");
+    assert.equal(title.result.hasSpeakerNotes, true);
+
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Titre"); paragraph(container, "A"); paragraph(container, "B"); speakerNotesCallout(container); };
+    const text = await render("# Titre\n\nA\n\nB\n\n> [!speaker-notes]\n> Note", { index: 1 });
+    assert.equal(text.result.geometry, "split");
+    assert.equal(text.result.inner.querySelectorAll(".feuillets-presentation-render-cell").length, 2);
+
+    MarkdownRenderer.render = async (_app, markdown, container) => {
+      heading(container, "Titre");
+      if (markdown.includes("grouped")) { directCallout(container, "source", "Source"); directCallout(container, "questions", "Questions"); directCallout(container, "solution", "Solution"); }
+      else { paragraph(container, "Texte"); knownMedia(container, 800, 600); }
+      speakerNotesCallout(container);
+    };
+    const grouped = await render("grouped", { index: 1 });
+    assert.match(grouped.result.candidate || "", /^grouped-/);
+    assert.equal(grouped.result.inner.querySelectorAll(".callout").length, 3);
+    const media = await render("media", { index: 1, layoutOverride: "image-left" });
+    assert.equal(media.result.section.getAttribute("data-layout-override"), "image-left");
+    assert.equal(media.result.section.getAttribute("data-layout-override-applied"), "true");
+    assert.equal(media.result.geometry, "split");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("SPEAKER NOTES : Callout/Compact et Classic/Dark n'exposent aucun rendu de note", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre"); paragraph(container, "Visible"); speakerNotesCallout(container, "Privé");
+  };
+  try {
+    for (const roleEditorDisplay of ["callouts", "compact"]) {
+      for (const themeId of ["classic", "dark"]) {
+        const { result } = await render("# Titre", { roleEditorDisplay, theme: resolvePresentationTheme(themeId) });
+        assert.equal(result.hasSpeakerNotes, true);
+        assert.equal(result.section.getAttribute("data-speaker-notes"), "true");
+        assert.equal(result.inner.innerText.includes("Privé"), false);
+      }
+    }
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("GROUPED CALLOUT : 3 callouts directs → deux colonnes, titre pleine largeur et ordre conservé", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    container.createEl("h2", { text: "Slide chargée" });
+    directCallout(container, "source", "Source");
+    directCallout(container, "questions", "Questions");
+    directCallout(container, "solution", "Solution");
+  };
+  try {
+    const { result } = await render("GROUPED-3", { index: 1 });
+    assert.equal(result.geometry, "split");
+    assert.match(result.candidate || "", /^grouped-[12]-split-(35|42|50|58|65)-(65|58|50|42|35)$/);
+    const headingRegion = result.inner.querySelector(".feuillets-presentation-render-heading");
+    assert.equal(headingRegion?.innerText, "Slide chargée");
+    const cells = Array.from(result.inner.querySelectorAll(".feuillets-presentation-render-cell"));
+    assert.equal(cells.length, 2);
+    assert.equal(result.inner.querySelectorAll(".callout").length, 3);
+    assert.deepEqual(cells.flatMap((cell) => cell.querySelectorAll(".callout").map((callout) => callout.querySelector(".callout-title")?.innerText)), ["Source", "Questions", "Solution"]);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("GROUPED CALLOUT : 4 callouts testent exactement les trois coupures contiguës", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    container.createEl("h2", { text: "Titre" });
+    for (const role of ["source", "questions", "solution", "citation"]) directCallout(container, role, role);
+  };
+  try {
+    const { result } = await render("GROUPED-4", { index: 1 });
+    assert.equal(result.geometry, "split");
+    assert.match(result.candidate || "", /^grouped-[123]-split-/);
+    assert.equal(result.inner.querySelectorAll(".callout").length, 4);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("GROUPED CALLOUT : un bloc ordinaire ou un média conserve le pipeline existant", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    container.createEl("h2", { text: "Titre" });
+    directCallout(container, "source", "Source");
+    paragraph(container, "Paragraphe");
+    directCallout(container, "solution", "Solution");
+  };
+  try {
+    const { result } = await render("GROUPED-NON-ELIGIBLE", { index: 1 });
+    assert.notEqual(result.candidate?.startsWith("grouped-"), true);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("TEXT + TEXT sur une slide non-titre : SPLIT à deux cellules, ordre Markdown et DOM mesuré conservés", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    container.createEl("h2", { text: "Titre" });
+    paragraph(container, "A");
+    paragraph(container, "B");
+  };
+  try {
+    const { result, measurementHost } = await render("TEXT-TEXT", { index: 1 });
+    assert.equal(result.geometry, "split");
+    assert.ok(["split-35-65", "split-42-58", "split-50-50", "split-58-42", "split-65-35"].includes(result.candidate || ""));
+    const cells = Array.from(result.inner.querySelectorAll(".feuillets-presentation-render-cell"));
+    assert.equal(cells.length, 2);
+    assert.equal(cells[0].innerText, "A");
+    assert.equal(cells[1].innerText, "B");
+    assert.equal(result.inner.querySelectorAll("img, video, audio").length, 0);
+    assert.equal(result.inner.querySelectorAll(".feuillets-presentation-render-stack").length, 0);
+    assert.equal(result.section.parentElement?.children.includes(result.section), true);
+    assert.equal(measurementHost.children.length, 0);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("override FLOW : force FLOW, désactive le titre et expose les attributs diagnostiques", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre"); paragraph(container, "A"); knownMedia(container, 800, 600);
+  };
+  try {
+    const { result } = await render("# Titre", { index: 0, layoutOverride: "flow" });
+    assert.ok(result.geometry, "le rendu termine malgré l'erreur vidéo");
+    assert.equal(result.section.getAttribute("data-title-slide"), null);
+    assert.equal(result.section.getAttribute("data-layout-override"), "flow");
+    assert.equal(result.section.getAttribute("data-layout-override-applied"), "true");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("override COLUMNS : conserve un SPLIT existant et rend un cas non éligible en AUTO", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre"); paragraph(container, "A"); paragraph(container, "B");
+  };
+  try {
+    const { result } = await render("# Titre", { index: 1, layoutOverride: "columns" });
+    assert.equal(result.geometry, "split");
+    assert.equal(result.section.getAttribute("data-layout-override-applied"), "true");
+    await withForcedTextTextCellOverflow(10, async () => {
+      const forced = await render("# Titre", { index: 1, layoutOverride: "columns" });
+      assert.equal(forced.result.geometry, "split");
+      assert.equal(forced.result.overflow, true);
+    });
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Titre"); paragraph(container, "Unique"); };
+    const fallback = await render("# Titre", { index: 1, layoutOverride: "columns" });
+    assert.equal(fallback.result.geometry, "flow");
+    assert.equal(fallback.result.section.getAttribute("data-layout-override"), "columns");
+    assert.equal(fallback.result.section.getAttribute("data-layout-override-applied"), "false");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("AUTO : conserve le comportement automatique sans diagnostic d’override", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Titre"); paragraph(container, "A"); paragraph(container, "B"); };
+  try {
+    const automatic = await render("# Titre", { index: 1 });
+    const explicit = await render("# Titre", { index: 1 });
+    assert.equal(explicit.result.geometry, automatic.result.geometry);
+    assert.equal(explicit.result.candidate, automatic.result.candidate);
+    assert.equal(explicit.result.overflow, automatic.result.overflow);
+    assert.equal(explicit.result.section.getAttribute("data-layout-override"), null);
+    assert.equal(explicit.result.section.getAttribute("data-layout-override-applied"), null);
+    assert.equal(automatic.result.section.getAttribute("data-layout-override"), null);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("override image-left/right : réoriente seulement les cellules média SPLIT existantes", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    heading(container, "Titre");
+    if (markdown.includes("image-left")) { paragraph(container, "Texte"); knownMedia(container, 800, 600); }
+    else { knownMedia(container, 800, 600); paragraph(container, "Texte"); }
+  };
+  try {
+    const left = await render("image-left", { index: 1, layoutOverride: "image-left" });
+    const leftCells = Array.from(left.result.inner.querySelectorAll(".feuillets-presentation-render-cell"));
+    assert.equal(left.result.geometry, "split");
+    assert.equal(left.result.section.getAttribute("data-layout-override-applied"), "true");
+    assert.equal(leftCells[0].querySelector("img") !== null, true);
+    assert.equal(leftCells[1].innerText, "Texte");
+
+    const right = await render("image-right", { index: 1, layoutOverride: "image-right" });
+    const rightCells = Array.from(right.result.inner.querySelectorAll(".feuillets-presentation-render-cell"));
+    assert.equal(right.result.geometry, "split");
+    assert.equal(right.result.section.getAttribute("data-layout-override-applied"), "true");
+    assert.equal(rightCells[0].innerText, "Texte");
+    assert.equal(rightCells[1].querySelector("img") !== null, true);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("override image-left : audio reste ordinaire et l'override est inapplicable", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => { const block = paragraph(container, "Audio"); block.createEl("audio"); };
+  try {
+    const { result } = await render("audio", { index: 1, layoutOverride: "image-left" });
+    assert.ok(result.geometry, "le rendu termine malgré l'erreur vidéo");
+    assert.equal(result.section.getAttribute("data-layout-override-applied"), "false");
+    assert.ok(result.inner.querySelector("audio"));
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("TEXT + TEXT : si tous les SPLIT débordent, FLOW tient et adopte son DOM mesuré", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre"); paragraph(container, "A"); paragraph(container, "B");
+  };
+  try {
+    await withForcedTextTextCellOverflow(10, async () => {
+      const { result, measurementHost, deckContainer } = await render("TEXT-TEXT-FLOW", { index: 1 });
+      assert.equal(result.geometry, "flow");
+      assert.equal(result.candidate, null);
+      assert.equal(result.overflow, false);
+      const content = result.inner.querySelector(".feuillets-presentation-render-flow");
+      assert.equal(content?.innerText, "AB");
+      assert.equal(result.section.parentElement, deckContainer);
+      assert.equal(measurementHost.children.length, 0);
+    });
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("TEXT + TEXT : FLOW débordant gagne si son overflow est strictement inférieur au meilleur SPLIT", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre");
+    const first = paragraph(container, "A"); const second = paragraph(container, "B");
+    first.scrollHeight += 3; second.scrollHeight += 3;
+  };
+  try {
+    await withForcedTextTextCellOverflow(10, async () => {
+      const { result } = await render("TEXT-TEXT-FLOW-BEST", { index: 1 });
+      assert.equal(result.geometry, "flow");
+      assert.equal(result.overflow, true);
+    });
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("TEXT + TEXT : à overflow FLOW égal au meilleur SPLIT, le SPLIT est conservé", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre");
+    const first = paragraph(container, "A"); const second = paragraph(container, "B");
+    first.scrollHeight += 5; second.scrollHeight += 5;
+  };
+  try {
+    await withForcedTextTextCellOverflow(5, async () => {
+      const { result } = await render("TEXT-TEXT-FLOW-TIE", { index: 1 });
+      assert.equal(result.geometry, "split");
+      assert.equal(result.candidate, "split-35-65");
+      assert.equal(result.overflow, true);
+    });
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("slide 0 heading + texte reste FLOW et reçoit le marqueur de titre", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre"); paragraph(container, "A");
+  };
+  try {
+    const { result } = await render("TITLE", { index: 0 });
+    assert.equal(result.geometry, "flow");
+    assert.equal(result.candidate, null);
+    assert.equal(result.section.getAttribute("data-title-slide"), "true");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("slide 0 heading + liste reste une slide normale, sans marqueur de titre", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Première Guerre mondiale");
+    const list = container.createEl("ul"); list.createEl("li", { text: "nationalismes" });
+  };
+  try {
+    const { result } = await render("RICH-TITLE", { index: 0 });
+    assert.notEqual(result.section.getAttribute("data-title-slide"), "true");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Markdown standard : lien, code inline, tableau et math restent dans le DOM gagnant", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Contenu standard");
+    const link = paragraph(container, "OpenAI"); link.createEl("a", { text: "OpenAI", attr: { href: "https://openai.com" } });
+    const code = paragraph(container, "Utiliser npm run build."); code.createEl("code", { text: "npm run build" });
+    const table = container.createEl("table"); const row = table.createEl("tr"); row.createEl("td", { text: "1914" }); row.createEl("td", { text: "Début" });
+    paragraph(container, "E = mc^2").createEl("span", { cls: "math-inline", text: "E = mc^2" });
+  };
+  try {
+    const { result } = await render("MARKDOWN-STANDARD", { index: 1 });
+    assert.equal(result.inner.querySelector("a").getAttribute("href"), "https://openai.com");
+    assert.equal(result.inner.querySelector("code").innerText, "npm run build");
+    assert.equal(result.inner.querySelector("table").querySelector("td").innerText, "1914");
+    assert.equal(result.inner.querySelector(".math-inline").innerText, "E = mc^2");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Audio : reste dans le DOM ordinaire et ne déclenche aucun layout média", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Audio"); const paragraphEl = paragraph(container, "Description"); paragraphEl.createEl("audio");
+  };
+  try {
+    const { result } = await render("AUDIO", { index: 1 });
+    assert.ok(result.inner.querySelector("audio"));
+    assert.equal(result.geometry, "flow");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("TEXT + TEXT + TEXT reste FLOW", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre"); paragraph(container, "A"); paragraph(container, "B"); paragraph(container, "C");
+  };
+  try {
+    const { result } = await render("THREE-TEXT", { index: 1 });
+    assert.equal(result.geometry, "flow");
+    assert.equal(result.candidate, null);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Citation : le corps reste à sa taille normale avec un seul paragraphe", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => { citationCallout(container, 1); };
+  try {
+    const { result } = await render("CITATION-COURTE");
+    const callout = result.inner.querySelector(".callout");
+    assert.notEqual(callout?.querySelector(".callout-content")?.style.fontSize, "24px");
+    assert.equal(result.inner.style.padding, "72px 80px");
+    assert.equal(result.inner.style.rowGap, "28px");
+    assert.equal(callout?.querySelector(".callout-title")?.text, "Citation");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Citation : le corps multi-paragraphes passe exactement à 24px, titre intact", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => { citationCallout(container, 2); };
+  try {
+    const { result } = await render("CITATION-LONGUE");
+    const callout = result.inner.querySelector(".callout");
+    assert.equal(callout?.querySelector(".callout-content")?.style.fontSize, "24px");
+    assert.equal(result.inner.style.padding, "60px 80px");
+    assert.equal(result.inner.style.rowGap, "20px");
+    assert.notEqual(callout?.querySelector(".callout-title")?.style.fontSize, "24px");
+    assert.equal(callout?.querySelector(".callout-content")?.querySelectorAll("p").length, 2);
+    assert.ok(callout?.classList.contains("feuillets-semantic-role"));
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Citation : trois paragraphes restent à 24px et les paragraphes non directs ne déclenchent rien", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    citationCallout(container, markdown === "CITATION-THREE" ? 3 : 2, markdown === "CITATION-NESTED");
+  };
+  try {
+    const { result: three } = await render("CITATION-THREE");
+    assert.equal(three.inner.querySelector(".callout-content")?.style.fontSize, "24px");
+    assert.equal(three.inner.style.padding, "60px 80px");
+    assert.equal(three.inner.style.rowGap, "20px");
+    const { result: nested } = await render("CITATION-NESTED");
+    assert.notEqual(nested.inner.querySelector(".callout-content")?.style.fontSize, "24px");
+    assert.equal(nested.inner.style.padding, "72px 80px");
+    assert.equal(nested.inner.style.rowGap, "28px");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Citation : les autres rôles et les callouts natifs ne sont pas réduits", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    if (markdown === "SOURCE") citationCallout(container, 2, false, "source");
+    else {
+      const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "note" } });
+      callout.createEl("div", { cls: "callout-title", text: "Note" });
+      const content = callout.createEl("div", { cls: "callout-content" });
+      content.createEl("p", { text: "A" }); content.createEl("p", { text: "B" });
+    }
+  };
+  try {
+    const { result: source } = await render("SOURCE");
+    assert.notEqual(source.inner.querySelector(".callout-content")?.style.fontSize, "24px");
+    assert.equal(source.inner.style.padding, "72px 80px");
+    assert.equal(source.inner.style.rowGap, "28px");
+    const { result: native } = await render("NATIVE");
+    assert.notEqual(native.inner.querySelector(".callout-content")?.style.fontSize, "24px");
+    assert.equal(native.inner.style.padding, "72px 80px");
+    assert.equal(native.inner.style.rowGap, "28px");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Citation multi-paragraphes : mode Compact conserve le corps à 24px et retire le chrome", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => { citationCallout(container, 2); };
+  try {
+    const { result } = await render("CITATION-COMPACT", { roleEditorDisplay: "compact" });
+    const callout = result.inner.querySelector(".callout");
+    assert.equal(callout?.querySelector(".callout-content")?.style.fontSize, "24px");
+    assert.equal(result.inner.style.padding, "60px 80px");
+    assert.equal(result.inner.style.rowGap, "20px");
+    assert.equal(callout?.style.background, "transparent");
+    assert.notEqual(callout?.querySelector(".callout-title")?.style.display, "none");
+    assert.notEqual(callout?.querySelector(".callout-content")?.style.display, "none");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Citation longue en texte–texte : SPLIT conserve les ratios existants et les métriques compactes", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre");
+    citationCallout(container, 2);
+    paragraph(container, "Questions");
+  };
+  try {
+    const { result } = await render("CITATION-TEXT-TEXT", { index: 1 });
+    assert.equal(result.geometry, "split");
+    assert.ok(["split-35-65", "split-42-58", "split-50-50", "split-58-42", "split-65-35"].includes(result.candidate || ""));
+    assert.equal(result.inner.style.padding, "60px 80px");
+    assert.equal(result.inner.style.rowGap, "20px");
+    assert.equal(result.inner.querySelector(".callout-content")?.style.fontSize, "24px");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Citation longue en repli FLOW : les métriques compactes sont conservées pendant la mesure", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre");
+    citationCallout(container, 2);
+    paragraph(container, "Questions");
+  };
+  try {
+    await withForcedTextTextCellOverflow(10, async () => {
+      const { result, measurementHost, deckContainer } = await render("CITATION-FLOW-FALLBACK", { index: 1 });
+      assert.equal(result.geometry, "flow");
+      assert.equal(result.candidate, null);
+      assert.equal(result.inner.style.padding, "60px 80px");
+      assert.equal(result.inner.style.rowGap, "20px");
+      assert.equal(result.inner.querySelector(".callout-content")?.style.fontSize, "24px");
+      assert.equal(result.section.parentElement, deckContainer);
+      assert.equal(measurementHost.children.length, 0);
+    });
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Grammaire des titres : thème Classic neutre avec tailles 48/40/32", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    container.createEl("h1", { text: "H1" });
+    container.createEl("h2", { text: "H2" });
+    container.createEl("h3", { text: "H3" });
+  };
+  try {
+    const { result } = await render("HEADING-GRAMMAR");
+    const headings = [result.inner.querySelector("h1"), result.inner.querySelector("h2"), result.inner.querySelector("h3")];
+    assert.deepEqual(headings.map((heading) => heading?.style.fontSize), ["48px", "40px", "32px"]);
+    assert.deepEqual(headings.map((heading) => heading?.style.color), ["#1F1F1F", "#1F1F1F", "#1F1F1F"]);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Grammaire des mises en avant : strong rouge hors headings, héritage structurel dans les headings, em inchangé", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    const paragraphEl = paragraph(container, "Texte");
+    const normalStrong = paragraphEl.createEl("strong", { text: "important" });
+    const listEl = container.createEl("ul");
+    const listStrong = listEl.createEl("li").createEl("strong", { text: "liste" });
+    const h1 = container.createEl("h1", { text: "Titre" });
+    const h1Strong = h1.createEl("strong", { text: "fort" });
+    const h2 = container.createEl("h2", { text: "Partie" });
+    h2.createEl("strong", { text: "fort" });
+    const h3 = container.createEl("h3", { text: "Sous-partie" });
+    const h3Strong = h3.createEl("strong", { text: "fort" });
+    const normalEm = paragraphEl.createEl("em", { text: "italique" });
+    const h3Em = h3.createEl("em", { text: "italique" });
+    return { normalStrong, listStrong, h1, h1Strong, h3, h3Strong, normalEm, h3Em };
+  };
+  try {
+    const { result } = await render("INLINE-GRAMMAR");
+    const strongs = result.inner.querySelectorAll("strong");
+    assert.equal(strongs[0]?.style.color, "#1F1F1F");
+    assert.equal(strongs[1]?.style.color, "#1F1F1F");
+    assert.equal(strongs[2]?.style.color, "#1F1F1F");
+    assert.equal(strongs[3]?.style.color, "#1F1F1F");
+    assert.equal(result.inner.querySelector("h1")?.style.color, "#1F1F1F");
+    assert.equal(result.inner.querySelector("h3")?.style.color, "#1F1F1F");
+    assert.equal(result.inner.querySelector("em")?.style.color || "", "");
+    assert.equal(result.inner.querySelector("h3")?.querySelector("em")?.style.color || "", "");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Synthèse Classic : accent canonique et corps neutre", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "synthese" } });
+    callout.createEl("div", { cls: "callout-title", text: "Synthèse" });
+    const content = callout.createEl("div", { cls: "callout-content" });
+    const contentParagraph = content.createEl("p", { text: "Texte" });
+    contentParagraph.createEl("strong", { text: "important" });
+  };
+  try {
+    const { result } = await render("SYNTHESE-GRAMMAR");
+    const callout = result.inner.querySelector(".callout");
+    assert.equal(callout?.querySelector(".callout-title")?.style.color, "#1F5EA8");
+    assert.equal(callout?.querySelector(".callout-content")?.style.color, "#1F1F1F");
+    assert.equal(callout?.querySelector("strong")?.style.color, "#1F1F1F");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Synthèse : respiration ciblée des blocs directs, sans marge parasite", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "synthese" } });
+    callout.createEl("div", { cls: "callout-title", text: "Synthèse" });
+    const content = callout.createEl("div", { cls: "callout-content" });
+    content.createEl("h3", { text: "A" });
+    content.createEl("ul").createEl("li", { text: "Point 1" });
+    content.createEl("h3", { text: "B" });
+    content.createEl("ol").createEl("li", { text: "Point 2" });
+    content.createEl("p", { text: "Après liste" });
+    content.createEl("p", { text: "Après paragraphe" });
+  };
+  try {
+    const { result } = await render("SYNTHESE-RHYTHM");
+    const callout = result.inner.querySelector(".callout");
+    const content = callout?.querySelector(".callout-content");
+    const blocks = content?.children || [];
+    assert.equal(content?.style.marginTop, "18px");
+    assert.equal(blocks[0]?.style.marginTop, "0px");
+    assert.equal(blocks[0]?.style.marginBottom, "12px");
+    assert.equal(blocks[1]?.style.marginTop || "", "");
+    assert.equal(blocks[2]?.style.marginTop, "24px");
+    assert.equal(blocks[2]?.style.marginBottom, "12px");
+    assert.equal(blocks[3]?.style.marginTop || "", "");
+    assert.equal(blocks[4]?.style.marginTop, "10px");
+    assert.equal(blocks[5]?.style.marginTop, "10px");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Synthèse : H4 et paragraphes directs suivent la même grammaire", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "synthese" } });
+    callout.createEl("div", { cls: "callout-title", text: "Synthèse" });
+    const content = callout.createEl("div", { cls: "callout-content" });
+    content.createEl("h4", { text: "1" });
+    content.createEl("p", { text: "A" });
+    content.createEl("p", { text: "B" });
+    content.createEl("ul").createEl("li", { text: "C" });
+    content.createEl("h4", { text: "2" });
+  };
+  try {
+    const { result } = await render("SYNTHESE-H4");
+    const blocks = result.inner.querySelector(".callout-content")?.children || [];
+    assert.equal(blocks[0]?.style.marginTop, "0px");
+    assert.equal(blocks[0]?.style.marginBottom, "12px");
+    assert.equal(blocks[1]?.style.marginTop || "", "");
+    assert.equal(blocks[2]?.style.marginTop, "10px");
+    assert.equal(blocks[3]?.style.marginTop, "10px");
+    assert.equal(blocks[4]?.style.marginTop, "24px");
+    assert.equal(blocks[4]?.style.marginBottom, "12px");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Synthèse uniquement : questions et callout natif restent inchangés", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    for (const role of ["questions", "note"]) {
+      const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": role } });
+      callout.createEl("div", { cls: "callout-title", text: role });
+      const content = callout.createEl("div", { cls: "callout-content" });
+      content.createEl("h3", { text: "Section" });
+      content.createEl("p", { text: "Texte" });
+    }
+  };
+  try {
+    const { result } = await render("NON-SYNTHESE-RHYTHM");
+    for (const content of Array.from(result.inner.querySelectorAll(".callout-content"))) {
+      assert.equal(content.style.marginTop || "", "");
+      assert.equal(content.querySelector("h3")?.style.marginTop || "", "");
+      assert.equal(content.querySelector("p")?.style.marginTop || "", "");
+    }
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+function loadedSynthese(container) {
+  const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "synthese" } });
+  callout.createEl("div", { cls: "callout-title", text: "II. Le basileus" });
+  const content = callout.createEl("div", { cls: "callout-content" });
+  content.createEl("h3", { text: "A. Un empereur sacré" });
+  content.createEl("ul").createEl("li", { text: "L’empereur gouverne avec l’aide du clergé." });
+  content.createEl("h3", { text: "B. Un empereur chef de guerre" });
+  content.createEl("ul").createEl("li", { text: "L’empire est de plus en plus menacé et son territoire se réduit au cours du Moyen Âge." });
+  return callout;
+}
+
+test("Synthèse courte : le profil NORMAL reste le seul profil mesuré", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    loadedSynthese(container);
+    paragraph(container, "Bloc complémentaire");
+  };
+  try {
+    await withProfileOverflow(0, 0, async (getContentRegionCount) => {
+      const { result } = await render("SYNTHESE-NORMAL-ONLY", { index: 1 });
+      assert.equal(getContentRegionCount(), 5, "les cinq candidats NORMAL sont mesurés");
+      assert.equal(result.inner.querySelector(".callout-content")?.style.marginTop, "18px");
+      assert.equal(result.inner.querySelector("h3")?.style.marginBottom, "12px");
+      assert.equal(result.inner.querySelector("h3")?.style.fontSize, "32px");
+    });
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Synthèse chargée : NORMAL déborde, COMPACT tient et conserve Moyen Âge.", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    loadedSynthese(container);
+    paragraph(container, "Bloc complémentaire");
+  };
+  try {
+    await withProfileOverflow(10, 0, async (getContentRegionCount) => {
+      const { result } = await render("SYNTHESE-LOADED", { index: 1 });
+      assert.equal(getContentRegionCount(), 11, "NORMAL puis COMPACT, sans troisième passe");
+      assert.equal(result.overflow, false);
+      assert.equal(result.inner.innerText.includes("Moyen Âge."), true);
+      assert.equal(result.inner.querySelector(".callout-content")?.style.marginTop, "12px");
+      assert.equal(result.inner.querySelector("h3")?.style.marginTop, "0px");
+      assert.equal(result.inner.querySelector("h3")?.style.marginBottom, "8px");
+      assert.equal(result.inner.querySelectorAll("h3")[1]?.style.marginTop, "16px");
+      assert.equal(result.inner.querySelector("li")?.style.margin, "0 0 0.3em 0");
+      assert.equal(result.inner.querySelector("h3")?.style.fontSize, "32px");
+      const content = result.inner.querySelector(".callout-content");
+      assert.equal(content?.style.display, "block");
+      assert.deepEqual(Array.from(content?.children || []).map((child) => child.tagName), ["H3", "UL", "H3", "UL"]);
+    });
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Synthèse : COMPACT n’est retenu que s’il améliore réellement l’overflow", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    loadedSynthese(container);
+    paragraph(container, "Bloc complémentaire");
+  };
+  try {
+    await withProfileOverflow(10, 10, async (getContentRegionCount) => {
+      const { result } = await render("SYNTHESE-TIE", { index: 1 });
+      assert.equal(getContentRegionCount(), 12, "les deux profils sont mesurés jusqu’à égalité");
+      assert.equal(result.inner.querySelector(".callout-content")?.style.marginTop, "18px");
+    });
+    await withProfileOverflow(10, 15, async (getContentRegionCount) => {
+      const { result } = await render("SYNTHESE-COMPACT-WORSE", { index: 1 });
+      assert.equal(getContentRegionCount(), 12, "les deux profils sont mesurés quand COMPACT est pire");
+      assert.equal(result.inner.querySelector(".callout-content")?.style.marginTop, "18px");
+    });
+  } finally { MarkdownRenderer.render = previous; }
 });
 
 test("DOM mesuré === DOM affiché : un seul rendu source, le DOM retourné est directement celui inséré dans deckContainer", async () => {
@@ -320,6 +1086,115 @@ test("Async : une image déjà chargée n'attache aucun listener (aucun appel à
     const image = result.inner.querySelector("img");
     image.dispatch("load"); // dispatch manuel malgré l'absence de listener (image déjà complete)
     assert.equal(resolved, 0);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Vidéo résolue : dimensions internes posées et aucun listener metadata final", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => { knownVideo(container, 1920, 1080); paragraph(container, "texte"); };
+  try {
+    let resolved = 0;
+    const { result } = await render("VIDEO-CONNU", { onMediaResolved: () => { resolved++; } });
+    const video = result.inner.querySelector("video");
+    assert.equal(video.getAttribute("data-feuillets-video-width"), "1920");
+    assert.equal(video.getAttribute("data-feuillets-video-height"), "1080");
+    assert.deepEqual(video._listeners, []);
+    assert.equal(resolved, 0);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Vidéo async : loadedmetadata poursuit le même rendu sans rebuild", async () => {
+  const previous = MarkdownRenderer.render;
+  let renderCalls = 0;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    renderCalls++;
+    const { video } = unknownVideo(container);
+    setTimeout(() => { video.videoWidth = 1920; video.videoHeight = 1080; video.dispatch("loadedmetadata"); }, 0);
+    paragraph(container, "texte");
+  };
+  try {
+    let resolved = 0;
+    const { result } = await render("VIDEO-ASYNC", { onMediaResolved: () => { resolved++; } });
+    const video = result.inner.querySelector("video");
+    assert.equal(renderCalls, 1);
+    assert.equal(video.getAttribute("data-feuillets-video-width"), "1920");
+    assert.equal(video.getAttribute("data-feuillets-video-height"), "1080");
+    assert.equal(resolved, 0);
+    assert.equal(video._listeners.length, 0);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Vidéo clone 0×0 : les attributs internes fournissent encore 1920×1080", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => { knownVideo(container, 1920, 1080); paragraph(container, "texte"); };
+  try {
+    const { result } = await render("VIDEO-CLONE", { index: 1 });
+    const video = result.inner.querySelector("video");
+    assert.equal(video.videoWidth, 0);
+    assert.equal(video.videoHeight, 0);
+    assert.equal(video.getAttribute("data-feuillets-video-width"), "1920");
+    assert.equal(video.getAttribute("data-feuillets-video-height"), "1080");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Vidéo error : le rendu se débloque sans rebuild ni onMediaResolved", async () => {
+  const previous = MarkdownRenderer.render;
+  let renderCalls = 0;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    renderCalls++;
+    const { video } = unknownVideo(container);
+    setTimeout(() => video.dispatch("error"), 0);
+    paragraph(container, "texte");
+  };
+  try {
+    let resolved = 0;
+    const { result } = await render("VIDEO-ERROR", { onMediaResolved: () => { resolved++; } });
+    assert.equal(renderCalls, 1);
+    assert.equal(resolved, 0);
+    assert.ok(result.geometry, "le rendu termine malgré l'erreur vidéo");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Vidéo abort : l'attente se termine, les listeners sont libérés et aucun rebuild ne survient", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => { unknownVideo(container); paragraph(container, "texte"); };
+  try {
+    let resolved = 0;
+    const controller = new AbortController();
+    const pending = render("VIDEO-ABORT", { controller, onMediaResolved: () => { resolved++; } });
+    controller.abort();
+    const { result, measurementHost } = await pending;
+    assert.equal(resolved, 0);
+    assert.equal(measurementHost.children.length, 0);
+    assert.equal(result.geometry, null);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Vidéo : overrides, FLOW et speaker-notes conservent le ratio et le DOM final", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    heading(container, "Vidéo");
+    if (markdown.includes("image-right")) { paragraph(container, "Texte"); knownVideo(container, 1920, 1080); }
+    else { knownVideo(container, 1920, 1080); paragraph(container, "Texte"); }
+    if (markdown.includes("speaker")) speakerNotesCallout(container, "Lancer la vidéo");
+  };
+  try {
+    const left = await render("image-left", { index: 1, layoutOverride: "image-left" });
+    assert.equal(left.result.geometry, "split");
+    assert.equal(left.result.section.getAttribute("data-layout-override-applied"), "true");
+    assert.equal(left.result.inner.querySelectorAll("video").length, 1);
+    assert.equal(left.result.inner.querySelectorAll(".feuillets-presentation-render-cell")[0].querySelector("video") !== null, true);
+
+    const right = await render("image-right", { index: 1, layoutOverride: "image-right" });
+    assert.equal(right.result.geometry, "split");
+    assert.equal(right.result.section.getAttribute("data-layout-override-applied"), "true");
+
+    const notes = await render("speaker", { index: 1 });
+    const video = notes.result.inner.querySelector("video");
+    assert.equal(notes.result.hasSpeakerNotes, true);
+    assert.equal(notes.result.inner.innerText.includes("Lancer la vidéo"), false);
+    assert.equal(video.getAttribute("data-feuillets-video-width"), "1920");
+    assert.equal(video.getAttribute("data-feuillets-video-height"), "1080");
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -755,7 +1630,7 @@ test("Callout + [!source] : chrome conservé, icône native masquée, couleur s�
     // Couleur sémantique appliquée au titre (via CSS classes, pas inline)
     const title_elem = callout.querySelector(".callout-title");
     assert.ok(title_elem, "callout-title présent");
-    assert.equal(title_elem?.style.color || "", "", "aucune couleur inline sur callout-title (appliquée via CSS classes)");
+    assert.equal(title_elem?.style.color || "", "#1F5EA8", "accent du thème appliqué au titre");
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -912,7 +1787,8 @@ test("Compact : pas de couleur inline sur les titres de rôles sémantiques (18 
     const callouts = result.inner.querySelectorAll(".callout.feuillets-semantic-role");
     for (const callout of callouts) {
       const title = callout.querySelector(".callout-title");
-      assert.equal(title?.style.color || "", "", `Pas de couleur inline sur titre de ${callout.getAttribute("data-callout")} en compact`);
+      const expectedColor = callout.getAttribute("data-callout") === "synthese" ? SEMANTIC_PALETTE.red : "";
+      assert.equal(title?.style.color || "", expectedColor, `Couleur du titre de ${callout.getAttribute("data-callout")} en compact`);
     }
   } finally { MarkdownRenderer.render = previous; }
 });
@@ -932,7 +1808,8 @@ test("Callout : pas de couleur inline sur les titres de rôles sémantiques (18 
     const callouts = result.inner.querySelectorAll(".callout.feuillets-semantic-role");
     for (const callout of callouts) {
       const title = callout.querySelector(".callout-title");
-      assert.equal(title?.style.color || "", "", `Pas de couleur inline sur titre de ${callout.getAttribute("data-callout")} en callout`);
+      const expectedColor = callout.getAttribute("data-callout") === "synthese" ? SEMANTIC_PALETTE.red : "";
+      assert.equal(title?.style.color || "", expectedColor, `Couleur du titre de ${callout.getAttribute("data-callout")} en callout`);
     }
   } finally { MarkdownRenderer.render = previous; }
 });
@@ -1326,7 +2203,7 @@ test("Thème hostile — [!synthese] (sémantique) : couleur claire/overflow:hid
     const content = callout.querySelector(".callout-content");
     assert.equal(content.style.overflow, "visible", "overflow:hidden hostile neutralisé sur le contenu");
     assert.equal(content.style.maxHeight, "none", "max-height:0 hostile neutralisé sur le contenu");
-    assert.equal(content.style.color, "#1f1f1f", "couleur claire hostile neutralisée sur le contenu, couleur sombre explicite");
+    assert.equal(content.style.color, "#1F1F1F", "couleur claire hostile neutralisée sur le contenu, couleur sombre explicite");
     assert.ok(result.inner.innerText?.includes("Points clés résumés"), "contenu toujours lisible malgré le thème hostile");
   } finally { MarkdownRenderer.render = previous; }
 });
@@ -1348,11 +2225,11 @@ test("Thème hostile — [!note] (non sémantique) : titre à couleur claire pos
     const { result } = await render("HOSTILE-NOTE", { roleEditorDisplay: "callouts" });
     const callout = result.inner.querySelector(".callout");
     const titleInner = callout.querySelector(".callout-title-inner");
-    assert.equal(titleInner.style.color, "#1f1f1f", "couleur claire hostile neutralisée sur le titre non sémantique");
+    assert.equal(titleInner.style.color, "#1F1F1F", "couleur claire hostile neutralisée sur le titre non sémantique");
     assert.equal(titleInner.style.overflow, "visible", "overflow:hidden hostile neutralisé sur le titre");
     assert.equal(titleInner.style.maxHeight, "none", "max-height:0 hostile neutralisé sur le titre");
     const content = callout.querySelector(".callout-content");
-    assert.equal(content.style.color, "#1f1f1f", "couleur claire hostile neutralisée sur le contenu");
+    assert.equal(content.style.color, "#1F1F1F", "couleur claire hostile neutralisée sur le contenu");
     assert.ok(result.inner.innerText?.includes("Note"), "titre toujours lisible");
     assert.ok(result.inner.innerText?.includes("Contenu de la note"), "contenu toujours lisible");
   } finally { MarkdownRenderer.render = previous; }

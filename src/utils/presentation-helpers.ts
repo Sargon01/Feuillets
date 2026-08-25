@@ -5,6 +5,8 @@
  */
 
 import type { App } from "obsidian";
+import { presentationThemeForFile, type ResolvedPresentationTheme } from "../services/presentation-theme.js";
+import { getLocale } from "../i18n/index.js";
 
 /**
  * Vérifie si un object a une propriété donnée et retourne sa valeur.
@@ -62,4 +64,19 @@ export function getRoleEditorDisplay(app: App): "callouts" | "compact" {
     // En cas d'erreur quelconque, retour à la valeur par défaut
     return "callouts";
   }
+}
+
+export function getPresentationTheme(app: App, filePath: string): ResolvedPresentationTheme {
+  const pluginsObj = safeGetProperty(app, "plugins");
+  const pluginsMap = safeGetProperty(pluginsObj, "plugins");
+  const plugin = safeGetProperty(pluginsMap, "feuillets");
+  const settingsValue = safeGetProperty(plugin, "settings");
+  if (!settingsValue || typeof settingsValue !== "object") return presentationThemeForFile({ presentationTheme: "classic", presentationThemes: {}, projectMeta: {}, projectFolder: undefined }, filePath, getLocale());
+  const settings = settingsValue as Partial<FeuilletsSettings>;
+  return presentationThemeForFile({
+    presentationTheme: settings.presentationTheme,
+    presentationThemes: settings.presentationThemes ?? {},
+    projectMeta: settings.projectMeta ?? {},
+    projectFolder: settings.projectFolder,
+  }, filePath, getLocale());
 }

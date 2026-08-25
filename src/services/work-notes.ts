@@ -1,18 +1,15 @@
-import { TFile, TFolder, normalizePath } from "obsidian";
+import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
-import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, FEUILLETS_RESOURCE_FOLDERS } from "./folder-structure.js";
+import { getProjectFolder, internalResourcesFolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
 
 export interface WorkNote { id: string; file: string; text: string; }
 export interface WorkNotesStore { version: 1; notes: WorkNote[]; }
 export class WorkNotesFileCorruptedError extends Error { constructor(readonly path: string) { super(`Fichier work-notes JSON invalide : ${path}`); } }
 
-function folderPath(app: App, root: TFolder): string {
-  return resourcesSubfolderPath(app, resourcesFolderPath(app, root), FEUILLETS_RESOURCE_FOLDERS.assets, "Assets", "Visuels", "Internal resources");
-}
 export function workNotesFilePath(app: App, settings: FeuilletsSettings | null | undefined): string | null {
   const root = getProjectFolder(app, settings);
-  return root ? normalizePath(`${folderPath(app, root)}/work-notes.json`) : null;
+  return root ? normalizePath(`${internalResourcesFolderPath(app, root)}/work-notes.json`) : null;
 }
 function empty(): WorkNotesStore { return { version: 1, notes: [] }; }
 function valid(value: unknown): value is WorkNotesStore {
@@ -28,7 +25,7 @@ export async function loadWorkNotes(app: App, settings: FeuilletsSettings | null
 }
 export async function saveWorkNotes(app: App, settings: FeuilletsSettings | null | undefined, store: WorkNotesStore): Promise<void> {
   const root = getProjectFolder(app, settings); if (!root) throw new Error("Aucun projet Feuillets actif.");
-  const folder = folderPath(app, root); await ensureFolder(app, folder); const path = normalizePath(`${folder}/work-notes.json`); const existing = app.vault.getAbstractFileByPath(path); const json = JSON.stringify(store, null, 2);
+  const folder = internalResourcesFolderPath(app, root); await ensureFolder(app, folder); const path = normalizePath(`${folder}/work-notes.json`); const existing = app.vault.getAbstractFileByPath(path); const json = JSON.stringify(store, null, 2);
   if (existing instanceof TFile) await app.vault.modify(existing, json); else await app.vault.create(path, json);
 }
 function id(): string { return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; }

@@ -1,12 +1,11 @@
-import { TFile, TFolder, normalizePath } from "obsidian";
+import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import {
   getProjectFolder,
-  resourcesFolderPath,
-  resourcesSubfolderPath,
-  FEUILLETS_RESOURCE_FOLDERS,
+  internalResourcesFolderPath,
 } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
+import { resolveSourceAnchor } from "./source-anchor.js";
 
 /** Annotations de relecture (surlignages + commentaires) sur le texte du
  * Manuscrit — stockage seul, aucune UI. Un fichier JSON unique par projet,
@@ -79,25 +78,13 @@ function uuid(): string {
  * noms déjà supportés par ailleurs) — jamais recalculé indépendamment,
  * toujours via resourcesSubfolderPath comme les autres sous-dossiers de
  * Ressources. */
-function annotationsFolderPath(app: App, root: TFolder): string {
-  const resourcesPath = resourcesFolderPath(app, root);
-  return resourcesSubfolderPath(
-    app,
-    resourcesPath,
-    FEUILLETS_RESOURCE_FOLDERS.assets,
-    "Assets",
-    "Visuels",
-    "Internal resources"
-  );
-}
-
 /** Chemin du fichier annotations.json pour le projet actif, ou `null` s'il
  * n'y a pas de projet Feuillets actif. Une simple résolution de chemin :
  * ne crée rien, n'implique pas que le fichier existe déjà sur le disque. */
 export function annotationsFilePath(app: App, settings: FeuilletsSettings | null | undefined): string | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
-  return normalizePath(`${annotationsFolderPath(app, root)}/${ANNOTATIONS_FILE_NAME}`);
+  return normalizePath(`${internalResourcesFolderPath(app, root)}/${ANNOTATIONS_FILE_NAME}`);
 }
 
 /** Chemin d'un TFile du Manuscrit relatif à la racine du projet (celle que
@@ -176,7 +163,7 @@ export async function saveAnnotations(
 ): Promise<void> {
   const root = getProjectFolder(app, settings);
   if (!root) throw new Error("Aucun projet Feuillets actif.");
-  const folderPath = annotationsFolderPath(app, root);
+  const folderPath = internalResourcesFolderPath(app, root);
   await ensureFolder(app, folderPath);
   const path = normalizePath(`${folderPath}/${ANNOTATIONS_FILE_NAME}`);
   const json = JSON.stringify(store, null, 2);
@@ -268,19 +255,6 @@ export async function remapAnnotationsAfterRename(
   return changed;
 }
 
-function findAllIndices(haystack: string, needle: string): number[] {
-  if (!needle) return [];
-  const out: number[] = [];
-  let from = 0;
-  for (;;) {
-    const idx = haystack.indexOf(needle, from);
-    if (idx === -1) break;
-    out.push(idx);
-    from = idx + 1; // occurrences potentiellement chevauchantes : jamais needle.length
-  }
-  return out;
-}
-
 /** Retrouve la position actuelle d'une annotation dans le texte courant du
  * fichier annoté (contenu déjà lu par l'appelant — cette fonction ne touche
  * pas au disque). Retourne `null` ("unresolved") plutôt que de deviner dès
@@ -297,56 +271,5 @@ function findAllIndices(haystack: string, needle: string): number[] {
  *    unresolved.
  */
 export function resolveAnnotation(annotation: Annotation, content: string): ResolvedRange | null {
-  const { start, end, quote, prefix, suffix } = annotation;
-
-  if (
-    Number.isInteger(start) &&
-    Number.isInteger(end) &&
-    start >= 0 &&
-    end > start &&
-    end <= content.length &&
-    content.slice(start, end) === quote
-  ) {
-    return { start, end };
-  }
-
-  const quoteOccurrences = findAllIndices(content, quote);
-
-  if (quoteOccurrences.length === 1) {
-    const idx = quoteOccurrences[0];
-    return { start: idx, end: idx + quote.length };
-  }
-
-  if (quoteOccurrences.length > 1) {
-    const matches = quoteOccurrences.filter((idx) => {
-      const before = content.slice(Math.max(0, idx - prefix.length), idx);
-      const after = content.slice(idx + quote.length, idx + quote.length + suffix.length);
-      const prefixOk = prefix ? before.endsWith(prefix) : true;
-      const suffixOk = suffix ? after.startsWith(suffix) : true;
-      return prefixOk && suffixOk;
-    });
-    if (matches.length === 1) {
-      const idx = matches[0];
-      return { start: idx, end: idx + quote.length };
-    }
-    return null; // ambiguïté persistante : ne jamais deviner
-  }
-
-  // `quote` introuvable : le passage a peut-être légèrement changé.
-  // On tente de le retrouver via une paire prefix/suffix unique.
-  if (prefix && suffix) {
-    const prefixOccurrences = findAllIndices(content, prefix);
-    const candidates: ResolvedRange[] = [];
-    for (const pIdx of prefixOccurrences) {
-      const afterPrefix = pIdx + prefix.length;
-      const searchZone = content.slice(afterPrefix);
-      const sIdx = searchZone.indexOf(suffix);
-      if (sIdx !== -1) {
-        candidates.push({ start: afterPrefix, end: afterPrefix + sIdx });
-      }
-    }
-    if (candidates.length === 1) return candidates[0];
-  }
-
-  return null; // passage supprimé, ou ambiguïté non résolue
+  return resolveSourceAnchor(annotation, content);
 }

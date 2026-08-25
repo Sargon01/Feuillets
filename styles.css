@@ -10184,3 +10184,7 @@ body.feuillets-text-width
 .feuillets-presentation-view .feuillets-presentation-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
 .feuillets-presentation-view .feuillets-presentation-frame { width: 1280px; height: 720px; transform-origin: center; }
 .feuillets-presentation-view .feuillets-presentation-empty { height: 100%; display: grid; place-items: center; color: var(--feuillets-presentation-muted); }
+
+.feuillets-editor-page-break { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--text-muted); font-size: 0.85em; }
+.feuillets-editor-page-break-line { flex: 1; height: 1px; background: var(--background-modifier-border); }
+.feuillets-editor-page-break-label { white-space: nowrap; }
