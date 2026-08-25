@@ -167,11 +167,10 @@ test("planner : la syntaxe Markdown et les coordonnées ne dérivent pas", async
   assert.deepEqual(slides.map((slide) => [slide.startLine, slide.endLine]), [[0, 1], [2, 3], [4, 5], [6, 6]]);
 });
 
-test("planner : speaker-notes suivent le bloc visible et ne sont pas une slide seule", async () => {
-  const markdown = "# Titre\n\nVisible\n\n> [!speaker-notes]\n> À dire\n\n> [!synthese]\n> Fin";
+test("planner : un callout non canonique reste un bloc ordinaire", async () => {
+  const markdown = "# Titre\n\nVisible\n\n> [!legacy-notes]\n> À dire\n\n> [!synthese]\n> Fin";
   const slides = await planPresentationSlides({ ...base, markdown, measureOverflow: async () => true });
-  assert.equal(slides.some((slide) => /^> \[!speaker-notes\]/u.test(slide.markdown)), false);
-  assert.ok(slides.some((slide) => slide.markdown.includes("Visible") && slide.markdown.includes("À dire")));
+  assert.ok(slides.some((slide) => slide.markdown.includes("[!legacy-notes]")));
 });
 
 test("planner : frontmatter et séparateurs explicites conservent les plages", async () => {
@@ -263,4 +262,82 @@ test("planner : un vrai séparateur conserve exactement le découpage partagé",
   const expected = splitPresentationMarkdownWithRanges(markdown);
   const actual = await planPresentationSlides({ ...base, markdown, measureOverflow: async () => false });
   assert.deepEqual(actual, expected);
+});
+
+/* ── Sauts explicites (« Saut de page ») ─────────────────────────────────── */
+
+test("planner : un saut explicite ouvre TOUJOURS une nouvelle slide, même sans débordement", async () => {
+  const markdown = "# Titre\n\nAvant le saut.\n\nAprès le saut.";
+  const segments = splitPresentationMarkdownWithRanges(markdown);
+  assert.equal(segments.length, 1, "aucun séparateur --- : un seul segment explicite");
+
+  // Ligne 4 = « Après le saut. » (0-indexée).
+  const slides = await planPresentationSlides({
+    ...base, markdown,
+    forcedBreakLines: [4],
+    measureOverflow: async () => false,
+  });
+
+  assert.equal(slides.length, 2, "le saut découpe malgré l'absence de débordement");
+  assert.match(slides[0].markdown, /Avant le saut/);
+  assert.doesNotMatch(slides[0].markdown, /Après le saut/);
+  assert.match(slides[1].markdown, /Après le saut/);
+});
+
+test("planner : sans saut explicite, le même document reste une seule slide", async () => {
+  const markdown = "# Titre\n\nAvant le saut.\n\nAprès le saut.";
+  const slides = await planPresentationSlides({ ...base, markdown, measureOverflow: async () => false });
+  assert.equal(slides.length, 1, "c'est bien le saut, et non le contenu, qui découpait");
+});
+
+test("planner : une ligne de saut qui ne correspond à aucun bloc est ignorée sans dommage", async () => {
+  const markdown = "# Titre\n\nTexte.";
+  const slides = await planPresentationSlides({
+    ...base, markdown,
+    forcedBreakLines: [999],
+    measureOverflow: async () => false,
+  });
+  assert.equal(slides.length, 1);
+});
+
+/* ── Disposition manuelle prise en compte à la mesure ────────────────────── */
+
+test("planner : la disposition manuelle est transmise à la sonde de débordement", async () => {
+  const markdown = "## Titre\n\n![carte](carte.png)\n\n> [!questions]\n> Question ?";
+  const seen = [];
+  await planPresentationSlides({
+    ...base, markdown,
+    slideLayouts: new Map([[0, "image-left"]]),
+    measureOverflow: async (_value, _index, layoutOverride) => { seen.push(layoutOverride); return false; },
+  });
+  assert.ok(seen.length >= 1);
+  assert.ok(seen.every((layout) => layout === "image-left"), `toutes les mesures utilisent la disposition de l'auteur, reçu : ${JSON.stringify(seen)}`);
+});
+
+test("planner : sans disposition manuelle, la sonde reçoit null (disposition automatique)", async () => {
+  const markdown = "## Titre\n\nTexte.";
+  const seen = [];
+  await planPresentationSlides({
+    ...base, markdown,
+    measureOverflow: async (_value, _index, layoutOverride) => { seen.push(layoutOverride); return false; },
+  });
+  assert.ok(seen.every((layout) => layout === null));
+});
+
+test("RÉGRESSION image + questions séparées — une disposition manuelle qui fait tenir le contenu empêche la coupure", async () => {
+  const markdown = "## I. L'empire Carolingien\n\n![carte](carte.png)\n\n> [!questions]\n> 1. Question ?";
+  // Déborde en disposition automatique (colonne unique), tient en image-left.
+  const measureOverflow = async (_value, _index, layoutOverride) => layoutOverride !== "image-left";
+
+  const withoutOverride = await planPresentationSlides({ ...base, markdown, measureOverflow });
+  assert.ok(withoutOverride.length > 1, "sans disposition manuelle, le contenu est bien scindé");
+
+  const withOverride = await planPresentationSlides({
+    ...base, markdown,
+    slideLayouts: new Map([[0, "image-left"]]),
+    measureOverflow,
+  });
+  assert.equal(withOverride.length, 1, "avec image-left, image et questions restent sur la même slide");
+  assert.match(withOverride[0].markdown, /carte\.png/);
+  assert.match(withOverride[0].markdown, /\[!questions\]/);
 });

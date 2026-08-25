@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { splitPresentationMarkdownWithRanges } from "../src/services/presentation.js";
 import { createSourceAnchor } from "../src/services/source-anchor.js";
-import { createPresentationSlideAnchor, resolvePresentationSlideLayouts, replacePresentationSlideLayout } from "../src/services/presentation-layout-overrides.js";
+import { createPresentationSlideAnchor, resolvePresentationSlideLayouts, replacePresentationSlideLayout, presentationPlanningOverrides } from "../src/services/presentation-layout-overrides.js";
 
 function override(markdown, needle, layout, id = needle) {
   const start = markdown.indexOf(needle);
@@ -51,4 +51,43 @@ test("remplacement : un seul slide-layout cible, autres familles et slides prés
   assert.equal(next.overrides.find((item) => item.id === "doc")?.kind, "image-position");
   const automatic = replacePresentationSlideLayout(next, "Cours.md", markdown, slides, 0, null);
   assert.equal(automatic.overrides.some((item) => item.kind === "slide-layout" && item.id !== "other"), false);
+});
+
+test("presentationPlanningOverrides : traduit les overrides stockés en entrées pour le planificateur", () => {
+  const markdown = "# Titre\n\nAvant.\n\nAprès.";
+  const segments = splitPresentationMarkdownWithRanges(markdown);
+  const slideAnchor = createPresentationSlideAnchor(markdown, segments[0]);
+  const breakStart = markdown.indexOf("Après.");
+  const breakAnchor = createSourceAnchor(markdown, breakStart, breakStart + "Après.".length);
+
+  const planning = presentationPlanningOverrides(markdown, [
+    { id: "a", file: "Cours.md", kind: "slide-layout", anchor: slideAnchor, layout: "columns" },
+    { id: "b", file: "Cours.md", kind: "page-break-before", anchor: breakAnchor },
+  ]);
+
+  // Disposition indexée par segment EXPLICITE (avant toute découpe automatique).
+  assert.deepEqual([...planning.slideLayouts.entries()], [[0, "columns"]]);
+  // Saut ramené à sa ligne source (« Après. » = ligne 4, 0-indexée).
+  assert.deepEqual(planning.forcedBreakLines, [4]);
+});
+
+test("presentationPlanningOverrides : un override d'un autre type n'est jamais confondu avec un saut", () => {
+  const markdown = "# Titre\n\nTexte.";
+  const start = markdown.indexOf("Texte.");
+  const anchor = createSourceAnchor(markdown, start, start + "Texte.".length);
+  const planning = presentationPlanningOverrides(markdown, [
+    { id: "c", file: "Cours.md", kind: "answer-lines", anchor, lines: 3 },
+  ]);
+  assert.deepEqual(planning.forcedBreakLines, []);
+  assert.equal(planning.slideLayouts.size, 0);
+});
+
+test("presentationPlanningOverrides : une ancre devenue introuvable est ignorée, jamais approximée", () => {
+  const original = "# Titre\n\nParagraphe supprimé depuis.";
+  const start = original.indexOf("Paragraphe");
+  const anchor = createSourceAnchor(original, start, start + "Paragraphe supprimé depuis.".length);
+  const planning = presentationPlanningOverrides("# Titre\n\nTout autre contenu.", [
+    { id: "d", file: "Cours.md", kind: "page-break-before", anchor },
+  ]);
+  assert.deepEqual(planning.forcedBreakLines, []);
 });

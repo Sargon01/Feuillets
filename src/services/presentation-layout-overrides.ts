@@ -97,3 +97,43 @@ export function resolvePresentationSlideLayoutsFromMarkdown(fullMarkdown: string
   const slides = splitPresentationMarkdownWithRanges(fullMarkdown);
   return resolvePresentationSlideLayouts(fullMarkdown, slides, layoutOverridesForFile(store, file));
 }
+
+/** Ce dont le planificateur a besoin pour respecter les choix de l'auteur. */
+export interface PresentationPlanningOverrides {
+  /** Dispositions manuelles, indexées par segment EXPLICITE (avant découpe automatique). */
+  slideLayouts: Map<number, PresentationLayoutOverride>;
+  /** Lignes source portant un saut explicite (« Saut de page »). */
+  forcedBreakLines: number[];
+}
+
+/**
+ * Traduit les overrides STOCKÉS en entrées directement exploitables par
+ * `planPresentationSlides`. Point d'entrée UNIQUE : les vues, la commande et
+ * l'export PDF passent tous par ici, si bien qu'aucun d'eux ne peut planifier
+ * sur une base différente des autres.
+ *
+ * Les dispositions sont volontairement résolues contre les segments
+ * EXPLICITES : la découpe automatique n'a pas encore eu lieu au moment de la
+ * planification, et c'est précisément ce qu'elles doivent pouvoir influencer.
+ */
+export function presentationPlanningOverrides(
+  fullMarkdown: string,
+  overrides: readonly LayoutOverride[],
+): PresentationPlanningOverrides {
+  const segments = splitPresentationMarkdownWithRanges(fullMarkdown);
+  const resolved = resolvePresentationSlideLayouts(fullMarkdown, segments, overrides);
+  const slideLayouts = new Map<number, PresentationLayoutOverride>();
+  for (const [index, override] of resolved) slideLayouts.set(index, override.layout);
+
+  const starts = lineStarts(fullMarkdown);
+  const forcedBreakLines: number[] = [];
+  for (const override of overrides) {
+    if (override.kind !== "page-break-before") continue;
+    const range = resolveSourceAnchor(override.anchor, fullMarkdown);
+    if (!range) continue;
+    const line = starts.findIndex((offset, index) =>
+      range.start >= offset && (starts[index + 1] === undefined || range.start < starts[index + 1]));
+    if (line >= 0 && !forcedBreakLines.includes(line)) forcedBreakLines.push(line);
+  }
+  return { slideLayouts, forcedBreakLines };
+}

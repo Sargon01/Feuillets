@@ -26,6 +26,7 @@ class FakeElement {
   createEl(tag, options = {}) { const child = new FakeElement(tag, options); this.appendChild(child); return child; }
   createDiv(options = {}) { return this.createEl("div", options); }
   appendChild(child) { child.remove?.(); child.parentElement = this; this.children.push(child); return child; }
+  append(...nodes) { for (const node of nodes) this.appendChild(node); }
   cloneNode(deep) {
     const clone = new FakeElement(this.tagName, { text: this.text });
     clone.attrs = new Map(this.attrs);
@@ -122,16 +123,16 @@ function directCallout(container, role, title) {
   return callout;
 }
 
-function speakerNotesCallout(container, text = "Note orale") {
-  const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "speaker-notes" } });
+function legacyNotesCallout(container, text = "Note orale") {
+  const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "legacy-notes" } });
   callout.createEl("div", { cls: "callout-title", text: "Speaker notes" });
   callout.createEl("div", { cls: "callout-content", text });
   return callout;
 }
 
-function nestedSpeakerNotesCallout(container) {
+function nestedLegacyNotesCallout(container) {
   const source = directCallout(container, "source", "Source");
-  speakerNotesCallout(source.querySelector(".callout-content"), "Note imbriquée");
+  legacyNotesCallout(source.querySelector(".callout-content"), "Note imbriquée");
   return source;
 }
 
@@ -200,53 +201,51 @@ test("PRESENTATION_SLIDE_WIDTH/HEIGHT : surface fixe 1280×720", () => {
   assert.equal(PRESENTATION_SLIDE_HEIGHT, 720);
 });
 
-test("SPEAKER NOTES : callout top-level retiré du rendu et diagnostiqué", async () => {
+test("LEGACY CALLOUT : callout top-level reste ordinaire", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
-    heading(container, "Titre"); paragraph(container, "Contenu visible"); speakerNotesCallout(container, "Ne pas projeter");
+    heading(container, "Titre"); paragraph(container, "Contenu visible"); legacyNotesCallout(container, "Ne pas projeter");
   };
   try {
-    const { result } = await render("# Titre\n\nContenu\n\n> [!speaker-notes]\n> Ne pas projeter");
-    assert.equal(result.hasSpeakerNotes, true);
-    assert.equal(result.section.getAttribute("data-speaker-notes"), "true");
-    assert.equal(result.inner.innerText.includes("Ne pas projeter"), false);
-    assert.equal(result.inner.querySelector('.callout[data-callout="speaker-notes"]'), null);
+    const { result } = await render("# Titre\n\nContenu\n\n> [!legacy-notes]\n> Ne pas projeter");
+    assert.equal(result.hasLegacyNotes, undefined);
+    assert.equal(result.section.getAttribute("data-legacy-notes"), null);
+    assert.equal(result.inner.innerText.includes("Ne pas projeter"), true);
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("SPEAKER NOTES : absence, plusieurs notes et note imbriquée", async () => {
+test("LEGACY CALLOUT : absence, plusieurs notes et note imbriquée", async () => {
   const previous = MarkdownRenderer.render;
   try {
     MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Sans note"); paragraph(container, "Visible"); };
     const without = await render("# Sans note");
-    assert.equal(without.result.hasSpeakerNotes, false);
-    assert.equal(without.result.section.getAttribute("data-speaker-notes"), null);
+    assert.equal(without.result.hasLegacyNotes, undefined);
+    assert.equal(without.result.section.getAttribute("data-legacy-notes"), null);
 
-    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Deux notes"); speakerNotesCallout(container, "Premier contenu"); speakerNotesCallout(container, "Second contenu"); };
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Deux notes"); legacyNotesCallout(container, "Premier contenu"); legacyNotesCallout(container, "Second contenu"); };
     const multiple = await render("# Deux notes");
-    assert.equal(multiple.result.hasSpeakerNotes, true);
-    assert.equal(multiple.result.inner.innerText.includes("Premier contenu"), false);
-    assert.equal(multiple.result.inner.innerText.includes("Second contenu"), false);
-    assert.equal(multiple.result.section.getAttribute("data-speaker-notes"), "true");
+    assert.equal(multiple.result.hasLegacyNotes, undefined);
+    assert.equal(multiple.result.inner.innerText.includes("Premier contenu"), true);
+    assert.equal(multiple.result.inner.innerText.includes("Second contenu"), true);
+    assert.equal(multiple.result.section.getAttribute("data-legacy-notes"), null);
 
-    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Imbriquée"); nestedSpeakerNotesCallout(container); };
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Imbriquée"); nestedLegacyNotesCallout(container); };
     const nested = await render("# Imbriquée");
-    assert.equal(nested.result.hasSpeakerNotes, false);
+    assert.equal(nested.result.hasLegacyNotes, undefined);
     assert.equal(Array.from(nested.result.inner.querySelectorAll(".callout")).some((callout) => callout.getAttribute("data-callout") === "source"), true);
     assert.equal(nested.result.inner.innerText.includes("Note imbriquée"), true);
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("SPEAKER NOTES : title, texte-texte, grouped-callout, media et overrides restent inchangés", async () => {
+test("LEGACY CALLOUT : title, texte-texte, grouped-callout, media et overrides restent inchangés", async () => {
   const previous = MarkdownRenderer.render;
   try {
-    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Cours"); container.createEl("h2", { text: "Sous-titre" }); speakerNotesCallout(container, "Plan"); };
-    const title = await render("# Cours\n\n## Sous-titre\n\n> [!speaker-notes]\n> Plan", { index: 0 });
-    assert.equal(title.result.section.getAttribute("data-title-slide"), "true");
-    assert.equal(title.result.hasSpeakerNotes, true);
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Cours"); container.createEl("h2", { text: "Sous-titre" }); legacyNotesCallout(container, "Plan"); };
+    const title = await render("# Cours\n\n## Sous-titre\n\n> [!legacy-notes]\n> Plan", { index: 0 });
+    assert.equal(title.result.hasLegacyNotes, undefined);
 
-    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Titre"); paragraph(container, "A"); paragraph(container, "B"); speakerNotesCallout(container); };
-    const text = await render("# Titre\n\nA\n\nB\n\n> [!speaker-notes]\n> Note", { index: 1 });
+    MarkdownRenderer.render = async (_app, _markdown, container) => { heading(container, "Titre"); paragraph(container, "A"); paragraph(container, "B"); legacyNotesCallout(container); };
+    const text = await render("# Titre\n\nA\n\nB\n\n> [!legacy-notes]\n> Note", { index: 1 });
     assert.equal(text.result.geometry, "split");
     assert.equal(text.result.inner.querySelectorAll(".feuillets-presentation-render-cell").length, 2);
 
@@ -254,11 +253,11 @@ test("SPEAKER NOTES : title, texte-texte, grouped-callout, media et overrides re
       heading(container, "Titre");
       if (markdown.includes("grouped")) { directCallout(container, "source", "Source"); directCallout(container, "questions", "Questions"); directCallout(container, "solution", "Solution"); }
       else { paragraph(container, "Texte"); knownMedia(container, 800, 600); }
-      speakerNotesCallout(container);
+      legacyNotesCallout(container);
     };
     const grouped = await render("grouped", { index: 1 });
     assert.match(grouped.result.candidate || "", /^grouped-/);
-    assert.equal(grouped.result.inner.querySelectorAll(".callout").length, 3);
+    assert.equal(grouped.result.inner.querySelectorAll(".callout").length, 4);
     const media = await render("media", { index: 1, layoutOverride: "image-left" });
     assert.equal(media.result.section.getAttribute("data-layout-override"), "image-left");
     assert.equal(media.result.section.getAttribute("data-layout-override-applied"), "true");
@@ -266,18 +265,18 @@ test("SPEAKER NOTES : title, texte-texte, grouped-callout, media et overrides re
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("SPEAKER NOTES : Callout/Compact et Classic/Dark n'exposent aucun rendu de note", async () => {
+test("LEGACY CALLOUT : Callout/Compact et Classic/Dark n'exposent aucun rendu de note", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
-    heading(container, "Titre"); paragraph(container, "Visible"); speakerNotesCallout(container, "Privé");
+    heading(container, "Titre"); paragraph(container, "Visible"); legacyNotesCallout(container, "Privé");
   };
   try {
     for (const roleEditorDisplay of ["callouts", "compact"]) {
       for (const themeId of ["classic", "dark"]) {
         const { result } = await render("# Titre", { roleEditorDisplay, theme: resolvePresentationTheme(themeId) });
-        assert.equal(result.hasSpeakerNotes, true);
-        assert.equal(result.section.getAttribute("data-speaker-notes"), "true");
-        assert.equal(result.inner.innerText.includes("Privé"), false);
+        assert.equal(result.hasLegacyNotes, undefined);
+        assert.equal(result.section.getAttribute("data-legacy-notes"), null);
+        assert.equal(result.inner.innerText.includes("Privé"), true);
       }
     }
   } finally { MarkdownRenderer.render = previous; }
@@ -547,15 +546,32 @@ test("Audio : reste dans le DOM ordinaire et ne déclenche aucun layout média",
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("TEXT + TEXT + TEXT reste FLOW", async () => {
+test("TEXT + TEXT + TEXT : nouvelle règle => 10 candidats split (partitions), pas FLOW", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     heading(container, "Titre"); paragraph(container, "A"); paragraph(container, "B"); paragraph(container, "C");
   };
   try {
     const { result } = await render("THREE-TEXT", { index: 1 });
-    assert.equal(result.geometry, "flow");
-    assert.equal(result.candidate, null);
+    assert.equal(result.geometry, "split", "3 blocs texte génèrent candidats split");
+    assert.ok(result.candidate?.startsWith("split-text-"), "ID de partition contiguë");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("TEXT + TEXT + TEXT avec tous débordements => fallback FLOW", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    heading(container, "Titre");
+    paragraph(container, "Texte très très très très très long A");
+    paragraph(container, "Texte très très très très très long B");
+    paragraph(container, "Texte très très très très très long C");
+  };
+  try {
+    return withForcedTextTextCellOverflow(20, async () => {
+      const { result } = await render("THREE-TEXT-OVERFLOW", { index: 1 });
+      assert.equal(result.geometry, "flow", "retombée à FLOW quand tous les splits débordent");
+      assert.equal(result.candidate, null);
+    });
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -902,13 +918,13 @@ test("DOM mesuré === DOM affiché : un seul rendu source, le DOM retourné est 
   };
   try {
     const { result, measurementHost, deckContainer } = await render("SPLIT");
-    // un seul rendu Markdown source, quel que soit le nombre de candidats mesurés (6 ici) :
+    // un seul rendu Markdown source, quel que soit le nombre de candidats mesurés (12 ici : 2 orientations média) :
     // aucune reconstruction du gagnant après le choix.
     assert.equal(renderCalls, 1);
     assert.equal(result.section.parentElement, deckContainer, "le DOM retourné est déjà inséré, jamais reconstruit ensuite");
     assert.equal(measurementHost.children.length, 0, "aucun candidat (gagnant ou perdant) ne subsiste dans le measurementHost");
     assert.ok(["split", "stack"].includes(result.geometry));
-    assert.match(result.candidate, /^(split|stack)-\d{2}-\d{2}$/);
+    assert.match(result.candidate, /^(split|stack)-media-(a|b)-\d{2}-\d{2}$/);
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -918,7 +934,7 @@ test("Candidats perdants détruits : measurementHost se retrouve vide, seul le g
   try {
     const { measurementHost, deckContainer } = await render("SPLIT");
     assert.equal(measurementHost.children.length, 0);
-    assert.equal(deckContainer.children.length, 1, "un seul DOM de slide adopté — les 5 autres candidats ont été détruits");
+    assert.equal(deckContainer.children.length, 1, "un seul DOM de slide adopté — les 11 autres candidats ont été détruits");
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -941,7 +957,7 @@ test("measurementHost : jamais display:none côté appelant (contrat), le render
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("FLOW P/IMG/P : ordre DOM final conservé, media-region entre les deux paragraphes, jamais P B enfant du média", async () => {
+test("P/IMG/P : ne force plus FLOW — média seul dans une cellule, A puis B regroupés (ordre Markdown conservé) dans l'autre", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     paragraph(container, "A");
@@ -950,16 +966,23 @@ test("FLOW P/IMG/P : ordre DOM final conservé, media-region entre les deux para
   };
   try {
     const { result } = await render("PAIP");
-    assert.equal(result.geometry, "flow");
+    assert.notEqual(result.geometry, "flow");
+    assert.equal(result.overflow, false);
     const content = result.inner.querySelector(".feuillets-presentation-render-content");
-    const topLevel = content.children;
-    assert.equal(topLevel.length, 3);
-    assert.equal(topLevel[0].tagName, "P");
-    assert.equal(topLevel[0].text, "A");
-    assert.equal(topLevel[1].classes.has("feuillets-presentation-render-flow-media-region"), true);
-    assert.equal(topLevel[2].tagName, "P");
-    assert.equal(topLevel[2].text, "B");
-    assert.equal(topLevel[1].children.some((c) => c.text === "B"), false);
+    const cells = content.children.filter((c) => c.classes.has("feuillets-presentation-render-cell"));
+    assert.equal(cells.length, 2);
+    const mediaCell = cells.find((c) => c.querySelector("img"));
+    const contentCell = cells.find((c) => c !== mediaCell);
+    assert.ok(mediaCell);
+    assert.ok(contentCell);
+    // le média est seul dans sa cellule — jamais empaqueté dans un callout-stack.
+    assert.equal(mediaCell.children.some((c) => c.classes.has("feuillets-presentation-render-callout-stack")), false);
+    // A et B regroupés dans l'autre cellule, ordre Markdown relatif conservé.
+    const stack = contentCell.children.find((c) => c.classes.has("feuillets-presentation-render-callout-stack"));
+    assert.ok(stack);
+    assert.equal(stack.children.length, 2);
+    assert.equal(stack.children[0].text, "A");
+    assert.equal(stack.children[1].text, "B");
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -1170,13 +1193,13 @@ test("Vidéo abort : l'attente se termine, les listeners sont libérés et aucun
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("Vidéo : overrides, FLOW et speaker-notes conservent le ratio et le DOM final", async () => {
+test("Vidéo : overrides, FLOW et legacy-notes conservent le ratio et le DOM final", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, markdown, container) => {
     heading(container, "Vidéo");
     if (markdown.includes("image-right")) { paragraph(container, "Texte"); knownVideo(container, 1920, 1080); }
     else { knownVideo(container, 1920, 1080); paragraph(container, "Texte"); }
-    if (markdown.includes("speaker")) speakerNotesCallout(container, "Lancer la vidéo");
+    if (markdown.includes("speaker")) legacyNotesCallout(container, "Lancer la vidéo");
   };
   try {
     const left = await render("image-left", { index: 1, layoutOverride: "image-left" });
@@ -1191,8 +1214,8 @@ test("Vidéo : overrides, FLOW et speaker-notes conservent le ratio et le DOM fi
 
     const notes = await render("speaker", { index: 1 });
     const video = notes.result.inner.querySelector("video");
-    assert.equal(notes.result.hasSpeakerNotes, true);
-    assert.equal(notes.result.inner.innerText.includes("Lancer la vidéo"), false);
+    assert.equal(notes.result.hasLegacyNotes, undefined);
+    assert.equal(notes.result.inner.innerText.includes("Lancer la vidéo"), true);
     assert.equal(video.getAttribute("data-feuillets-video-width"), "1920");
     assert.equal(video.getAttribute("data-feuillets-video-height"), "1080");
   } finally { MarkdownRenderer.render = previous; }
@@ -1970,7 +1993,7 @@ test("BUG 4 : 'document' et 'correction' (anciens ids) → visibles comme callou
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("BUG 7 : benchmarks existants média+texte SPLIT/STACK restent inchangés", async () => {
+test("BUG 7 : média + texte génère candidats SPLIT/STACK avec orientations media-a et media-b", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     container.createEl("h2", { text: "Titre" });
@@ -1979,14 +2002,14 @@ test("BUG 7 : benchmarks existants média+texte SPLIT/STACK restent inchangés",
   };
   try {
     const { result } = await render("BUG7-MEDIA-TEXTE");
-    // Texte après média : doit créer des candidats SPLIT/STACK
-    const candidates = ["split-42-58", "split-50-50", "split-58-42", "stack-65-35", "stack-60-40", "stack-55-45"];
-    assert.ok(candidates.includes(result.candidate || ""), "Candidat SPLIT ou STACK choisi");
+    // Texte après média : doit créer des candidats SPLIT/STACK media-a/media-b
+    assert.ok(result.candidate?.includes("split-media-") || result.candidate?.includes("stack-media-"), "Candidat SPLIT/STACK média choisi");
     assert.notEqual(result.geometry, "flow", "Pas FLOW pour média + texte");
+    assert.ok(result.candidate?.includes("-a-") || result.candidate?.includes("-b-"), "Orientation A ou B");
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("BUG 8 : P/IMG/P reste FLOW avec ordre conservé", async () => {
+test("BUG 8 : P/IMG/P ne force plus FLOW — composition groupée (média seul + A/B regroupés) quand elle tient", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     container.createEl("p", { text: "Avant l'image" });
@@ -1995,17 +2018,14 @@ test("BUG 8 : P/IMG/P reste FLOW avec ordre conservé", async () => {
   };
   try {
     const { result } = await render("BUG8-FLOW-P-IMG-P");
-    // Pas de heading, donc FLOW géné
-    assert.equal(result.geometry, "flow", "Géométrie FLOW pour P/IMG/P");
+    // Une composition groupée non-FLOW tient désormais : plus de FLOW forcé.
+    assert.notEqual(result.geometry, "flow", "Pas de FLOW forcé pour P/IMG/P quand une composition groupée tient");
+    assert.equal(result.overflow, false);
 
-    // Vérifier l'ordre DOM : P + IMG + P
-    const contentRegion = result.inner.querySelector(".feuillets-presentation-render-flow");
-    const children = Array.from(contentRegion?.children || []);
-    const textChildren = children.filter((c) => c.tagName === "P");
-    const mediaChildren = children.filter((c) => c.classList?.contains("feuillets-presentation-render-flow-media-region"));
-
-    assert.equal(textChildren.length, 2, "Deux paragraphes");
-    assert.equal(mediaChildren.length, 1, "Une région média");
+    // Les deux paragraphes et le média restent tous les trois présents, aucun perdu.
+    const paragraphs = result.inner.querySelectorAll("p").filter((p) => p.text === "Avant l'image" || p.text === "Après l'image");
+    assert.equal(paragraphs.length, 2, "Deux paragraphes toujours présents");
+    assert.equal(result.inner.querySelectorAll("img").length, 1, "Le média reste présent");
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -2037,6 +2057,28 @@ test("BUG 9 : aucun bloc du DOM source ne disparaît dans le candidat retenu", a
     for (const img of images) {
       assert.notEqual(img.style.display, "none", "Aucune image cachée");
     }
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Doc 2 : Carte — heading + image + [!questions] : le renderer choisit une composition non-FLOW quand elle tient, sans overflow", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    container.createEl("h2", { text: "Doc 2 : Carte" });
+    knownMedia(container, 800, 600);
+    const callout = container.createEl("div", { cls: "callout", attr: { "data-callout": "questions" } });
+    callout.createEl("div", { cls: "callout-title", text: "Questions" });
+    const content = callout.createEl("div", { cls: "callout-content" });
+    const ol = content.createEl("ol");
+    ol.createEl("li", { text: "Question A" });
+    ol.createEl("li", { text: "Question B" });
+    ol.createEl("li", { text: "Question C" });
+  };
+  try {
+    const { result } = await render("DOC2-CARTE");
+    assert.notEqual(result.geometry, "flow", "une composition SPLIT/STACK doit être choisie quand elle tient");
+    assert.equal(result.overflow, false, "aucun overflow");
+    assert.equal(result.inner.querySelectorAll("img").length, 1, "l'image reste présente");
+    assert.ok(result.inner.querySelector("[data-callout]"), "le callout questions reste présent");
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -2316,7 +2358,7 @@ test("[!document] / [!correction] : boîte générique réellement stylée (pas 
   } finally { MarkdownRenderer.render = previous; }
 });
 
-test("CALLOUT + FLOW : [!note] entre deux paragraphes en FLOW reçoit le même chrome générique stylé", async () => {
+test("CALLOUT + SPLIT : [!note] entre deux paragraphes en SPLIT reçoit le chrome générique stylé", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {
     container.createEl("p", { text: "Avant" });
@@ -2326,12 +2368,12 @@ test("CALLOUT + FLOW : [!note] entre deux paragraphes en FLOW reçoit le même c
     container.createEl("p", { text: "Après" });
   };
   try {
-    const { result } = await render("FLOW-NOTE-BOX");
-    assert.equal(result.geometry, "flow", "géométrie FLOW");
+    const { result } = await render("SPLIT-NOTE-BOX");
+    assert.equal(result.geometry, "split", "géométrie SPLIT (3 blocs compatibles)");
     const callout = result.inner.querySelector(".callout");
-    assert.notEqual(callout.style.background, "transparent", "chrome générique réellement stylé en FLOW");
-    assert.ok(callout.style.borderLeft, "bordure gauche générique posée en FLOW");
-    assert.equal(callout.style.overflow, "visible", "callout jamais tronqué en FLOW");
+    assert.notEqual(callout.style.background, "transparent", "chrome générique réellement stylé en SPLIT");
+    assert.ok(callout.style.borderLeft, "bordure gauche générique posée en SPLIT");
+    assert.equal(callout.style.overflow, "visible", "callout jamais tronqué en SPLIT");
   } finally { MarkdownRenderer.render = previous; }
 });
 
@@ -2372,4 +2414,214 @@ test("Thème Obsidian hostile — [!note] (non sémantique) : mix-blend-mode:lig
     assert.ok(result.inner.innerText?.includes("Note"), "titre visible");
     assert.ok(result.inner.innerText?.includes("Contenu de la note"), "contenu visible malgré le thème hostile");
   } finally { MarkdownRenderer.render = previous; }
+});
+
+/* ========== TESTS NOUVELLE COHÉRENCE LAYOUT ========== */
+
+test("SYMÉTRIE MEDIA : Image avant Texte vs Texte avant Image => même structure spatiale quand media-position fixe", async () => {
+  const previous = MarkdownRenderer.render;
+  try {
+    // Cas A : Image puis Texte
+    MarkdownRenderer.render = async (_app, _markdown, container) => {
+      knownMedia(container, 1600, 900);
+      paragraph(container, "Contenu après");
+    };
+    const imageFirst = await render("IMAGE\n\nTexte");
+
+    // Cas B : Texte puis Image
+    MarkdownRenderer.render = async (_app, _markdown, container) => {
+      paragraph(container, "Contenu avant");
+      knownMedia(container, 1600, 900);
+    };
+    const textFirst = await render("Texte\n\nIMAGE");
+
+    // Cas A gagnant media-a : géométrie split, image dans cellule A
+    assert.equal(imageFirst.result.geometry, "split");
+    assert.ok(imageFirst.result.section.getAttribute("data-candidate")?.includes("media-a"));
+
+    // Cas B gagnant media-a (même si l'ordre est inversé en Markdown) : géométrie split, image dans cellule A
+    assert.equal(textFirst.result.geometry, "split");
+    assert.ok(textFirst.result.section.getAttribute("data-candidate")?.includes("media-a"));
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("3 BLOCS TEXTE AUTO : partitions contiguës créent candidats multiples, best choisit", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    paragraph(container, "Bloc 1");
+    paragraph(container, "Bloc 2");
+    paragraph(container, "Bloc 3");
+  };
+  try {
+    return withForcedTextTextCellOverflow(0, () =>
+      render("P1\n\nP2\n\nP3").then(({ result }) => {
+        assert.equal(result.geometry, "split", "géométrie split choisie (pas FLOW)");
+        const content = result.inner.querySelector(".feuillets-presentation-render-content");
+        assert.ok(content?.className?.includes("split"), "contenu en mode split");
+        // Les 3 paragraphes sont présents et dans l'ordre
+        const paragraphs = Array.from(result.inner.querySelectorAll("p"));
+        assert.equal(paragraphs.length, 3);
+        assert.ok(paragraphs[0].innerText?.includes("Bloc 1"));
+        assert.ok(paragraphs[1].innerText?.includes("Bloc 2"));
+        assert.ok(paragraphs[2].innerText?.includes("Bloc 3"));
+      })
+    );
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("FALLBACK FLOW : 3 blocs texte débordent en split => retombée à flow", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    paragraph(container, "Paragraphe très long qui dépasse forcément en split");
+    paragraph(container, "Autre très long contenu");
+    paragraph(container, "Dernier très long bloc");
+  };
+  try {
+    return withForcedTextTextCellOverflow(100, () =>
+      render("P1\n\nP2\n\nP3").then(({ result }) => {
+        assert.equal(result.geometry, "flow", "fallback à FLOW quand tous les splits débordent");
+      })
+    );
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("OVERRIDE COLUMNS : 3 blocs texte avec columns => geometry split, pas FLOW même si déborde", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    paragraph(container, "P1 très très très très très long");
+    paragraph(container, "P2 très très très très très long");
+    paragraph(container, "P3 très très très très très long");
+  };
+  try {
+    return withForcedTextTextCellOverflow(50, () =>
+      render("P1\n\nP2\n\nP3", { layoutOverride: "columns" }).then(({ result }) => {
+        assert.equal(result.geometry, "split", "geometry split imposée par override");
+        assert.equal(result.section.getAttribute("data-layout-override"), "columns");
+        assert.equal(result.section.getAttribute("data-layout-override-applied"), "true");
+      })
+    );
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("IMAGE-LEFT : Texte puis Image => image dans cellule A, indépendamment de l'ordre Markdown", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    paragraph(container, "Contenu avant");
+    knownMedia(container, 1600, 900);
+  };
+  try {
+    return render("Texte\n\nImage", { layoutOverride: "image-left" }).then(({ result }) => {
+      assert.equal(result.geometry, "split");
+      assert.ok(result.section.getAttribute("data-candidate")?.includes("media-a"));
+      assert.equal(result.section.getAttribute("data-layout-override"), "image-left");
+      assert.equal(result.section.getAttribute("data-layout-override-applied"), "true");
+    });
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("IMAGE-RIGHT : Image puis Texte => image dans cellule B, indépendamment de l'ordre Markdown", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    knownMedia(container, 1600, 900);
+    paragraph(container, "Contenu après");
+  };
+  try {
+    return render("Image\n\nTexte", { layoutOverride: "image-right" }).then(({ result }) => {
+      assert.equal(result.geometry, "split");
+      assert.ok(result.section.getAttribute("data-candidate")?.includes("media-b"));
+      assert.equal(result.section.getAttribute("data-layout-override"), "image-right");
+      assert.equal(result.section.getAttribute("data-layout-override-applied"), "true");
+    });
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+/* ── Déterminisme de la sonde de débordement ─────────────────────────────── */
+
+/**
+ * RÉGRESSION « sauts de page aléatoires ».
+ *
+ * Une image pas encore chargée a une taille naturelle de 0 : mesurée ainsi,
+ * une slide qui déborde réellement passe pour tenir. Le résultat de la sonde
+ * dépendait donc de l'état du cache d'images au moment de l'appel — d'où des
+ * découpes qui changeaient d'une ouverture à l'autre pour un même document.
+ * La sonde doit attendre les médias (attente bornée) puis RE-MESURER.
+ */
+test("RÉGRESSION sauts aléatoires — la sonde attend les médias et mesure leur vraie taille, jamais 0", async () => {
+  const previousRender = MarkdownRenderer.render;
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+
+  const body = new FakeElement("body");
+  globalThis.document = { body };
+  globalThis.window = { setTimeout: (cb) => { cb(); return 0; }, clearTimeout: () => {} };
+
+  // L'image n'est pas chargée au premier rendu ; elle « arrive » ensuite.
+  let loaded = false;
+  const images = [];
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    container.createEl("h2", { text: "Titre" });
+    const img = container.createEl("p").createEl("img", { attr: { src: "app://local/carte.png" } });
+    img.complete = loaded;
+    img.naturalWidth = loaded ? 1600 : 0;
+    img.naturalHeight = loaded ? 1200 : 0;
+    images.push(img);
+  };
+
+  try {
+    const { measurePresentationSlideOverflow } = await import("../src/services/presentation-slide-renderer.js");
+    /* Le média « arrive » au moment exact où l'attente bornée démarre : c'est
+       le seul point où l'on est sûr que la sonde a déjà constaté qu'il
+       manquait. Le renderer DÉPLACE les nœuds rendus (il ne les clone pas),
+       donc muter l'image plus tôt reviendrait à muter celle que la sonde est
+       en train d'examiner. */
+    globalThis.window.setTimeout = (cb) => {
+      loaded = true;
+      for (const img of images) { img.complete = true; img.naturalWidth = 1600; img.naturalHeight = 1200; }
+      cb();
+      return 0;
+    };
+    await measurePresentationSlideOverflow({
+      app: {}, component: new Component(), sourcePath: "Cours.md",
+      markdown: "## Titre\n\n![carte](carte.png)", index: 0, generation: 0,
+      controller: new AbortController(), isGenerationStale: () => false,
+    });
+
+    // Deux rendus : la première mesure (image à 0) n'est jamais celle retenue.
+    assert.ok(images.length >= 2, `la sonde re-mesure après chargement des médias (rendus : ${images.length})`);
+    assert.equal(images[images.length - 1].naturalWidth, 1600, "la mesure retenue voit la vraie taille de l'image");
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  }
+});
+
+test("sonde : sans média en attente, un seul rendu — jamais de second passage inutile", async () => {
+  const previousRender = MarkdownRenderer.render;
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+
+  const body = new FakeElement("body");
+  globalThis.document = { body };
+  globalThis.window = { setTimeout: (cb) => { cb(); return 0; }, clearTimeout: () => {} };
+
+  let renders = 0;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    renders++;
+    container.createEl("h2", { text: "Titre sans média" });
+  };
+
+  try {
+    const { measurePresentationSlideOverflow } = await import("../src/services/presentation-slide-renderer.js");
+    await measurePresentationSlideOverflow({
+      app: {}, component: new Component(), sourcePath: "Cours.md",
+      markdown: "## Titre sans média", index: 0, generation: 0,
+      controller: new AbortController(), isGenerationStale: () => false,
+    });
+    assert.equal(renders, 1, "aucun média en attente : la sonde ne rend qu'une fois");
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  }
 });

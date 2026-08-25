@@ -29,7 +29,6 @@ import {
   loadContentExtractions,
   updateContentExtraction,
   type ContentExtraction,
-  type ContentExtractionsStore,
 } from "../services/content-extractions.js";
 import {
   ContentCollectionsFileCorruptedError,
@@ -38,9 +37,9 @@ import {
   loadContentCollections,
   updateContentCollection,
   type ContentCollection,
-  type ContentCollectionsStore,
 } from "../services/content-collections.js";
 import type { DefaultSettings } from "../default-settings.js";
+import { SEMANTIC_ROLES, type SemanticRole } from "../utils/semantic-roles.js";
 
 /* Même intersection que FeuilletsSettingTab (settings/feuillets-setting-tab.ts) :
    `FeuilletsSettings` n'expose qu'une partie des clés, DEFAULT_SETTINGS reste la
@@ -125,6 +124,7 @@ export class EditionCompositionContent {
   private onNavigationRootChangeOpt: ((isRoot: boolean) => void) | undefined;
   private selectedSection: CompositionSection = "summary";
   private bodyEl: HTMLElement | null = null;
+  private contentListEl: HTMLElement | null = null;
   /** Rendu de la sous-page/sommaire courant en cours — exposé pour que les
    * tests puissent l'attendre après un `navigateTo()` fire-and-forget (comme
    * un clic réel sur une ligne-résumé), même contrat que
@@ -166,6 +166,7 @@ export class EditionCompositionContent {
     const body = this.bodyEl;
     if (!body) return;
     body.empty();
+    this.contentListEl = null;
 
     if (this.selectedSection !== "summary") {
       this.renderSubpageHeader(body, this.subpageTitle(this.selectedSection));
@@ -325,18 +326,18 @@ export class EditionCompositionContent {
 
   private async renderVariantsSubpage(body: HTMLElement): Promise<void> {
     body.createDiv({ cls: "feuillets-content-variants-hint", text: t("contentVariants.optionalHint") });
-    let store: ContentVariantsStore;
-    try {
-      store = await loadContentVariants(this.app, this.plugin.settings);
-    } catch (error) {
+    const store = await loadContentVariants(this.app, this.plugin.settings).catch((error: unknown) => {
       if (!(error instanceof ContentVariantsFileCorruptedError)) throw error;
+      return null;
+    });
+    if (!store) {
       body.createDiv({ cls: "feuillets-content-variants-error", text: t("contentVariants.invalidFile") });
       return;
     }
     if (store.variants.length === 0) {
-      body.createDiv({ cls: "feuillets-content-variants-empty", text: t("contentVariants.empty") });
+      this.renderContentEmptyState(body, t("contentVariants.empty"));
     } else {
-      const row = body.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
+      const row = body.createDiv({ cls: "feuillets-properties-row feuillets-edition-row feuillets-content-selection-control" });
       row.createSpan({ cls: "feuillets-properties-key", text: t("contentVariants.use") });
       const select = row.createEl("select");
       select.createEl("option", { value: "", text: t("contentVariants.none") });
@@ -347,51 +348,86 @@ export class EditionCompositionContent {
         this.renderPromise = this.changeSelectedVariant(select.value || null);
       });
     }
-    for (const variant of store.variants) this.renderVariantRow(body, variant);
+    this.contentListEl = body.createDiv({ cls: "feuillets-content-entry-list" });
+    this.renderVariantList(this.contentListEl, store);
     const add = body.createEl("button", { text: t("contentVariants.newVariant"), cls: "feuillets-content-variant-add" });
     add.addEventListener("click", () => this.openVariantModal(null));
   }
 
   private async renderExtractionsSubpage(body: HTMLElement): Promise<void> {
     body.createDiv({ cls: "feuillets-content-extractions-hint", text: t("contentExtractions.optionalHint") });
-    let store: ContentExtractionsStore;
-    try {
-      store = await loadContentExtractions(this.app, this.plugin.settings);
-    } catch (error) {
-      if (!(error instanceof ContentExtractionsFileCorruptedError)) throw error;
-      body.createDiv({ cls: "feuillets-content-extractions-error", text: t("contentExtractions.invalidFile") });
-      return;
-    }
-    if (store.extractions.length === 0) {
-      body.createDiv({ cls: "feuillets-content-extractions-empty", text: t("contentExtractions.empty") });
-    }
-    for (const extraction of store.extractions) this.renderExtractionRow(body, extraction);
+    this.contentListEl = body.createDiv({ cls: "feuillets-content-entry-list" });
+    await this.renderExtractionList(this.contentListEl);
     const add = body.createEl("button", { text: t("contentExtractions.newExtraction"), cls: "feuillets-content-extraction-add" });
     add.addEventListener("click", () => this.openExtractionModal(null));
   }
 
   private async renderCollectionsSubpage(body: HTMLElement): Promise<void> {
     body.createDiv({ cls: "feuillets-content-collections-hint", text: t("contentCollections.optionalHint") });
-    let store: ContentCollectionsStore;
-    try {
-      store = await loadContentCollections(this.app, this.plugin.settings);
-    } catch (error) {
-      if (!(error instanceof ContentCollectionsFileCorruptedError)) throw error;
-      body.createDiv({ cls: "feuillets-content-collections-error", text: t("contentCollections.invalidFile") });
-      return;
-    }
-    if (store.collections.length === 0) {
-      body.createDiv({ cls: "feuillets-content-collections-empty", text: t("contentCollections.empty") });
-    }
-    for (const collection of store.collections) this.renderCollectionRow(body, collection);
+    this.contentListEl = body.createDiv({ cls: "feuillets-content-entry-list" });
+    await this.renderCollectionList(this.contentListEl);
     const add = body.createEl("button", { text: t("contentCollections.newCollection"), cls: "feuillets-content-collection-add" });
     add.addEventListener("click", () => this.openCollectionModal(null));
   }
 
+  private renderContentEmptyState(parent: HTMLElement, text: string, cls = "feuillets-content-empty"): void {
+    const empty = parent.createDiv({ cls: `feuillets-content-empty-state ${cls}` });
+    empty.createDiv({ cls: "feuillets-content-empty-title", text });
+    empty.createDiv({ cls: "feuillets-content-empty-description", text: t("contentDerivation.emptyDescription") });
+  }
+
+  private roleSummary(roles: SemanticRole[]): string {
+    const labels = roles.map((role) => t(`contentVariants.roles.${role}`));
+    if (labels.length <= 3) return labels.join(", ") || t("contentDerivation.noRoles");
+    return t("contentDerivation.rolesCount", { count: String(labels.length) });
+  }
+
+  private roleNamesSummary(roles: SemanticRole[]): string {
+    const labels = roles.map((role) => t(`contentVariants.roles.${role}`));
+    if (labels.length <= 3) return labels.join(" · ") || t("contentDerivation.noRoles");
+    return `${labels.slice(0, 3).join(" · ")} · +${labels.length - 3}`;
+  }
+
+  private renderVariantList(parent: HTMLElement, store: ContentVariantsStore): void {
+    parent.empty();
+    if (store.variants.length === 0) {
+      this.renderContentEmptyState(parent, t("contentVariants.empty"), "feuillets-content-variants-empty");
+      return;
+    }
+    for (const variant of store.variants) this.renderVariantRow(parent, variant, store.selectedVariantId);
+  }
+
+  private async renderExtractionList(parent: HTMLElement): Promise<void> {
+    parent.empty();
+    try {
+      const store = await loadContentExtractions(this.app, this.plugin.settings);
+      if (store.extractions.length === 0) this.renderContentEmptyState(parent, t("contentExtractions.empty"), "feuillets-content-extractions-empty");
+      for (const extraction of store.extractions) this.renderExtractionRow(parent, extraction);
+    } catch (error) {
+      if (!(error instanceof ContentExtractionsFileCorruptedError)) throw error;
+      parent.createDiv({ cls: "feuillets-content-extractions-error", text: t("contentExtractions.invalidFile") });
+    }
+  }
+
+  private async renderCollectionList(parent: HTMLElement): Promise<void> {
+    parent.empty();
+    try {
+      const store = await loadContentCollections(this.app, this.plugin.settings);
+      if (store.collections.length === 0) this.renderContentEmptyState(parent, t("contentCollections.empty"), "feuillets-content-collections-empty");
+      for (const collection of store.collections) this.renderCollectionRow(parent, collection);
+    } catch (error) {
+      if (!(error instanceof ContentCollectionsFileCorruptedError)) throw error;
+      parent.createDiv({ cls: "feuillets-content-collections-error", text: t("contentCollections.invalidFile") });
+    }
+  }
+
   private renderCollectionRow(parent: HTMLElement, collection: ContentCollection): void {
-    const row = parent.createDiv({ cls: "feuillets-project-row feuillets-edition-action-row" });
-    row.createSpan({ cls: "feuillets-project-row-label", text: collection.name });
-    const actions = row.createDiv({ cls: "feuillets-project-row-actions" });
+    const row = parent.createDiv({ cls: "feuillets-content-item" });
+    const content = row.createDiv({ cls: "feuillets-content-entry-main" });
+    const name = content.createDiv({ cls: "feuillets-content-item-name", text: collection.name });
+    name.setAttribute("title", collection.name);
+    content.createDiv({ cls: "feuillets-content-item-summary", text: this.roleNamesSummary(collection.roles) });
+    const actions = row.createDiv({ cls: "feuillets-content-item-actions" });
     const edit = actions.createEl("button", { text: t("contentCollections.edit") });
     edit.addEventListener("click", (event) => { event.stopPropagation(); this.openCollectionModal(collection); });
     const remove = actions.createEl("button", { text: t("contentCollections.delete") });
@@ -422,9 +458,12 @@ export class EditionCompositionContent {
   }
 
   private renderExtractionRow(parent: HTMLElement, extraction: ContentExtraction): void {
-    const row = parent.createDiv({ cls: "feuillets-project-row feuillets-edition-action-row" });
-    row.createSpan({ cls: "feuillets-project-row-label", text: extraction.name });
-    const actions = row.createDiv({ cls: "feuillets-project-row-actions" });
+    const row = parent.createDiv({ cls: "feuillets-content-item" });
+    const content = row.createDiv({ cls: "feuillets-content-entry-main" });
+    const name = content.createDiv({ cls: "feuillets-content-item-name", text: extraction.name });
+    name.setAttribute("title", extraction.name);
+    content.createDiv({ cls: "feuillets-content-item-summary", text: this.roleNamesSummary(extraction.triggerRoles) });
+    const actions = row.createDiv({ cls: "feuillets-content-item-actions" });
     const edit = actions.createEl("button", { text: t("contentExtractions.edit") });
     edit.addEventListener("click", (event) => { event.stopPropagation(); this.openExtractionModal(extraction); });
     const remove = actions.createEl("button", { text: t("contentExtractions.delete") });
@@ -454,10 +493,17 @@ export class EditionCompositionContent {
     }
   }
 
-  private renderVariantRow(parent: HTMLElement, variant: ContentVariant): void {
-    const row = parent.createDiv({ cls: "feuillets-project-row feuillets-edition-action-row" });
-    row.createSpan({ cls: "feuillets-project-row-label", text: variant.name });
-    const actions = row.createDiv({ cls: "feuillets-project-row-actions" });
+  private renderVariantRow(parent: HTMLElement, variant: ContentVariant, selectedVariantId: string | null): void {
+    const isSelected = variant.id === selectedVariantId;
+    const row = parent.createDiv({ cls: `feuillets-content-item${isSelected ? " feuillets-content-item-selected" : ""}` });
+    row.setAttribute("data-content-entry-id", variant.id);
+    const content = row.createDiv({ cls: "feuillets-content-entry-main" });
+    const name = content.createDiv({ cls: "feuillets-content-item-name", text: variant.name });
+    name.setAttribute("title", variant.name);
+    const includedRoles = SEMANTIC_ROLES.filter((role) => !variant.excludedRoles.includes(role));
+    content.createDiv({ cls: "feuillets-content-item-summary", text: this.roleSummary(includedRoles) });
+    if (isSelected) row.createSpan({ cls: "feuillets-content-entry-state", text: t("contentVariants.selected") });
+    const actions = row.createDiv({ cls: "feuillets-content-item-actions" });
     const edit = actions.createEl("button", { text: t("contentVariants.edit") });
     edit.addEventListener("click", (event) => { event.stopPropagation(); this.openVariantModal(variant); });
     const remove = actions.createEl("button", { text: t("contentVariants.delete") });
@@ -480,7 +526,14 @@ export class EditionCompositionContent {
   private async changeSelectedVariant(id: string | null): Promise<void> {
     try {
       await selectContentVariant(this.app, this.plugin.settings, id);
-      await this.refreshCurrentSection();
+      const selectedRows = this.bodyEl?.querySelectorAll(".feuillets-content-item") || [];
+      for (const row of Array.from(selectedRows)) {
+        const isSelected = row.getAttribute("data-content-entry-id") === id;
+        row.toggleClass("feuillets-content-item-selected", isSelected);
+        const state = row.querySelector(".feuillets-content-entry-state");
+        if (isSelected && !state) row.createSpan({ cls: "feuillets-content-entry-state", text: t("contentVariants.selected") });
+        if (!isSelected && state) state.remove();
+      }
       await this.onChangeOpt?.();
     } catch (error) {
       new Notice(t(contentVariantErrorNoticeKey(error)));
@@ -498,6 +551,19 @@ export class EditionCompositionContent {
   }
 
   private async refreshCurrentSection(): Promise<void> {
+    if (this.contentListEl && this.selectedSection === "variants") {
+      const store = await loadContentVariants(this.app, this.plugin.settings);
+      this.renderVariantList(this.contentListEl, store);
+      return;
+    }
+    if (this.contentListEl && this.selectedSection === "extractions") {
+      await this.renderExtractionList(this.contentListEl);
+      return;
+    }
+    if (this.contentListEl && this.selectedSection === "collections") {
+      await this.renderCollectionList(this.contentListEl);
+      return;
+    }
     this.renderPromise = this.renderBody();
     await this.renderPromise;
   }

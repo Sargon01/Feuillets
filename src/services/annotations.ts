@@ -32,6 +32,8 @@ export interface Annotation {
   color: AnnotationColor;
   /** Absent dans les anciens fichiers : équivaut à "highlight". */
   style?: AnnotationStyle;
+  /** Marque cette annotation comme note destinée au plan de présentation. */
+  presentationNote?: boolean;
 }
 
 export interface AnnotationsStore {
@@ -150,7 +152,8 @@ function isValidAnnotation(value: unknown): value is Annotation {
     typeof a.text === "string" &&
     typeof a.color === "string" &&
     VALID_COLORS.includes(a.color as AnnotationColor) &&
-    (a.style === undefined || (typeof a.style === "string" && VALID_STYLES.includes(a.style as AnnotationStyle)))
+    (a.style === undefined || (typeof a.style === "string" && VALID_STYLES.includes(a.style as AnnotationStyle))) &&
+    (a.presentationNote === undefined || typeof a.presentationNote === "boolean")
   );
 }
 

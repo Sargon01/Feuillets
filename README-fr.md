@@ -28,6 +28,8 @@ Un feuillet peut rester un article, une nouvelle, une chronique ou un chapitre a
 - une **relecture collaborative** native ;
 - la révision des retours **DOCX** ;
 - un espace **Édition** pour la Composition et la Mise en page ;
+- des **rôles sémantiques** facultatifs pour produire variantes, extractions et collections sans dupliquer le manuscrit ;
+- un rendu **Présentation** 16:9 à partir du même Markdown ;
 - des exports Markdown, DOCX, EPUB, ODT et PDF.
 
 ## Commencer avec un dossier existant
@@ -160,9 +162,23 @@ L’espace central **Édition** contient deux modes :
 
 La **Première page** n’existe qu’à un seul endroit : Composition. Sa présentation réutilise le même gabarit que l’Aperçu et les exports.
 
-La barre d’Édition conserve en permanence la portée, le format, le bouton **Exporter** et l’actualisation de l’Aperçu. Le nom de fichier n’est plus un réglage visible : Feuillets gère le nom de sortie et conserve les valeurs historiques pour compatibilité.
+La barre d’Édition regroupe **Portée**, **Contenu**, **Format** puis **Exporter**, avec l’actualisation de l’Aperçu. Le menu Contenu permet de publier le document complet, une extraction ou une collection. Le nom de fichier n’est plus un réglage visible : Feuillets gère le nom de sortie et conserve les valeurs historiques pour compatibilité.
 
 Voir [Composition et export](docs/COMPOSITION-ET-EXPORT.md).
+
+## Publication sémantique et Présentation
+
+Feuillets peut enrichir ponctuellement le Markdown avec des **rôles sémantiques** : définition, question, solution, preuve, source, synthèse, recommandation, etc. Ils restent entièrement facultatifs — un roman, un essai ou un article peut ne jamais les utiliser.
+
+Ces rôles permettent ensuite de produire sans duplication :
+
+- une **variante** du même document en masquant certains rôles ;
+- une **extraction** de sections entières repérées par des rôles ;
+- une **collection** des blocs sémantiques eux-mêmes avec leur contexte de titres.
+
+Le même Markdown peut également être rendu en **Présentation 16:9**. Les diapositives sont séparées par `---`, la composition reste automatique autant que possible, et les notes `[!speaker-notes]` ne sont pas projetées.
+
+Voir [Rôles sémantiques](docs/ROLES-SEMANTIQUES.md), [Variantes, extractions et collections](docs/VARIANTES-EXTRACTIONS-COLLECTIONS.md), [Présentation](docs/PRESENTATION.md) et le [tutoriel de publication](docs/TUTORIEL-PUBLICATION-SEMANTIQUE.md).
 
 ## Aperçu et export
 

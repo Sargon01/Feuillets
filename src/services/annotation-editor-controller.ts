@@ -19,6 +19,7 @@ import {
   coordsAtOffset,
   annotationIdAtOffset,
   annotationIdForExactRange,
+  offsetAtCoords,
   type AnnotationHighlightInput,
   type AnnotationDecorationTarget,
   type AnchorRect,
@@ -29,6 +30,7 @@ import { openFileAndSelectRange } from "../utils/dom.js";
 import type { FeuilletsEditorSurface } from "../utils/scrivenings-editor-adapter.js";
 import { AnnotationPopover } from "../ui/annotation-popover.js";
 import { t } from "../i18n/index.js";
+import { presentationNoteAnchorAtOffset, type PresentationNoteAnchorTarget } from "./presentation-note-anchors.js";
 
 /* CORRECTIF (« désengorger main.ts avant tout nouveau correctif ») —
  * PROPRIÉTAIRE de toute la logique « annotations dans un éditeur » :
@@ -292,6 +294,13 @@ export class AnnotationEditorController {
     options?: {
       onAnnotationChange?: AnnotationChangeCallback;
       visualCoordinates?: AnnotationVisualCoordinates | null;
+      /** Point ÉCRAN du clic droit qui a ouvert ce menu. Indispensable
+       * pour « Ajouter une note de présentation » : un clic droit ne
+       * déplace PAS le curseur, donc sans lui l'entrée décrirait l'endroit
+       * où le curseur avait été laissé, et non le titre/l'image/le callout
+       * réellement visé (il fallait alors « entrer » d'abord dans
+       * l'élément d'un clic gauche). Absent → repli sur le curseur. */
+      pointerCoordinates?: { x: number; y: number } | null;
     }
   ): void {
     const visualCoordinates = options?.visualCoordinates ?? this.visualCoordinatesForEditor(editor);
@@ -326,6 +335,137 @@ export class AnnotationEditorController {
         // "none" : entrée désactivée, jamais atteinte par un clic réel.
       });
     });
+
+    // Création SANS sélection sur un titre/image/callout — UNIQUEMENT
+    // quand aucune sélection n'est active et qu'aucune annotation
+    // n'existe déjà sous le curseur (context.kind === "none") : une
+    // sélection reste TOUJOURS prioritaire (voir createAnnotationFromSelection
+    // ci-dessus), jamais concurrencée par cette entrée. Détection PURE,
+    // aucun DOM (voir presentation-note-anchors.ts) — sur `editor.getValue()`/
+    // `editor.posToOffset(editor.getCursor())`, la MÊME source que
+    // `selectionRange` ci-dessus (fonctionne donc identiquement pour un
+    // MarkdownView natif comme pour Continu, sans second calcul de
+    // coordonnées composite).
+    if (context.kind === "none") {
+      const target = this.presentationNoteTargetForEditor(editor, options?.pointerCoordinates);
+      if (target) {
+        menu.addItem((item) => {
+          item.setTitle(t("editorMenu.addPresentationNote")).setIcon("presentation");
+          item.onClick(() => {
+            void this.createPresentationNoteFromTarget(editor, file, target, onAnnotationChange, visualAnchor);
+          });
+        });
+      }
+    }
+  }
+
+  /** Détection PURE (voir presentation-note-anchors.ts) de la cible titre/
+   * image/callout VISÉE — jamais de DOM, jamais de mutation.
+   *
+   * La position vient EN PRIORITÉ du point du clic droit
+   * (`posAtCoords`, API publique CodeMirror) : un clic droit ne déplace pas
+   * le curseur, donc s'appuyer sur `getCursor()` obligeait à cliquer
+   * d'abord DANS le callout/titre/image pour l'y amener. Le curseur reste
+   * le repli quand aucune coordonnée n'est disponible (commande de palette,
+   * éditeur sans `posAtCoords`). */
+  private presentationNoteTargetForEditor(
+    editor: FeuilletsEditorSurface,
+    pointerCoordinates?: { x: number; y: number } | null,
+  ): PresentationNoteAnchorTarget | null {
+    const content = editor.getValue();
+    const pointerOffset = offsetAtCoords(this.annotationCmView(editor), pointerCoordinates);
+    const offset = pointerOffset ?? editor.posToOffset(editor.getCursor());
+    return presentationNoteAnchorAtOffset(content, offset);
+  }
+
+  /**
+   * Crée une note de présentation SANS sélection, sur la cible (titre,
+   * image ou callout) déjà détectée par `presentationNoteTargetForEditor` —
+   * même `Annotation` + `SourceAnchor` que `createAnnotationFromSelection`
+   * ci-dessus (jamais un second type d'annotation), avec `presentationNote`
+   * TOUJOURS vrai dès l'ouverture et les contrôles couleur/style MASQUÉS
+   * (`showColors`/`showStyles: false` — voir §3 du contrat : une note de
+   * présentation n'est jamais décorée dans la source). Mêmes verrous
+   * anti-doublon (§16/§17) que `createAnnotationFromSelection`.
+   */
+  async createPresentationNoteFromTarget(
+    editor: FeuilletsEditorSurface,
+    file: TFile,
+    target: PresentationNoteAnchorTarget,
+    onAnnotationChange: AnnotationChangeCallback = () => this.refreshActiveHighlights(),
+    existingAnchor?: AnchorRect | AnnotationDecorationTarget
+  ): Promise<void> {
+    const relPath = toManuscriptRelativePath(this.app, this.settings, file);
+    if (relPath === null) {
+      new Notice(t("annotation.notice.noSelection"));
+      return;
+    }
+    const content = editor.getValue();
+    if (target.start < 0 || target.end > content.length || target.start >= target.end) return;
+    const quote = content.slice(target.start, target.end);
+    const prefix = content.slice(Math.max(0, target.start - ANNOTATION_CONTEXT_LENGTH), target.start);
+    const suffix = content.slice(target.end, Math.min(content.length, target.end + ANNOTATION_CONTEXT_LENGTH));
+
+    try {
+      const store = await loadAnnotations(this.app, this.settings);
+      const preExisting = store.annotations.find(
+        (a) => a.file === relPath && exactAnnotationRangeMatch(a, content, target)
+      );
+      if (preExisting) {
+        await this.openAnnotationEditor(preExisting.id, onAnnotationChange ? () => void onAnnotationChange() : undefined, existingAnchor);
+        return;
+      }
+    } catch {
+      // JSON corrompu : la création normale ci-dessous ira jusqu'à
+      // addAnnotation, qui lèvera à son tour — jamais un échec silencieux.
+    }
+
+    const cm = this.annotationCmView(editor);
+    const anchor =
+      coordsAtOffset(cm, target.end) ??
+      coordsAtOffset(cm, target.start) ??
+      existingAnchor ??
+      DEFAULT_ANNOTATION_ANCHOR;
+
+    new AnnotationPopover({
+      parentEl: document.body,
+      anchor,
+      text: "",
+      color: "yellow",
+      style: "highlight",
+      presentationNote: true,
+      showPresentationNote: true,
+      showColors: false,
+      showStyles: false,
+      cancelOnEscape: true,
+      onSave: async (text, color, style, presentationNote) => {
+        let raceExisting: Annotation | null = null;
+        try {
+          const store = await loadAnnotations(this.app, this.settings);
+          raceExisting =
+            store.annotations.find((a) => a.file === relPath && exactAnnotationRangeMatch(a, content, target)) ?? null;
+        } catch {
+          raceExisting = null;
+        }
+        if (raceExisting) {
+          await updateAnnotation(this.app, this.settings, raceExisting.id, { text, color, style, presentationNote });
+        } else {
+          await addAnnotation(this.app, this.settings, {
+            file: relPath,
+            start: target.start,
+            end: target.end,
+            quote,
+            prefix,
+            suffix,
+            text,
+            color,
+            style,
+            presentationNote,
+          });
+        }
+        await onAnnotationChange();
+      },
+    }).open();
   }
 
   /** Capture le texte sélectionné, ses offsets et un peu de contexte
@@ -361,7 +501,7 @@ export class AnnotationEditorController {
   async createAnnotationFromSelection(
     editorOverride?: FeuilletsEditorSurface,
     fileOverride?: TFile,
-    initial?: { style?: AnnotationStyle; color?: AnnotationColor },
+    initial?: { style?: AnnotationStyle; color?: AnnotationColor; presentationNote?: boolean },
     onAnnotationChange: AnnotationChangeCallback = () => this.refreshActiveHighlights(),
     existingAnchor?: AnchorRect | AnnotationDecorationTarget
   ): Promise<void> {
@@ -408,8 +548,10 @@ export class AnnotationEditorController {
       text: "",
       color: initial?.color ?? "yellow",
       style: initial?.style ?? "highlight",
+      showPresentationNote: true,
+      presentationNote: initial?.presentationNote ?? false,
       cancelOnEscape: true,
-      onSave: async (text, color, style) => {
+      onSave: async (text, color, style, presentationNote) => {
         // VERROU §17 : dernière vérification, juste avant l'écriture — une
         // autre action a pu créer l'exacte même annotation pendant que ce
         // popover restait ouvert.
@@ -426,7 +568,7 @@ export class AnnotationEditorController {
         // AVANT tout refresh — jamais avant, jamais pendant que le popover
         // est encore ouvert (§7-9 du contrat historique).
         if (raceExisting) {
-          await updateAnnotation(this.app, this.settings, raceExisting.id, { text, color, style });
+          await updateAnnotation(this.app, this.settings, raceExisting.id, { text, color, style, presentationNote });
         } else {
           await addAnnotation(this.app, this.settings, {
             file: relPath,
@@ -438,6 +580,7 @@ export class AnnotationEditorController {
             text,
             color,
             style,
+            presentationNote,
           });
         }
         await onAnnotationChange();
@@ -588,6 +731,14 @@ export class AnnotationEditorController {
               const r = el.getBoundingClientRect();
               return r.bottom > 0 && r.top < window.innerHeight;
             }) ??
+            // Aucune décoration à viser : c'est le cas NORMAL d'une note de
+            // présentation, qui n'est jamais surlignée dans la source (§3).
+            // Le passage vient pourtant d'être navigué et sélectionné —
+            // `coordsAtOffset` (API publique CodeMirror, déjà utilisée par
+            // la création) donne donc sa position à l'écran. Sans cela, le
+            // popover retombait sur DEFAULT_ANNOTATION_ANCHOR, c'est-à-dire
+            // le coin haut-gauche de la fenêtre, loin de la note.
+            coordsAtOffset(this.annotationCmView(this.deps.getActiveEditor()), range.start) ??
             this.app.workspace.getActiveViewOfType(MarkdownView)?.contentEl.querySelector<HTMLElement>(".cm-editor") ??
             undefined;
         }
@@ -599,6 +750,15 @@ export class AnnotationEditorController {
       text: annotation.text,
       color: annotation.color,
       style: annotation.style ?? "highlight",
+      showPresentationNote: true,
+      presentationNote: annotation.presentationNote ?? false,
+      // §3 du contrat : une note de présentation n'affiche jamais les
+      // contrôles couleur/style (elle n'est jamais décorée dans la
+      // source) — comportement STRICTEMENT inchangé pour une annotation
+      // normale (showColors/showStyles restent `true` par défaut, voir
+      // ui/annotation-popover.ts).
+      showColors: annotation.presentationNote !== true,
+      showStyles: annotation.presentationNote !== true,
       onStyleChange: async (style) => {
         await updateAnnotation(this.app, this.settings, id, { style, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
         await this.refreshActiveHighlights();
@@ -607,8 +767,8 @@ export class AnnotationEditorController {
         await updateAnnotation(this.app, this.settings, id, { color, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
         await this.refreshActiveHighlights();
       },
-      onSave: async (text, color, style) => {
-        await updateAnnotation(this.app, this.settings, id, { text, color, style, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
+      onSave: async (text, color, style, presentationNote) => {
+        await updateAnnotation(this.app, this.settings, id, { text, color, style, presentationNote, ...(await reanchorAnnotationPatch(this.app, this.settings, annotation)) });
         await this.refreshActiveHighlights();
         onChange?.();
       },
@@ -648,7 +808,12 @@ export class AnnotationEditorController {
       return;
     }
 
-    const list = annotationsForFile(store, relPath);
+    // §3 du contrat : une note de présentation n'est JAMAIS décorée dans la
+    // source (aucune couleur, aucun surlignage, aucun soulignement) — son
+    // ancre continue d'être résolue normalement (resolveAnnotation), seule
+    // sa DÉCORATION visuelle est exclue ici. Annotations normales
+    // inchangées.
+    const list = annotationsForFile(store, relPath).filter((a) => a.presentationNote !== true);
     if (list.length === 0) {
       clearAnnotationHighlights(cm);
       return;

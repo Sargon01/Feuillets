@@ -32,22 +32,33 @@ export class ContentVariantModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
+    contentEl.addClass("feuillets-content-derivation-modal");
     contentEl.createEl("h3", { text: t(this.initial ? "contentVariants.modal.editTitle" : "contentVariants.modal.newTitle") });
-    contentEl.createEl("label", { text: t("contentVariants.modal.name") });
+    const nameLabel = contentEl.createEl("label", { cls: "feuillets-content-modal-field-label", text: t("contentVariants.modal.name") });
     const nameInput = contentEl.createEl("input", { type: "text" });
     nameInput.addClass("feuillets-input-full");
+    nameInput.setAttribute("aria-label", t("contentVariants.modal.name"));
     nameInput.value = this.initial?.name || "";
+    nameLabel.appendChild(nameInput);
     contentEl.createEl("h4", { text: t("contentVariants.modal.includedRoles") });
 
     const excluded = new Set(this.initial?.excludedRoles || []);
     const roleInputs = new Map<SemanticRole, HTMLInputElement>();
+    const roleGrid = contentEl.createDiv({ cls: "feuillets-content-modal-role-grid", attr: { role: "group", "aria-label": t("contentVariants.modal.includedRoles") } });
+    const roleSummary = contentEl.createDiv({ cls: "feuillets-content-modal-role-summary" });
+    const updateRoleSummary = (): void => {
+      const selected = SEMANTIC_ROLES.filter((role) => roleInputs.get(role)?.checked);
+      roleSummary.setText(`${t("contentVariants.modal.selectedRolesCount", { count: String(selected.length) })} · ${t("contentVariants.modal.roleHint")}`);
+    };
     for (const role of SEMANTIC_ROLES) {
-      const label = contentEl.createEl("label", { cls: "feuillets-content-variant-role" });
+      const label = roleGrid.createEl("label", { cls: "feuillets-content-modal-role feuillets-content-variant-role" });
       const input = label.createEl("input", { type: "checkbox" });
       input.checked = !excluded.has(role);
+      input.addEventListener("change", updateRoleSummary);
       roleInputs.set(role, input);
       label.createSpan({ text: t(`contentVariants.roles.${role}`) });
     }
+    updateRoleSummary();
     contentEl.createDiv({ cls: "feuillets-content-variants-hint", text: t("contentVariants.modal.roleHint") });
 
     contentEl.createEl("h4", { text: t("contentVariants.modal.questions") });

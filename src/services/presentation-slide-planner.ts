@@ -4,8 +4,9 @@ import { measurePresentationSlideOverflow, type MeasurePresentationSlideOverflow
 import { SEMANTIC_ROLE_ALIASES, type SemanticRole } from "../utils/semantic-roles.js";
 import type { App, Component } from "obsidian";
 import type { ResolvedPresentationTheme } from "./presentation-theme.js";
+import type { PresentationLayoutOverride } from "./presentation-layout-engine.js";
 
-type Probe = (markdown: string, index: number) => Promise<boolean>;
+type Probe = (markdown: string, index: number, layoutOverride: PresentationLayoutOverride | null) => Promise<boolean>;
 
 export interface PlanPresentationSlidesOptions {
   app: App;
@@ -14,6 +15,22 @@ export interface PlanPresentationSlidesOptions {
   markdown: string;
   roleEditorDisplay?: "callouts" | "compact";
   theme?: ResolvedPresentationTheme;
+  /**
+   * Dispositions choisies MANUELLEMENT par l'auteur, indexées par segment
+   * EXPLICITE (ceux que produit `splitPresentationMarkdownWithRanges`, avant
+   * toute découpe automatique). Le débordement est alors mesuré avec la
+   * disposition retenue par l'auteur, et non avec la disposition automatique :
+   * un contenu qui tient en `image-left` ou `columns` cesse d'être scindé.
+   * Sans cela, la découpe était décidée AVANT que l'override ne soit lu, et
+   * aucun choix manuel ne pouvait empêcher une coupure.
+   */
+  slideLayouts?: ReadonlyMap<number, PresentationLayoutOverride>;
+  /**
+   * Lignes source où l'auteur a posé un saut explicite (override
+   * `page-break-before`). Chacune ouvre TOUJOURS une nouvelle slide, avant
+   * toute considération de débordement.
+   */
+  forcedBreakLines?: readonly number[];
   /** Injection étroite réservée aux tests ; la production utilise le renderer réel. */
   measureOverflow?: Probe;
 }
@@ -53,11 +70,6 @@ function calloutRole(markdown: string): SemanticRole | null {
   return match ? SEMANTIC_ROLE_ALIASES[match[1].toLocaleLowerCase()] ?? null : null;
 }
 
-function isSpeakerNotes(markdown: string): boolean {
-  const firstLine = markdown.split(/\r?\n/u).find((line) => line.trim() !== "") ?? "";
-  return /^(?: {0,3}>[ \t]?)+[ \t]*\[!speaker-notes\](?:[+-])?(?:[ \t].*)?$/iu.test(firstLine);
-}
-
 function headingLevel(name: string): number | null {
   const match = /^ATXHeading([1-6])$/u.exec(name);
   return match ? Number(match[1]) : null;
@@ -80,14 +92,7 @@ function atomicBlocks(segment: PresentationSlideSource): AtomicBlock[] {
       from,
       to: node.to,
     };
-    if (isSpeakerNotes(markdown) && blocks.length > 0) {
-      const previous = blocks[blocks.length - 1];
-      previous.to = node.to;
-      previous.markdown = segment.markdown.slice(previous.from, previous.to);
-      previous.endLine = block.endLine;
-    } else {
-      blocks.push(block);
-    }
+    blocks.push(block);
   }
   return blocks;
 }
@@ -126,19 +131,25 @@ export async function planPresentationSlides(options: PlanPresentationSlidesOpti
   const explicit = splitPresentationMarkdownWithRanges(options.markdown);
   if (!explicit.length) return [];
   const cache = new Map<string, boolean>();
-  const measure: Probe = options.measureOverflow ?? (async (markdown, index) => {
+  const measure: Probe = options.measureOverflow ?? (async (markdown, index, layoutOverride) => {
     const controller = new AbortController();
     const probeOptions: MeasurePresentationSlideOverflowOptions = {
       app: options.app, component: options.component, sourcePath: options.sourcePath, markdown, index, generation: 0,
       controller, isGenerationStale: () => false, roleEditorDisplay: options.roleEditorDisplay, theme: options.theme,
+      layoutOverride,
     };
     return measurePresentationSlideOverflow(probeOptions);
   });
+  const forcedBreaks = new Set(options.forcedBreakLines ?? []);
   const output: PresentationSlideSource[] = [];
   let probeIndex = 0;
   const planSegment = async (segment: PresentationSlideSource, segmentIndex: number): Promise<void> => {
     const blocks = atomicBlocks(segment);
     if (blocks.length === 0) { output.push(segment); return; }
+    // Disposition choisie par l'auteur pour CE segment explicite, appliquée à
+    // toutes les mesures qui en découlent : la découpe est jugée sur la mise
+    // en page réellement retenue, jamais sur une autre.
+    const layoutOverride = options.slideLayouts?.get(segmentIndex) ?? null;
     const planRange = async (start: number, end: number): Promise<void> => {
       const first = blocks[start];
       const last = blocks[end - 1];
@@ -146,7 +157,7 @@ export async function planPresentationSlides(options: PlanPresentationSlidesOpti
       const markdown = isWholeSegment ? segment.markdown : segment.markdown.slice(first.from, last.to);
       const key = `${segmentIndex}:${start}:${end}`;
       let overflow = cache.get(key);
-      if (overflow === undefined) { overflow = await measure(markdown, probeIndex++); cache.set(key, overflow); }
+      if (overflow === undefined) { overflow = await measure(markdown, probeIndex++, layoutOverride); cache.set(key, overflow); }
       if (!overflow || end - start <= 1) {
         output.push({
           markdown,
@@ -168,7 +179,16 @@ export async function planPresentationSlides(options: PlanPresentationSlidesOpti
       await planRange(start, split);
       await planRange(split, end);
     };
-    await planRange(0, blocks.length);
+    /* Les sauts posés par l'auteur (« Saut de page ») découpent le segment
+       AVANT toute mesure : ils ne sont jamais arbitrés par le débordement,
+       et chaque tronçon est ensuite planifié pour lui-même. */
+    const chunkStarts = [0];
+    for (let index = 1; index < blocks.length; index++) {
+      if (forcedBreaks.has(blocks[index].startLine)) chunkStarts.push(index);
+    }
+    for (let chunk = 0; chunk < chunkStarts.length; chunk++) {
+      await planRange(chunkStarts[chunk], chunkStarts[chunk + 1] ?? blocks.length);
+    }
   };
   for (let index = 0; index < explicit.length; index++) await planSegment(explicit[index], index);
   return output;

@@ -1,4 +1,4 @@
-import { Notice, Setting, TFile, TFolder, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
+import { Menu, Notice, Setting, TFile, TFolder, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { t } from "../i18n/index.js";
 import {
   currentExportScope,
@@ -244,31 +244,13 @@ export class ExportPanel {
     bar.empty();
     bar.addClass("feuillets-edition-quickexport");
 
-    const scope = bar.createEl("select", { cls: "feuillets-edition-quickexport-scope" });
-    const current = this.resolveScope();
-    const active = this.activeProjectFile();
-    if (current?.type === "selection") {
-      scope.createEl("option", { value: "selection", text: t("preview.scope.selection", { count: String(current.paths.length) }) });
-    }
-    if (active) {
-      scope.createEl("option", { value: "file", text: t("preview.scope.file") });
-      scope.createEl("option", { value: "folder", text: t("preview.scope.folder") });
-    }
-    scope.createEl("option", { value: "project", text: t("preview.scope.project") });
-    scope.value = current?.type === "selection" ? "selection" : (current?.type || "project");
-    scope.setAttribute("aria-label", t("preview.export.scopeAriaLabel"));
-    scope.addEventListener("change", () => this.setEditionScope(scope.value, active, current));
-
-    const format = bar.createEl("select", { cls: "feuillets-edition-quickexport-format" });
-    for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"]]) {
-      format.createEl("option", { value, text: label });
-    }
-    format.value = this.exportFormat === "md" ? "docx" : this.exportFormat;
-    format.setAttribute("aria-label", t("preview.export.outputFormat"));
-    format.addEventListener("change", () => {
-      this.plugin.settings.exportFormat = format.value;
-      void this.plugin.saveSettings?.();
-    });
+    const scopeButton = this.quickMenuButton(bar, "scope", "layers", this.quickScopeTooltip(this.resolveScope()));
+    scopeButton.addEventListener("click", (event) => this.showQuickScopeMenu(event, scopeButton));
+    const contentButton = this.quickMenuButton(bar, "content", "file-text", t("contentDerivation.fullTooltip"));
+    contentButton.addEventListener("click", (event) => void this.showQuickContentMenu(event, contentButton));
+    void this.updateQuickContentButton(contentButton);
+    const formatButton = this.quickMenuButton(bar, "format", "file-cog", this.quickFormatTooltip(this.exportFormat));
+    formatButton.addEventListener("click", (event) => this.showQuickFormatMenu(event, formatButton));
 
     const launch = bar.createEl("button", {
       cls: "mod-cta feuillets-edition-quickexport-cta",
@@ -276,17 +258,132 @@ export class ExportPanel {
     });
     launch.setAttribute("aria-label", t("preview.export.launch"));
     launch.addEventListener("click", () => void this.launchExport());
-    void this.addQuickDerivationSelector(bar, format);
   }
 
-  private async addQuickDerivationSelector(bar: HTMLElement, format: HTMLSelectElement): Promise<void> {
+  private quickMenuButton(parent: HTMLElement, kind: string, icon: string, tooltip: string): HTMLButtonElement {
+    const button = parent.createEl("button", { cls: `clickable-icon feuillets-edition-quickexport-${kind}` });
+    setIcon(button, icon);
+    setTooltip(button, tooltip);
+    button.setAttribute("title", tooltip);
+    button.setAttribute("aria-label", tooltip);
+    return button;
+  }
+
+  private quickScopeTooltip(scope: CompileScope | null): string {
+    const label = scope?.type === "selection"
+      ? t("preview.scope.selection", { count: String(scope.paths.length) })
+      : scope?.type === "file" ? t("preview.scope.file")
+      : scope?.type === "folder" ? t("preview.scope.folder")
+      : t("preview.scope.project");
+    return t("preview.export.scopeTooltip", { scope: label });
+  }
+
+  private quickFormatTooltip(format: string): string {
+    const label = format === "md" ? "Markdown" : format.toUpperCase();
+    return t("preview.export.formatTooltip", { format: label });
+  }
+
+  private showQuickScopeMenu(event: MouseEvent, button: HTMLButtonElement): void {
+    const current = this.resolveScope();
+    const active = this.activeProjectFile();
+    const menu = new Menu();
+    const addScope = (value: string, title: string): void => {
+      menu.addItem((item) => item.setTitle(title).setChecked((current?.type || "project") === value).onClick(() => {
+        this.setEditionScope(value, active, current);
+        void this.updateQuickScopeButton(button);
+      }));
+    };
+    addScope("project", t("preview.scope.project"));
+    if (active?.parent) addScope("folder", t("preview.scope.folder"));
+    if (active) addScope("file", t("preview.scope.file"));
+    if (current?.type === "selection") addScope("selection", t("preview.scope.selection", { count: String(current.paths.length) }));
+    this.showQuickMenu(menu, event, button);
+  }
+
+  /** Menu natif : onHide couvre sélection, clic extérieur et Échap. La
+   * restauration est attachée au bouton déclencheur, sans rerendu ni délai. */
+  private showQuickMenu(menu: Menu, event: MouseEvent, button: HTMLButtonElement): void {
+    menu.onHide(() => button.focus());
+    menu.showAtMouseEvent(event);
+  }
+
+  private updateQuickScopeButton(button: HTMLButtonElement): void {
+    const tooltip = this.quickScopeTooltip(this.resolveScope());
+    setTooltip(button, tooltip);
+    button.setAttribute("title", tooltip);
+    button.setAttribute("aria-label", tooltip);
+  }
+
+  private async updateQuickContentButton(button: HTMLButtonElement): Promise<void> {
     const derivationData = await this.loadDerivationData();
-    if (!this.hasDerivationOptions(derivationData)) return;
-    const derivation = bar.createEl("select", { cls: "feuillets-edition-quickexport-derivation" });
-    this.configureNativeDerivationSelect(derivation, derivationData);
-    derivation.setAttribute("aria-label", t("contentDerivation.select"));
-    if (typeof bar.insertBefore === "function") bar.insertBefore(derivation, format);
-    else bar.appendChild(derivation);
+    const title = this.quickContentTooltip(derivationData);
+    setTooltip(button, title);
+    button.setAttribute("title", title);
+    button.setAttribute("aria-label", title);
+    setIcon(button, derivationData.selection.kind === "collection" ? "layers" : "file-text");
+  }
+
+  private quickContentTooltip(data: DerivationData): string {
+    if (data.selection.kind === "full") return t("contentDerivation.fullTooltip");
+    const selection = data.selection;
+    const items = selection.kind === "extraction" ? data.extractions : data.collections;
+    const item = items.find((candidate) => candidate.id === selection.id);
+    if (!item && (selection.kind === "extraction" ? data.extractionsCorrupted : data.collectionsCorrupted)) {
+      return selection.kind === "extraction" ? t("contentDerivation.unavailableExtraction") : t("contentDerivation.unavailableCollection");
+    }
+    return this.derivationLabel(selection, data);
+  }
+
+  private async showQuickContentMenu(event: MouseEvent, button: HTMLButtonElement): Promise<void> {
+    const data = await this.loadDerivationData();
+    const selectedExtractionId = data.selection.kind === "extraction" ? data.selection.id : null;
+    const selectedCollectionId = data.selection.kind === "collection" ? data.selection.id : null;
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle(t("contentDerivation.fullDocument")).setChecked(data.selection.kind === "full").onClick(() => {
+      rememberExportDerivation(this.plugin, { kind: "full" });
+      void this.updateQuickContentButton(button);
+    }));
+    if (data.extractions.length > 0 || data.extractionsCorrupted) {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle(t("contentDerivation.extractions")).setDisabled(true));
+      for (const extraction of data.extractions) {
+        menu.addItem((item) => item.setTitle(extraction.name).setChecked(selectedExtractionId === extraction.id).onClick(() => {
+          rememberExportDerivation(this.plugin, { kind: "extraction", id: extraction.id });
+          void this.updateQuickContentButton(button);
+        }));
+      }
+      if (data.extractionsCorrupted && data.selection.kind === "extraction") {
+        menu.addItem((item) => item.setTitle(t("contentDerivation.unavailableExtraction")).setChecked(true));
+      }
+    }
+    if (data.collections.length > 0 || data.collectionsCorrupted) {
+      menu.addSeparator();
+      menu.addItem((item) => item.setTitle(t("contentDerivation.collections")).setDisabled(true));
+      for (const collection of data.collections) {
+        menu.addItem((item) => item.setTitle(collection.name).setChecked(selectedCollectionId === collection.id).onClick(() => {
+          rememberExportDerivation(this.plugin, { kind: "collection", id: collection.id });
+          void this.updateQuickContentButton(button);
+        }));
+      }
+      if (data.collectionsCorrupted && data.selection.kind === "collection") {
+        menu.addItem((item) => item.setTitle(t("contentDerivation.unavailableCollection")).setChecked(true));
+      }
+    }
+    this.showQuickMenu(menu, event, button);
+  }
+
+  private showQuickFormatMenu(event: MouseEvent, button: HTMLButtonElement): void {
+    const current = this.exportFormat === "md" ? "docx" : this.exportFormat;
+    const menu = new Menu();
+    for (const [value, label] of [["pdf", "PDF"], ["docx", "DOCX"], ["odt", "ODT"], ["epub", "EPUB"], ["md", "Markdown"]]) {
+      menu.addItem((item) => item.setTitle(label).setChecked(current === value).onClick(() => {
+        this.plugin.settings.exportFormat = value;
+        void this.plugin.saveSettings?.();
+        setTooltip(button, this.quickFormatTooltip(value));
+        button.setAttribute("title", this.quickFormatTooltip(value));
+      }));
+    }
+    this.showQuickMenu(menu, event, button);
   }
 
   private async loadDerivationData(): Promise<DerivationData> {
@@ -329,6 +426,16 @@ export class ExportPanel {
     return selection.kind === "full" ? "full" : `${selection.kind}:${selection.id}`;
   }
 
+  private derivationLabel(selection: ContentDerivationSelection, data: DerivationData): string {
+    if (selection.kind === "full") return t("contentDerivation.fullDocument");
+    const items = selection.kind === "extraction" ? data.extractions : data.collections;
+    const item = items.find((candidate) => candidate.id === selection.id);
+    const prefix = selection.kind === "extraction"
+      ? t("contentDerivation.extractionPrefix")
+      : t("contentDerivation.collectionPrefix");
+    return `${prefix} ${item?.name || (selection.kind === "extraction" ? t("contentDerivation.unavailableExtraction") : t("contentDerivation.unavailableCollection"))}`;
+  }
+
   private selectionFromValue(value: string): ContentDerivationSelection {
     if (value === "full") return { kind: "full" };
     const separator = value.indexOf(":");
@@ -341,36 +448,37 @@ export class ExportPanel {
   }
 
   private configureDerivationDropdown(dropdown: DerivationDropdown, data: DerivationData): void {
-    dropdown.addOption("full", t("contentExtractions.allDocument"));
+    dropdown.addOption("full", this.derivationLabel({ kind: "full" }, data));
     const addGroup = (label: string, items: { id: string; name: string }[]): void => {
       if (items.length === 0) return;
       if (dropdown.selectEl && typeof dropdown.selectEl.createEl === "function") {
         const group = dropdown.selectEl.createEl("optgroup", { attr: { label } });
-        for (const item of items) group.createEl("option", { value: `${label === t("contentDerivation.extractions") ? "extraction" : "collection"}:${item.id}`, text: item.name });
+        const kind: "extraction" | "collection" = label === t("contentDerivation.extractions") ? "extraction" : "collection";
+        for (const item of items) group.createEl("option", { value: `${kind}:${item.id}`, text: this.derivationLabel({ kind, id: item.id }, data) });
       } else {
         const kind = label === t("contentDerivation.extractions") ? "extraction" : "collection";
-        for (const item of items) dropdown.addOption(`${kind}:${item.id}`, item.name);
+        for (const item of items) dropdown.addOption(`${kind}:${item.id}`, this.derivationLabel({ kind, id: item.id }, data));
       }
     };
     addGroup(t("contentDerivation.extractions"), data.extractions);
     addGroup(t("contentDerivation.collections"), data.collections);
-    if (data.selection.kind === "extraction" && data.extractionsCorrupted) dropdown.addOption(this.derivationValue(data.selection), t("contentDerivation.unavailableExtraction"));
-    if (data.selection.kind === "collection" && data.collectionsCorrupted) dropdown.addOption(this.derivationValue(data.selection), t("contentDerivation.unavailableCollection"));
+    if (data.selection.kind === "extraction" && data.extractionsCorrupted) dropdown.addOption(this.derivationValue(data.selection), this.derivationLabel(data.selection, data));
+    if (data.selection.kind === "collection" && data.collectionsCorrupted) dropdown.addOption(this.derivationValue(data.selection), this.derivationLabel(data.selection, data));
     dropdown.setValue(this.derivationValue(data.selection));
     dropdown.onChange((value) => rememberExportDerivation(this.plugin, this.selectionFromValue(value)));
   }
 
   private configureNativeDerivationSelect(select: HTMLSelectElement, data: DerivationData): void {
-    select.createEl("option", { value: "full", text: t("contentExtractions.allDocument") });
+    select.createEl("option", { value: "full", text: this.derivationLabel({ kind: "full" }, data) });
     const addGroup = (label: string, items: { id: string; name: string }[], kind: "extraction" | "collection"): void => {
       if (items.length === 0) return;
       const group = select.createEl("optgroup", { attr: { label } });
-      for (const item of items) group.createEl("option", { value: `${kind}:${item.id}`, text: item.name });
+      for (const item of items) group.createEl("option", { value: `${kind}:${item.id}`, text: this.derivationLabel({ kind, id: item.id }, data) });
     };
     addGroup(t("contentDerivation.extractions"), data.extractions, "extraction");
     addGroup(t("contentDerivation.collections"), data.collections, "collection");
-    if (data.selection.kind === "extraction" && data.extractionsCorrupted) select.createEl("option", { value: this.derivationValue(data.selection), text: t("contentDerivation.unavailableExtraction") });
-    if (data.selection.kind === "collection" && data.collectionsCorrupted) select.createEl("option", { value: this.derivationValue(data.selection), text: t("contentDerivation.unavailableCollection") });
+    if (data.selection.kind === "extraction" && data.extractionsCorrupted) select.createEl("option", { value: this.derivationValue(data.selection), text: this.derivationLabel(data.selection, data) });
+    if (data.selection.kind === "collection" && data.collectionsCorrupted) select.createEl("option", { value: this.derivationValue(data.selection), text: this.derivationLabel(data.selection, data) });
     select.value = this.derivationValue(data.selection);
     select.addEventListener("change", () => rememberExportDerivation(this.plugin, this.selectionFromValue(select.value)));
   }

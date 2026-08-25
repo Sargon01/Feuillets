@@ -16,6 +16,8 @@ You do not need to learn all of Feuillets before you start. Begin with what you 
 
 - **I want to work on only part of the manuscript.** Feuillets can work at the level of a **sheet**, **folder**, **selection** or the **whole project**. Depending on the action, that scope can be used in Continuous, Preview and export without making a copy of the project.
 
+- **I want several outputs from the same source.** Add only the semantic roles that are useful to you, then create a **variant**, **extraction** or **collection**. Ordinary text remains included by default and the source manuscript is not duplicated. See [Semantic roles](SEMANTIC-ROLES.md) and [Content variants, extractions and collections](CONTENT-VARIANTS-EXTRACTIONS-COLLECTIONS.md).
+
 - **I want to move a paragraph or passage.** In the native Markdown editor or in Continuous, use **right-click → Reorder text**, then drag the paragraph or, when it stays within a single paragraph, the selected fragment to its new position. Press **Escape** to leave the mode.
 
 - **I want to leave myself a note on a sentence.** Select the passage and choose **Annotation…**. The annotation stays attached to the text, also works in Continuous and is never written into the Markdown; use a working note instead when the remark concerns the whole sheet. See [Working annotations](WORKING-ANNOTATIONS.md).
@@ -30,6 +32,8 @@ You do not need to learn all of Feuillets before you start. Begin with what you 
 
 - **I want to export without opening Preview.** You can. Preview is for visually checking the composed document, but it is not required for export; if Continuous still has pending edits, Feuillets saves them to the source files first.
 
+- **I want the same Markdown as a presentation.** Separate slides with `---`. Feuillets composes them in 16:9, can use semantic roles without requiring them, and keeps `[!speaker-notes]` out of projection. See [Presentation](PRESENTATION-EN.md).
+
 ## Easy-to-miss features
 
 - An existing Obsidian folder can become a Feuillets project without being restructured.
@@ -39,6 +43,8 @@ You do not need to learn all of Feuillets before you start. Begin with what you 
 - An existing documentation folder can be **linked as Research** without being moved.
 - **YAML mapping** lets Feuillets adapt to properties already used in the vault.
 - **Preview is optional for export**: it is for checking composition, not for enabling export.
+- **Semantic roles are optional**, but can drive variants, extractions and collections from one source.
+- The same Markdown can also feed a 16:9 **Presentation**.
 
 ## Understand the Feuillets workspace
 
@@ -66,7 +72,7 @@ Five tabs accompany the text without replacing the manuscript:
 
 ### Edition
 
-**Edition** is a central workspace separate from the right panel. **Composition** decides what belongs in the document; **Layout** controls its presentation. **Preview** lets you inspect the result, while export remains available without opening it first.
+**Edition** is a central workspace separate from the right panel. **Composition** decides what belongs in the document and can define variants, extractions and collections; **Layout** controls its presentation. The compact toolbar follows **Scope → Content → Format → Export**. **Preview** lets you inspect the result, while export remains available without opening it first.
 
 ## Philosophy
 

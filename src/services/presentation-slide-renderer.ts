@@ -50,6 +50,7 @@ import {
 } from "./presentation-layout-engine.js";
 import { applySemanticRoles, semanticRoleForElement, SEMANTIC_ROLE_FAMILY } from "../utils/semantic-roles.js";
 import { resolvePresentationTheme, type ResolvedPresentationTheme } from "./presentation-theme.js";
+import { pendingMediaOf, waitForMediaBatch, PRESENTATION_MEDIA_TIMEOUT_MS } from "../utils/presentation-media.js";
 
 /** Dimensions fixes et déterministes de la surface de slide (aucun shrink automatique). */
 export const PRESENTATION_SLIDE_WIDTH = 1280;
@@ -121,11 +122,58 @@ export interface RenderedPresentationSlide {
   generation: number;
   section: HTMLElement;
   inner: HTMLElement;
-  hasSpeakerNotes: boolean;
   overflow: boolean;
   geometry: PresentationGeometry | null;
   candidate: string | null;
   controller: AbortController;
+}
+
+/** Options minimales pour sonder le renderer sans conserver son DOM. */
+export type MeasurePresentationSlideOverflowOptions = Omit<RenderPresentationSlideOptions, "measurementHost" | "deckContainer">;
+
+/**
+ * Sonde de capacité utilisée par le planner. Elle passe par le renderer de
+ * production, puis retire intégralement le conteneur temporaire (DOM et
+ * listeners) avant de rendre la main.
+ */
+export async function measurePresentationSlideOverflow(options: MeasurePresentationSlideOverflowOptions): Promise<boolean> {
+  if (typeof document === "undefined" || !document.body) return true;
+  const root = document.body.createDiv({ cls: "feuillets-presentation-render-probe" });
+  root.setAttribute("aria-hidden", "true");
+  Object.assign(root.style, {
+    position: "absolute",
+    left: "-100000px",
+    top: "0",
+    width: `${PRESENTATION_SLIDE_WIDTH}px`,
+    height: `${PRESENTATION_SLIDE_HEIGHT}px`,
+    visibility: "hidden",
+    pointerEvents: "none",
+  });
+  const host = root.createDiv({ cls: "feuillets-presentation-probe-host" });
+  const deck = root.createDiv({ cls: "feuillets-presentation-probe-deck" });
+  Object.assign(host.style, { width: `${PRESENTATION_SLIDE_WIDTH}px`, height: `${PRESENTATION_SLIDE_HEIGHT}px` });
+  Object.assign(deck.style, { width: `${PRESENTATION_SLIDE_WIDTH}px`, height: `${PRESENTATION_SLIDE_HEIGHT}px` });
+  root.append(host, deck);
+  document.body.appendChild(root);
+  try {
+    const first = await renderPresentationSlide({ ...options, measurementHost: host, deckContainer: deck });
+    /* Une image non encore chargée a une taille naturelle de 0 (voir
+     * naturalSizeOf) : mesurée ainsi, une slide qui déborde réellement passe
+     * pour tenir. Le résultat de la sonde dépendrait alors de l'état du cache
+     * d'images au moment de l'appel — d'où des découpes qui changent d'une
+     * ouverture à l'autre. On attend donc les médias (attente BORNÉE, en un
+     * seul lot) puis on RE-MESURE une fois, avec leurs vraies dimensions.
+     * Les sondes suivantes trouvent les images déjà chargées et repartent
+     * directement : ce second rendu n'a lieu qu'une fois par média. */
+    const pending = pendingMediaOf(first.section);
+    if (pending.length === 0) return first.overflow;
+    await waitForMediaBatch(pending, PRESENTATION_MEDIA_TIMEOUT_MS);
+    const measured = await renderPresentationSlide({ ...options, measurementHost: host, deckContainer: deck });
+    return measured.overflow;
+  } finally {
+    options.controller.abort();
+    root.remove();
+  }
 }
 
 /* Le linter obsidianmd (no-forbidden-elements) interdit de créer/attacher un
@@ -147,17 +195,6 @@ function setCssVars(el: HTMLElement, vars: Record<string, string>): void {
   const existing = el.getAttribute("style") || "";
   const extra = Object.entries(vars).map(([name, value]) => `${name}:${value}`).join(";");
   el.setAttribute("style", existing ? `${existing};${extra}` : extra);
-}
-
-/** Retire uniquement les callouts speaker-notes placés directement dans la slide. */
-function removeSpeakerNotesFromSource(sourceRoot: HTMLElement): boolean {
-  let hasSpeakerNotes = false;
-  for (const child of Array.from(sourceRoot.children)) {
-    if (!child.classList.contains("callout") || child.getAttribute("data-callout") !== "speaker-notes") continue;
-    child.remove();
-    hasSpeakerNotes = true;
-  }
-  return hasSpeakerNotes;
 }
 
 /** Surface visuelle déterministe et fixe de la slide définitive (aucun shrink automatique). */
@@ -664,10 +701,14 @@ function composeSplitStackInto(container: HTMLElement, sourceChildren: HTMLEleme
 
   /* Chaque candidat est un DOM indépendant : les nœuds source sont clonés,
    * jamais déplacés, afin que plusieurs candidats puissent coexister,
-   * attachés simultanément au measurementHost, sans se voler leur contenu. */
-  const grouped = plan.cellAIndexes.length > 1 || plan.cellBIndexes.length > 1;
-  const stackA = grouped ? cellA.createDiv({ cls: "feuillets-presentation-render-callout-stack" }) : null;
-  const stackB = grouped ? cellB.createDiv({ cls: "feuillets-presentation-render-callout-stack" }) : null;
+   * attachés simultanément au measurementHost, sans se voler leur contenu.
+   * Le regroupement (callout-stack) est décidé CELLULE PAR CELLULE : une
+   * cellule avec un seul index (ex. le média seul d'un candidat média+contenu
+   * groupé) ne doit jamais recevoir de stack, même quand l'autre cellule en a
+   * un — sinon le "média block" attendu par normalizePresentationMediaCell
+   * serait le wrapper de stack, pas le bloc média réel. */
+  const stackA = plan.cellAIndexes.length > 1 ? cellA.createDiv({ cls: "feuillets-presentation-render-callout-stack" }) : null;
+  const stackB = plan.cellBIndexes.length > 1 ? cellB.createDiv({ cls: "feuillets-presentation-render-callout-stack" }) : null;
   if (stackA) styleEl(stackA, { display: "flex", flexDirection: "column", rowGap: `${FLOW_GAP_PX}px`, width: "100%", minWidth: "0" });
   if (stackB) styleEl(stackB, { display: "flex", flexDirection: "column", rowGap: `${FLOW_GAP_PX}px`, width: "100%", minWidth: "0" });
   const pick = (idx: number): HTMLElement => sourceChildren[idx].cloneNode(true) as HTMLElement;
@@ -896,21 +937,13 @@ function layoutPlansForOverride(
   if (override === "flow") return [];
   if (override === "columns") return plans.filter((plan) => plan.geometry === "split");
 
-  const desiredMediaPosition = override === "image-left" ? "a" : "b";
-  return plans
-    .filter((plan) => plan.geometry === "split" && plan.mediaPosition !== null)
-    .map((plan) => {
-      if (plan.mediaPosition === desiredMediaPosition) return plan;
-      return {
-        ...plan,
-        id: `split-${plan.cellBRatio}-${plan.cellARatio}`,
-        cellAIndexes: plan.cellBIndexes,
-        cellBIndexes: plan.cellAIndexes,
-        cellARatio: plan.cellBRatio,
-        cellBRatio: plan.cellARatio,
-        mediaPosition: desiredMediaPosition,
-      };
-    });
+  // image-left : média en cellule A
+  if (override === "image-left") {
+    return plans.filter((plan) => plan.geometry === "split" && plan.mediaPosition === "a");
+  }
+
+  // image-right : média en cellule B
+  return plans.filter((plan) => plan.geometry === "split" && plan.mediaPosition === "b");
 }
 
 /**
@@ -1002,17 +1035,16 @@ export async function renderPresentationSlide(options: RenderPresentationSlideOp
     sourceRoot.remove();
     const section = deckContainer.createEl("section", { cls: "feuillets-presentation-render-slide", attr: { "data-slide-index": String(index) } });
     const inner = section.createDiv({ cls: "feuillets-presentation-render-inner" });
-    return { index, generation, overflow: false, geometry: null, candidate: null, section, inner, controller, hasSpeakerNotes: false };
+    return { index, generation, overflow: false, geometry: null, candidate: null, section, inner, controller };
   }
 
-  const hasSpeakerNotes = removeSpeakerNotesFromSource(sourceRoot);
   await resolveVideoMetadataForRender(sourceRoot, controller.signal);
 
   if (isGenerationStale() || controller.signal.aborted) {
     sourceRoot.remove();
     const section = deckContainer.createEl("section", { cls: "feuillets-presentation-render-slide", attr: { "data-slide-index": String(index) } });
     const inner = section.createDiv({ cls: "feuillets-presentation-render-inner" });
-    return { index, generation, overflow: false, geometry: null, candidate: null, section, inner, controller, hasSpeakerNotes: false };
+    return { index, generation, overflow: false, geometry: null, candidate: null, section, inner, controller };
   }
 
   // Applique les rôles sémantiques Feuillets (détection + classes + icônes)
@@ -1092,7 +1124,6 @@ export async function renderPresentationSlide(options: RenderPresentationSlideOp
   const overflow = before.overflow || after.overflow || diverged;
   winner.section.setAttribute("data-overflow", overflow ? "true" : "false");
   winner.section.classList.toggle("has-overflow", overflow);
-  if (hasSpeakerNotes) winner.section.setAttribute("data-speaker-notes", "true");
 
   sourceRoot.remove();
 
@@ -1100,5 +1131,5 @@ export async function renderPresentationSlide(options: RenderPresentationSlideOp
   const candidate = winner.section.getAttribute("data-candidate");
   bindMediaListeners(winner.inner, controller, onMediaResolved);
 
-  return { index, generation, overflow, geometry, candidate, section: winner.section, inner: winner.inner, controller, hasSpeakerNotes };
+  return { index, generation, overflow, geometry, candidate, section: winner.section, inner: winner.inner, controller };
 }

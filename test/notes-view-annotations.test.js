@@ -494,3 +494,126 @@ test("état vide : « aucune annotation dans ce dossier » en portée Dossier qu
   assert.ok(empty);
   assert.equal(empty.text, "Aucune annotation dans ce dossier.");
 });
+
+/* ===== Panneau notes : trois rubriques SŒURS (Notes de travail /
+   Annotations / Notes de présentation) ===== */
+
+/** Les rubriques de premier niveau, dans l'ordre du DOM — mêmes
+    `.feuillets-notes-section` que « Notes de travail », jamais une
+    sous-rubrique imbriquée. */
+function sectionTitles(wrapper) {
+  return allElements(wrapper)
+    .filter((el) => el.classes.has("feuillets-notes-section-title"))
+    .map((el) => el.text);
+}
+function sectionByTitle(wrapper, title) {
+  return allElements(wrapper)
+    .filter((el) => el.classes.has("feuillets-notes-section"))
+    .find((section) => allElements(section).some((el) => el.classes.has("feuillets-notes-section-title") && el.text === title));
+}
+
+test("trois rubriques de même niveau : Notes de travail, Annotations, Notes de présentation", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "normal-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation normale", color: "yellow" },
+    { id: "presentation-1", file: "Chapitre/Scène.md", start: 3, end: 10, quote: "faisait", prefix: "Il ", suffix: " nuit", text: "note présentation", color: "blue", presentationNote: true },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+
+  const titles = sectionTitles(wrapper);
+  assert.deepEqual(titles, ["Notes de travail", "Annotations", "Notes de présentation"], "trois rubriques sœurs, dans cet ordre");
+
+  // Aucune imbrication : la rubrique Notes de présentation n'est pas un
+  // descendant de la rubrique Annotations.
+  const annotations = sectionByTitle(wrapper, "Annotations");
+  assert.ok(annotations);
+  assert.equal(
+    allElements(annotations).some((el) => el.classes.has("feuillets-notes-section-title") && el.text === "Notes de présentation"),
+    false,
+    "Notes de présentation n'est jamais une sous-rubrique d'Annotations",
+  );
+});
+
+test("séparation stricte : chaque annotation dans une seule rubrique, jamais de doublon", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "normal-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation normale", color: "yellow" },
+    { id: "presentation-1", file: "Chapitre/Scène.md", start: 3, end: 10, quote: "faisait", prefix: "Il ", suffix: " nuit", text: "note présentation", color: "blue", presentationNote: true },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+
+  const annotations = sectionByTitle(wrapper, "Annotations");
+  const presentation = sectionByTitle(wrapper, "Notes de présentation");
+  const textsOf = (section) => allElements(section).map((el) => el.text);
+
+  assert.ok(textsOf(annotations).includes("annotation normale"));
+  assert.equal(textsOf(annotations).includes("note présentation"), false);
+  assert.ok(textsOf(presentation).includes("note présentation"));
+  assert.equal(textsOf(presentation).includes("annotation normale"), false);
+
+  // Une seule ligne par annotation dans tout le panneau.
+  const rows = allElements(wrapper).filter((el) => el.classes.has("feuillets-annotation-row"));
+  assert.equal(rows.length, 2);
+});
+
+test("rubrique Notes de présentation vide : état vide dédié, Annotations reste rendue normalement", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "normal-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation normale", color: "yellow" },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+
+  const presentation = sectionByTitle(wrapper, "Notes de présentation");
+  assert.ok(presentation);
+  const empty = allElements(presentation).find((el) => el.classes.has("feuillets-empty"));
+  assert.ok(empty);
+  assert.equal(empty.text, "Aucune note de présentation.");
+  assert.ok(allElements(sectionByTitle(wrapper, "Annotations")).some((el) => el.text === "annotation normale"));
+});
+
+test("filtre de portée : un seul état partagé, proposé dans les DEUX rubriques", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "normal-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation normale", color: "yellow" },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+
+  const scopeButtons = allElements(wrapper).filter((el) => el.classes.has("feuillets-notes-inline-action"));
+  assert.equal(scopeButtons.length, 2, "un sélecteur dans Annotations, un dans Notes de présentation");
+  for (const button of scopeButtons) assert.equal(button.text, "Feuillet ▾", "les deux reflètent le MÊME état de portée");
+
+  // Changer la portée depuis l'un des deux met à jour l'état partagé.
+  view.render = async () => {};
+  scopeButtons[1].events.get("click")({ stopPropagation: () => {} });
+  Menu.lastShown.items.find((item) => item.title === "Projet").callback();
+  assert.equal(view.annotationScope, "project");
+});
+
+test("filtre Feuillet commun aux deux rubriques : une note de présentation d'un autre feuillet n'apparaît pas en portée Feuillet", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "presentation-other", file: "Chapitre/Autre.md", start: 0, end: 2, quote: "Un", prefix: "", suffix: "", text: "note ailleurs", color: "blue", presentationNote: true },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  assert.equal(allElements(wrapper).some((el) => el.text === "note ailleurs"), false);
+});
+
+test("libellé cible : note de présentation sans commentaire affiche la cible nettoyée (titre sans #), jamais la syntaxe brute", async () => {
+  const { view, app, settings, scene } = fixture();
+  const quote = "## Le Chat";
+  const content = `${quote}\n\nIl faisait nuit.`;
+  scene.content = content;
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "presentation-1", file: "Chapitre/Scène.md", start: 0, end: quote.length, quote, prefix: "", suffix: "\n\n", text: "", color: "yellow", presentationNote: true },
+  ] });
+  const wrapper = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
+  const texts = allElements(wrapper).map((el) => el.text);
+  assert.ok(texts.includes("Le Chat"), "titre affiché sans marqueurs Markdown");
+  assert.equal(texts.some((text) => text.includes("##")), false, "jamais la syntaxe brute affichée");
+});

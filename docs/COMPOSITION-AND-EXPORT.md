@@ -15,13 +15,16 @@ There are only two modes:
 - **Composition**;
 - **Layout**.
 
-Export is no longer a third tab. Edition always keeps **scope**, **format**, **Export** and **Refresh Preview** in the top bar.
+Export is no longer a third tab. Edition groups **Scope**, **Content**, **Format**, **Export** and **Refresh Preview** in the top bar.
 
 ## Composition
 
 The Composition home page summarizes the document:
 
 - **Manuscript content** — choose included sheets;
+- **Content variants** — keep the document while hiding selected roles;
+- **Content extractions** — keep whole sections containing selected roles;
+- **Content collections** — gather selected role blocks with heading context;
 - **First page** — content and presentation;
 - **Front matter**;
 - generated contents/table of contents and tables;
@@ -29,6 +32,22 @@ The Composition home page summarizes the document:
 - manuscript structure and footnote-related options.
 
 Subpages return to Composition without opening a new Obsidian view.
+
+## Roles, variants, extractions and collections
+
+Optional **semantic roles** describe what a passage does — for example `definition`, `questions`, `solution`, `preuve`, `source`, `synthese` or `recommandation`.
+
+They do not replace Markdown headings or ordinary text. A project can ignore them entirely.
+
+When useful, Composition can define:
+
+- a **variant**: same document, selected roles hidden;
+- an **extraction**: whole structural sections containing selected roles;
+- a **collection**: selected role blocks with heading context.
+
+A variant can combine with an extraction or collection. Extraction and collection are alternative derivation modes.
+
+See [Semantic roles](SEMANTIC-ROLES.md) and [Content variants, extractions and collections](CONTENT-VARIANTS-EXTRACTIONS-COLLECTIONS.md).
 
 ## First page
 
@@ -57,7 +76,14 @@ Composition can target one sheet, a folder and descendants, a file/folder select
 
 ## Export
 
-Export is launched from the persistent Edition toolbar or export commands. Scope uses the same `CompileScope` model as the rest of the pipeline: sheet, folder, selection or project.
+The compact toolbar follows **Scope → Content → Format → Export**.
+
+- **Scope** chooses the files involved.
+- **Content** chooses the full document, an extraction or a collection.
+- **Format** chooses the output format.
+- **Export** runs the operation with the current choices.
+
+Scope uses the same `CompileScope` model as the rest of the pipeline: sheet, folder, selection or project.
 
 Before export starts, Feuillets saves any pending Continuous edits, then exports from the real source files. If those writes cannot be secured, export does not start. Opening Preview is not required before exporting.
 
@@ -74,3 +100,7 @@ Preview is the visual reference before export and shares composition/template/pa
 It accepts a sheet, folder, selection or project scope. For a large scope, Feuillets may show an initial portion quickly and then complete the full document; the final rendering replaces the provisional preview. Export always uses the complete requested scope, and Preview is never required for export.
 
 Native output: compiled Markdown, DOCX, EPUB, ODT and desktop PDF through the system print dialog. Source Markdown is never replaced by the export artifact.
+
+When an extraction or collection is selected, Markdown export intentionally remains a source export; content derivations apply to the document-format publishing pipeline.
+
+For a guided example, see [Tutorial — publish several outputs from one source](SEMANTIC-PUBLISHING-TUTORIAL.md).

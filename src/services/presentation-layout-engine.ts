@@ -132,12 +132,24 @@ export function isPresentationTitleSlide(index: number, blocks: PresentationBloc
 
 /**
  * Génère les candidats SPLIT/STACK PURS. Règles exactes :
- *  - sans média, exactement deux blocs text/list/callout => 3 candidats SPLIT ;
- *  - nombre de médias autonomes != 1 => FLOW forcé => [] ;
- *  - contenu des deux côtés du média => FLOW forcé => [] ;
- *  - seuls headings + 1 média (pas d'autre contenu) => FLOW forcé => [] ;
- *  - sinon : 6 candidats (3 SPLIT, 3 STACK), dans l'ordre des ratios donnés,
- *    l'ordre Markdown des cellules (média avant/après contenu) étant conservé.
+ *
+ *  SANS MÉDIA (mediaCount === 0) :
+ *    - si >= 2 blocs, TOUS text/list/callout => partitions CONTIGUËS en 2 colonnes
+ *      * exactement 2 blocs => 5 ratios (IDs historiques split-35-65, etc.)
+ *      * 3+ blocs => (N-1) frontières × 5 ratios (IDs split-text-{boundary}-{a}-{b})
+ *    - sinon => FLOW forcé => []
+ *
+ *  AVEC 1 MÉDIA (mediaCount === 1) :
+ *    - si du contenu non-média existe => TOUJOURS 12 candidats (indépendamment
+ *      de la position Markdown du média) :
+ *      * 3 SPLIT media-a, 3 STACK media-a (média en cellule A)
+ *      * 3 SPLIT media-b, 3 STACK media-b (média en cellule B)
+ *      * média seul dans sa cellule, contenu regroupé dans l'autre,
+ *        ordre Markdown du contenu conservé
+ *    - si seuls headings + 1 média (aucun autre contenu) => FLOW forcé => []
+ *
+ *  AUTREMENT (0 ou 2+ médias) => FLOW forcé => []
+ *
  * Une liste (UL/OL) est un simple contenu : aucune règle spécifique « questions ».
  *
  * BUG 1 FIX: Headings contigus au début de la slide seulement — après le premier
@@ -158,44 +170,117 @@ export function generatePresentationCandidates(blocks: PresentationBlockDescript
 
   const nonHeaderBlocks = blocks.slice(firstNonHeaderIndex);
   const mediaCount = nonHeaderBlocks.filter((b) => b.kind === "media").length;
+
+  // SANS MÉDIA : partitions contiguës ou FLOW
   if (mediaCount === 0) {
-    if (nonHeaderBlocks.length !== 2 || nonHeaderBlocks.some((b) => !["text", "list", "callout"].includes(b.kind))) return [];
-    const [first, second] = nonHeaderBlocks;
-    return TEXT_TEXT_SPLIT_RATIOS.map(([a, b]) => ({
-      id: `split-${a}-${b}`,
-      geometry: "split",
-      headingIndexes,
-      cellAIndexes: [first.index],
-      cellBIndexes: [second.index],
-      cellARatio: a,
-      cellBRatio: b,
-      mediaPosition: null,
-    }));
+    if (nonHeaderBlocks.length < 2) return [];
+    if (nonHeaderBlocks.some((b) => !["text", "list", "callout"].includes(b.kind))) return [];
+
+    // Tous les blocs sont text/list/callout et >= 2
+    const candidates: PresentationCandidatePlan[] = [];
+
+    if (nonHeaderBlocks.length === 2) {
+      // Cas exact de 2 blocs : IDs historiques pour compatibilité
+      const [first, second] = nonHeaderBlocks;
+      for (const [a, b] of TEXT_TEXT_SPLIT_RATIOS) {
+        candidates.push({
+          id: `split-${a}-${b}`,
+          geometry: "split",
+          headingIndexes,
+          cellAIndexes: [first.index],
+          cellBIndexes: [second.index],
+          cellARatio: a,
+          cellBRatio: b,
+          mediaPosition: null,
+        });
+      }
+    } else {
+      // Cas 3+ blocs : partitions contiguës avec nouveaux IDs
+      for (let boundary = 1; boundary < nonHeaderBlocks.length; boundary++) {
+        for (const [a, b] of TEXT_TEXT_SPLIT_RATIOS) {
+          candidates.push({
+            id: `split-text-${boundary}-${a}-${b}`,
+            geometry: "split",
+            headingIndexes,
+            cellAIndexes: nonHeaderBlocks.slice(0, boundary).map((b) => b.index),
+            cellBIndexes: nonHeaderBlocks.slice(boundary).map((b) => b.index),
+            cellARatio: a,
+            cellBRatio: b,
+            mediaPosition: null,
+          });
+        }
+      }
+    }
+    return candidates;
   }
+
   if (mediaCount !== 1) return [];
 
   const mediaPos = nonHeaderBlocks.findIndex((b) => b.kind === "media");
   const before = nonHeaderBlocks.slice(0, mediaPos);
   const after = nonHeaderBlocks.slice(mediaPos + 1);
-  if (before.length > 0 && after.length > 0) return [];
+  const mediaIndex = nonHeaderBlocks[mediaPos].index;
 
   // BUG 2 FIX: Forcer FLOW pour headings + image seule (pas d'autre contenu)
   if (before.length === 0 && after.length === 0) return [];
 
-  const mediaIndex = nonHeaderBlocks[mediaPos].index;
-  const mediaFirst = before.length === 0;
-  const cellAIndexes = mediaFirst ? [mediaIndex] : before.map((b) => b.index);
-  const cellBIndexes = mediaFirst ? after.map((b) => b.index) : [mediaIndex];
-  const mediaPosition: "a" | "b" = mediaFirst ? "a" : "b";
+  // AVEC 1 MÉDIA + CONTENU : TOUJOURS 12 candidats, indépendamment de l'ordre
+  const contentIndexes = nonHeaderBlocks.filter((b) => b.kind !== "media").map((b) => b.index);
+  const grouped: PresentationCandidatePlan[] = [];
 
-  const candidates: PresentationCandidatePlan[] = [];
+  // Orientation A : média en cellule A
   for (const [a, b] of SPLIT_RATIOS) {
-    candidates.push({ id: `split-${a}-${b}`, geometry: "split", headingIndexes, cellAIndexes, cellBIndexes, cellARatio: a, cellBRatio: b, mediaPosition });
+    grouped.push({
+      id: `split-media-a-${a}-${b}`,
+      geometry: "split",
+      headingIndexes,
+      cellAIndexes: [mediaIndex],
+      cellBIndexes: contentIndexes,
+      cellARatio: a,
+      cellBRatio: b,
+      mediaPosition: "a",
+    });
   }
   for (const [a, b] of STACK_RATIOS) {
-    candidates.push({ id: `stack-${a}-${b}`, geometry: "stack", headingIndexes, cellAIndexes, cellBIndexes, cellARatio: a, cellBRatio: b, mediaPosition });
+    grouped.push({
+      id: `stack-media-a-${a}-${b}`,
+      geometry: "stack",
+      headingIndexes,
+      cellAIndexes: [mediaIndex],
+      cellBIndexes: contentIndexes,
+      cellARatio: a,
+      cellBRatio: b,
+      mediaPosition: "a",
+    });
   }
-  return candidates;
+
+  // Orientation B : média en cellule B
+  for (const [a, b] of SPLIT_RATIOS) {
+    grouped.push({
+      id: `split-media-b-${a}-${b}`,
+      geometry: "split",
+      headingIndexes,
+      cellAIndexes: contentIndexes,
+      cellBIndexes: [mediaIndex],
+      cellARatio: a,
+      cellBRatio: b,
+      mediaPosition: "b",
+    });
+  }
+  for (const [a, b] of STACK_RATIOS) {
+    grouped.push({
+      id: `stack-media-b-${a}-${b}`,
+      geometry: "stack",
+      headingIndexes,
+      cellAIndexes: contentIndexes,
+      cellBIndexes: [mediaIndex],
+      cellARatio: a,
+      cellBRatio: b,
+      mediaPosition: "b",
+    });
+  }
+
+  return grouped;
 }
 
 /** Deux surfaces considérées égales si leur écart relatif est inférieur à 1%. */

@@ -15,7 +15,7 @@
 import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
-import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION, VIEW_PRESENTATION_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
+import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
 import { projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -38,8 +38,10 @@ import { JournalView } from "./views/journal-view.js";
 import { ProjectView } from "./views/project-view.js";
 import { PreviewView, openWithPreview } from "./views/preview-view.js";
 import { ScriveningsView, type ScriveningsEditorContext } from "./views/scrivenings-view.js";
-import { PresentationView, openPresentation } from "./views/presentation-view.js";
 import { PresentationPreviewView, openPresentationPreview } from "./views/presentation-preview-view.js";
+import { resolvePresentationMarkdownContext, ensurePresentationMarkdownLeaf } from "./utils/presentation-command-context.js";
+import { exportPresentationPdf, exportPresentationPlanPdf, exportPresentationHandoutPdf } from "./services/presentation-pdf-export.js";
+import { PresentationPdfExportModal } from "./ui/presentation-pdf-export-modal.js";
 import type { ScriveningsAdapterEditorView } from "./utils/scrivenings-editor-adapter.js";
 import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
@@ -576,7 +578,6 @@ class FeuilletsPlugin extends Plugin {
     // LOT 1 — cœur technique uniquement : pas encore d'entrée Binder/commande
     // pour ouvrir cette vue (voir views/scrivenings-view.ts).
     this.registerView(VIEW_SCRIVENINGS, (leaf) => new ScriveningsView(leaf, this));
-    this.registerView(VIEW_PRESENTATION, (leaf) => new PresentationView(leaf, this));
     this.registerView(VIEW_PRESENTATION_PREVIEW, (leaf) => new PresentationPreviewView(leaf, this));
   }
 
@@ -624,29 +625,51 @@ class FeuilletsPlugin extends Plugin {
   }
 
   registerCoreCommands() {
-    this.addCommand({
-      id: "present-current-file",
-      name: t("presentation.command"),
-      checkCallback: (checking) => {
-        const file = this.app.workspace.getActiveFile();
-        if (!(file instanceof TFile) || file.extension !== "md") return false;
-        if (!checking) void openPresentation(this.app, file);
-        return true;
-      },
-    });
+    /* Les commandes Présentation partagent la MÊME résolution de contexte
+       (src/utils/presentation-command-context.ts) : jamais de logique de
+       résolution dupliquée entre elles. Cela évite en particulier que la
+       commande disparaisse de Cmd+P simplement parce que le focus est passé
+       dans un panneau Feuillets ou une autre vue non-Markdown — voir
+       resolvePresentationMarkdownContext, qui retombe sur
+       workspace.getActiveFile() quand aucune MarkdownView n'est active.
+
+       La projection n'a PAS de commande propre : elle se lance depuis
+       l'aperçu (bouton « Lancer la présentation », voir
+       views/presentation-preview-view.ts). Deux commandes « Présentation… »
+       ouvrant deux onglets quasi identiques faisaient doublon ; l'aperçu est
+       le point d'entrée unique, la projection ce qu'on lance depuis lui. */
     /* Aperçu présentation lié — côte à côte avec l'éditeur Markdown actif
-       (voir views/presentation-preview-view.ts). Fichier actif OBLIGATOIREMENT
-       une MarkdownView (jamais un simple TFile actif quelconque) : c'est la
-       leaf qui sert de repère pour le split côte à côte et de source du
-       curseur à suivre. */
+       (voir views/presentation-preview-view.ts). Obtient une vraie leaf
+       Markdown publique via ensurePresentationMarkdownLeaf (ouvre un nouvel
+       onglet si le fichier actif n'a aucune leaf Markdown déjà ouverte). */
     this.addCommand({
       id: "present-current-file-preview",
       name: t("presentation.preview.command"),
       checkCallback: (checking) => {
-        const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        const file = markdownView?.file;
-        if (!markdownView || !(file instanceof TFile) || file.extension !== "md") return false;
-        if (!checking) void openPresentationPreview(this.app, markdownView.leaf, file);
+        const context = resolvePresentationMarkdownContext(this.app);
+        if (!context) return false;
+        if (!checking) {
+          void (async () => {
+            const workLeaf = await ensurePresentationMarkdownLeaf(this.app, context);
+            await openPresentationPreview(this.app, workLeaf, context.file);
+          })();
+        }
+        return true;
+      },
+    });
+    this.addCommand({
+      id: "presentation-export-pdf",
+      name: t("presentation.export.pdf.command"),
+      checkCallback: (checking) => {
+        const context = resolvePresentationMarkdownContext(this.app);
+        if (!context) return false;
+        if (!checking) {
+          new PresentationPdfExportModal(this.app, (choice) => {
+            if (choice.kind === "presentation") void exportPresentationPdf({ app: this.app, component: this, file: context.file, settings: this.settings, pageFormat: choice.pageFormat });
+            else if (choice.kind === "handout") void exportPresentationHandoutPdf({ app: this.app, component: this, file: context.file, settings: this.settings, slidesPerPage: choice.slidesPerPage });
+            else void exportPresentationPlanPdf({ app: this.app, component: this, file: context.file, settings: this.settings, scope: choice.scope });
+          }).open();
+        }
         return true;
       },
     });
@@ -1265,9 +1288,6 @@ class FeuilletsPlugin extends Plugin {
 
   async refreshPresentationAppearance(): Promise<void> {
     const refreshes: Promise<void>[] = [];
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PRESENTATION)) {
-      if (leaf.view instanceof PresentationView) refreshes.push(leaf.view.refreshRoleDisplay());
-    }
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PRESENTATION_PREVIEW)) {
       if (leaf.view instanceof PresentationPreviewView) refreshes.push(leaf.view.refreshRoleDisplay());
     }
@@ -1278,10 +1298,8 @@ class FeuilletsPlugin extends Plugin {
     const refreshes: Promise<void>[] = [];
     const refreshable = (view: unknown): view is { refreshPresentationLayout(filePath: string): Promise<void> } =>
       typeof view === "object" && view !== null && "refreshPresentationLayout" in view && typeof (view as { refreshPresentationLayout?: unknown }).refreshPresentationLayout === "function";
-    for (const viewType of [VIEW_PRESENTATION, VIEW_PRESENTATION_PREVIEW]) {
-      for (const leaf of this.app.workspace.getLeavesOfType(viewType)) {
-        if (refreshable(leaf.view)) refreshes.push(leaf.view.refreshPresentationLayout(path));
-      }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PRESENTATION_PREVIEW)) {
+      if (refreshable(leaf.view)) refreshes.push(leaf.view.refreshPresentationLayout(path));
     }
     await Promise.all(refreshes);
   }
@@ -1970,7 +1988,19 @@ class FeuilletsPlugin extends Plugin {
    *  sélection, jamais d'annotation vide) puis « Noter une idée » (même flux
    *  que la commande Carnet existante). Le sous-menu n'apparaît que dans un
    *  feuillet du Manuscrit ; « Noter une idée » dès qu'un projet existe. */
+  /** Dernier point ÉCRAN d'un clic droit, capturé en phase CAPTURE sur le
+   * document — donc TOUJOURS avant que l'événement `editor-menu` d'Obsidian
+   * ne serve à construire le menu. Nécessaire parce qu'un clic droit ne
+   * déplace pas le curseur de l'éditeur et qu'`editor-menu` ne transporte
+   * aucun événement souris : sans cela, « Ajouter une note de présentation »
+   * décrirait l'ancienne position du curseur, et non le titre/l'image/le
+   * callout réellement visé (voir AnnotationEditorController). */
+  _lastContextMenuCoords: { x: number; y: number } | null = null;
+
   registerAnnotationContextMenu(): void {
+    this.registerDomEvent(document, "contextmenu", (event: MouseEvent) => {
+      this._lastContextMenuCoords = { x: event.clientX, y: event.clientY };
+    }, true);
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
         if (!(view instanceof MarkdownView) || !view.file) return;
@@ -1979,7 +2009,9 @@ class FeuilletsPlugin extends Plugin {
           // résout lui-même le contexte (existing/selection/none) à partir
           // du `annotationHighlightField` déjà monté — jamais recalculé au
           // clic, jamais annotations.json, jamais de cache miroir.
-          this.getAnnotationEditor().addContextMenuItem(menu, editor, view.file);
+          this.getAnnotationEditor().addContextMenuItem(menu, editor, view.file, {
+            pointerCoordinates: this._lastContextMenuCoords,
+          });
         }
         if (this.getProjectFolder()) {
           menu.addItem((item) =>
@@ -2597,6 +2629,7 @@ class FeuilletsPlugin extends Plugin {
     // reconnaît jamais Continu comme tel).
     this.getAnnotationEditor().addContextMenuItem(menu, adapter, context.segment.file, {
       onAnnotationChange: () => view.refreshAnnotationHighlights(),
+      pointerCoordinates: { x: event.clientX, y: event.clientY },
       visualCoordinates: {
         editorView,
         cursorOffset: context.compositeOffset,

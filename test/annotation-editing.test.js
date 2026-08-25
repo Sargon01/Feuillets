@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Decoration } from "@codemirror/view";
-import { TFile, TFolder } from "obsidian";
+import { TFile, TFolder, Menu } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import FeuilletsPlugin from "../src/main.js";
 import { AnnotationPopover } from "../src/ui/annotation-popover.js";
@@ -60,6 +60,11 @@ function fakeEditor(content, selStart, selEnd, dispatchCalls) {
       dispatch(spec) {
         dispatchCalls.push(spec);
       },
+      /* API publique CodeMirror : position du document sous un point écran.
+         Le fake encode directement l'offset visé dans `x` — un clic droit
+         ne déplace PAS le curseur, c'est donc la SEULE façon pour la
+         production de savoir sur quoi le clic portait réellement. */
+      posAtCoords: (coords) => (coords && typeof coords.x === "number" ? coords.x : null),
     },
   };
 }
@@ -340,4 +345,270 @@ test("annotation unresolved : jamais réancrée, reste éditable et supprimable"
   assert.equal(deleted, true);
   assert.equal((await loadAnnotations(app, settings)).annotations.length, 0);
   assert.equal(scene.content, SCENE_CONTENT, "jamais une écriture dans le Markdown, résolue ou non");
+});
+
+/* ===== §3 — note de présentation jamais décorée dans la source ===== */
+
+test("refreshAnnotationHighlights : une note de présentation n'est jamais décorée dans la source", async () => {
+  const { plugin, app, settings } = fixture();
+  await saveAnnotations(app, settings, {
+    version: 1,
+    annotations: [{ id: "ann-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: " ", text: "", color: "yellow", presentationNote: true }],
+  });
+  const dispatchCalls = [];
+  plugin.activeEditorAnywhere = () => fakeEditor(SCENE_CONTENT, 0, 0, dispatchCalls);
+  await plugin.refreshAnnotationHighlights();
+  assert.equal(dispatchCalls.length, 1);
+  assert.equal(dispatchCalls[0].effects.value, Decoration.none, "aucune décoration : filtrée avant construction du DecorationSet");
+});
+
+test("refreshAnnotationHighlights : annotation normale toujours décorée (comportement inchangé)", async () => {
+  const { plugin, app, settings } = fixture();
+  const quote = "Le chat dormait tranquillement";
+  const start = SCENE_CONTENT.indexOf(quote);
+  await saveAnnotations(app, settings, {
+    version: 1,
+    annotations: [{ id: "ann-1", file: "Chapitre/Scène.md", start, end: start + quote.length, quote, prefix: "", suffix: "", text: "", color: "yellow" }],
+  });
+  const dispatchCalls = [];
+  plugin.activeEditorAnywhere = () => fakeEditor(SCENE_CONTENT, 0, 0, dispatchCalls);
+  await plugin.refreshAnnotationHighlights();
+  assert.equal(dispatchCalls.length, 1);
+  const decos = dispatchCalls[0].effects.value;
+  assert.equal(Array.isArray(decos), true);
+  assert.equal(decos.length, 1, "annotation normale toujours décorée");
+});
+
+test("édition d'une note de présentation existante : couleur/style masqués (showColors/showStyles false)", async () => {
+  const { plugin, app, settings } = fixture();
+  await saveAnnotations(app, settings, {
+    version: 1,
+    annotations: [{ id: "ann-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: " ", text: "", color: "yellow", presentationNote: true }],
+  });
+  const opened = await captureAnnotationPopover(() => plugin.openAnnotationEditor("ann-1"));
+  assert.equal(opened.showColors, false);
+  assert.equal(opened.showStyles, false);
+});
+
+test("édition d'une annotation normale : couleur/style restent affichés (comportement STRICTEMENT inchangé)", async () => {
+  const { plugin, app, settings } = fixture();
+  await saveAnnotations(app, settings, {
+    version: 1,
+    annotations: [{ id: "ann-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: " ", text: "", color: "yellow" }],
+  });
+  const opened = await captureAnnotationPopover(() => plugin.openAnnotationEditor("ann-1"));
+  assert.equal(opened.showColors, true);
+  assert.equal(opened.showStyles, true);
+});
+
+/* ===== §4 — création SANS sélection sur titre/image/callout ===== */
+
+test("création SANS sélection sur un titre : ancre la ligne entière, presentationNote=true, couleur/style masqués, Markdown inchangé", async () => {
+  const { plugin, app, settings, scene } = fixture();
+  const content = "## I. L'Empire carolingien\n\nTexte de la section.";
+  scene.content = content;
+  const cursor = content.indexOf("Empire");
+  const dispatchCalls = [];
+  const editor = fakeEditor(content, cursor, cursor, dispatchCalls);
+  plugin.activeEditorAnywhere = () => editor;
+
+  const menu = new Menu();
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, scene);
+  const item = menu.items.find((i) => i.title === "Ajouter une note de présentation");
+  assert.ok(item, "l'entrée est proposée quand le curseur porte sur un titre, sans sélection");
+
+  const opened = await captureAnnotationPopover(() => { item.callback(); return Promise.resolve(); });
+  assert.ok(opened);
+  assert.equal(opened.presentationNote, true);
+  assert.equal(opened.showColors, false);
+  assert.equal(opened.showStyles, false);
+
+  await opened.onSave("", "yellow", "highlight", true);
+  const store = await loadAnnotations(app, settings);
+  assert.equal(store.annotations.length, 1);
+  const created = store.annotations[0];
+  assert.equal(created.quote, "## I. L'Empire carolingien");
+  assert.equal(created.presentationNote, true);
+  assert.equal(scene.content, content, "le Markdown n'est jamais modifié par la création");
+});
+
+test("création SANS sélection sur une image wiki : ancre l'occurrence exacte", async () => {
+  const { plugin, app, settings, scene } = fixture();
+  const content = "Texte avant.\n\n![[carte.png|Ma carte]]\n\nTexte après.";
+  scene.content = content;
+  const cursor = content.indexOf("carte.png") + 2;
+  const dispatchCalls = [];
+  const editor = fakeEditor(content, cursor, cursor, dispatchCalls);
+  plugin.activeEditorAnywhere = () => editor;
+
+  const menu = new Menu();
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, scene);
+  const item = menu.items.find((i) => i.title === "Ajouter une note de présentation");
+  assert.ok(item, "l'entrée est proposée quand le curseur porte sur une image");
+
+  const opened = await captureAnnotationPopover(() => { item.callback(); return Promise.resolve(); });
+  await opened.onSave("", "yellow", "highlight", true);
+  const store = await loadAnnotations(app, settings);
+  assert.equal(store.annotations[0].quote, "![[carte.png|Ma carte]]");
+  assert.equal(scene.content, content, "le Markdown n'est jamais modifié par la création");
+});
+
+test("création SANS sélection sur un callout : ancre le bloc logique entier", async () => {
+  const { plugin, app, settings, scene } = fixture();
+  const content = "Texte.\n\n> [!questions] Mes questions\n> Ligne 1\n> Ligne 2\n\nSuite.";
+  scene.content = content;
+  const cursor = content.indexOf("Ligne 1");
+  const dispatchCalls = [];
+  const editor = fakeEditor(content, cursor, cursor, dispatchCalls);
+  plugin.activeEditorAnywhere = () => editor;
+
+  const menu = new Menu();
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, scene);
+  const item = menu.items.find((i) => i.title === "Ajouter une note de présentation");
+  assert.ok(item, "l'entrée est proposée quand le curseur porte n'importe où dans le callout");
+
+  const opened = await captureAnnotationPopover(() => { item.callback(); return Promise.resolve(); });
+  await opened.onSave("", "yellow", "highlight", true);
+  const store = await loadAnnotations(app, settings);
+  assert.equal(store.annotations[0].quote, "> [!questions] Mes questions\n> Ligne 1\n> Ligne 2");
+  assert.equal(scene.content, content, "le Markdown n'est jamais modifié par la création");
+});
+
+test("sélection de texte reste prioritaire : aucune entrée « Ajouter une note de présentation » quand une sélection est active, même sur un titre", async () => {
+  const { plugin, scene } = fixture();
+  const content = "## Titre\n\nTexte.";
+  scene.content = content;
+  const start = content.indexOf("Titre");
+  const end = start + "Titre".length;
+  const dispatchCalls = [];
+  const editor = fakeEditor(content, start, end, dispatchCalls);
+
+  const menu = new Menu();
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, scene);
+  const item = menu.items.find((i) => i.title === "Ajouter une note de présentation");
+  assert.equal(item, undefined, "la sélection reste prioritaire : seule « Annotation… » est proposée");
+});
+
+test("aucun titre/image/callout sous le curseur, sans sélection : aucune entrée supplémentaire proposée", async () => {
+  const { plugin, scene } = fixture();
+  const content = "Un paragraphe ordinaire, sans titre ni image ni callout.";
+  scene.content = content;
+  const cursor = 5;
+  const dispatchCalls = [];
+  const editor = fakeEditor(content, cursor, cursor, dispatchCalls);
+
+  const menu = new Menu();
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, scene);
+  const item = menu.items.find((i) => i.title === "Ajouter une note de présentation");
+  assert.equal(item, undefined);
+});
+
+/* ===== §4 (correctif) — un clic droit ne déplace pas le curseur ===== */
+
+test("clic droit DANS un callout sans y avoir mis le curseur : l'entrée est proposée et ancre le bloc entier", async () => {
+  const { plugin, app, settings, scene } = fixture();
+  const content = "Texte.\n\n> [!questions] Mes questions\n> Ligne 1\n> Ligne 2\n\nSuite.";
+  scene.content = content;
+  // Le curseur est resté TOUT AILLEURS (dans « Texte. »), comme après un
+  // simple clic droit qui ne le déplace pas.
+  const dispatchCalls = [];
+  const editor = fakeEditor(content, 2, 2, dispatchCalls);
+  plugin.activeEditorAnywhere = () => editor;
+
+  const menu = new Menu();
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, scene, {
+    pointerCoordinates: { x: content.indexOf("Ligne 1"), y: 0 },
+  });
+  const item = menu.items.find((i) => i.title === "Ajouter une note de présentation");
+  assert.ok(item, "l'entrée est proposée d'après le POINT du clic droit, pas d'après le curseur");
+
+  const opened = await captureAnnotationPopover(() => { item.callback(); return Promise.resolve(); });
+  await opened.onSave("", "yellow", "highlight", true);
+  const store = await loadAnnotations(app, settings);
+  assert.equal(store.annotations[0].quote, "> [!questions] Mes questions\n> Ligne 1\n> Ligne 2");
+  assert.equal(scene.content, content, "le Markdown n'est jamais modifié");
+});
+
+test("clic droit sur un titre sans y avoir mis le curseur : ancre la ligne du titre visé, pas celle du curseur", async () => {
+  const { plugin, app, settings, scene } = fixture();
+  const content = "# Premier titre\n\nTexte.\n\n## Second titre\n\nAutre texte.";
+  scene.content = content;
+  const dispatchCalls = [];
+  // Curseur laissé sur le PREMIER titre…
+  const editor = fakeEditor(content, 3, 3, dispatchCalls);
+  plugin.activeEditorAnywhere = () => editor;
+
+  const menu = new Menu();
+  // … mais le clic droit porte sur le SECOND.
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, scene, {
+    pointerCoordinates: { x: content.indexOf("Second titre"), y: 0 },
+  });
+  const item = menu.items.find((i) => i.title === "Ajouter une note de présentation");
+  assert.ok(item);
+
+  const opened = await captureAnnotationPopover(() => { item.callback(); return Promise.resolve(); });
+  await opened.onSave("", "yellow", "highlight", true);
+  assert.equal((await loadAnnotations(app, settings)).annotations[0].quote, "## Second titre");
+});
+
+test("aucune coordonnée de clic disponible : repli sur le curseur, comportement inchangé", async () => {
+  const { plugin, scene } = fixture();
+  const content = "## Titre visé\n\nTexte.";
+  scene.content = content;
+  const dispatchCalls = [];
+  const editor = fakeEditor(content, 3, 3, dispatchCalls);
+  plugin.activeEditorAnywhere = () => editor;
+
+  const menu = new Menu();
+  plugin.getAnnotationEditor().addContextMenuItem(menu, editor, scene);
+  assert.ok(menu.items.find((i) => i.title === "Ajouter une note de présentation"), "le curseur reste le repli");
+});
+
+/* ===== Ancrage du popover d'une note de présentation ===== */
+
+test("RÉGRESSION ancrage — une note de présentation (jamais décorée) s'ouvre SUR le passage, pas dans le coin haut-gauche", async () => {
+  const { plugin, app, settings } = fixture();
+  const quote = "Le chat dormait tranquillement";
+  const start = SCENE_CONTENT.indexOf(quote);
+  await saveAnnotations(app, settings, {
+    version: 1,
+    annotations: [{
+      id: "ann-1", file: "Chapitre/Scène.md", start, end: start + quote.length,
+      quote, prefix: "", suffix: "", text: "note", color: "yellow", presentationNote: true,
+    }],
+  });
+
+  // Aucune décoration ne porte data-annotation-id : c'est le cas NORMAL
+  // d'une note de présentation (jamais surlignée dans la source). Sans le
+  // repli coordsAtOffset, resolvedAnchor retombait sur
+  // DEFAULT_ANNOTATION_ANCHOR, c'est-à-dire le coin haut-gauche.
+  const passageRect = { left: 420, right: 640, top: 300, bottom: 318 };
+  const dispatchCalls = [];
+  const editor = fakeEditor(SCENE_CONTENT, 0, 0, dispatchCalls);
+  editor.cm.coordsAtPos = (pos) => (pos === start ? passageRect : null);
+  editor.offsetToPos = (offset) => ({ line: 0, ch: offset });
+  editor.setSelection = () => {};
+  editor.scrollIntoView = () => {};
+  editor.focus = () => {};
+  plugin.activeEditorAnywhere = () => editor;
+
+  const previousQuerySelectorAll = globalThis.document.querySelectorAll;
+  const previousWindow = globalThis.window;
+  const previousCSS = globalThis.CSS;
+  globalThis.document.querySelectorAll = () => [];
+  globalThis.window = { requestAnimationFrame: (cb) => { cb(); return 0; }, innerHeight: 900 };
+  globalThis.CSS = { escape: (value) => value };
+  app.workspace.getLeaf = () => ({ openFile: async () => {}, view: null });
+  app.workspace.getActiveViewOfType = () => null;
+  app.workspace.setActiveLeaf = () => {};
+
+  try {
+    const opened = await captureAnnotationPopover(() => plugin.openAnnotationEditor("ann-1"));
+    assert.deepEqual(opened.anchor, passageRect, "le popover est ancré sur le passage réel");
+    assert.notDeepEqual(opened.anchor, { left: 24, right: 24, top: 24, bottom: 24 }, "jamais le coin haut-gauche");
+  } finally {
+    globalThis.document.querySelectorAll = previousQuerySelectorAll;
+    globalThis.window = previousWindow;
+    globalThis.CSS = previousCSS;
+  }
 });

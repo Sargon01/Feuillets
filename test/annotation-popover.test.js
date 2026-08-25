@@ -220,3 +220,17 @@ test("close() est idempotent : onSave n'est appelé qu'une seule fois", () => {
   popover.close();
   assert.equal(saved.length, 1);
 });
+
+/* ===== §3 du contrat — note de présentation : jamais de couleur/style ===== */
+
+test("note de présentation (showColors/showStyles false) : aucune palette de couleurs ni de styles affichée", () => {
+  const { el } = open({ showColors: false, showStyles: false, showPresentationNote: true, presentationNote: true });
+  assert.equal(findAll(el, (c) => c.classes.has("feuillets-annotation-popover-colors")).length, 0);
+  assert.equal(findAll(el, (c) => c.classes.has("feuillets-annotation-popover-styles")).length, 0);
+});
+
+test("annotation normale : comportement STRICTEMENT inchangé — couleur et style toujours affichés", () => {
+  const { el } = open();
+  assert.equal(findAll(el, (c) => c.classes.has("feuillets-annotation-popover-colors")).length, 1);
+  assert.equal(findAll(el, (c) => c.classes.has("feuillets-annotation-popover-styles")).length, 1);
+});

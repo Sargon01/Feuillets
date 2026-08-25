@@ -15,7 +15,7 @@ Deux modes seulement :
 - **Composition** ;
 - **Mise en page**.
 
-L’export n’est plus un troisième onglet. La barre d’Édition conserve en permanence : **portée**, **format**, **Exporter** et **Actualiser l’Aperçu**.
+L’export n’est plus un troisième onglet. La barre d’Édition regroupe : **Portée**, **Contenu**, **Format**, **Exporter** et **Actualiser l’Aperçu**.
 
 ## Composition
 
@@ -24,6 +24,9 @@ La page d’accueil de Composition résume le document :
 ### Manuscrit
 
 - **Contenu du manuscrit** — ouvre la sélection/inclusion des feuillets ;
+- **Variantes de contenu** — garde le document mais peut masquer certains rôles ;
+- **Extractions de contenu** — conserve des sections entières contenant les rôles choisis ;
+- **Collections de contenu** — rassemble les blocs portant les rôles choisis avec leur contexte de titres ;
 - **Première page** — contenu et présentation ;
 - **Pages liminaires**.
 
@@ -44,6 +47,22 @@ La page d’accueil de Composition résume le document :
 - réglages liés aux notes de bas de page.
 
 Les sous-pages reviennent à Composition sans ouvrir de nouvelle vue Obsidian.
+
+## Rôles, variantes, extractions et collections
+
+Les **rôles sémantiques** sont des annotations Markdown facultatives qui indiquent la fonction d’un passage — par exemple `definition`, `questions`, `solution`, `preuve`, `source`, `synthese` ou `recommandation`.
+
+Ils ne remplacent ni les titres Markdown ni le texte ordinaire. Un projet peut ne jamais les utiliser.
+
+Lorsqu’ils sont utiles, Composition peut créer :
+
+- une **variante** : même document, certains rôles masqués ;
+- une **extraction** : sections structurelles entières contenant certains rôles ;
+- une **collection** : blocs portant certains rôles, avec leur contexte de titres.
+
+Une variante peut se combiner avec une extraction ou une collection. Une extraction et une collection sont deux dérivations alternatives : on choisit l’une ou l’autre.
+
+Voir [Rôles sémantiques](ROLES-SEMANTIQUES.md) et [Variantes, extractions et collections](VARIANTES-EXTRACTIONS-COLLECTIONS.md).
 
 ## Première page
 
@@ -85,7 +104,14 @@ Le moteur évite les doublons lorsqu’un dossier et l’un de ses descendants s
 
 ## Export
 
-L’export se lance depuis la barre persistante d’Édition ou depuis les commandes d’export. La portée utilise le même modèle `CompileScope` que le reste de la chaîne : feuillet, dossier, sélection ou projet.
+La barre rapide suit quatre commandes : **Portée → Contenu → Format → Exporter**.
+
+- **Portée** détermine les fichiers concernés : feuillet, dossier, sélection ou projet selon le contexte.
+- **Contenu** choisit le document complet, une extraction ou une collection.
+- **Format** choisit le format de sortie.
+- **Exporter** lance l’opération avec les choix courants.
+
+La portée utilise le même modèle `CompileScope` que le reste de la chaîne. Les menus rapides sont compacts et n’imposent pas de dupliquer les réglages dans le manuscrit.
 
 Avant de lancer un export, Feuillets enregistre les modifications encore en attente de Continu, puis exporte depuis les vrais fichiers sources. Si ces écritures ne peuvent pas être sécurisées, l’export ne démarre pas. Il n’est pas nécessaire d’ouvrir l’Aperçu avant d’exporter.
 
@@ -109,4 +135,6 @@ Il accepte une portée feuillet, dossier, sélection ou projet. Pour une grande 
 - **ODT** — OpenDocument ;
 - **PDF** — desktop, via le document paginé puis la boîte d’impression système.
 
-Le Markdown source n’est jamais remplacé par l’artefact exporté.
+Le Markdown source n’est jamais remplacé par l’artefact exporté. Lorsqu’une extraction ou une collection est sélectionnée, l’export Markdown reste volontairement un export de la source ; les dérivations s’appliquent aux formats documentaires.
+
+Pour un parcours guidé, voir [Tutoriel — publier plusieurs documents depuis une seule source](TUTORIEL-PUBLICATION-SEMANTIQUE.md).

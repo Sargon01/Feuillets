@@ -174,6 +174,11 @@ function editorMenuHarness() {
   plugin.settings = { projectFolder: manuscript.path };
   plugin.getProjectFolder = () => manuscript;
   plugin.registerEvent = () => {};
+  /* Component.registerDomEvent : réellement disponible à l'exécution
+     (FeuilletsPlugin étend Plugin) — stub ici comme registerEvent.
+     registerAnnotationContextMenu l'utilise pour mémoriser le point du
+     dernier clic droit (un clic droit ne déplace pas le curseur). */
+  plugin.registerDomEvent = () => {};
   plugin.annotationMenuStyle = "highlight";
   plugin.annotationMenuColor = "yellow";
   plugin.refreshAnnotationHighlights = async () => {};

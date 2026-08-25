@@ -17,6 +17,7 @@ import { ProjectPropertiesModal, ProjectTagsModal } from "../ui/project-properti
 import { FRONT_PAGE_TYPES, getOrderedChildren } from "../services/folder-structure.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
+import { humanAnnotationTargetLabel } from "../utils/annotation-target-label.js";
 import { buildContextIndex, type ContextDocument, type ContextSource } from "../services/context-index.js";
 import { matchContext } from "../services/context-matcher.js";
 import { extractContextWindow } from "../services/context-window.js";
@@ -1759,14 +1760,10 @@ export class NotesView extends BaseFeuilletsView {
     setIcon(addLine, "plus"); addLine.setAttr("aria-label", t("notes.section.addNote"));
     addLine.addEventListener("click", () => this.renderInlineWorkNote(addLine, file));
 
-    const section = container.createDiv({ cls: "feuillets-notes-section" });
-    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
-    const titleIcon = head.createSpan({ cls: "feuillets-notes-section-icon" });
-    setIcon(titleIcon, "highlighter");
-    head.createSpan({ cls: "feuillets-notes-section-title" }).setText(t("notes.section.annotations"));
-    const scopeButton = head.createEl("button", { cls: "feuillets-notes-inline-action" });
-    scopeButton.setText(`${t(`notes.annotationScope.${this.annotationScope}`)} ▾`);
-    scopeButton.addEventListener("click", (event: MouseEvent) => {
+    // Portée (Feuillet / Dossier / Projet) : UN SEUL état partagé
+    // (`this.annotationScope`), proposé dans l'en-tête de CHACUNE des deux
+    // rubriques qui l'utilisent — jamais deux filtres indépendants.
+    const openScopeMenu = (event: MouseEvent): void => {
       event.stopPropagation();
       const menu = new Menu();
       const options: Array<[AnnotationScope, string]> = [["sheet", "notes.annotationScope.sheet"], ["folder", "notes.annotationScope.folder"], ["project", "notes.annotationScope.project"]];
@@ -1777,7 +1774,20 @@ export class NotesView extends BaseFeuilletsView {
         menu.addItem((item) => item.setTitle(t(key)).setChecked(this.annotationScope === scope).onClick(() => { this.annotationScope = scope; void this.render(); }));
       }
       menu.showAtMouseEvent(event);
-    });
+    };
+    const annotationSection = (icon: string, titleKey: string): HTMLElement => {
+      const sectionEl = container.createDiv({ cls: "feuillets-notes-section" });
+      const headEl = sectionEl.createDiv({ cls: "feuillets-notes-section-head" });
+      const iconEl = headEl.createSpan({ cls: "feuillets-notes-section-icon" });
+      setIcon(iconEl, icon);
+      headEl.createSpan({ cls: "feuillets-notes-section-title" }).setText(t(titleKey));
+      const scopeButton = headEl.createEl("button", { cls: "feuillets-notes-inline-action" });
+      scopeButton.setText(`${t(`notes.annotationScope.${this.annotationScope}`)} ▾`);
+      scopeButton.addEventListener("click", openScopeMenu);
+      return sectionEl;
+    };
+
+    const section = annotationSection("highlighter", "notes.section.annotations");
 
     let store: AnnotationsStore;
     try {
@@ -1797,19 +1807,52 @@ export class NotesView extends BaseFeuilletsView {
       return annotation.file.startsWith(folderPrefix);
     };
     const scoped = store.annotations.filter(inScope);
-    if (scoped.length === 0) {
-      const emptyKey = this.annotationScope === "sheet"
-        ? "annotation.panel.emptySheet"
-        : this.annotationScope === "folder"
-          ? "annotation.panel.emptyFolder"
-          : "annotation.panel.emptyProject";
+    const emptyKey = this.annotationScope === "sheet"
+      ? "annotation.panel.emptySheet"
+      : this.annotationScope === "folder"
+        ? "annotation.panel.emptyFolder"
+        : "annotation.panel.emptyProject";
+
+    // Partition de la MÊME liste `scoped` — jamais une seconde structure de
+    // donnée, jamais de doublon (les deux prédicats sont l'exact complément
+    // l'un de l'autre). Les deux rubriques sont SŒURS de « Notes de
+    // travail », jamais imbriquées l'une dans l'autre.
+    const normalAnnotations = scoped.filter((a) => a.presentationNote !== true);
+    const presentationNotes = scoped.filter((a) => a.presentationNote === true);
+
+    if (normalAnnotations.length === 0) {
       section.createDiv({ cls: "feuillets-empty" }).setText(t(emptyKey));
-      await this.renderTextMarks(container, file);
-      return;
+    } else {
+      const annotationsList = section.createDiv({ cls: "feuillets-notes-field-container" });
+      await this.renderAnnotationGroup(annotationsList, normalAnnotations, currentRelPath, root);
     }
-    const list = section.createDiv({ cls: "feuillets-notes-field-container" });
-    const grouped = this.annotationScope === "sheet" ? new Map([[currentRelPath || "", scoped]]) : new Map<string, Annotation[]>();
-    if (this.annotationScope !== "sheet") for (const annotation of scoped) grouped.set(annotation.file, [...(grouped.get(annotation.file) || []), annotation]);
+
+    const presentationSection = annotationSection("presentation", "notes.section.presentationNotes");
+    if (presentationNotes.length === 0) {
+      presentationSection.createDiv({ cls: "feuillets-empty" }).setText(t("annotation.panel.emptyPresentationNotes"));
+    } else {
+      const presentationList = presentationSection.createDiv({ cls: "feuillets-notes-field-container" });
+      await this.renderAnnotationGroup(presentationList, presentationNotes, currentRelPath, root);
+    }
+
+    await this.renderTextMarks(container, file);
+  }
+
+  /** Regroupement par fichier (feuillet courant en tête, puis les autres
+   * par ordre du classeur — voir binderOrderedAnnotationPaths) d'un SOUS-
+   * ENSEMBLE d'annotations déjà filtré par portée ET par
+   * `presentationNote` — factorisé pour être appelé UNE FOIS par groupe
+   * (Annotations / Notes de présentation) dans renderNotesAndAnnotationsPanel,
+   * jamais dupliqué. */
+  private async renderAnnotationGroup(
+    list: HTMLElement,
+    annotationsInScope: Annotation[],
+    currentRelPath: string | null,
+    root: TFolder | null,
+  ): Promise<void> {
+    if (annotationsInScope.length === 0) return;
+    const grouped = this.annotationScope === "sheet" ? new Map([[currentRelPath || "", annotationsInScope]]) : new Map<string, Annotation[]>();
+    if (this.annotationScope !== "sheet") for (const annotation of annotationsInScope) grouped.set(annotation.file, [...(grouped.get(annotation.file) || []), annotation]);
     const paths = binderOrderedAnnotationPaths(this.app, this.plugin.settings, root, grouped.keys());
     if (this.annotationScope !== "sheet" && currentRelPath && grouped.has(currentRelPath)) { paths.splice(paths.indexOf(currentRelPath), 1); paths.unshift(currentRelPath); }
     for (const relPath of paths) {
@@ -1822,7 +1865,6 @@ export class NotesView extends BaseFeuilletsView {
       resolved.sort((a, b) => (a.range?.start ?? Number.MAX_SAFE_INTEGER) - (b.range?.start ?? Number.MAX_SAFE_INTEGER) || a.index - b.index);
       for (const item of resolved) this.renderAnnotationRow(list, item.annotation, targetFile, item.range, content);
     }
-    await this.renderTextMarks(container, file);
   }
 
   private renderWorkNoteText(container: HTMLElement, file: TFile, id: string | null, text: string, legacy: boolean): void {
@@ -1886,10 +1928,23 @@ export class NotesView extends BaseFeuilletsView {
     const canNavigate = !!file && !!resolved;
     const row = container.createDiv({ cls: "feuillets-flat-text-cell feuillets-annotation-row" });
 
+    // Pas d'icône « note de présentation » par ligne : depuis que les notes
+    // de présentation ont leur PROPRE rubrique (sœur de « Annotations »),
+    // la répéter sur chaque ligne n'apprend plus rien — l'en-tête de la
+    // rubrique porte déjà l'icône.
     row.createSpan({ cls: `feuillets-annotation-dot feuillets-annotation-dot-${annotation.color}` });
 
-    if (annotation.text) row.createDiv({ cls: "feuillets-annotation-text", text: annotation.text });
-    else row.createDiv({ cls: "feuillets-annotation-text feuillets-annotation-text-empty", text: t("annotation.panel.withoutNote") });
+    if (annotation.text) {
+      row.createDiv({ cls: "feuillets-annotation-text", text: annotation.text });
+    } else {
+      // §5 du contrat : sans commentaire, une note de présentation affiche
+      // sa CIBLE (titre/image/callout) en clair — jamais la syntaxe brute
+      // (##, ![[...]], > [!type]) — via l'unique helper humanAnnotationTargetLabel.
+      // Annotation normale : comportement inchangé (placeholder générique).
+      const targetLabel = annotation.presentationNote === true ? humanAnnotationTargetLabel(annotation) : "";
+      if (targetLabel) row.createDiv({ cls: "feuillets-annotation-text feuillets-annotation-text-target", text: targetLabel });
+      else row.createDiv({ cls: "feuillets-annotation-text feuillets-annotation-text-empty", text: t("annotation.panel.withoutNote") });
+    }
     if (!canNavigate) row.createDiv({ cls: "feuillets-notes-sub", text: t("annotation.panel.notFound") });
 
     // Toujours cliquable pour modifier — résolue ou non : openAnnotationEditor

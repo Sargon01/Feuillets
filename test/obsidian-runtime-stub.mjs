@@ -317,6 +317,7 @@ export const editorInfoField = { __brand: "editorInfoField" };
 export class Menu {
   constructor() {
     this.items = [];
+    this.hideCallbacks = [];
   }
   addItem(cb) {
     const item = {
@@ -342,6 +343,14 @@ export class Menu {
   }
   addSeparator() {
     this.items.push({ separator: true });
+    return this;
+  }
+  onHide(callback) {
+    this.hideCallbacks.push(callback);
+    return this;
+  }
+  hide() {
+    for (const callback of this.hideCallbacks) callback();
     return this;
   }
   showAtPosition(pos) {

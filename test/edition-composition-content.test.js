@@ -332,6 +332,37 @@ test("EditionCompositionContent : sous-page Extractions vide, création, modific
   }
 });
 
+test("EditionCompositionContent : extractions et collections utilisent des cartes verticales et résument les rôles", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    await createContentExtraction(app, plugin.settings, "Sélection", ["questions", "solution", "source", "preuve", "citation"]);
+    await createContentCollection(app, plugin.settings, "Références", ["preuve", "source", "citation"]);
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    contentEl.querySelectorAll(".feuillets-project-row")[1].click();
+    await view.renderPromise;
+    contentEl.querySelectorAll(".feuillets-project-row")[2].click();
+    await view.renderPromise;
+    const extraction = contentEl.querySelector(".feuillets-content-item");
+    assert.ok(extraction.querySelector(".feuillets-content-item-name"));
+    assert.ok(extraction.querySelector(".feuillets-content-item-summary").textContent.includes("+2"));
+    assert.ok(extraction.querySelector(".feuillets-content-item-actions"));
+    assert.equal(extraction.querySelector(".feuillets-content-item-name").getAttribute("title"), "Sélection");
+    contentEl.querySelector(".feuillets-composition-back").click();
+    await view.renderPromise;
+    contentEl.querySelectorAll(".feuillets-project-row")[3].click();
+    await view.renderPromise;
+    const collection = contentEl.querySelector(".feuillets-content-item");
+    assert.ok(collection.querySelector(".feuillets-content-item-name"));
+    assert.ok(collection.querySelector(".feuillets-content-item-summary").textContent.includes("Preuve · Source · Citation"));
+    assert.ok(collection.querySelector(".feuillets-content-item-actions"));
+  } finally {
+    restoreDom();
+  }
+});
+
 test("EditionCompositionContent : un fichier corrompu conserve Contenu et Structure et signale Erreur", async () => {
   const restoreDom = installDom();
   try {
@@ -407,6 +438,12 @@ test("EditionCompositionContent : sous-page Variantes reste sous Le manuscrit et
     select.dispatch("change", { target: select });
     await view.renderPromise;
     assert.equal((await selectedContentVariant(app, plugin.settings))?.id, first.id);
+    const selectedRow = contentEl.querySelector(`[data-content-entry-id="${first.id}"]`);
+    assert.ok(selectedRow?.hasClass("feuillets-content-item-selected"), "la variante sélectionnée est visuellement active");
+    assert.ok(selectedRow?.textContent.includes("Sélectionnée"), "l’état sélectionné est lisible");
+    assert.ok(selectedRow?.textContent.includes("rôles"), "le résumé des rôles est visible");
+    const otherRow = contentEl.querySelector(`[data-content-entry-id="${second.id}"]`);
+    assert.ok(otherRow && !otherRow.hasClass("feuillets-content-item-selected"), "les autres variantes restent inactives");
     const back = contentEl.querySelector(".feuillets-composition-back");
     back.click();
     await view.renderPromise;

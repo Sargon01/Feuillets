@@ -28,6 +28,8 @@ A sheet may remain an article, short story, column or standalone chapter. Severa
 - native **collaborative review**;
 - **DOCX Review** for Word feedback;
 - a central **Edition** workspace for Composition and Layout;
+- optional **semantic roles** for variants, extractions and collections without duplicating the manuscript;
+- a 16:9 **Presentation** rendering from the same Markdown;
 - Markdown, DOCX, EPUB, ODT and PDF export.
 
 ## Start with an existing folder
@@ -160,9 +162,23 @@ The central **Edition** workspace contains two modes:
 
 The **First page** has one owner only: Composition. Its presentation uses the same template model as Preview and export.
 
-Edition keeps scope, format, **Export** and Preview refresh controls in its top bar. Output file naming is no longer exposed as a normal control; Feuillets resolves it automatically while preserving legacy values for compatibility.
+Edition groups **Scope**, **Content**, **Format** and **Export**, alongside Preview refresh. The Content menu selects the full document, an extraction or a collection. Output file naming is no longer exposed as a normal control; Feuillets resolves it automatically while preserving legacy values for compatibility.
 
 See [Composition and export](docs/COMPOSITION-AND-EXPORT.md).
+
+## Semantic publishing and Presentation
+
+Feuillets can optionally annotate selected passages with **semantic roles** such as definition, question, solution, evidence, source, summary or recommendation. Roles are never mandatory — a novel, essay or article can ignore them completely.
+
+Those roles can then drive, without duplicating source text:
+
+- a **content variant** that hides selected roles while keeping the document;
+- a **content extraction** that keeps whole structural sections located through roles;
+- a **content collection** that gathers role blocks themselves with heading context.
+
+The same Markdown can also be rendered as a 16:9 **Presentation**. Slides are separated with `---`, layout remains automatic whenever possible, and `[!speaker-notes]` are not projected.
+
+See [Semantic roles](docs/SEMANTIC-ROLES.md), [Content variants, extractions and collections](docs/CONTENT-VARIANTS-EXTRACTIONS-COLLECTIONS.md), [Presentation](docs/PRESENTATION-EN.md) and the [publishing tutorial](docs/SEMANTIC-PUBLISHING-TUTORIAL.md).
 
 ## Preview and export
 

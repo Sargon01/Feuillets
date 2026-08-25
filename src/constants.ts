@@ -17,10 +17,11 @@ export const VIEW_PREVIEW = "feuillets-manuscript-preview";
  * encore d'entrée Binder/commande, la vue s'ouvre pour l'instant par
  * `setViewState({ type: VIEW_SCRIVENINGS, ... })`. */
 export const VIEW_SCRIVENINGS = "feuillets-scrivenings";
-export const VIEW_PRESENTATION = "feuillets-presentation";
-/** Aperçu d'édition lié — côte à côte avec l'éditeur Markdown (voir
- * views/presentation-preview-view.ts). Distincte de VIEW_PRESENTATION (la
- * vraie vue de projection/lecture), jamais un remplacement. */
+/** UNIQUE vue Présentation — aperçu d'édition côte à côte avec l'éditeur
+ * Markdown, ET surface de projection une fois passée en plein écran (voir
+ * views/presentation-preview-view.ts). Il exista un temps une seconde vue
+ * dédiée à la projection : deux onglets quasi identiques faisaient doublon,
+ * et la projection est désormais un MODE de cette vue, pas un autre onglet. */
 export const VIEW_PRESENTATION_PREVIEW = "feuillets-presentation-preview";
 
 /** Statuts : entièrement personnalisables (nom + couleur), comme les

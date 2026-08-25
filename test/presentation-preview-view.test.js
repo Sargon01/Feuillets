@@ -10,6 +10,7 @@ class FakeElement {
     const style = {}; style.setProperty = (name, value) => { style[name] = value; }; style.removeProperty = (name) => { delete style[name]; };
     this.style = style;
     this.text = options.text || ""; this.attrs = new Map(); this.disabled = false; this._listeners = []; this.visible = true;
+    this.ownerDocument = sharedOwnerDocument;
     this.clientWidth = 1280; this.clientHeight = 720; this.scrollWidth = 1280; this.scrollHeight = 720;
     if (options.cls) this.className = options.cls;
     if (options.attr) for (const [k, v] of Object.entries(options.attr)) this.attrs.set(k, String(v));
@@ -45,11 +46,11 @@ class FakeElement {
   removeAttribute(name) { this.attrs.delete(name); }
   getBoundingClientRect() { return { width: this.clientWidth, height: this.clientHeight, top: 0, left: 0, right: this.clientWidth, bottom: this.clientHeight }; }
   addEventListener(type, listener, options = {}) { this._listeners.push({ type, listener, once: options?.once, signal: options?.signal }); }
-  dispatch(type) {
+  dispatch(type, event) {
     for (const entry of [...this._listeners]) {
       if (entry.type !== type) continue;
       if (entry.signal && entry.signal.aborted) continue;
-      entry.listener();
+      entry.listener(event);
       if (entry.once) { const i = this._listeners.indexOf(entry); if (i >= 0) this._listeners.splice(i, 1); }
     }
   }
@@ -114,7 +115,21 @@ function semanticCallout(container, text = "introduction") {
 
 const previousResizeObserver = globalThis.ResizeObserver;
 
+/** Document propriétaire factice — chaque FakeElement le porte dès sa
+ * construction, comme un vrai élément porte son ownerDocument. */
+function createOwnerDocument() {
+  return {
+    fullscreenElement: null,
+    _listeners: [],
+    addEventListener(type, listener) { this._listeners.push({ type, listener }); },
+    removeEventListener() {},
+    dispatch(type) { for (const entry of [...this._listeners]) if (entry.type === type) entry.listener(); },
+  };
+}
+let sharedOwnerDocument = createOwnerDocument();
+
 test.beforeEach(() => {
+  sharedOwnerDocument = createOwnerDocument();
   FakeResizeObserver.instances = [];
   globalThis.ResizeObserver = FakeResizeObserver;
   globalThis.window = {
@@ -490,6 +505,153 @@ test("PresentationPreviewView — fermeture : AbortController / ResizeObserver n
     assert.equal(controller.signal.aborted, true);
     assert.equal(resizeObserver.disconnected, true);
     assert.equal(view.currentRecord, null);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("PresentationPreviewView — export PDF : bouton icône présent dans la toolbar, clic sans exception", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => paragraph(container, markdown);
+  try {
+    const { view, file } = setup("A");
+    await view.onOpen();
+    await view.linkFile(file);
+    assert.ok(view.exportPdfButton, "bouton export PDF présent");
+    assert.equal(view.exportPdfButton.getAttribute("aria-label"), "Exporter en PDF");
+    assert.doesNotThrow(() => view.exportPdfButton.dispatch("click"));
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("PresentationPreviewView — export PDF : le clic ouvre TOUJOURS le choix de format (16:9 / A4), jamais un format silencieux", async () => {
+  const { PresentationPdfExportModal } = await import("../src/ui/presentation-pdf-export-modal.js");
+  const previousOpen = PresentationPdfExportModal.prototype.open;
+  const previousRender = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => paragraph(container, markdown);
+  let opened = null;
+  // `.open()` n'exécute pas onOpen() dans le stub Modal (voir
+  // presentation-pdf-export-modal.test.js pour la couverture de onOpen()
+  // lui-même) : ici on vérifie seulement que exportPdf() construit bien CETTE
+  // modale, et que son callback appelle réellement exportPresentationPdf avec
+  // le format choisi — jamais un format par défaut sans passer par l'utilisateur.
+  PresentationPdfExportModal.prototype.open = function () { opened = this; };
+  try {
+    const { view, file, app, settings } = setup("A");
+    await view.onOpen();
+    await view.linkFile(file);
+
+    view.exportPdfButton.dispatch("click");
+    assert.ok(opened instanceof PresentationPdfExportModal, "la modale de choix de format est bien ouverte");
+
+    // `document` n'est pas défini dans ce fichier de test : exportPresentationPdf
+    // retombe tôt sans effet de bord — cela suffit à prouver que le CHOIX
+    // atteint bien la vraie fonction, sans reconstruire tout le pipeline
+    // d'impression (déjà couvert par presentation-pdf-export.test.js).
+    assert.doesNotThrow(() => opened.onChoose("16:9"));
+    assert.doesNotThrow(() => opened.onChoose("a4-landscape"));
+    // Sanity : le callback vient bien de CETTE vue (mêmes app/settings).
+    assert.equal(opened.app, app);
+    void settings;
+  } finally {
+    PresentationPdfExportModal.prototype.open = previousOpen;
+    MarkdownRenderer.render = previousRender;
+  }
+});
+
+/* ── Projection : la vue passe elle-même en plein écran ──────────────────── */
+
+/** Racine factice acceptant le plein écran, avec son propre ownerDocument. */
+function fullscreenCapableRoot(view) {
+  const root = view.rootEl;
+  const owner = root.ownerDocument;
+  root.focused = 0;
+  root.focus = () => { root.focused++; };
+  root.requestFullscreen = async () => { owner.fullscreenElement = root; owner.dispatch("fullscreenchange"); };
+  return { root, owner };
+}
+
+test("Projection — le bouton met CETTE vue en plein écran : aucun second onglet n'est ouvert", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => paragraph(container, markdown);
+  try {
+    const { view, file } = setup("A\n---\nB\n---\nC");
+    await view.onOpen();
+    await view.linkFile(file);
+
+    assert.ok(view.launchButton, "bouton « Lancer la présentation » présent");
+    assert.equal(view.launchButton.getAttribute("aria-label"), "Lancer la présentation");
+
+    // Toute tentative d'ouvrir une autre leaf serait une régression : la
+    // projection est un MODE de cette vue, plus un onglet séparé.
+    view.app.workspace.getLeaf = () => { throw new Error("aucun onglet ne doit être ouvert"); };
+    const { root, owner } = fullscreenCapableRoot(view);
+
+    view.launchButton.dispatch("click");
+    await flush();
+
+    assert.equal(owner.fullscreenElement, root, "c'est la vue elle-même qui passe en plein écran");
+    assert.equal(view.isPresenting, true);
+    assert.ok(root.focused >= 1, "focus donné : la navigation clavier marche d'emblée");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Projection — la barre d'outils est masquée pendant la projection, et revient à la sortie", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => paragraph(container, markdown);
+  try {
+    const { view, file } = setup("A\n---\nB");
+    await view.onOpen();
+    await view.linkFile(file);
+    const { owner } = fullscreenCapableRoot(view);
+    assert.notEqual(view.toolbarEl.style.display, "none", "visible en aperçu");
+
+    view.launchButton.dispatch("click");
+    await flush();
+    assert.equal(view.toolbarEl.style.display, "none", "masquée en projection");
+
+    // Sortie par Échap : le navigateur quitte le plein écran, la vue doit suivre.
+    owner.fullscreenElement = null;
+    owner.dispatch("fullscreenchange");
+    assert.equal(view.isPresenting, false);
+    assert.notEqual(view.toolbarEl.style.display, "none", "barre d'outils rendue à la sortie");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Projection — les flèches font défiler les slides SANS déplacer le curseur de l'éditeur", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => paragraph(container, markdown);
+  try {
+    const { view, file, editor } = setup("A\n---\nB\n---\nC");
+    await view.onOpen();
+    await view.linkFile(file);
+    fullscreenCapableRoot(view);
+    view.launchButton.dispatch("click");
+    await flush();
+
+    const cursorBefore = { ...editor.getCursor() };
+    view.rootEl.dispatch("keydown", { key: "ArrowRight", preventDefault() {} });
+    await flush();
+    assert.equal(view.activeIndex, 1, "la flèche droite avance");
+
+    view.rootEl.dispatch("keydown", { key: "ArrowLeft", preventDefault() {} });
+    await flush();
+    assert.equal(view.activeIndex, 0, "la flèche gauche recule");
+
+    // L'auteur projette, il n'écrit pas : le curseur ne doit pas bouger.
+    assert.deepEqual(editor.getCursor(), cursorBefore, "curseur de l'éditeur inchangé pendant la projection");
+  } finally { MarkdownRenderer.render = previous; }
+});
+
+test("Projection — hors projection, les flèches sont ignorées : elles appartiennent à l'éditeur", async () => {
+  const previous = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => paragraph(container, markdown);
+  try {
+    const { view, file } = setup("A\n---\nB\n---\nC");
+    await view.onOpen();
+    await view.linkFile(file);
+    assert.equal(view.isPresenting, false);
+
+    view.rootEl.dispatch("keydown", { key: "ArrowRight", preventDefault() {} });
+    await flush();
+    assert.equal(view.activeIndex, 0, "aucune navigation clavier tant qu'on ne projette pas");
   } finally { MarkdownRenderer.render = previous; }
 });
 

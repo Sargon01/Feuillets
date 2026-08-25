@@ -124,6 +124,27 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - create/duplicate/rename custom templates;
 - Ulysses and Word template import.
 
+## Semantic roles and derived publishing
+
+- 18 optional canonical roles; ordinary text does not require annotation;
+- variants: same document with selected roles excluded;
+- extractions: whole structural sections containing trigger roles;
+- collections: selected role blocks with heading context;
+- variants can combine with an extraction or collection;
+- project-scoped configuration under **Composition → Manuscript**;
+- no duplication of the source manuscript.
+
+## Presentation
+
+- 16:9 rendering of the same Markdown;
+- `---` as slide separator;
+- automatic FLOW / SPLIT / STACK composition;
+- layout can account for text, images, callout groups and long quotations;
+- non-projected `[!speaker-notes]`;
+- compatible video including MP4;
+- `classic`, `course`, `ivory`, `slate`, `dark` themes;
+- optional Auto / flow / columns / image-left / image-right override stored outside Markdown.
+
 ## Layout
 
 - Page: format, orientation, margins, mirror, columns, gutter, header/footer;
@@ -135,7 +156,8 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 
 - compiled Markdown, DOCX, EPUB, ODT;
 - desktop PDF through system printing;
-- persistent Edition export bar;
+- compact **Scope → Content → Format → Export** Edition toolbar;
+- Content menu: full document, extraction or collection;
 - automatically resolved output name with legacy compatibility;
 - safe replacement across macOS case-only filename differences.
 

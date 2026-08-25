@@ -28,11 +28,11 @@ import { VIEW_PRESENTATION_PREVIEW } from "../constants.js";
 import {
   presentationScale,
   presentationSlideIndexForLine,
-  splitPresentationMarkdownWithRanges,
   type PresentationSlideSource,
 } from "../services/presentation.js";
-import { loadLayoutStore, layoutOverridesForFile } from "../services/layout-store.js";
-import { createPresentationSlideAnchor, resolvePresentationSlideLayouts, replacePresentationSlideLayout, type ResolvedPresentationSlideLayouts } from "../services/presentation-layout-overrides.js";
+import { planPresentationSlides } from "../services/presentation-slide-planner.js";
+import { loadLayoutStore, layoutOverridesForFile, type LayoutOverride } from "../services/layout-store.js";
+import { createPresentationSlideAnchor, resolvePresentationSlideLayouts, replacePresentationSlideLayout, presentationPlanningOverrides, type ResolvedPresentationSlideLayouts } from "../services/presentation-layout-overrides.js";
 import { saveLayoutStore } from "../services/layout-store.js";
 import { PresentationLayoutModal } from "../ui/presentation-layout-modal.js";
 import { resolveSourceAnchor } from "../services/source-anchor.js";
@@ -43,6 +43,8 @@ import {
   type RenderedPresentationSlide,
 } from "../services/presentation-slide-renderer.js";
 import { getPresentationTheme, getRoleEditorDisplay } from "../utils/presentation-helpers.js";
+import { exportPresentationPdf, exportPresentationPlanPdf, exportPresentationHandoutPdf } from "../services/presentation-pdf-export.js";
+import { PresentationPdfExportModal } from "../ui/presentation-pdf-export-modal.js";
 import { t } from "../i18n/index.js";
 
 const BASE_WIDTH = PRESENTATION_SLIDE_WIDTH;
@@ -95,6 +97,11 @@ export class PresentationPreviewView extends ItemView {
   previousButton: HTMLButtonElement | null = null;
   nextButton: HTMLButtonElement | null = null;
   layoutButton: HTMLButtonElement | null = null;
+  exportPdfButton: HTMLButtonElement | null = null;
+  launchButton: HTMLButtonElement | null = null;
+  toolbarEl: HTMLElement | null = null;
+  /** Vraie uniquement pendant la projection plein écran — voir syncPresentingState. */
+  isPresenting = false;
   measurementHostEl: HTMLElement | null = null;
 
   private resizeObserver: ResizeObserver | null = null;
@@ -118,13 +125,26 @@ export class PresentationPreviewView extends ItemView {
     // chrome déjà défini dans styles.css (toolbar/bouton/compteur/stage/
     // frame/état vide) — aucune règle ajoutée, aucune dupliquée.
     this.rootEl = this.contentEl.createDiv({ cls: "feuillets-presentation-view feuillets-presentation-preview-view" });
+    // Focusable : indispensable pour que la navigation clavier fonctionne en
+    // projection sans que l'auteur ait à cliquer dans la scène.
+    this.rootEl.setAttribute("tabindex", "0");
     const toolbar = this.rootEl.createDiv({ cls: "feuillets-presentation-toolbar" });
+    this.toolbarEl = toolbar;
     this.previousButton = this.navButton(toolbar, "‹", t("presentation.previous"), () => void this.previous());
     this.counterEl = toolbar.createSpan({ cls: "feuillets-presentation-counter" });
     this.nextButton = this.navButton(toolbar, "›", t("presentation.next"), () => void this.next());
     this.layoutButton = toolbar.createEl("button", { cls: "feuillets-presentation-button", attr: { "aria-label": t("presentation.layout") } });
     setIcon(this.layoutButton, "layout-template");
     this.registerDomEvent(this.layoutButton, "click", () => void this.openLayoutModal());
+    this.exportPdfButton = toolbar.createEl("button", { cls: "feuillets-presentation-button", attr: { "aria-label": t("presentation.export.pdf.tooltip") } });
+    setIcon(this.exportPdfButton, "file-down");
+    this.registerDomEvent(this.exportPdfButton, "click", () => this.exportPdf());
+    /* La projection n'est PAS un autre onglet : c'est CETTE vue passée en
+       plein écran. Un seul onglet Présentation, donc, et la slide affichée
+       reste exactement la même — aucune seconde surface à resynchroniser. */
+    this.launchButton = toolbar.createEl("button", { cls: "feuillets-presentation-button", attr: { "aria-label": t("presentation.launch") } });
+    setIcon(this.launchButton, "presentation");
+    this.registerDomEvent(this.launchButton, "click", () => void this.enterPresentation());
 
     this.stageEl = this.rootEl.createDiv({ cls: "feuillets-presentation-stage" });
     // Wrapper pour le scaling : représente la vraie taille visuelle après réduction.
@@ -140,6 +160,16 @@ export class PresentationPreviewView extends ItemView {
     // attaché au DOM réel, jamais display:none.
     this.measurementHostEl = this.rootEl.createDiv({ cls: "feuillets-presentation-measurement-host" });
     styleEl(this.measurementHostEl, { position: "absolute", left: "-100000px", top: "0", width: `${BASE_WIDTH}px`, height: `${BASE_HEIGHT}px`, visibility: "hidden", pointerEvents: "none" });
+
+    this.registerDomEvent(this.rootEl, "keydown", (event: KeyboardEvent) => this.handleKeydown(event));
+    /* Sortie du plein écran : par le bouton, mais aussi par Échap ou par le
+       système. `fullscreenchange` est la SEULE source de vérité — sans lui la
+       vue resterait en mode projection après un Échap (toolbar masquée,
+       curseur désynchronisé). Écouté sur l'ownerDocument de la vue, pas sur
+       le `document` global : c'est le bon document quand Obsidian ouvre la
+       vue dans une fenêtre détachée. */
+    const ownerDocument = this.presentationDocument();
+    if (ownerDocument) this.registerDomEvent(ownerDocument, "fullscreenchange", () => this.syncPresentingState());
 
     if (typeof ResizeObserver !== "undefined") {
       this.resizeObserver = new ResizeObserver(() => this.updateScale());
@@ -186,17 +216,33 @@ export class PresentationPreviewView extends ItemView {
     await this.setActiveIndex(this.activeIndex, { moveCursor: false, force: true });
   }
 
-  private async applyMarkdown(markdown: string, options: { preferCursor: boolean }): Promise<void> {
-    this.slides = splitPresentationMarkdownWithRanges(markdown);
-    this.fullMarkdown = markdown;
+  /** Overrides layout.json du feuillet lié, ou aucun s'il n'est pas sous le
+   * dossier du projet actif. */
+  private async loadFileLayoutOverrides(): Promise<readonly LayoutOverride[]> {
     const root = this.plugin?.getProjectFolder();
-    if (this.plugin && root && this.file && this.file.path.startsWith(`${root.path}/`)) {
-      const relative = this.file.path.slice(root.path.length + 1);
-      const store = await loadLayoutStore(this.app, this.plugin.settings);
-      this.resolvedSlideLayouts = resolvePresentationSlideLayouts(markdown, this.slides, layoutOverridesForFile(store, relative));
-    } else {
-      this.resolvedSlideLayouts = new Map();
-    }
+    if (!this.plugin || !root || !this.file || !this.file.path.startsWith(`${root.path}/`)) return [];
+    const store = await loadLayoutStore(this.app, this.plugin.settings);
+    return layoutOverridesForFile(store, this.file.path.slice(root.path.length + 1));
+  }
+
+  private async applyMarkdown(markdown: string, options: { preferCursor: boolean }): Promise<void> {
+    /* Overrides chargés AVANT la planification : dispositions manuelles et
+       sauts explicites doivent pouvoir influencer la découpe. */
+    const overrides = await this.loadFileLayoutOverrides();
+    const planning = presentationPlanningOverrides(markdown, overrides);
+    this.slides = await planPresentationSlides({
+      app: this.app,
+      component: this,
+      sourcePath: this.file?.path ?? "",
+      markdown,
+      roleEditorDisplay: getRoleEditorDisplay(this.app),
+      theme: getPresentationTheme(this.app, this.file?.path ?? ""),
+      slideLayouts: planning.slideLayouts,
+      forcedBreakLines: planning.forcedBreakLines,
+    });
+    this.fullMarkdown = markdown;
+    // Mêmes overrides, reprojetés sur les slides réellement planifiées.
+    this.resolvedSlideLayouts = resolvePresentationSlideLayouts(markdown, this.slides, overrides);
     let desiredIndex = Math.max(0, Math.min(this.activeIndex, Math.max(0, this.slides.length - 1)));
     if (options.preferCursor) {
       const editor = this.findLinkedEditor();
@@ -212,8 +258,10 @@ export class PresentationPreviewView extends ItemView {
 
   /* ============================ Navigation ============================ */
 
-  async next(): Promise<void> { await this.setActiveIndex(this.activeIndex + 1, { moveCursor: true }); }
-  async previous(): Promise<void> { await this.setActiveIndex(this.activeIndex - 1, { moveCursor: true }); }
+  /* En projection, naviguer ne doit JAMAIS déplacer le curseur de l'éditeur
+     lié : l'auteur projette, il n'écrit pas. */
+  async next(): Promise<void> { await this.setActiveIndex(this.activeIndex + 1, { moveCursor: !this.isPresenting }); }
+  async previous(): Promise<void> { await this.setActiveIndex(this.activeIndex - 1, { moveCursor: !this.isPresenting }); }
 
   /**
    * Change (au besoin) la diapositive affichée. Ne rerend JAMAIS si l'index
@@ -395,6 +443,68 @@ export class PresentationPreviewView extends ItemView {
     this.updateScale();
   }
 
+  /** Demande TOUJOURS le format (16:9 projection / A4 paysage papier) avant
+   * d'exporter — les deux usages sont trop différents pour un défaut
+   * implicite (voir PresentationPdfExportModal). */
+  private exportPdf(): void {
+    const file = this.file;
+    if (!file) return;
+    new PresentationPdfExportModal(this.app, (choice) => {
+      if (choice.kind === "presentation") void exportPresentationPdf({ app: this.app, component: this, file, settings: this.plugin?.settings, pageFormat: choice.pageFormat });
+      else if (choice.kind === "handout") void exportPresentationHandoutPdf({ app: this.app, component: this, file, settings: this.plugin?.settings, slidesPerPage: choice.slidesPerPage });
+      else void exportPresentationPlanPdf({ app: this.app, component: this, file, settings: this.plugin?.settings, scope: choice.scope });
+    }).open();
+  }
+
+  /**
+   * Passe CETTE vue en plein écran pour projeter. Pas d'onglet supplémentaire,
+   * pas de seconde surface de rendu : la slide affichée est déjà la bonne,
+   * elle grandit simplement pour occuper l'écran (le ResizeObserver recalcule
+   * l'échelle tout seul).
+   */
+  private async enterPresentation(): Promise<void> {
+    if (!this.rootEl || typeof this.rootEl.requestFullscreen !== "function") return;
+    if (this.presentationDocument()?.fullscreenElement !== this.rootEl) await this.rootEl.requestFullscreen();
+    this.syncPresentingState();
+    this.rootEl.focus?.();
+  }
+
+  /** Document propriétaire de la vue — jamais le `document` global : Obsidian
+   * peut afficher la vue dans une fenêtre détachée, qui a le sien. */
+  private presentationDocument(): Document | null {
+    return this.rootEl?.ownerDocument ?? null;
+  }
+
+  /**
+   * Aligne l'état de projection sur la réalité du plein écran. Appelé aussi
+   * bien à l'entrée qu'à chaque `fullscreenchange` : sortir par Échap doit
+   * rendre la barre d'outils et réactiver le suivi du curseur.
+   */
+  private syncPresentingState(): void {
+    const presenting = !!this.rootEl && this.presentationDocument()?.fullscreenElement === this.rootEl;
+    if (presenting === this.isPresenting) return;
+    this.isPresenting = presenting;
+    // Projection = image seule : la barre d'outils n'a rien à faire à l'écran
+    // devant un public. Masquée en ligne, aucune règle ajoutée à styles.css.
+    if (this.toolbarEl) styleEl(this.toolbarEl, { display: presenting ? "none" : "" });
+    if (presenting) this.rootEl?.focus?.();
+    this.updateScale();
+  }
+
+  /**
+   * Navigation clavier, active uniquement en projection : dans l'aperçu, les
+   * flèches doivent rester à l'éditeur lié. Échap n'est pas géré ici — c'est
+   * le navigateur qui sort du plein écran, et `fullscreenchange` s'en charge.
+   */
+  private handleKeydown(event: KeyboardEvent): void {
+    if (!this.isPresenting) return;
+    const forward = event.key === "ArrowRight" || event.key === "ArrowDown" || event.key === "PageDown" || event.key === " ";
+    const backward = event.key === "ArrowLeft" || event.key === "ArrowUp" || event.key === "PageUp";
+    if (!forward && !backward) return;
+    event.preventDefault();
+    void this.setActiveIndex(this.activeIndex + (forward ? 1 : -1), { moveCursor: false });
+  }
+
   private navButton(parent: HTMLElement, label: string, tooltip: string, action: () => void): HTMLButtonElement {
     const button = parent.createEl("button", { cls: "feuillets-presentation-button", attr: { "aria-label": tooltip }, text: label });
     this.registerDomEvent(button, "click", action);
@@ -421,7 +531,19 @@ export class PresentationPreviewView extends ItemView {
       const plugin = this.plugin;
       if (!plugin) return;
       const freshMarkdown = await this.app.vault.read(this.file);
-      const freshSlides = splitPresentationMarkdownWithRanges(freshMarkdown);
+      // Même planification que l'affichage (mêmes overrides) : l'index ciblé
+      // ici doit désigner la même slide que celle que l'auteur regarde.
+      const freshPlanning = presentationPlanningOverrides(freshMarkdown, await this.loadFileLayoutOverrides());
+      const freshSlides = await planPresentationSlides({
+        app: this.app,
+        component: this,
+        sourcePath: this.file.path,
+        markdown: freshMarkdown,
+        roleEditorDisplay: getRoleEditorDisplay(this.app),
+        theme: getPresentationTheme(this.app, this.file.path),
+        slideLayouts: freshPlanning.slideLayouts,
+        forcedBreakLines: freshPlanning.forcedBreakLines,
+      });
       const freshRange = resolveSourceAnchor(anchor, freshMarkdown);
       if (!freshRange) { new Notice(t("presentation.layoutChanged")); return; }
       const targetIndex = freshSlides.findIndex((slide) => {

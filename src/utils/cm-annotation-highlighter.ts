@@ -102,6 +102,12 @@ export interface EditorViewInstance {
    * uniquement à ancrer le popover de création près de la sélection (voir
    * coordsAtOffset ci-dessous, utilisé par main.ts). */
   coordsAtPos?: (pos: number) => AnchorRect | null;
+  /** Réciproque, également API PUBLIQUE @codemirror/view : position du
+   * document sous un point écran. Nécessaire parce qu'un CLIC DROIT ne
+   * déplace pas le curseur : sans elle, le menu contextuel ne décrirait
+   * jamais l'élément réellement visé, mais l'endroit où le curseur avait
+   * été laissé (voir offsetAtCoords ci-dessous). */
+  posAtCoords?: (coords: { x: number; y: number }) => number | null;
 }
 
 const StateEffectTyped = StateEffect as StateEffectStatic;
@@ -382,6 +388,23 @@ export function coordsAtOffset(editorView: EditorViewInstance | null | undefined
   if (!editorView || typeof editorView.coordsAtPos !== "function") return null;
   try {
     return editorView.coordsAtPos(pos) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Position du document sous un point écran — `null` si l'éditeur n'expose
+ * pas `posAtCoords` ou si le point ne tombe sur aucune position mesurable.
+ * C'est la SEULE façon correcte de savoir sur quoi porte un clic droit :
+ * `editor.getCursor()` renvoie l'ancien curseur, qu'un clic droit ne
+ * déplace pas. Ne lève jamais : à l'appelant de retomber sur le curseur. */
+export function offsetAtCoords(
+  editorView: EditorViewInstance | null | undefined,
+  coords: { x: number; y: number } | null | undefined,
+): number | null {
+  if (!editorView || !coords || typeof editorView.posAtCoords !== "function") return null;
+  try {
+    return editorView.posAtCoords({ x: coords.x, y: coords.y }) ?? null;
   } catch {
     return null;
   }

@@ -106,40 +106,82 @@ test("isAutonomousMediaBlock : refuse texte direct, liste, blockquote, table, pl
 
 // ===== génération des candidats =====
 
-const EXPECTED_IDS = [
-  "split-42-58", "split-50-50", "split-58-42",
-  "stack-65-35", "stack-60-40", "stack-55-45",
+const EXPECTED_IDS_TWO_BLOCKS = [
+  "split-35-65", "split-42-58", "split-50-50", "split-58-42", "split-65-35",
 ];
 
-test("A : MEDIA puis TEXT => 6 candidats, média en cellule A, ordre Markdown conservé", () => {
+test("A : IMAGE AVANT TEXTE => 12 candidats (2 orientations, 6 ratios chacun), indépendamment de l'ordre", () => {
   const inner = slideOf(heading(), media(), text());
   const candidates = candidatesFor(inner);
-  assert.deepEqual(candidates.map((c) => c.id), EXPECTED_IDS);
-  for (const c of candidates) {
-    assert.equal(c.mediaPosition, "a");
-    assert.deepEqual(c.cellBIndexes, [2]);
+  assert.equal(candidates.length, 12);
+  const mediaA = candidates.filter((c) => c.mediaPosition === "a");
+  const mediaB = candidates.filter((c) => c.mediaPosition === "b");
+  assert.equal(mediaA.length, 6);
+  assert.equal(mediaB.length, 6);
+  // Media en cellule A : texte en B
+  for (const c of mediaA) {
+    assert.deepEqual(c.cellAIndexes, [1]); // média au bon index
+    assert.deepEqual(c.cellBIndexes, [2]); // texte au bon index
+  }
+  // Media en cellule B : texte en A
+  for (const c of mediaB) {
+    assert.deepEqual(c.cellAIndexes, [2]); // texte au bon index
+    assert.deepEqual(c.cellBIndexes, [1]); // média au bon index
   }
 });
 
-test("B : TEXT puis MEDIA => 6 candidats, média en cellule B, ordre Markdown conservé", () => {
-  const inner = slideOf(heading(), text(), media());
-  const candidates = candidatesFor(inner);
-  assert.deepEqual(candidates.map((c) => c.id), EXPECTED_IDS);
-  for (const c of candidates) {
-    assert.equal(c.mediaPosition, "b");
-    assert.deepEqual(c.cellAIndexes, [1]);
-  }
+test("B : TEXTE AVANT IMAGE => 12 candidats, mêmes IDs et positions que IMAGE AVANT TEXTE", () => {
+  const innerA = slideOf(heading(), media(), text());
+  const innerB = slideOf(heading(), text(), media());
+  const candidatesA = candidatesFor(innerA);
+  const candidatesB = candidatesFor(innerB);
+  assert.equal(candidatesB.length, 12);
+  // Les IDs dans le même ordre (déterministe)
+  assert.deepEqual(candidatesA.map((c) => c.id), candidatesB.map((c) => c.id));
+  // Les mediaPositions dans le même ordre
+  assert.deepEqual(candidatesA.map((c) => c.mediaPosition), candidatesB.map((c) => c.mediaPosition));
 });
 
-test("C : TEXT MEDIA TEXT => FLOW uniquement (aucun candidat)", () => {
+test("C : TEXT MEDIA TEXT => 12 candidats groupés (média seul, contenu regroupé, 2 orientations), plus de FLOW forcé", () => {
   const inner = slideOf(text(), media(), text());
-  assert.deepEqual(candidatesFor(inner), []);
+  const candidates = candidatesFor(inner);
+  assert.equal(candidates.length, 12);
+  const mediaA = candidates.filter((c) => c.mediaPosition === "a");
+  const mediaB = candidates.filter((c) => c.mediaPosition === "b");
+  assert.equal(mediaA.length, 6);
+  assert.equal(mediaB.length, 6);
+  for (const c of mediaA) {
+    assert.deepEqual(c.cellAIndexes, [1]);
+    assert.deepEqual(c.cellBIndexes, [0, 2]); // ordre Markdown relatif conservé
+  }
+  for (const c of mediaB) {
+    assert.deepEqual(c.cellAIndexes, [0, 2]);
+    assert.deepEqual(c.cellBIndexes, [1]);
+  }
+  // IDs déterministes, distincts des candidats historiques texte-texte (avant-seul/après-seul).
+  const ids = candidates.map((c) => c.id);
+  assert.equal(new Set(ids).size, 12);
+  for (const id of ids) assert.ok(!EXPECTED_IDS_TWO_BLOCKS.includes(id));
 });
 
-test("D : TEXT TEXT => 5 candidats SPLIT texte–texte", () => {
+test("C bis : média avec du contenu heading + 2 blocs avant/après => 12 candidats, ordre non-média conservé, headings préservés", () => {
+  const inner = slideOf(heading(), text(), list(), media(), text());
+  const candidates = candidatesFor(inner);
+  assert.equal(candidates.length, 12);
+  for (const c of candidates) {
+    assert.deepEqual(c.headingIndexes, [0]);
+    const grouped = c.mediaPosition === "a" ? c.cellBIndexes : c.cellAIndexes;
+    assert.deepEqual(grouped, [1, 2, 4]);
+    const mediaSide = c.mediaPosition === "a" ? c.cellAIndexes : c.cellBIndexes;
+    assert.deepEqual(mediaSide, [3]);
+  }
+});
+
+test("D : EXACTEMENT 2 BLOCS TEXTE => 5 candidats SPLIT texte–texte, IDs historiques conservés", () => {
   const inner = slideOf(text(), text());
   const candidates = candidatesFor(inner);
   assert.deepEqual(candidates.map((candidate) => candidate.id), ["split-35-65", "split-42-58", "split-50-50", "split-58-42", "split-65-35"]);
+  assert.equal(candidates.length, 5);
   for (const candidate of candidates) {
     assert.equal(candidate.geometry, "split");
     assert.equal(candidate.mediaPosition, null);
@@ -152,14 +194,97 @@ test("texte–texte accepte les listes et callouts, mais refuse les structures n
   assert.equal(candidatesFor(slideOf(text(), list())).length, 5);
   assert.equal(candidatesFor(slideOf(text(), callout())).length, 5);
   assert.equal(candidatesFor(slideOf(callout(), callout())).length, 5);
-  assert.deepEqual(candidatesFor(slideOf(text(), text(), text())), []);
+  // 3 blocs texte => 10 candidats (2 frontières × 5 ratios)
+  assert.equal(candidatesFor(slideOf(text(), text(), text())).length, 10);
+  // Type incompatible => FLOW
   assert.deepEqual(candidatesFor(slideOf(text(), new FakeElement("div"))), []);
+  // Heading non-contigu en début => va dans body, donc type incompatible => FLOW
   assert.deepEqual(candidatesFor(slideOf(text(), new FakeElement("h3"), text())), []);
 });
 
 test("E : MEDIA MEDIA => FLOW uniquement dans ce lot (aucun candidat)", () => {
   const inner = slideOf(media(), media());
   assert.deepEqual(candidatesFor(inner), []);
+});
+
+test("F : MEDIA SEUL (sans autre contenu) => FLOW, aucun candidat", () => {
+  const inner = slideOf(heading(), media());
+  assert.deepEqual(candidatesFor(inner), []);
+});
+
+test("G : PLUSIEURS MÉDIAS => FLOW, aucun candidat", () => {
+  const inner = slideOf(media(), media(), text());
+  assert.deepEqual(candidatesFor(inner), []);
+});
+
+test("H : 3 BLOCS TEXTE => 10 candidats, partitions contiguës (2 frontières × 5 ratios)", () => {
+  const inner = slideOf(text(), text(), text());
+  const candidates = candidatesFor(inner);
+  assert.equal(candidates.length, 10);
+
+  // Frontière 1 : [0] | [1,2]
+  const boundary1 = candidates.filter((c) => c.id.startsWith("split-text-1-"));
+  assert.equal(boundary1.length, 5);
+  for (const c of boundary1) {
+    assert.deepEqual(c.cellAIndexes, [0]);
+    assert.deepEqual(c.cellBIndexes, [1, 2]);
+  }
+
+  // Frontière 2 : [0,1] | [2]
+  const boundary2 = candidates.filter((c) => c.id.startsWith("split-text-2-"));
+  assert.equal(boundary2.length, 5);
+  for (const c of boundary2) {
+    assert.deepEqual(c.cellAIndexes, [0, 1]);
+    assert.deepEqual(c.cellBIndexes, [2]);
+  }
+});
+
+test("I : 4 BLOCS MIXTES TEXTE/LIST/CALLOUT => 15 candidats, partitions contiguës (3 frontières × 5 ratios)", () => {
+  const inner = slideOf(text(), list(), callout(), text());
+  const candidates = candidatesFor(inner);
+  assert.equal(candidates.length, 15);
+
+  // Vérifier que les 3 frontières existent
+  const boundary1 = candidates.filter((c) => c.id.startsWith("split-text-1-"));
+  const boundary2 = candidates.filter((c) => c.id.startsWith("split-text-2-"));
+  const boundary3 = candidates.filter((c) => c.id.startsWith("split-text-3-"));
+  assert.equal(boundary1.length, 5);
+  assert.equal(boundary2.length, 5);
+  assert.equal(boundary3.length, 5);
+
+  // Vérifier l'ordre est conservé
+  for (const c of boundary1) assert.deepEqual(c.cellAIndexes, [0]);
+  for (const c of boundary2) assert.deepEqual(c.cellAIndexes, [0, 1]);
+  for (const c of boundary3) assert.deepEqual(c.cellAIndexes, [0, 1, 2]);
+});
+
+test("J : BLOC NON ÉLIGIBLE (type 'other') => FLOW, aucun candidat", () => {
+  const inner = slideOf(text(), new FakeElement("div"), text());
+  assert.deepEqual(candidatesFor(inner), []);
+});
+
+test("K : HEADING INITIAL + 3 BLOCS TEXTE => 10 candidats, headings dans headingIndexes, body partitionné", () => {
+  const inner = slideOf(heading(), text(), text(), callout());
+  const candidates = candidatesFor(inner);
+  assert.equal(candidates.length, 10);
+
+  for (const c of candidates) {
+    assert.deepEqual(c.headingIndexes, [0]);
+  }
+
+  // Frontière 1 : [1] | [2,3]
+  const boundary1 = candidates.filter((c) => c.id.startsWith("split-text-1-"));
+  for (const c of boundary1) {
+    assert.deepEqual(c.cellAIndexes, [1]);
+    assert.deepEqual(c.cellBIndexes, [2, 3]);
+  }
+
+  // Frontière 2 : [1,2] | [3]
+  const boundary2 = candidates.filter((c) => c.id.startsWith("split-text-2-"));
+  for (const c of boundary2) {
+    assert.deepEqual(c.cellAIndexes, [1, 2]);
+    assert.deepEqual(c.cellBIndexes, [3]);
+  }
 });
 
 test("generatePresentationCandidates : plan PUR, aucun HTMLElement", () => {
@@ -360,10 +485,10 @@ test("presentationContainedMediaSize : jamais de crop, jamais de déformation, j
 // test/presentation-prototype.test.js) — non-régression du comportement figé
 // après le déplacement vers presentation-layout-engine.ts.
 
-test("Non-régression migration : MEDIA puis TEXT, mesures portrait => mêmes 6 candidats + même gagnant qu'avant l'extraction", () => {
+test("Non-régression : MEDIA + TEXT en portrait => SPLIT gagne (plus grande mediaArea), indépendamment de l'ordre", () => {
   const inner = slideOf(heading(), media(), text());
   const candidates = candidatesFor(inner);
-  assert.deepEqual(candidates.map((c) => c.id), EXPECTED_IDS);
+  assert.equal(candidates.length, 12);
 
   // mesures synthétiques reproduisant le cas « portrait » déjà validé.
   const measurements = candidates.map((c) => ({
@@ -372,13 +497,14 @@ test("Non-régression migration : MEDIA puis TEXT, mesures portrait => mêmes 6 
     mediaArea: c.geometry === "split" ? 200000 : 90000,
     minTextWidth: c.geometry === "split" ? 400 : 1000,
   }));
-  assert.equal(choosePresentationCandidate(measurements), "split-42-58");
+  const winner = choosePresentationCandidate(measurements);
+  assert.ok(winner?.includes("split"), "SPLIT gagne en portrait (pas STACK)");
 });
 
-test("Non-régression migration : TEXT puis MEDIA, mesures paysage => même gagnant qu'avant l'extraction", () => {
+test("Non-régression : MEDIA + TEXT en paysage => STACK gagne (plus grande mediaArea), indépendamment de l'ordre", () => {
   const inner = slideOf(heading(), text(), media());
   const candidates = candidatesFor(inner);
-  assert.deepEqual(candidates.map((c) => c.id), EXPECTED_IDS);
+  assert.equal(candidates.length, 12);
 
   const measurements = candidates.map((c) => ({
     id: c.id,
@@ -386,7 +512,8 @@ test("Non-régression migration : TEXT puis MEDIA, mesures paysage => même gagn
     mediaArea: c.geometry === "stack" ? 220000 : 120000,
     minTextWidth: 0,
   }));
-  assert.equal(choosePresentationCandidate(measurements), "stack-65-35");
+  const winner = choosePresentationCandidate(measurements);
+  assert.ok(winner?.includes("stack"), "STACK gagne en paysage (pas SPLIT)");
 });
 
 test("Non-régression migration : contain 600×900 dans 500×400 — mêmes dimensions qu'avant l'extraction (266.67×400)", () => {

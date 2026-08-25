@@ -130,6 +130,27 @@ Le panneau Relecture regroupe :
 - création/duplication/renommage de gabarits ;
 - import Ulysses et Word.
 
+## Rôles sémantiques et publications dérivées
+
+- 18 rôles canoniques facultatifs, sans obligation d’annoter le texte ordinaire ;
+- variantes : même document avec certains rôles exclus ;
+- extractions : sections structurelles entières contenant les rôles déclencheurs ;
+- collections : blocs portant les rôles choisis, avec contexte de titres ;
+- variantes combinables avec une extraction ou une collection ;
+- configuration par projet dans **Composition → Le manuscrit** ;
+- aucune duplication du manuscrit source.
+
+## Présentation
+
+- rendu 16:9 du même Markdown ;
+- `---` comme séparateur de diapositives ;
+- compositions automatiques FLOW / SPLIT / STACK ;
+- texte, images, groupes de callouts et citations longues pris en compte par la mise en page ;
+- notes `[!speaker-notes]` non projetées ;
+- vidéo compatible, notamment MP4 ;
+- thèmes `classic`, `course`, `ivory`, `slate`, `dark` ;
+- override exceptionnel Auto / flow / columns / image-left / image-right stocké hors Markdown.
+
 ## Mise en page
 
 - Page : format, orientation, marges, miroir, colonnes, gouttière, en-tête/pied ;
@@ -144,7 +165,8 @@ Le panneau Relecture regroupe :
 - EPUB ;
 - ODT ;
 - PDF desktop via impression système ;
-- barre d’export persistante dans Édition ;
+- barre d’export compacte **Portée → Contenu → Format → Exporter** ;
+- menu Contenu : document complet, extraction ou collection ;
 - nom de sortie résolu automatiquement avec compatibilité legacy ;
 - collisions de casse macOS gérées lors du remplacement des sorties existantes.
 

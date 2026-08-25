@@ -16,6 +16,8 @@ Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer. Partez
 
 - **Je veux travailler seulement sur une partie du manuscrit.** Feuillets sait travailler à l’échelle d’un **feuillet**, d’un **dossier**, d’une **sélection** ou du **projet entier**. Cette portée peut être utilisée selon l’action dans Continu, l’Aperçu et l’export, sans créer de copie du projet.
 
+- **Je veux produire plusieurs documents depuis la même source.** Ajoutez seulement les rôles sémantiques qui vous sont utiles, puis créez une **variante**, une **extraction** ou une **collection**. Le texte ordinaire reste inclus par défaut et le manuscrit source n’est pas dupliqué. Voir [Rôles sémantiques](ROLES-SEMANTIQUES.md) et [Variantes, extractions et collections](VARIANTES-EXTRACTIONS-COLLECTIONS.md).
+
 - **Je veux déplacer un paragraphe ou un passage.** Dans l’éditeur Markdown ou dans Continu, utilisez **clic droit → Réorganiser le texte**, puis faites glisser le paragraphe ou, lorsqu’il reste dans un même paragraphe, le fragment sélectionné vers sa nouvelle position. Appuyez sur **Échap** pour quitter le mode.
 
 - **Je veux me laisser une remarque sur une phrase.** Sélectionnez le passage puis choisissez **Annotation…**. L’annotation reste attachée au texte, fonctionne aussi dans Continu et n’est jamais écrite dans le Markdown ; pour une remarque concernant le feuillet entier, utilisez plutôt une note de travail. Voir [Annotations de travail](ANNOTATIONS-DE-TRAVAIL.md).
@@ -30,6 +32,8 @@ Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer. Partez
 
 - **Je veux exporter sans ouvrir l’Aperçu.** Vous pouvez le faire. L’Aperçu sert à contrôler visuellement le document composé, mais il n’est pas requis pour exporter ; si Continu contient encore des modifications en attente, Feuillets les enregistre d’abord dans les fichiers sources.
 
+- **Je veux transformer le même Markdown en présentation.** Séparez les diapositives avec `---`. Feuillets compose le contenu en 16:9, peut exploiter les rôles sémantiques sans les rendre obligatoires et garde les notes `[!speaker-notes]` hors projection. Voir [Présentation](PRESENTATION.md).
+
 ## Des fonctions faciles à manquer
 
 - Un dossier Obsidian existant peut devenir un projet Feuillets sans être restructuré.
@@ -39,6 +43,8 @@ Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer. Partez
 - Un dossier documentaire existant peut être **associé comme Recherche** sans être déplacé.
 - Le **remappage YAML** permet à Feuillets de s’adapter aux propriétés déjà présentes dans le coffre.
 - L’**Aperçu est facultatif pour exporter** : il sert à vérifier la composition, pas à autoriser l’export.
+- Les **rôles sémantiques sont facultatifs** mais permettent de produire variantes, extractions et collections depuis une source unique.
+- Le même Markdown peut aussi alimenter une **Présentation 16:9**.
 
 ## Comprendre l’espace de travail Feuillets
 
@@ -66,7 +72,7 @@ Cinq onglets accompagnent le texte sans remplacer le manuscrit :
 
 ### Édition
 
-**Édition** est une surface centrale distincte du panneau droit. **Composition** décide ce qui entre dans le document ; **Mise en page** règle sa présentation. L’**Aperçu** permet de vérifier le résultat et l’export reste accessible sans devoir l’ouvrir.
+**Édition** est une surface centrale distincte du panneau droit. **Composition** décide ce qui entre dans le document et peut définir variantes, extractions et collections ; **Mise en page** règle sa présentation. La barre rapide organise **Portée → Contenu → Format → Exporter**. L’**Aperçu** permet de vérifier le résultat et l’export reste accessible sans devoir l’ouvrir.
 
 ## Philosophie
 

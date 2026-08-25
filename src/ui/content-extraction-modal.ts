@@ -31,22 +31,33 @@ export class ContentExtractionModal extends Modal {
   onOpen(): void {
     const { contentEl } = this;
     contentEl.empty();
+    contentEl.addClass("feuillets-content-derivation-modal");
     contentEl.createEl("h3", { text: t(this.initial ? "contentExtractions.modal.editTitle" : "contentExtractions.modal.newTitle") });
-    contentEl.createEl("label", { text: t("contentExtractions.modal.name") });
+    const nameLabel = contentEl.createEl("label", { cls: "feuillets-content-modal-field-label", text: t("contentExtractions.modal.name") });
     const nameInput = contentEl.createEl("input", { type: "text" });
     nameInput.addClass("feuillets-input-full");
+    nameInput.setAttribute("aria-label", t("contentExtractions.modal.name"));
     nameInput.value = this.initial?.name || "";
+    nameLabel.appendChild(nameInput);
     contentEl.createEl("h4", { text: t("contentExtractions.modal.roles") });
 
     const selected = new Set(this.initial?.triggerRoles || []);
     const roleInputs = new Map<SemanticRole, HTMLInputElement>();
+    const roleGrid = contentEl.createDiv({ cls: "feuillets-content-modal-role-grid", attr: { role: "group", "aria-label": t("contentExtractions.modal.roles") } });
+    const roleSummary = contentEl.createDiv({ cls: "feuillets-content-modal-role-summary" });
+    const updateRoleSummary = (): void => {
+      const roles = SEMANTIC_ROLES.filter((role) => roleInputs.get(role)?.checked);
+      roleSummary.setText(t("contentExtractions.modal.selectedRolesCount", { count: String(roles.length) }));
+    };
     for (const role of SEMANTIC_ROLES) {
-      const label = contentEl.createEl("label", { cls: "feuillets-content-extraction-role" });
+      const label = roleGrid.createEl("label", { cls: "feuillets-content-modal-role feuillets-content-extraction-role" });
       const input = label.createEl("input", { type: "checkbox" });
       input.checked = selected.has(role);
+      input.addEventListener("change", updateRoleSummary);
       roleInputs.set(role, input);
       label.createSpan({ text: t(`contentVariants.roles.${role}`) });
     }
+    updateRoleSummary();
 
     const buttons = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     buttons.createEl("button", { text: t("modal.cancel") }).addEventListener("click", () => this.close());

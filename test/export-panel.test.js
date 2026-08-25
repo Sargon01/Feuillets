@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFile, TFolder } from "obsidian";
+import { Menu, TFile, TFolder } from "obsidian";
 import { ExportPanel } from "../src/ui/export-panel.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { t } from "../src/i18n/index.js";
@@ -30,6 +30,7 @@ class FakeElement {
     if (list) [...list].forEach((fn) => fn(event || { target: this }));
   }
   click() { this.dispatch("click"); }
+  focus() { FakeElement.activeElement = this; }
   toggleClass(cls, val) {
     if (val === undefined) { if (this.classes.has(cls)) this.classes.delete(cls); else this.classes.add(cls); }
     else if (val) this.classes.add(cls);
@@ -71,6 +72,7 @@ class FakeElement {
   }
   querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 }
+FakeElement.activeElement = null;
 
 function matches(node, selector) {
   const attr = selector.match(/^\[([^=\]]+)="?([^"\]]*)"?\]$/);
@@ -193,8 +195,9 @@ test("ExportPanel : quickbar et panneau complet partagent la sélection discrimi
     const quickbar = new FakeElement("div");
     new ExportPanel(app, plugin, quickbar).renderQuickBar(quickbar);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    const quickSelect = quickbar.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:collection-b"));
-    assert.equal(quickSelect.value, "collection:collection-b");
+    assert.equal(quickbar.querySelectorAll("select").length, 0);
+    assert.equal(quickbar.querySelector(".feuillets-edition-quickexport-content").getAttribute("aria-label"), "Collection : B");
+    assert.deepEqual(currentExportDerivation(plugin), { kind: "collection", id: "collection-b" });
   } finally {
     restore();
   }
@@ -211,7 +214,7 @@ test("ExportPanel : store collections corrompu conserve la sélection active ind
     const derivation = container.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:gone"));
     assert.ok(derivation);
     assert.equal(derivation.value, "collection:gone");
-    assert.equal(derivation.querySelectorAll("option").at(-1).textContent, "Collection indisponible");
+    assert.equal(derivation.querySelectorAll("option").at(-1).textContent, "Collection : Collection indisponible");
   } finally {
     restore();
   }
@@ -257,14 +260,14 @@ test("ExportPanel : renommage et suppression d'une dérivation active suivent le
     await new ExportPanel(fixture.app, fixture.plugin, renamed).render();
     const renamedSelect = renamed.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:sources"));
     assert.equal(renamedSelect.value, "collection:sources");
-    assert.equal(renamedSelect.querySelectorAll("option").find((option) => option.value === "collection:sources").textContent, "Ancien");
+    assert.equal(renamedSelect.querySelectorAll("option").find((option) => option.value === "collection:sources").textContent, "Collection : Ancien");
 
     await fixture.app.vault.modify(fixture.app.vault.getAbstractFileByPath(collectionPath), JSON.stringify({ version: 1, collections: [{ id: "sources", name: "Nouveau", roles: ["source"] }] }));
     const updated = new FakeElement("div");
     await new ExportPanel(fixture.app, fixture.plugin, updated).render();
     const updatedSelect = updated.querySelectorAll("select").find((select) => select.querySelectorAll("option").some((option) => option.value === "collection:sources"));
     assert.equal(updatedSelect.value, "collection:sources");
-    assert.equal(updatedSelect.querySelectorAll("option").find((option) => option.value === "collection:sources").textContent, "Nouveau");
+    assert.equal(updatedSelect.querySelectorAll("option").find((option) => option.value === "collection:sources").textContent, "Collection : Nouveau");
 
     await fixture.app.vault.delete(fixture.app.vault.getAbstractFileByPath(collectionPath));
     const deleted = new FakeElement("div");
@@ -460,17 +463,90 @@ test("ExportPanel.renderQuickBar : portée + format + Exporter, sans étiquette 
     panel.renderQuickBar(bar);
 
     const scope = bar.querySelector(".feuillets-edition-quickexport-scope");
+    const content = bar.querySelector(".feuillets-edition-quickexport-content");
     const format = bar.querySelector(".feuillets-edition-quickexport-format");
-    assert.ok(scope, "sélecteur de portée présent");
-    assert.ok(format, "sélecteur de format présent");
-    assert.equal(format.value, "docx");
+    assert.ok(scope, "bouton de portée présent");
+    assert.ok(content, "bouton de contenu présent");
+    assert.ok(format, "bouton de format présent");
+    assert.equal(bar.querySelectorAll("select").length, 0, "aucun select dans la quickbar");
+    assert.equal(bar.querySelector(".feuillets-edition-quickexport-derivation-indicator"), null, "aucun indicateur si document complet");
+    assert.equal(format.getAttribute("aria-label"), "Format : DOCX");
+    assert.equal(scope.getAttribute("aria-label"), "Portée : Projet");
+    assert.equal(content.getAttribute("aria-label"), "Contenu : Tout le document");
     assert.ok(bar.querySelectorAll("button").some((el) => el.textContent === t("project.compilation.exportBtn")));
     assert.equal(bar.querySelector('[aria-label="Nom du fichier exporté"]'), null, "pas de champ nom de fichier (§1)");
     assert.equal(bar.querySelectorAll("span").filter((el) => el.textContent === t("preview.export.scope")).length, 0, "aucune étiquette « Portée »");
 
-    format.value = "epub";
-    format.dispatch("change");
+    format.click();
+    const epub = Menu.lastShown.items.find((item) => item.title === "EPUB");
+    epub.callback();
+    Menu.lastShown.hide();
     assert.equal(plugin.settings.exportFormat, "epub");
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : les trois menus restaurent le focus sur leur bouton sans rerender", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, settings } = buildFixture();
+    await writeDerivationStores(app, settings,
+      [{ id: "questions", name: "Questions", triggerRoles: ["questions"] }],
+      [{ id: "sources", name: "Sources", roles: ["source"] }]);
+    const bar = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, bar);
+    panel.renderQuickBar(bar);
+    const scope = bar.querySelector(".feuillets-edition-quickexport-scope");
+    const content = bar.querySelector(".feuillets-edition-quickexport-content");
+    const format = bar.querySelector(".feuillets-edition-quickexport-format");
+
+    scope.focus();
+    scope.click();
+    const scopeMenu = Menu.lastShown;
+    scopeMenu.items.find((item) => item.title === "Projet").callback();
+    scopeMenu.hide();
+    assert.equal(FakeElement.activeElement, scope);
+
+    await panel.showQuickContentMenu({ type: "click" }, content);
+    const cancelledContentMenu = Menu.lastShown;
+    cancelledContentMenu.hide();
+    assert.equal(FakeElement.activeElement, content);
+    assert.deepEqual(currentExportDerivation(plugin), { kind: "full" }, "fermer le menu ne change pas la dérivation");
+    await panel.showQuickContentMenu({ type: "click" }, content);
+    const contentMenu = Menu.lastShown;
+    contentMenu.items.find((item) => item.title === "Sources").callback();
+    contentMenu.hide();
+    assert.equal(FakeElement.activeElement, content);
+    assert.deepEqual(currentExportDerivation(plugin), { kind: "collection", id: "sources" });
+
+    format.focus();
+    format.click();
+    const formatMenu = Menu.lastShown;
+    formatMenu.items.find((item) => item.title === "PDF").callback();
+    formatMenu.hide();
+    assert.equal(FakeElement.activeElement, format);
+    assert.equal(plugin.settings.exportFormat, "pdf");
+    assert.equal(bar.querySelector(".feuillets-edition-quickexport-scope"), scope, "la quickbar n’a pas été reconstruite");
+    assert.ok(bar.querySelector(".feuillets-edition-quickexport-cta"), "Exporter reste présent");
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : une collection active utilise un indicateur compact, sans select de dérivation", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, settings } = buildFixture();
+    await writeDerivationStores(app, settings, [], [{ id: "sources", name: "Sources longues", roles: ["source"] }]);
+    rememberExportDerivation(plugin, { kind: "collection", id: "sources" });
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(bar.querySelectorAll("select").length, 0);
+    const content = bar.querySelector(".feuillets-edition-quickexport-content");
+    assert.ok(content);
+    assert.equal(content.getAttribute("title"), "Collection : Sources longues");
   } finally {
     restore();
   }

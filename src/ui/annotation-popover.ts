@@ -71,6 +71,8 @@ export interface AnnotationPopoverOptions {
   text: string;
   color: AnnotationPopoverColor;
   style?: AnnotationPopoverStyle;
+  presentationNote?: boolean;
+  showPresentationNote?: boolean;
   /** Les notes de travail utilisent exactement la même carte, sans palette. */
   showColors?: boolean;
   showStyles?: boolean;
@@ -78,7 +80,7 @@ export interface AnnotationPopoverOptions {
   /** Symétrique de `onStyleChange` : la décoration du passage doit refléter
    * la couleur immédiatement, pas seulement à la fermeture. */
   onColorChange?: (color: AnnotationPopoverColor) => void | Promise<void>;
-  onSave: (text: string, color: AnnotationPopoverColor, style: AnnotationPopoverStyle) => void | Promise<void>;
+  onSave: (text: string, color: AnnotationPopoverColor, style: AnnotationPopoverStyle, presentationNote: boolean) => void | Promise<void>;
   /** Absent en création (rien à supprimer) — présent en modification, ce
    * qui décide seul si l'action « Supprimer » est affichée. */
   onDelete?: () => void | Promise<void>;
@@ -113,12 +115,14 @@ export class AnnotationPopover {
   private text: string;
   private color: AnnotationPopoverColor;
   private style: AnnotationPopoverStyle;
+  private presentationNote: boolean;
   private readonly onSave: AnnotationPopoverOptions["onSave"];
   private readonly onDelete?: AnnotationPopoverOptions["onDelete"];
   private readonly parentEl: PopoverElement;
   private readonly anchor: AnnotationPopoverOptions["anchor"];
   private readonly showColors: boolean;
   private readonly showStyles: boolean;
+  private readonly showPresentationNote: boolean;
   private readonly onStyleChange?: AnnotationPopoverOptions["onStyleChange"];
   private readonly onColorChange?: AnnotationPopoverOptions["onColorChange"];
   private readonly cancelOnEscape: boolean;
@@ -138,12 +142,14 @@ export class AnnotationPopover {
     this.text = options.text;
     this.color = options.color;
     this.style = options.style ?? "highlight";
+    this.presentationNote = options.presentationNote ?? false;
     this.onSave = options.onSave;
     this.onDelete = options.onDelete;
     this.parentEl = options.parentEl;
     this.anchor = options.anchor;
     this.showColors = options.showColors ?? true;
     this.showStyles = options.showStyles ?? true;
+    this.showPresentationNote = options.showPresentationNote ?? false;
     this.onStyleChange = options.onStyleChange;
     this.onColorChange = options.onColorChange;
     this.cancelOnEscape = options.cancelOnEscape ?? false;
@@ -162,6 +168,14 @@ export class AnnotationPopover {
     textarea.addEventListener("input", () => {
       this.text = textarea.value ?? "";
     });
+
+    if (this.showPresentationNote) {
+      const row = el.createDiv({ cls: "feuillets-annotation-popover-presentation-note" });
+      const checkbox = row.createEl("input", { attr: { type: "checkbox", id: "feuillets-presentation-note" } }) as PopoverElement & { checked: boolean };
+      checkbox.checked = this.presentationNote;
+      checkbox.addEventListener("change", () => { this.presentationNote = checkbox.checked; });
+      row.createEl("label", { text: t("annotation.popover.presentationNote"), attr: { for: "feuillets-presentation-note" } });
+    }
 
     const footer = (this.showStyles || this.showColors || this.onDelete) ? el.createDiv({ cls: "feuillets-annotation-popover-footer" }) : null;
     if (this.showStyles) {
@@ -254,7 +268,7 @@ export class AnnotationPopover {
    * `cancelOnEscape`). Jamais appelé après Supprimer (voir `cancel()`). */
   close(): void {
     if (!this.teardown()) return;
-    void this.onSave(this.text, this.color, this.style);
+    void this.onSave(this.text, this.color, this.style, this.presentationNote);
   }
 
   /** Ferme SANS jamais sauvegarder — Escape en création (aucune annotation

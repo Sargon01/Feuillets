@@ -7,6 +7,7 @@ Cette page indexe la documentation correspondant à **Feuillets 2.6**.
 ## Pour découvrir
 
 - **[Découvrir Feuillets](DECOUVRIR.md)** · [English](DISCOVER.md)
+- **[Tutoriel — publier plusieurs documents depuis une seule source](TUTORIEL-PUBLICATION-SEMANTIQUE.md)** · [English](SEMANTIC-PUBLISHING-TUTORIAL.md)
 - **[Le parcours d’un auteur](PARCOURS-AUTEUR.md)** · [English](AUTHOR-WORKFLOW.md)
 - **[Fonctionnalités par usage](FONCTIONNALITES.md)** · [English](FEATURES.md)
 - **[Philosophie](PHILOSOPHIE.md)** · [English](PHILOSOPHY.md)
@@ -30,12 +31,15 @@ Cette page indexe la documentation correspondant à **Feuillets 2.6**.
 
 Dans l’interface 2.6, **Relecture** est le point d’entrée pour l’analyse de texte, la relecture collaborative, Révision DOCX et la comparaison avec un instantané.
 
-## Composition et export
+## Composition, publication et présentation
 
 - **[Composition et export](COMPOSITION-ET-EXPORT.md)** · [English](COMPOSITION-AND-EXPORT.md)
+- **[Rôles sémantiques](ROLES-SEMANTIQUES.md)** · [English](SEMANTIC-ROLES.md)
+- **[Variantes, extractions et collections](VARIANTES-EXTRACTIONS-COLLECTIONS.md)** · [English](CONTENT-VARIANTS-EXTRACTIONS-COLLECTIONS.md)
+- **[Présentation](PRESENTATION.md)** · [English](PRESENTATION-EN.md)
 - **[Importer un projet Scrivener](IMPORT-SCRIVENER.md)** · [English](IMPORT-SCRIVENER-EN.md)
 
-L’espace central **Édition** contient **Composition** et **Mise en page**. L’export est une action de la barre d’Édition, pas un troisième onglet.
+L’espace central **Édition** contient **Composition** et **Mise en page**. La publication peut rester un export classique ou utiliser des rôles facultatifs pour produire variantes, extractions et collections. La Présentation réutilise le même Markdown dans un rendu 16:9.
 
 ## Comparer ou migrer depuis un autre outil
 

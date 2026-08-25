@@ -3595,6 +3595,13 @@ body.feuillets-text-width
   color: var(--text-normal);
 }
 
+.feuillets-annotation-popover-presentation-note {
+  display: flex;
+  gap: 0.5em;
+  align-items: center;
+  margin-top: 0.75em;
+}
+
 /* ===== annotations : page centralisée (NotesView, lot 4) =====
    Une ligne par annotation, même cellule que les autres listes plates du
    panneau Feuillet (.feuillets-flat-text-cell — Notes de bas de page,
@@ -8522,6 +8529,202 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   white-space: nowrap;
 }
 
+/* UI 5A — dérivations de contenu : une barre compacte, des listes lisibles
+ * et une grammaire commune aux trois modales. */
+.feuillets-edition-quickexport-derivation-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 26px;
+  color: var(--text-muted);
+}
+.feuillets-edition-quickexport-derivation-indicator svg {
+  width: 15px;
+  height: 15px;
+}
+.feuillets-edition-quickexport-cta {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.feuillets-edition-quickexport-scope,
+.feuillets-edition-quickexport-content,
+.feuillets-edition-quickexport-format {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+}
+.feuillets-content-entry-list {
+  display: grid;
+  gap: var(--size-4-1);
+  margin: var(--size-4-2) 0;
+}
+.feuillets-edition-composition-container .feuillets-content-entry {
+  align-items: flex-start;
+  padding: var(--size-4-2);
+  gap: var(--size-4-2);
+}
+.feuillets-content-entry-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.feuillets-content-entry-name {
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+  overflow-wrap: anywhere;
+}
+.feuillets-content-entry-summary {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.feuillets-content-entry-state {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+}
+.feuillets-content-entry.is-active .feuillets-content-entry-state {
+  color: var(--text-on-accent);
+}
+.feuillets-content-item {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: var(--size-4-2);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-secondary);
+}
+.feuillets-content-item-main,
+.feuillets-content-item .feuillets-content-entry-main {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+.feuillets-content-item-name {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+}
+.feuillets-content-item-summary {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feuillets-content-item-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--size-4-1);
+  width: 100%;
+  margin-top: var(--size-4-2);
+}
+.feuillets-content-item-actions button {
+  padding: 2px var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+}
+.feuillets-content-item-selected {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, var(--background-secondary));
+}
+.feuillets-content-item .feuillets-content-entry-state {
+  display: inline-block;
+  margin-top: var(--size-4-1);
+  color: var(--interactive-accent);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold, 600);
+}
+.feuillets-content-empty-state {
+  margin: var(--size-4-3) 0;
+  padding: var(--size-4-3);
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--radius-m);
+}
+.feuillets-content-empty-title {
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+}
+.feuillets-content-empty-description {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  margin-top: var(--size-4-1);
+}
+.feuillets-content-derivation-modal {
+  width: min(100%, 45rem);
+  max-height: none;
+  overflow: visible;
+  padding: var(--size-4-3);
+}
+.feuillets-content-derivation-modal h3 {
+  margin-top: 0;
+  margin-bottom: var(--size-4-2);
+}
+.feuillets-content-derivation-modal h4 {
+  margin-top: var(--size-4-3);
+  margin-bottom: var(--size-4-1);
+}
+.feuillets-content-modal-field-label {
+  display: grid;
+  gap: var(--size-4-1);
+  color: var(--text-muted);
+}
+.feuillets-content-modal-role-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.feuillets-content-modal-role {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-width: 0;
+  min-height: 2.35rem;
+  padding: 6px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+.feuillets-content-modal-role:has(input:checked) {
+  border-color: var(--interactive-accent);
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+}
+.feuillets-content-modal-role-summary {
+  margin-top: var(--size-4-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+.feuillets-content-derivation-modal .feuillets-modal-buttons {
+  margin: var(--size-4-3) calc(var(--size-4-3) * -1) calc(var(--size-4-3) * -1);
+  padding: var(--size-4-2) var(--size-4-3);
+  border-top: 1px solid var(--background-modifier-border);
+  gap: var(--size-4-2);
+}
+@media (max-width: 720px) {
+  .feuillets-content-modal-role-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .feuillets-layout-workspace .feuillets-edition-mode-item {
   min-width: 0;
   padding: 4px var(--size-4-2);
@@ -10188,3 +10391,118 @@ body.feuillets-text-width
 .feuillets-editor-page-break { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--text-muted); font-size: 0.85em; }
 .feuillets-editor-page-break-line { flex: 1; height: 1px; background: var(--background-modifier-border); }
 .feuillets-editor-page-break-label { white-space: nowrap; }
+
+/* ===== Modale « Exporter en PDF » de la Présentation =====
+   Trois rubriques (Présentation / Support / Plan), chacune avec une grille
+   de cartes cliquables. Même langage visuel que .feuillets-content-modal-role
+   (ui/content-variant-modal.ts) : bordure discrète, accent au survol, jetons
+   de thème Obsidian uniquement — aucune couleur en dur.
+
+   Les cartes sont des div[role=button] : les <button> d'une modale Obsidian
+   reçoivent une hauteur fixe et un white-space: nowrap qui faisaient sortir
+   le texte de sa boîte. Tout est donc explicitement remis à plat ici. */
+.feuillets-presentation-export-modal {
+  width: min(100%, 44rem);
+  max-width: 94vw;
+}
+.feuillets-presentation-export-modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-5);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-top: var(--size-4-2);
+}
+.feuillets-presentation-export-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+.feuillets-presentation-export-group + .feuillets-presentation-export-group {
+  padding-top: var(--size-4-4);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.feuillets-presentation-export-group-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+.feuillets-presentation-export-group-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.feuillets-presentation-export-group-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+.feuillets-presentation-export-group-heading {
+  min-width: 0;
+}
+.feuillets-presentation-export-group-title {
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.feuillets-presentation-export-group-desc {
+  margin-top: 1px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+}
+.feuillets-presentation-export-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+.feuillets-presentation-export-option {
+  display: block;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.feuillets-presentation-export-option:hover,
+.feuillets-presentation-export-option:focus-visible {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  box-shadow: none;
+}
+.feuillets-presentation-export-option:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+.feuillets-presentation-export-option-label {
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.feuillets-presentation-export-option-hint {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+  white-space: normal;
+}
