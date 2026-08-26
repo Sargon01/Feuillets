@@ -1,4 +1,3 @@
-// eslint-disable-next-line import/no-extraneous-dependencies -- @codemirror/state fourni par Obsidian a l'execution
 import { StateField, StateEffect } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import type { TextAnalysisIssue } from "../api/text-analysis.js";

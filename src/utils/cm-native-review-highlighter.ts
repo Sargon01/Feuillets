@@ -1,7 +1,5 @@
-/* eslint-disable import/no-extraneous-dependencies -- CodeMirror est fourni par Obsidian */
 import { StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
-/* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 
 /* Seules les notes sont décorées dans l'éditeur : les changements proposés se
  * traitent dans la comparaison côte à côte, jamais en surimpression du texte. */

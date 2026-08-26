@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- require paresseux volontaire : path, et la fonction n'a de sens que cote desktop */
 /* global require -- défini par environnement */
 import { Platform } from "obsidian";
 
@@ -44,8 +43,7 @@ export function pluginAbsoluteDir(app: unknown, manifest: unknown): string {
     throw new Error("Le chemin du plugin est disponible uniquement sur ordinateur.");
   }
   const basePath = desktopBasePath(app);
-  const path = require("path") as PathModule;
+  const nodeRequire: (id: string) => unknown = require;
+  const path = nodeRequire("path") as PathModule;
   return path.join(basePath, pluginDirectory(manifest));
 }
-
-/* eslint-enable @typescript-eslint/no-require-imports -- fin du bloc require paresseux */

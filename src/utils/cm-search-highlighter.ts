@@ -1,10 +1,5 @@
-/* Voir l'explication détaillée en tête de cm-grammar-highlighter.js :
-   @codemirror/* est fourni par Obsidian à l'exécution, marqué `external`
-   dans esbuild, et délibérément absent de package.json depuis 72d9303. */
-/* eslint-disable import/no-extraneous-dependencies -- @codemirror/* est fourni par Obsidian a l'execution, marque external dans esbuild, jamais installe (voir 72d9303) */
 import { StateField, StateEffect } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
-/* eslint-enable import/no-extraneous-dependencies -- fin de la zone d'imports fournis par l'hote */
 
 interface DecorationSet {
   map(changes: unknown): DecorationSet;

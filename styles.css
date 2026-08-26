@@ -8701,7 +8701,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   border-radius: var(--radius-s);
   cursor: pointer;
 }
-.feuillets-content-modal-role:has(input:checked) {
+.feuillets-content-modal-role.is-selected {
   border-color: var(--interactive-accent);
   background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
 }

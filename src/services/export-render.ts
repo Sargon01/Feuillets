@@ -424,8 +424,7 @@ function extractFootnotes(container: HTMLElement): RenderedFootnote[] {
          contenu d'une note (ex. "note 1" -> "note"), un bug distinct de la
          présence du lien lui-même. */
       text = text
-        // eslint-disable-next-line no-misleading-character-class -- voulu : on cible ↩ avec ses variantes de presentation U+FE0E/U+FE0F
-        .replace(/[\u21A9\uFE0E\uFE0F]/g, "")
+        .replace(/(?:\u21A9|\uFE0E|\uFE0F)/g, "")
         .replace(/[\s/\\]+$/, "")
         .trim();
 

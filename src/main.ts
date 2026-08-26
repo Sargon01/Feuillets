@@ -263,6 +263,13 @@ type LeafWithPinned = WorkspaceLeaf & { pinned?: boolean };
  * patchTabTitles / refreshTabHeaderFor / refreshAllTabHeaders). */
 type LeafWithHeaderUpdate = WorkspaceLeaf & { updateHeader?: () => void };
 
+type MarkdownDisplayTextMethod = (this: MarkdownView) => string;
+
+function markdownDisplayTextMethod(): MarkdownDisplayTextMethod {
+  const prototype: { getDisplayText: MarkdownDisplayTextMethod } = MarkdownView.prototype;
+  return prototype.getDisplayText;
+}
+
 /** `setSize` : API interne non déclarée dans obsidian.d.ts (voir
  * safeSetSize/adjustSidebarWidth). */
 type SplitWithSetSize = (WorkspaceSidedock | WorkspaceMobileDrawer) & {
@@ -2304,12 +2311,7 @@ class FeuilletsPlugin extends Plugin {
   }
 
   patchTabTitles() {
-    /* Alias de `this` indispensable ici : le patch ci-dessous est une
-       `function` classique posée sur MarkdownView.prototype, dont le `this`
-       est la vue, pas le plugin. Une flèche capturerait le bon `plugin` mais
-       perdrait l'accès à `this.file` de la vue — donc alias, pas flèche. */
-    // eslint-disable-next-line @typescript-eslint/no-this-alias -- le patch est une `function` posee sur le prototype : son `this` est la vue, pas le plugin
-    const plugin = this;
+    const getPlugin = (): FeuilletsPlugin => this;
     /* Garde contre un double appel : sans elle, le second capturerait NOTRE
        patch comme « original », et l'appel de repli en fin de fonction
        bouclerait indéfiniment. */
@@ -2322,8 +2324,7 @@ class FeuilletsPlugin extends Plugin {
        n'écrit pas cette fonction, on récupère celle du prototype) ni bind()
        (il n'y a pas encore d'instance de vue précise à laquelle s'attacher
        ici) ne s'appliquent sans changer le comportement. */
-    // eslint-disable-next-line @typescript-eslint/unbound-method -- volontaire, voir commentaire ci-dessus : appelée uniquement via .call(this)
-    this._originalGetDisplayText = MarkdownView.prototype.getDisplayText;
+    this._originalGetDisplayText = markdownDisplayTextMethod();
     this._patchedGetDisplayText = function (this: MarkdownView): string {
       try {
         if (this.file) {
@@ -2331,11 +2332,11 @@ class FeuilletsPlugin extends Plugin {
           if (comparisonTitle) return comparisonTitle;
           const reviewTitle = nativeReviewWorkingTitles.get(this.file.path);
           if (reviewTitle) return reviewTitle;
-          const fm = plugin.fmOf(this.file);
+          const fm = getPlugin().fmOf(this.file);
           const raw = fm && fm.short_title;
           const short = raw ? String(raw).trim() : "";
           if (short) {
-            const versionLabel = plugin.versionLabelForFile(this.file);
+            const versionLabel = getPlugin().versionLabelForFile(this.file);
             return versionLabel ? `${versionLabel}-${short}` : short;
           }
         }
@@ -2345,8 +2346,7 @@ class FeuilletsPlugin extends Plugin {
            inonderait la console, et le repli ci-dessous est déjà le
            comportement correct (titre Obsidian par défaut). */
       }
-      // eslint-disable-next-line @typescript-eslint/unbound-method -- même repli volontaire que ci-dessus : getDisplayText() utilise `this`, appelée uniquement via .call(this) plus bas
-      const fallback: (this: MarkdownView) => string = plugin._originalGetDisplayText ?? MarkdownView.prototype.getDisplayText;
+      const fallback: MarkdownDisplayTextMethod = getPlugin()._originalGetDisplayText ?? markdownDisplayTextMethod();
       const displayText: unknown = fallback.call(this);
       return typeof displayText === "string" ? displayText : "";
     };

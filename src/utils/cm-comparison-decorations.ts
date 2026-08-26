@@ -1,8 +1,6 @@
-/* eslint-disable import/no-extraneous-dependencies -- CodeMirror est fourni par Obsidian */
 import { EditorState, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import { editorInfoField } from "obsidian";
-/* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 import type { ComparisonDecoration } from "../services/comparison-plan.js";
 import { t } from "../i18n/index.js";
 

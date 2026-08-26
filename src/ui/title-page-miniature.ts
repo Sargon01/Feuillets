@@ -192,13 +192,12 @@ export class TitlePageMiniature {
        ignore de toute façon la valeur de retour d'un listener. */
     const onUp = async (): Promise<void> => {
       document.removeEventListener("pointermove", onMove);
-      // eslint-disable-next-line @typescript-eslint/no-misused-promises -- onUp doit rester la même référence (async) pour pointerup ; voir commentaire ci-dessus
-      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointerup", onUpListener);
       await this.editor.saveModel();
     };
+    const onUpListener = onUp as EventListener;
     document.addEventListener("pointermove", onMove);
-    // eslint-disable-next-line @typescript-eslint/no-misused-promises -- écouteur async assumé : le test attend sa promesse réelle (voir commentaire ci-dessus)
-    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointerup", onUpListener);
   }
 
   /** Sélection déclenchée DEPUIS la maquette. L'état vit toujours dans

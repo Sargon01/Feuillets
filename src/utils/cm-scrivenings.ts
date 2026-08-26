@@ -1,8 +1,6 @@
-/* eslint-disable import/no-extraneous-dependencies -- CodeMirror est fourni par Obsidian */
 import { EditorState, Prec, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, keymap } from "@codemirror/view";
 import { history, historyKeymap, redo, undo } from "@codemirror/commands";
-/* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 import type { TFile } from "obsidian";
 import { boundaryOffsets, type ScriveningsDocument } from "../services/scrivenings-document.js";
 import { emptyLinesPlugin } from "./cm-empty-lines.js";

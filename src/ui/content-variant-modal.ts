@@ -54,7 +54,11 @@ export class ContentVariantModal extends Modal {
       const label = roleGrid.createEl("label", { cls: "feuillets-content-modal-role feuillets-content-variant-role" });
       const input = label.createEl("input", { type: "checkbox" });
       input.checked = !excluded.has(role);
-      input.addEventListener("change", updateRoleSummary);
+      label.classList.toggle("is-selected", input.checked);
+      input.addEventListener("change", () => {
+        label.classList.toggle("is-selected", input.checked);
+        updateRoleSummary();
+      });
       roleInputs.set(role, input);
       label.createSpan({ text: t(`contentVariants.roles.${role}`) });
     }

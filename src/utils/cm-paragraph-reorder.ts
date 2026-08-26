@@ -1,7 +1,5 @@
-/* eslint-disable import/no-extraneous-dependencies -- CodeMirror est fourni par Obsidian */
 import { StateEffect, StateField } from "@codemirror/state";
 import { ViewPlugin } from "@codemirror/view";
-/* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 import { splitFrontmatter } from "../services/frontmatter.js";
 import { resolveMarkdownBlocks, planParagraphMove, type MarkdownBlock } from "./paragraph-reorder-core.js";
 import { planTextFragmentMove } from "./text-fragment-reorder-core.js";

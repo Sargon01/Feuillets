@@ -1,7 +1,5 @@
-/* eslint-disable import/no-extraneous-dependencies -- CodeMirror est fourni par Obsidian */
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-/* eslint-enable import/no-extraneous-dependencies -- fin des imports fournis par Obsidian */
 import { ItemView, MarkdownView, Notice, TFile, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_SCRIVENINGS } from "../constants.js";
 import { resolveCompileScopeFiles, createSelectionScope, createFileScope, type CompileScope } from "../services/compile-scope.js";
@@ -1249,4 +1247,3 @@ export async function openScopeInContinuOnLeaf(app: App, leaf: WorkspaceLeaf, sc
   void app.workspace.revealLeaf(leaf);
   return true;
 }
-
