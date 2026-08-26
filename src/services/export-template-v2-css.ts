@@ -12,6 +12,7 @@ export function templateV2ToEpubCss(template: ExportTemplateV2): string {
       cssDeclaration("text-align", heading.align),
       cssDeclaration("font-weight", heading.bold === undefined ? undefined : heading.bold ? "bold" : "normal"),
       cssDeclaration("font-style", heading.italic ? "italic" : undefined),
+      cssDeclaration("color", heading.colorHex),
       cssDeclaration("margin-top", heading.marginTopPt != null ? `${heading.marginTopPt}pt` : undefined),
       cssDeclaration("margin-bottom", heading.marginBottomPt != null ? `${heading.marginBottomPt}pt` : undefined),
       cssDeclaration("break-before", heading.pageBreakBefore ? "page" : undefined),

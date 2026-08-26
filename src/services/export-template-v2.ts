@@ -192,7 +192,7 @@ export function normalizeLegacyTemplate(
       align: normalizedAlign(tpl.align),
       firstLineIndentPt: tpl.indent ? (tpl.indentPt ?? fontSizePt * 1.5) : 0,
       paragraphSpacingBeforePt: tpl.paragraphSpacingPt ?? 0,
-      paragraphSpacingAfterPt: tpl.paragraphSpacing ? fontSizePt : 0,
+      paragraphSpacingAfterPt: tpl.paragraphSpacingAfterPt ?? (tpl.paragraphSpacing ? fontSizePt : 0),
       hyphenation: !!tpl.hyphenation,
       ...(tpl.colorHex ? { colorHex: tpl.colorHex } : {}),
     },

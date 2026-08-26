@@ -164,6 +164,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     indentPt: template.body.firstLineIndentPt || undefined,
     paragraphSpacing: template.body.paragraphSpacingAfterPt > 0,
     paragraphSpacingPt: template.body.paragraphSpacingBeforePt || undefined,
+    paragraphSpacingAfterPt: template.body.paragraphSpacingAfterPt || undefined,
     hyphenation: template.body.hyphenation,
     profile: template.profile,
     headings: template.headings,
@@ -388,7 +389,13 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     const h = headings[level];
     if (!h) continue;
     headingStyles[styleKey] = {
-      run: { size: h.fontSizePt ? `${h.fontSizePt}pt` : undefined, bold: h.bold, italics: h.italic, font: headingFontFamily },
+      run: {
+        size: h.fontSizePt ? `${h.fontSizePt}pt` : undefined,
+        bold: h.bold,
+        italics: h.italic,
+        font: headingFontFamily,
+        ...(h.colorHex ? { color: h.colorHex.replace(/^#/, "") } : {}),
+      },
       paragraph: {
         alignment: h.align ? alignmentFor({ align: h.align }) : undefined,
         spacing: {

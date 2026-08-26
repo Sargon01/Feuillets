@@ -113,6 +113,7 @@ function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" |
     indentPt: tpl.body.firstLineIndentPt || undefined,
     paragraphSpacing: tpl.body.paragraphSpacingAfterPt > 0,
     paragraphSpacingPt: tpl.body.paragraphSpacingBeforePt || undefined,
+    paragraphSpacingAfterPt: tpl.body.paragraphSpacingAfterPt || undefined,
     hyphenation: tpl.body.hyphenation,
     colorHex: tpl.body.colorHex,
     marginsCm: { ...tpl.page.marginsCm },

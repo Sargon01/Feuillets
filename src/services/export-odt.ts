@@ -34,9 +34,10 @@ function headingStyleXml(name: string, h: HeadingStyle | undefined, fallbackPt: 
   if (h?.pageBreakBefore) props.push('fo:break-before="page"');
   if (h?.marginTopPt != null) props.push(`fo:margin-top="${h.marginTopPt}pt"`);
   if (h?.marginBottomPt != null) props.push(`fo:margin-bottom="${h.marginBottomPt}pt"`);
+  const color = h?.colorHex ? ` fo:color="${h.colorHex}"` : "";
   return `<style:style style:name="${name}" style:family="paragraph">
       <style:paragraph-properties ${props.join(" ")}/>
-      <style:text-properties fo:font-size="${fontSizePt}pt" fo:font-weight="${bold ? "bold" : "normal"}" fo:font-style="${h?.italic ? "italic" : "normal"}"/>
+      <style:text-properties fo:font-size="${fontSizePt}pt" fo:font-weight="${bold ? "bold" : "normal"}" fo:font-style="${h?.italic ? "italic" : "normal"}"${color}/>
     </style:style>`;
 }
 

@@ -289,6 +289,7 @@ declare type ExportTemplate = {
    *  `paragraphSpacingPt` = espacement explicite AVANT, en points. */
   paragraphSpacing?: boolean;
   paragraphSpacingPt?: number;
+  paragraphSpacingAfterPt?: number;
   hyphenation?: boolean;
   blockquote?: { italic?: boolean; colorHex?: string; fontFamily?: string; fontSizePt?: number; lineHeight?: number; align?: TemplateAlign; firstLineIndentPt?: number; marginTopPt?: number; marginBottomPt?: number; marginLeftPt?: number; marginRightPt?: number };
   /** Couleur du corps de texte — projection de `ExportTemplateV2.body.colorHex`

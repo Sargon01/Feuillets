@@ -314,10 +314,13 @@ export function blockToParagraphs(
           : undefined,
         spacing: frontOverride
           ? frontSpacing(frontOverride)
+          : tpl.paragraphSpacingPt != null || tpl.paragraphSpacingAfterPt != null
+          ? {
+            before: tpl.paragraphSpacingPt != null ? tpl.paragraphSpacingPt * 20 : undefined,
+            after: tpl.paragraphSpacingAfterPt != null ? tpl.paragraphSpacingAfterPt * 20 : undefined,
+          }
           : tpl.paragraphSpacing
           ? { after: 200 }
-          : tpl.paragraphSpacingPt
-          ? { before: tpl.paragraphSpacingPt * 20 }
           : undefined,
         children: inlineChildren(
           el,

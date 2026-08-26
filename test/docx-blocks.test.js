@@ -22,6 +22,29 @@ const p = (children) => el("P", { childNodes: children, children });
 
 const TPL = { key: "classique", label: "Classique", align: "justify", indent: true };
 const noFootnotes = new Map();
+const paragraphSpacingJson = (options = {}) => JSON.stringify(blockToParagraphs(
+  p([texte("Texte")]),
+  noFootnotes,
+  { key: "document", label: "Document", align: "left", indent: false, ...options },
+));
+
+test("blockToParagraphs : paragraphSpacingAfterPt 6 devient after 120", () => {
+  assert.match(paragraphSpacingJson({ paragraphSpacingAfterPt: 6 }), /"key":"w:after","value":120/);
+});
+
+test("blockToParagraphs : before et after explicites sont tous deux conservés", () => {
+  const json = paragraphSpacingJson({ paragraphSpacingPt: 8, paragraphSpacingAfterPt: 6 });
+  assert.match(json, /"key":"w:before","value":160/);
+  assert.match(json, /"key":"w:after","value":120/);
+});
+
+test("blockToParagraphs : paragraphSpacing legacy conserve after 200", () => {
+  assert.match(paragraphSpacingJson({ paragraphSpacing: true }), /"key":"w:after","value":200/);
+});
+
+test("blockToParagraphs : sans espacement ne pose aucune spacing", () => {
+  assert.doesNotMatch(paragraphSpacingJson(), /w:before|w:after/);
+});
 
 /* `docx` construit un arbre { rootKey, root: [...] } sérialisé ensuite en XML
    OOXML : le texte d'un run vit sous `w:t`, le gras sous `w:b`. On lit cette
