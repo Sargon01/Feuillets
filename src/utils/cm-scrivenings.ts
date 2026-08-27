@@ -67,6 +67,7 @@ type ViewStatic = {
   updateListener?: { of(fn: (update: ViewUpdateLike) => void): unknown };
   lineWrapping?: unknown;
   keymap?: KeymapFacet;
+  domEventHandlers?: (handlers: { keydown(event: KeyboardEvent): boolean }) => unknown;
 };
 type PrecStatic = { highest(extension: unknown): unknown };
 type ChangesLike = {
@@ -334,6 +335,94 @@ export const scriveningsPriorityKeymap =
         ])
       )
     : [];
+
+type ScriveningsEnterView = {
+  state: {
+    doc: { toString(): string };
+    selection: { main: { empty: boolean; head: number } };
+  };
+  dispatch(spec: { changes: { from: number; to?: number; insert: string }; selection: { anchor: number } }): void;
+};
+
+type PendingParagraphBreak = {
+  view: ScriveningsEnterView;
+  position: number;
+  document: { toString(): string };
+};
+
+function isExcludedFromScriveningsParagraphBreak(text: string, position: number): boolean {
+  const lineStart = text.lastIndexOf("\n", position - 1) + 1;
+  const lineEnd = text.indexOf("\n", position);
+  const line = text.slice(lineStart, lineEnd === -1 ? text.length : lineEnd);
+  const structuralLine = /^(\s*([-*+]|\d+\.)\s|#{1,6}\s|>|```|---)/;
+  const tableLine = /^\s*\|.*\|\s*$|^\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+$|.*\|.*/;
+  if (structuralLine.test(line) || tableLine.test(line)) return true;
+
+  const frontmatter = /^---\n[\s\S]*?\n---(?:\n|$)/.exec(text);
+  if (frontmatter && position < frontmatter[0].length) return true;
+
+  const precedingLines = text.slice(0, lineStart).match(/^\s*```/gm) ?? [];
+  return precedingLines.length % 2 === 1;
+}
+
+/** Typographie Entrée propre au seul EditorView de Continu. Les transactions
+ * passent donc par le listener Scrivenings normal, sans modifier directement
+ * un MarkdownView ni un fichier source. */
+export function createScriveningsEnterTypographyExtension(
+  settings: Pick<FeuilletsSettings, "liveTwoEnters" | "liveDoubleEnter">
+): unknown[] {
+  let pending: PendingParagraphBreak | undefined;
+
+  const runEnter = (view: ScriveningsEnterView): boolean => {
+    const selection = view.state.selection.main;
+    if (!selection.empty) {
+      pending = undefined;
+      return false;
+    }
+
+    const cursor = selection.head;
+    const currentPending = pending;
+    pending = undefined;
+    if (
+      currentPending &&
+      settings.liveDoubleEnter &&
+      currentPending.view === view &&
+      currentPending.position === cursor &&
+      currentPending.document === view.state.doc
+    ) {
+      view.dispatch({
+        changes: { from: cursor - 1, to: cursor, insert: "\u00A0\n\n" },
+        selection: { anchor: cursor + 2 },
+      });
+      return true;
+    }
+
+    if (!settings.liveTwoEnters || isExcludedFromScriveningsParagraphBreak(view.state.doc.toString(), cursor)) return false;
+
+    view.dispatch({
+      changes: { from: cursor, insert: "\n\n" },
+      selection: { anchor: cursor + 2 },
+    });
+    if (settings.liveDoubleEnter) {
+      pending = { view, position: cursor + 2, document: view.state.doc };
+    }
+    return true;
+  };
+
+  const enterKeymap =
+    typeof KeymapTyped?.of === "function" && typeof PrecTyped?.highest === "function"
+      ? PrecTyped.highest(KeymapTyped.of([{ key: "Enter", run: runEnter }]))
+      : [];
+  const pendingReset = typeof EditorViewTyped.domEventHandlers === "function"
+    ? EditorViewTyped.domEventHandlers({
+        keydown(event) {
+          if (event.key !== "Enter") pending = undefined;
+          return false;
+        },
+      })
+    : [];
+  return [enterKeymap, pendingReset];
+}
 
 /** Pose (ou remplace intégralement) les titres ET les frontières affichées
  * par cette vue, en une seule transaction — jamais un ajout incrémental :

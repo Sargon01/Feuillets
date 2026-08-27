@@ -20,6 +20,7 @@ import {
   scriveningsHistoryKeymap,
   scriveningsPriorityKeymap,
   scriveningsExtensions,
+  createScriveningsEnterTypographyExtension,
 } from "../src/utils/cm-scrivenings.js";
 import { buildScriveningsDocument, boundaryOffsets } from "../src/services/scrivenings-document.js";
 import { emptyLinesPlugin } from "../src/utils/cm-empty-lines.js";
@@ -29,6 +30,35 @@ import { TFile } from "obsidian";
 function docFrom(pairs) {
   const entries = pairs.map(([path, content]) => ({ file: new TFile(path), content }));
   return buildScriveningsDocument(entries);
+}
+
+function makeContinuEditor(text, cursor) {
+  const view = {
+    text,
+    cursor,
+    dispatches: [],
+    state: null,
+    dispatch(spec) {
+      const to = spec.changes.to ?? spec.changes.from;
+      this.text = `${this.text.slice(0, spec.changes.from)}${spec.changes.insert}${this.text.slice(to)}`;
+      this.cursor = spec.selection.anchor;
+      this.dispatches.push(spec);
+      this.state = this.createState();
+    },
+    createState() {
+      return {
+        doc: { toString: () => this.text },
+        selection: { main: { empty: true, head: this.cursor } },
+      };
+    },
+  };
+  view.state = view.createState();
+  return view;
+}
+
+function continuEnterBinding(settings) {
+  const [keymapExtension] = createScriveningsEnterTypographyExtension(settings);
+  return keymapExtension.extension.bindings.find((binding) => binding.key === "Enter");
 }
 
 /* --- Retour à la ligne --------------------------------------------------- */
@@ -101,6 +131,54 @@ test("scriveningsPriorityKeymap : Mod-i, Mod-b, Mod-z et Mod-Shift-z sont prése
 
 test("scriveningsPriorityKeymap : construit via le `keymap` public de @codemirror/view, distinct de EditorView.keymap", () => {
   assert.deepEqual(scriveningsPriorityKeymap.extension, keymap.of(scriveningsPriorityKeymap.extension.bindings));
+});
+
+test("Continu : Entrée crée un paragraphe par transaction CodeMirror", () => {
+  const binding = continuEnterBinding({ liveTwoEnters: true, liveDoubleEnter: true });
+  const endView = makeContinuEditor("Avant", 5);
+  assert.equal(binding.run(endView), true);
+  assert.equal(endView.text, "Avant\n\n");
+  assert.deepEqual(endView.dispatches[0], { changes: { from: 5, insert: "\n\n" }, selection: { anchor: 7 } });
+
+  const middleView = makeContinuEditor("AvantAprès", 5);
+  assert.equal(binding.run(middleView), true);
+  assert.equal(middleView.text, "Avant\n\nAprès");
+  assert.equal(middleView.text.slice(middleView.cursor), "Après");
+});
+
+test("Continu : Double Entrée remplace seulement le second retour par NBSP", () => {
+  const binding = continuEnterBinding({ liveTwoEnters: true, liveDoubleEnter: true });
+  const endView = makeContinuEditor("Avant", 5);
+  binding.run(endView);
+  assert.equal(binding.run(endView), true);
+  assert.equal(endView.text, "Avant\n\u00A0\n\n");
+  assert.deepEqual(endView.dispatches[1], { changes: { from: 6, to: 7, insert: "\u00A0\n\n" }, selection: { anchor: 9 } });
+
+  const middleView = makeContinuEditor("AvantAprès", 5);
+  binding.run(middleView);
+  assert.equal(binding.run(middleView), true);
+  assert.equal(middleView.text, "Avant\n\u00A0\n\nAprès");
+  assert.equal(middleView.text.slice(middleView.cursor), "Après");
+});
+
+test("Continu : pending annulé, structures et options désactivées laissent CodeMirror agir", () => {
+  const extension = createScriveningsEnterTypographyExtension({ liveTwoEnters: true, liveDoubleEnter: true });
+  const binding = extension[0].extension.bindings.find((entry) => entry.key === "Enter");
+  const view = makeContinuEditor("AvantAprès", 5);
+  binding.run(view);
+  extension[1].keydown({ key: "x" });
+  binding.run(view);
+  assert.equal(view.text.includes("\u00A0"), false);
+
+  for (const source of ["- élément", "# Titre", "> citation", "```js\ncode", "---\ntitre: Test\n---\nTexte", "| a | b |", "a | b"]) {
+    const structural = makeContinuEditor(source, 0);
+    assert.equal(continuEnterBinding({ liveTwoEnters: true, liveDoubleEnter: true }).run(structural), false, source);
+    assert.equal(structural.dispatches.length, 0, source);
+  }
+
+  const disabled = makeContinuEditor("Avant", 5);
+  assert.equal(continuEnterBinding({ liveTwoEnters: false, liveDoubleEnter: false }).run(disabled), false);
+  assert.equal(disabled.text, "Avant");
 });
 
 test("historyKeymap : Cmd/Ctrl+Z (Undo) et Cmd/Ctrl+Shift+Z ou Cmd/Ctrl+Y (Redo) sont bien fournis par le keymap standard", () => {

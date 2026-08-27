@@ -16,7 +16,7 @@ import {
 } from "../services/scrivenings-document.js";
 import { shortTitleFor, splitFrontmatter } from "../services/frontmatter.js";
 import { roleOfFile } from "../services/folder-structure.js";
-import { scriveningsChangeListener, scriveningsExtensions, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
+import { createScriveningsEnterTypographyExtension, scriveningsChangeListener, scriveningsExtensions, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
 import {
   getScriveningsScrollAnchor,
   scrollScriveningsToAnchor,
@@ -560,6 +560,7 @@ export class ScriveningsView extends ItemView {
 
     const extensions = [
       ...scriveningsExtensions,
+      ...createScriveningsEnterTypographyExtension(this.plugin.settings),
       scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
       // LOT 1.4 (§33) : Continu possède son propre EditorState — jamais
       // `registerEditorExtension()` — ces deux extensions sont donc montées

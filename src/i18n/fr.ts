@@ -1510,6 +1510,7 @@ export const fr = {
   "main.cmd.fixEscapedSceneBreaks": "Réparer les séparateurs de scène échappés (\\*\\*\\* → ***)",
   "main.cmd.compactLineBreaks": "Compacter les lignes vides en sauts de ligne simples (sélection ou document)",
   "main.cmd.insertSceneSeparator": "Insérer un séparateur de scène (***)",
+  "main.cmd.insertParagraphSpace": "Insérer un espace entre paragraphes",
   "main.cmd.frenchTypography": "Typographie française (sélection ou document)",
   "main.cmd.insertFootnote": "Insérer une note de bas de page",
   "main.cmd.insertCitation": "Insérer une citation",

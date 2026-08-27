@@ -385,6 +385,7 @@ class FeuilletsPlugin extends Plugin {
   _refreshTimer?: number;
   _lastMarkdownLeaf?: WorkspaceLeaf;
   _lastCitedSourceByFile?: Map<string, string>;
+  _pendingParagraphBreak?: { editor: Editor; cursor: { line: number; ch: number } };
   _wcCache?: Map<
     string,
     { mtime: number; wc: number; chars: number; charsNoSpaces: number; sentences: number; paragraphs: number }
@@ -1488,6 +1489,7 @@ class FeuilletsPlugin extends Plugin {
       "keydown",
       (event) => {
         const k = event.key;
+        if (k !== "Enter") this._pendingParagraphBreak = undefined;
         if (k !== "'" && k !== '"' && k !== "Enter" && k !== " ") return;
         const S = this.settings;
         if (
@@ -1501,6 +1503,7 @@ class FeuilletsPlugin extends Plugin {
         if (event.ctrlKey || event.metaKey || event.altKey) return;
         const target = event.target as HTMLElement | null;
         if (!target || !target.closest || !target.closest(".cm-editor")) return;
+        if (target.closest(".feuillets-scrivenings-view")) return;
         if ((this.app.vault as VaultWithConfig).getConfig?.("vimMode")) return;
         const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!mdView || mdView.getMode() !== "source") return;
@@ -1511,6 +1514,24 @@ class FeuilletsPlugin extends Plugin {
 
         const editor = mdView.editor;
         const cursor = editor.getCursor();
+
+        if (event.key === "Enter" && this._pendingParagraphBreak) {
+          const pending = this._pendingParagraphBreak;
+          this._pendingParagraphBreak = undefined;
+          if (
+            S.liveDoubleEnter &&
+            pending.editor === editor &&
+            !editor.somethingSelected() &&
+            cursor.line === pending.cursor.line &&
+            cursor.ch === pending.cursor.ch
+          ) {
+            event.preventDefault();
+            event.stopPropagation();
+            editor.replaceRange("\u00A0\n\n", cursor);
+            editor.setCursor({ line: cursor.line + 2, ch: 0 });
+            return;
+          }
+        }
 
         if (event.key === "'" && S.liveApostrophe) {
           event.preventDefault();
@@ -1545,21 +1566,13 @@ class FeuilletsPlugin extends Plugin {
             const lineText = editor.getLine(cursor.line);
             if (/^(\s*([-*+]|\d+\.)\s|#{1,6}\s|>|```|---)/.test(lineText)) {
               /* structure : Entrée normale */
-            } else if (
-              S.liveDoubleEnter &&
-              lineText.trim() === "" &&
-              cursor.line > 0
-            ) {
-              event.preventDefault();
-              event.stopPropagation();
-              editor.setLine(cursor.line, "\u00A0");
-              editor.replaceRange("\n\n", { line: cursor.line, ch: 1 });
-              editor.setCursor({ line: cursor.line + 2, ch: 0 });
             } else if (S.liveTwoEnters) {
               event.preventDefault();
               event.stopPropagation();
               editor.replaceRange("\n\n", cursor);
-              editor.setCursor({ line: cursor.line + 2, ch: 0 });
+              const nextCursor = { line: cursor.line + 2, ch: 0 };
+              editor.setCursor(nextCursor);
+              if (S.liveDoubleEnter) this._pendingParagraphBreak = { editor, cursor: nextCursor };
             }
           }
         } else if (event.key === " " && S.liveDashes) {
@@ -1590,6 +1603,45 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("active-leaf-change", reapply));
   }
 
+  insertParagraphSpace(editor: Editor): boolean {
+    if (editor.somethingSelected()) return false;
+    const cursor = editor.getCursor();
+    const lineText = editor.getLine(cursor.line);
+    const documentText = editor.getValue();
+    const lines = documentText.split("\n");
+    const previousLine = cursor.line > 0 ? lines[cursor.line - 1] : "";
+    const nextLine = cursor.line + 1 < lines.length ? lines[cursor.line + 1] : "";
+    const structuralLine = /^(\s*([-*+]|\d+\.)\s|#{1,6}\s|>|```|---)/;
+    const tableLine = /^\s*\|.*\|\s*$|^\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+$|.*\|.*/;
+    if (
+      structuralLine.test(lineText) ||
+      (lineText.trim() === "" && structuralLine.test(previousLine)) ||
+      tableLine.test(lineText) ||
+      (lineText.trim() === "" && (tableLine.test(previousLine) || tableLine.test(nextLine)))
+    ) return false;
+
+    const frontmatter = /^---\n[\s\S]*?\n---(?:\n|$)/.exec(documentText);
+    const cursorOffset = lines.slice(0, cursor.line).reduce((offset, line) => offset + line.length + 1, 0) + cursor.ch;
+    if (frontmatter && cursorOffset < frontmatter[0].length) return false;
+    const fenceCount = lines.slice(0, cursor.line + 1).filter((line) => /^\s*```/.test(line)).length;
+    if (fenceCount % 2 === 1) return false;
+
+    const hasFollowingLine = cursor.line < editor.lineCount() - 1;
+    if (lineText.trim() === "") {
+      const followsEmptyLine = previousLine.trim() === "";
+      const insert = followsEmptyLine
+        ? "\u00A0\n\n"
+        : hasFollowingLine ? "\n\u00A0\n" : "\n\u00A0\n\n";
+      editor.replaceRange(insert, { line: cursor.line, ch: 0 }, { line: cursor.line, ch: lineText.length });
+      editor.setCursor({ line: cursor.line + (followsEmptyLine ? 2 : 3), ch: 0 });
+    } else {
+      const insert = cursor.ch < lineText.length || !hasFollowingLine ? "\n\n\u00A0\n\n" : "\n\n\u00A0\n";
+      editor.replaceRange(insert, cursor);
+      editor.setCursor({ line: cursor.line + 4, ch: 0 });
+    }
+    return true;
+  }
+
   registerStatusBar() {
     this.statusEl = this.addStatusBarItem();
     this.statusEl.addClass("feuillets-status-bar");
@@ -1614,6 +1666,11 @@ class FeuilletsPlugin extends Plugin {
   }
 
   registerTextEditingCommands() {
+    this.addCommand({
+      id: "insert-paragraph-space",
+      name: t("main.cmd.insertParagraphSpace"),
+      editorCallback: (editor) => { this.insertParagraphSpace(editor); },
+    });
     this.addCommand({
       id: "split-chronology",
       name: t("main.cmd.splitChronology"),

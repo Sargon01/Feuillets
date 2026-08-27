@@ -1508,6 +1508,7 @@ export const en = {
   "main.cmd.fixEscapedSceneBreaks": "Fix escaped scene breaks (\\*\\*\\* → ***)",
   "main.cmd.compactLineBreaks": "Compact blank lines into single line breaks (selection or document)",
   "main.cmd.insertSceneSeparator": "Insert a scene separator (***)",
+  "main.cmd.insertParagraphSpace": "Insert a space between paragraphs",
   "main.cmd.frenchTypography": "French typography (selection or document)",
   "main.cmd.insertFootnote": "Insert a footnote",
   "main.cmd.insertCitation": "Insert a citation",
