@@ -28,6 +28,8 @@ Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer. Partez
 
 - **J’utilise déjà mes propres propriétés YAML.** Dans **Projet**, Feuillets peut mapper ses champs logiques vers les propriétés déjà utilisées dans votre coffre. Vous n’avez pas besoin de renommer vos propriétés ni de migrer vos fichiers. Voir [Projet et propriétés YAML](PROJET-ET-PROPRIETES-YAML.md).
 
+- **Je veux transporter un projet Feuillets vers un autre coffre ou ordinateur.** Dans **Gérer les projets**, utilisez **Exporter en `.feuil`**. L’archive conserve le projet et les réglages pris en charge ; elle peut ensuite être importée dans un nouveau dossier sans convertir le manuscrit hors Markdown. Voir [Projet portable `.feuil`](PROJET-PORTABLE-FEUIL.md).
+
 - **Je veux tenter une grosse réécriture sans perdre mon état actuel.** Prenez un **instantané**, réécrivez normalement, puis utilisez **Comparer une version**. Feuillets affiche les ajouts, suppressions, remplacements et déplacements côte à côte ; vous pouvez restaurer un passage depuis l’instantané sans revenir en arrière sur tout le fichier. Voir [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md).
 
 - **Je veux relire ou faire relire mon texte.** Pour une remarque personnelle, utilisez une **Annotation** ; pour un relecteur utilisant Feuillets, utilisez la **Relecture collaborative** `.feuillets` ; pour un éditeur ou correcteur travaillant dans Word, utilisez **Révision DOCX**. Voir [Relecture collaborative](RELECTURE-COLLABORATIVE.md) et [Révision DOCX](HOW-TO-REVISION-DOCX.md).
@@ -48,6 +50,7 @@ Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer. Partez
 - Un dossier documentaire existant peut être **associé comme Recherche** sans être déplacé.
 - Un dossier du manuscrit peut avoir son **propre Carnet Canvas**, avec Plan du Binder et mindmaps.
 - Le **remappage YAML** permet à Feuillets de s’adapter aux propriétés déjà présentes dans le coffre.
+- Un projet complet peut être transporté dans une archive **`.feuil`** puis réimporté dans un nouveau dossier.
 - L’**Aperçu est facultatif pour exporter** : il sert à vérifier la composition, pas à autoriser l’export.
 - Les **rôles sémantiques sont facultatifs** mais permettent de produire variantes, extractions et collections depuis une source unique.
 - Le même Markdown peut aussi alimenter une **Présentation 16:9**.

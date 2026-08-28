@@ -9,7 +9,10 @@
 - `_Feuillets` auxiliary space with non-destructive legacy compatibility;
 - project-scoped goals, statuses, labels and favorite tags;
 - YAML mapping for synopsis, summary, status, POV, label, goal, narrative thread, characters and date;
-- several projects in one vault.
+- several projects in one vault;
+- export/import of a **portable `.feuil` project**, restoring supported project order and settings without changing the manuscript’s Markdown working format.
+
+See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 
 ## Binder
 

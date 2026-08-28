@@ -9,7 +9,10 @@
 - espace auxiliaire `_Feuillets` avec compatibilité legacy non destructive ;
 - réglages propres au projet : objectifs, statuts, labels, tags favoris ;
 - remappage YAML de synopsis, résumé, statut, POV, label, objectif, fil narratif, personnages et date ;
-- plusieurs projets dans le même coffre.
+- plusieurs projets dans le même coffre ;
+- export/import d’un **projet portable `.feuil`**, avec restauration de l’ordre et des réglages de projet pris en charge, sans changer le format Markdown du manuscrit.
+
+Voir [Projet portable `.feuil`](PROJET-PORTABLE-FEUIL.md).
 
 ## Classeur
 

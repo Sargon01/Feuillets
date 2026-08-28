@@ -28,6 +28,8 @@ You do not need to learn all of Feuillets before you start. Begin with what you 
 
 - **I already use my own YAML properties.** In **Project**, Feuillets can map its logical fields to properties that already exist in your vault. You do not need to rename your properties or migrate your files. See [Project and YAML properties](PROJECT-AND-YAML-PROPERTIES.md).
 
+- **I want to move a Feuillets project to another vault or computer.** In **Manage projects**, use **Export as `.feuil`**. The archive keeps the project and supported settings, then can be imported into a new folder without converting the manuscript away from Markdown. See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
+
 - **I want to attempt a major rewrite without losing my current state.** Take a **snapshot**, rewrite normally, then use **Compare a version**. Feuillets shows additions, deletions, replacements and moves side by side; you can restore one passage from the snapshot without rolling back the whole file. See [Rewriting, backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md).
 
 - **I want to review my text or send it to someone else.** For a personal reminder, use an **Annotation**; for a reviewer using Feuillets, use **Collaborative Review** with a `.feuillets` package; for an editor or proofreader working in Word, use **DOCX Review**. See [Collaborative Review](COLLABORATIVE-REVIEW.md) and [DOCX Review](HOW-TO-DOCX-REVISION.md).
@@ -48,6 +50,7 @@ You do not need to learn all of Feuillets before you start. Begin with what you 
 - An existing documentation folder can be **linked as Research** without being moved.
 - A manuscript folder can have its **own Canvas Notebook**, with Binder Plan and mindmaps.
 - **YAML mapping** lets Feuillets adapt to properties already used in the vault.
+- A complete project can be transported as a **`.feuil`** archive and re-imported into a new folder.
 - **Preview is optional for export**: it is for checking composition, not for enabling export.
 - **Semantic roles are optional**, but can drive variants, extractions and collections from one source.
 - The same Markdown can also feed a 16:9 **Presentation**.

@@ -19,6 +19,7 @@ Cette page indexe la documentation correspondant à **Feuillets 2.7**.
 - **[Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md)** · [English](RESEARCH-AND-LINKED-FOLDERS.md)
 - **[Annotations de travail](ANNOTATIONS-DE-TRAVAIL.md)** · [English](WORKING-ANNOTATIONS.md)
 - **[Projet et propriétés YAML](PROJET-ET-PROPRIETES-YAML.md)** · [English](PROJECT-AND-YAML-PROPERTIES.md)
+- **[Projet portable `.feuil`](PROJET-PORTABLE-FEUIL.md)** · [English](PORTABLE-FEUIL-PROJECT.md)
 - **[Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md)** · [English](HOW-TO-NOTEBOOK.md)
 - **[Utiliser le contexte intelligent local](How-to-Contexte-Feuillets.md)** · [English](HOW-TO-CONTEXT.md)
 
