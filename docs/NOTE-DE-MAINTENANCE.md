@@ -1,6 +1,6 @@
-# Note de maintenance documentaire — Feuillets 2.6
+# Note de maintenance documentaire — Feuillets 2.7
 
-Cette page évite que les prochains correctifs réintroduisent dans la documentation des concepts supprimés ou déplacés pendant les chantiers ayant conduit à Feuillets 2.6.
+Cette page évite que les prochains correctifs réintroduisent dans la documentation des concepts supprimés ou déplacés pendant les chantiers ayant conduit à Feuillets 2.7.
 
 ## Terminologie publique actuelle
 

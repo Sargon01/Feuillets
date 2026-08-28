@@ -2,6 +2,50 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.7.0
+
+### Carnets, Plan du Binder et mindmaps
+
+- Les dossiers du manuscrit peuvent désormais disposer de leur **propre Carnet Canvas**, en plus du Carnet global du projet.
+- Un Carnet de dossier conserve une identité stable lors des renommages et déplacements ; un dossier Recherche explicitement associé peut partager le même Carnet logique que son dossier du Classeur.
+- Ajout du **Plan du Binder** dans le Carnet : la structure peut être préparée visuellement puis appliquée explicitement au Classeur après validation complète.
+- Le Plan permet de créer et réorganiser feuillets et dossiers, d’indenter ou désindenter la structure et de modifier le titre court des feuillets existants sans renommer leur fichier Markdown.
+- Les modifications du Plan restent un brouillon tant que **Appliquer au Binder** n’est pas utilisé ; aucun élément existant n’est supprimé silencieusement.
+- Ajout des **mindmaps** natives au Canvas : enfants, frères, reparentage, repli des branches, orientations horizontale/verticale et réorganisation explicite.
+- Le fonctionnement principal du Carnet, du Plan et des mindmaps reste disponible sans dépendre d’Advanced Canvas.
+
+### Publication sémantique
+
+- Ajout de **rôles sémantiques facultatifs** permettant d’identifier certaines parties du texte sans transformer le Markdown en format propriétaire.
+- Ajout des **variantes**, **extractions** et **collections**, intégrées à la compilation et aux exports : le manuscrit source reste unique.
+
+### Présentation
+
+- Le même Markdown peut désormais alimenter une **Présentation 16:9** sans créer une seconde source.
+- Ajout d’un moteur de rendu dédié, de thèmes, de mises en page, d’ajustements locaux et de la planification automatique des diapositives.
+- Les notes de présentation restent séparées du contenu projeté ; les présentations peuvent être contrôlées dans un aperçu dédié et exportées en PDF.
+
+### Projets transportables
+
+- Ajout du format **`.feuil`** pour exporter un projet Feuillets dans une archive transportable.
+- Un projet exporté peut être réimporté avec sa structure et les réglages pris en charge, sans format propriétaire pour les fichiers Markdown.
+
+### Écriture, mise en page et export
+
+- Correction de l’espacement des paragraphes dans l’éditeur Markdown et dans **Continu**.
+- Ajout de primitives de mise en page documentaire et actualisation du modèle de document moderne.
+- Les évolutions de publication restent intégrées au flux **Composition → Mise en page → Exporter**.
+
+### Qualité et documentation
+
+- Nettoyage des avertissements et erreurs ESLint/Obsidian et suppression de code devenu inutile.
+- Documentation française et anglaise étendue pour les Carnets de dossier, le Plan du Binder, les mindmaps, la publication sémantique et la Présentation.
+- Les instantanés et le comparateur sont davantage présentés comme un flux de réécriture non destructif : **instantané → réécriture → comparaison → restauration éventuelle d’un passage**.
+
+### Publication sémantique et variantes
+
+- Variantes, extractions et collections sont intégrées à la compilation et aux exports sans dupliquer la source Markdown.
+
 ## 2.6.0
 
 ### Écriture et réorganisation
