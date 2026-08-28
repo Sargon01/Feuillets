@@ -7,32 +7,27 @@ import { CanvasBridgeModal, CanvasNodeToManuscriptModal } from "../ui/canvas-bri
 import { CanvasChapterModal } from "../ui/canvas-chapter-modal.js";
 import { CanvasSplitModal } from "../ui/canvas-split-modal.js";
 import { CanvasMergeModal, type MergeRow } from "../ui/canvas-merge-modal.js";
-import { CanvasIdeaTreeModal } from "../ui/canvas-idea-tree-modal.js";
-import { ImportOutlineModal } from "../ui/import-outline-modal.js";
 import { applySelectedIdeas, deriveTitle, firstMeaningfulLine, type BridgeMode } from "../services/canvas-bridge.js";
 import { ensureNotebookResearchFolder } from "../services/research.js";
 import {
   admissibleChapterNodes,
-  isAdmissibleChapterNode,
   makeManuscriptPathChecker,
   nodesContainedInGroup,
 } from "../services/canvas-chapter.js";
 import {
-  createIdeaBranches,
-  createIdeaChild,
-  createIdeaSibling,
-  hasIdeaTreeParent,
-  ideaTreeBranch,
-  ideaTreeBranchToOutlineMarkdown,
   isIdeaTreeNode,
-  reflowIdeaTree,
 } from "../services/canvas-idea-tree.js";
 import { splitTextNode, executeMerge } from "../services/canvas-split-merge.js";
-import { BINDER_OUTLINER_MARKER } from "../services/canvas-binder-plan.js";
-import { renderBinderPlanOutliner } from "../ui/canvas-binder-plan-outliner.js";
 import { titleFor } from "../services/frontmatter.js";
-import type { MinimalRuntimeCanvas, MinimalRuntimeNode } from "../services/canvas-runtime.js";
+import type { CanvasPointerLikeEvent, MinimalRuntimeCanvas, MinimalRuntimeNode } from "../services/canvas-runtime.js";
 import type { KeymapEventHandler, KeymapEventListener, Modifier } from "obsidian";
+import { addMindmapChild, addMindmapSibling, outdentMindmapNode, reparentMindmapNodeByDrop } from "../carnet/blocks/mindmap/mindmap.js";
+import { addGroupBlockFileMember, containingGroupBlockAt, createCarnetFileNode, feuilletsFileDragPath, normalizeGenealogyDate } from "../carnet/canvas/adapter.js";
+import { shortTitleFor } from "../services/frontmatter.js";
+import { isMindmapMemberNode, mindmapSubtree } from "../carnet/blocks/mindmap/model.js";
+import { canReparentByDrop } from "../carnet/blocks/mindmap/interactions.js";
+import { isFeuilletsOwnedNode } from "../carnet/canvas/owned-nodes.js";
+import { openFileActivating } from "../utils/dom.js";
 
 /* Intégration OPTIONNELLE avec Advanced Canvas (Developer-Mike/obsidian-
  * advanced-canvas). Feuillets ne dépend d'AUCUN module npm de ce plugin, ne
@@ -79,10 +74,10 @@ type FeuilletsCanvasSelectionData = { nodes?: FeuilletsCanvasNodeSelectionData[]
  * par les services purs canvas-bridge.ts/canvas-chapter.ts, qui ne
  * dépendent jamais de ce fichier). */
 export type MinimalAdvancedCanvas = MinimalRuntimeCanvas & {
-  /** Lot 5 : `scope` est le `Scope` Obsidian PUBLIC de la vue Canvas
-   * (`View.scope`, natif — pas spécifique à Advanced Canvas), utilisé pour
-   * les raccourcis Tab/Entrée de l'Arbre d'idées. Jamais de listener
-   * document/window/wrapperEl — voir `registerIdeaTreeKeymap`. */
+  /** `scope` est le `Scope` Obsidian PUBLIC de la vue Canvas (`View.scope`,
+   * natif — pas spécifique à Advanced Canvas), utilisé pour les raccourcis
+   * Tab/Entrée/Shift+Tab de la Mindmap. Jamais de listener
+   * document/window/wrapperEl — voir `registerMindmapKeymap`. */
   view?: { file?: TFile | null; scope?: MinimalCanvasScope };
   getSelectionData?: () => FeuilletsCanvasSelectionData;
   getData?: () => CanvasData;
@@ -165,7 +160,7 @@ type WorkspaceWithCanvasMenuEvents = {
  * OfType` sont tous deux publics/documentés, pas spécifiques à Advanced
  * Canvas). `view.canvas` (le vrai objet Canvas runtime, propriété publique
  * de la CanvasView native d'Obsidian) et `view.scope` (`View.scope`, public)
- * sont ce dont a besoin `registerIdeaTreeKeymap`. `view.register` est la
+ * sont ce dont a besoin `registerMindmapKeymap`. `view.register` est la
  * méthode `Component.register` héritée par toute `View` — attacher le
  * nettoyage ici lie le cycle de vie des raccourcis à celui de LA VUE, jamais
  * à un listener document/window. */
@@ -174,6 +169,11 @@ type CanvasLeafView = {
   canvas?: MinimalAdvancedCanvas;
   scope?: MinimalCanvasScope;
   register(cb: () => void): void;
+  /** Correctif « drop Binder/Recherche → FileNode » — wrapper DOM natif de
+   * la vue Canvas (`View.containerEl`, public), utilisé UNIQUEMENT pour un
+   * `addEventListener` scopé à CETTE vue (jamais document/window). */
+  containerEl?: HTMLElement;
+  contentEl?: HTMLElement;
 };
 type WorkspaceWithCanvasLeaves = {
   getLeavesOfType(type: "canvas"): Array<{ view: CanvasLeafView }>;
@@ -185,10 +185,21 @@ type WorkspaceWithCanvasLeaves = {
  * entrées Canvas dupliquées, pas un problème de traduction ou de libellé. */
 const registeredPlugins = new WeakSet<object>();
 
-/** Lot 5 — vues Canvas dont le Scope Tab/Entrée a déjà été attaché : jamais
+/** Vues Canvas dont le Scope Tab/Entrée Mindmap a déjà été attaché : jamais
  * deux fois la même vue, même si `active-leaf-change`/`layout-change` se
- * déclenchent plusieurs fois pour elle (voir `attachIdeaTreeKeymaps`). */
+ * déclenchent plusieurs fois pour elle (voir `attachMindmapKeymaps`). */
 const scopedCanvasViews = new WeakSet<object>();
+
+/** Correctif drag/reparent — vues Canvas dont les écouteurs pointer ont
+ * déjà été attachés : jamais deux fois la même vue (même garde que
+ * `scopedCanvasViews`, WeakSet distinct car ce sont deux préoccupations
+ * indépendantes — l'une peut être nettoyée sans affecter l'autre). */
+const dragScopedCanvasViews = new WeakSet<object>();
+
+/** Correctif « drop Binder/Recherche → FileNode » — vues Canvas dont les
+ * écouteurs dragover/drop ont déjà été attachés : jamais deux fois la même
+ * vue, WeakSet distinct des deux autres (préoccupation indépendante). */
+const fileDropScopedCanvasViews = new WeakSet<object>();
 
 export type FeuilletsPluginLike = {
   app: App;
@@ -212,6 +223,7 @@ export type FeuilletsPluginLike = {
   writeOrder(parent: TAbstractFile, children: TAbstractFile[]): Promise<void>;
   renderAllViews(force: boolean): void;
   getOrderedChildren(folder: TFolder): Array<TFile | TFolder>;
+  isFeuilletsCarnetFile?(file: TFile | null | undefined): boolean;
 };
 
 /** Stratégie de sauvegarde partagée par les modales Lot 1 (CanvasBridgeModal,
@@ -312,6 +324,7 @@ async function applyNodeDirectly(
 ): Promise<void> {
   if (canvas.getData && canvas.setData && canvas.requestSave) {
     const data = canvas.getData();
+    if (isFeuilletsOwnedNode(data.nodes.find((node) => node.id === nodeId))) return;
     const result = await applySelectedIdeas(app, data, [nodeId], destFolder, mode, canvas, title ? new Map([[nodeId, title]]) : undefined);
     persistCanvasData(canvas, data);
     new Notice(t("modal.canvasBridge.done", { count: String(result.created) }));
@@ -326,6 +339,7 @@ async function applyNodeDirectly(
     new Notice(t("main.notice.canvasUnreadable"));
     return;
   }
+  if (isFeuilletsOwnedNode(data.nodes.find((node) => node.id === nodeId))) return;
   const result = await applySelectedIdeas(app, data, [nodeId], destFolder, mode, undefined, title ? new Map([[nodeId, title]]) : undefined);
   await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
   new Notice(t("modal.canvasBridge.done", { count: String(result.created) }));
@@ -404,35 +418,14 @@ async function applyMerge(
   new Notice(t("modal.canvasMerge.done"));
 }
 
-/** Ajoute les branches au Canvas courant sans toucher au vault Markdown.
- * L'API live garde la priorité ; le repli disque reste disponible comme
- * pour les autres actions Carnet et préserve les attributs inconnus. */
-async function applyIdeaBranches(
-  app: App,
-  canvas: MinimalAdvancedCanvas,
-  canvasFile: TFile,
-  parentId: string,
-  raw: string
-): Promise<void> {
-  const readLive = canvas.getData && canvas.setData && canvas.requestSave;
-  let data: CanvasData;
-  try {
-    data = readLive ? canvas.getData!() : (JSON.parse(await app.vault.read(canvasFile)) as CanvasData);
-  } catch {
-    new Notice(t("main.notice.canvasUnreadable"));
-    return;
-  }
-
-  const created = createIdeaBranches(data, parentId, raw);
-  if (created.nodes.length === 0) return;
-  if (readLive) persistCanvasData(canvas, data);
-  else await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
-  refreshIdeaTreeNodeClasses(canvas);
-}
-
 /* --------------------------------------------------------------------- *
- * Lot 5 — Arbre d'idées : raccourcis clavier (Scope), lisibilité, menu
- * « Ajouter une branche »/« Réorganiser l'arbre ».
+ * Raccourcis clavier Mindmap (Scope de la vue Canvas) et décorations de
+ * LECTURE des anciens idea-tree.
+ *
+ * L'arbre d'idées historique est en compatibilité/migration seulement :
+ * aucune commande ne crée, n'ajoute ni ne réorganise plus une de ses
+ * branches. Ne subsistent ici que des classes CSS purement visuelles qui
+ * LISENT ses données existantes, sans jamais les modifier.
  * --------------------------------------------------------------------- */
 
 /** Classe posée sur `node.nodeEl` (lecture) pour les TextNodes réellement
@@ -443,6 +436,8 @@ const IDEA_TREE_MEMBER_CLASS = "feuillets-idea-tree-member";
  * un TextNode membre en cours d'édition — voir l'écouteur
  * `advanced-canvas:node-editing-state-changed` plus bas. */
 const IDEA_TREE_EDITING_CLASS = "feuillets-idea-tree-editing";
+const GENEALOGY_PERSON_CLASS = "feuillets-genealogy-person";
+const GENEALOGY_UNION_CLASS = "feuillets-genealogy-union";
 
 /** Recalcule la classe de lecture sur CHAQUE TextNode réel du Canvas ouvert
  * — jamais sur le JSON seul (`node.nodeEl` n'existe que côté instances
@@ -459,8 +454,44 @@ function refreshIdeaTreeNodeClasses(canvas: MinimalAdvancedCanvas): void {
     return;
   }
   for (const [id, runtimeNode] of canvas.nodes) {
-    runtimeNode.nodeEl?.classList.toggle(IDEA_TREE_MEMBER_CLASS, isIdeaTreeNode(data, id));
+    const node = data.nodes.find((candidate) => candidate.id === id);
+    runtimeNode.nodeEl?.classList.toggle(IDEA_TREE_MEMBER_CLASS, !isFeuilletsOwnedNode(node) && isIdeaTreeNode(data, id));
   }
+}
+
+function refreshGenealogyPersonClasses(canvas: MinimalAdvancedCanvas, app: App): void {
+  if (!canvas.nodes || !canvas.getData) return;
+  let data: CanvasData;
+  try { data = canvas.getData(); } catch { return; }
+  for (const [id, runtimeNode] of canvas.nodes) {
+    const node = data.nodes.find((candidate) => candidate.id === id);
+    runtimeNode.nodeEl?.classList.toggle(GENEALOGY_PERSON_CLASS, node?.feuillets_genealogy_person === true);
+    runtimeNode.nodeEl?.classList.toggle(GENEALOGY_UNION_CLASS, node?.feuillets_block === "genealogy-union");
+    if (node?.feuillets_genealogy_person === true && typeof node.feuillets_genealogy_source === "string") {
+      const source = app.vault.getAbstractFileByPath(node.feuillets_genealogy_source);
+      if (source instanceof TFile) {
+        const fm = (app.metadataCache.getFileCache(source)?.frontmatter as Record<string, unknown> | undefined) || {};
+        const birth = normalizeGenealogyDate(fm.birth);
+        const death = normalizeGenealogyDate(fm.death);
+        const dates = birth || death ? `\n${birth}–${death}` : "";
+        const name = shortTitleFor(app, source);
+        const dateLabel = birth || death ? `${birth}–${death}` : "";
+        const nextText = `${name}${dates}`;
+        node.feuillets_genealogy_name = name;
+        node.feuillets_genealogy_dates = dateLabel;
+        if (node.text !== nextText) node.text = nextText;
+      }
+    }
+    if (runtimeNode.nodeEl && node?.feuillets_genealogy_person === true && typeof node.feuillets_genealogy_source === "string") {
+      runtimeNode.nodeEl.ondblclick = (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const source = app.vault.getAbstractFileByPath(node.feuillets_genealogy_source as string);
+        if (source instanceof TFile) openFileActivating(app, app.workspace.getLeaf(true), source);
+      };
+    }
+  }
+  canvas.setData?.(data);
 }
 
 /** Le node runtime réel actuellement sélectionné, seulement si la sélection
@@ -476,9 +507,9 @@ function activeSelectionNode(canvas: MinimalAdvancedCanvas): MinimalRuntimeNode 
 }
 
 /** Lit `data` depuis le Canvas déjà ouvert (jamais le disque : les
- * raccourcis clavier n'agissent que sur une vue Canvas déjà en mémoire) —
- * `null` si `getData` est absent ou échoue. */
-function liveIdeaTreeData(canvas: MinimalAdvancedCanvas): CanvasData | null {
+ * raccourcis clavier et le drag n'agissent que sur une vue Canvas déjà en
+ * mémoire) — `null` si `getData` est absent ou échoue. */
+function liveCanvasData(canvas: MinimalAdvancedCanvas): CanvasData | null {
   if (!canvas.getData) return null;
   try {
     return canvas.getData();
@@ -487,36 +518,37 @@ function liveIdeaTreeData(canvas: MinimalAdvancedCanvas): CanvasData | null {
   }
 }
 
-/** Gestionnaire commun Tab (`kind: "child"`) / Entrée (`kind: "sibling"`) —
- * voir section 2 du Lot 5. Ne fait STRICTEMENT rien (retour sans
- * `preventDefault`, donc comportement natif inchangé) dans tous les cas où
- * Feuillets ne doit pas intervenir : pas de sélection unique, node en cours
- * d'édition (l'éditeur vit dans un iframe — ses propres Tab/Entrée ne
- * remontent jamais ici, mais un Scope reste actif même la carte éditée
- * techniquement sélectionnée, d'où cette garde explicite), racine sans
- * parent idea-tree pour Entrée. VERSION FINALE (décision produit) : le node
- * créé n'est ni sélectionné ni mis en édition automatiquement — le runtime
- * Canvas réel ne garantit pas cette prise de main de façon fiable après
- * création (testé), Feuillets n'essaie plus de la simuler. Après création,
- * le node existe, point ; aucun déplacement de viewport, aucun zoom. */
-function handleIdeaTreeKey(canvas: MinimalAdvancedCanvas, kind: "child" | "sibling"): KeymapEventListener {
+/** Raccourcis Mindmap Tab (`kind: "child"`) / Entrée (`kind: "sibling"`) /
+ * Shift+Tab (`kind: "outdent"`) portés par le Scope PUBLIC de la vue Canvas.
+ *
+ * Ils n'agissent QUE sur un VRAI node Mindmap : sélection unique, node non
+ * édité, et `feuillets_block_id` posé reconnu par `isMindmapMemberNode`
+ * (jamais déduit de la géométrie — voir carnet/blocks/mindmap/model.ts).
+ * Aucune branche de repli : un TextNode libre, un node d'un autre bloc
+ * Feuillets ou un idea-tree legacy repartent tels quels, sans
+ * `preventDefault`, donc avec le comportement natif d'Obsidian intact.
+ * L'idea-tree est lecture/migration uniquement : aucun raccourci ne crée
+ * ni ne réorganise plus une de ses branches. */
+function handleMindmapKey(canvas: MinimalAdvancedCanvas, kind: "child" | "sibling" | "outdent"): KeymapEventListener {
   return (evt) => {
     const node = activeSelectionNode(canvas);
     if (!node || node.isEditing) return;
-    const data = liveIdeaTreeData(canvas);
+    const data = liveCanvasData(canvas);
     if (!data) return;
 
-    const created =
-      kind === "child"
-        ? createIdeaChild(data, node.id)
-        : hasIdeaTreeParent(data, node.id)
-          ? createIdeaSibling(data, node.id)
-          : null;
-    if (!created) return;
+    const fullNode = data.nodes.find((n) => n.id === node.id);
+    const blockId = fullNode && typeof fullNode.feuillets_block_id === "string" ? fullNode.feuillets_block_id : null;
+    if (!fullNode || !blockId || !isMindmapMemberNode(fullNode, blockId)) return;
 
+    const acted =
+      kind === "child"
+        ? !!addMindmapChild(data, blockId, node.id)
+        : kind === "sibling"
+          ? !!addMindmapSibling(data, blockId, node.id)
+          : outdentMindmapNode(data, blockId, node.id);
+    if (!acted) return;
     evt.preventDefault();
     persistCanvasData(canvas, data);
-    refreshIdeaTreeNodeClasses(canvas);
     return false;
   };
 }
@@ -529,17 +561,23 @@ function handleIdeaTreeKey(canvas: MinimalAdvancedCanvas, kind: "child" | "sibli
  * au déchargement de LA VUE (`view.register`, toujours disponible) et, en
  * plus, au déchargement du PLUGIN si `plugin.register` existe — jamais
  * seulement l'un des deux. */
-function registerIdeaTreeKeymap(plugin: FeuilletsPluginLike, view: CanvasLeafView): void {
+function registerMindmapKeymap(plugin: FeuilletsPluginLike, view: CanvasLeafView): void {
   const canvas = view.canvas;
   const scope = view.scope;
   if (!canvas || !scope || scopedCanvasViews.has(view)) return;
   scopedCanvasViews.add(view);
 
-  const tabHandler = scope.register(null, "Tab", handleIdeaTreeKey(canvas, "child"));
-  const enterHandler = scope.register(null, "Enter", handleIdeaTreeKey(canvas, "sibling"));
+  /* Modificateurs EXACTS, jamais `null` (= « toutes variantes ») : Tab et
+     Entrée nus seulement, Shift+Tab pour le désindent. Cmd/Ctrl+Entrée et
+     les autres combinaisons restent donc entièrement natives — le Plan,
+     qui s'en sert (§4), n'a jamais à disputer un raccourci à ce Scope. */
+  const tabHandler = scope.register([], "Tab", handleMindmapKey(canvas, "child"));
+  const enterHandler = scope.register([], "Enter", handleMindmapKey(canvas, "sibling"));
+  const outdentHandler = scope.register(["Shift"], "Tab", handleMindmapKey(canvas, "outdent"));
   const unregister = () => {
     scope.unregister(tabHandler);
     scope.unregister(enterHandler);
+    scope.unregister(outdentHandler);
   };
   view.register(unregister);
   plugin.register?.(unregister);
@@ -547,69 +585,277 @@ function registerIdeaTreeKeymap(plugin: FeuilletsPluginLike, view: CanvasLeafVie
   refreshIdeaTreeNodeClasses(canvas);
 }
 
+/** Classe posée sur le `nodeEl` d'un node Mindmap survolé pendant un drag
+ * comme cible de reparentage VALIDE — seule décoration visuelle du drag,
+ * jamais un second Canvas/overlay. */
+const MINDMAP_DROP_TARGET_CLASS = "feuillets-mindmap-drop-target";
+
+function pointInsideNodeData(pos: { x: number; y: number }, node: CanvasNode): boolean {
+  const x = Number(node.x) || 0;
+  const y = Number(node.y) || 0;
+  const width = Number(node.width) || 0;
+  const height = Number(node.height) || 0;
+  return pos.x >= x && pos.x <= x + width && pos.y >= y && pos.y <= y + height;
+}
+
+/** Position d'un node en coordonnées CANVAS : `node.getBBox()` (membre réel
+ * vérifié sur le bundle Advanced Canvas) en priorité — c'est la seule source
+ * correcte pendant un drag, puisqu'elle suit le node PENDANT son
+ * déplacement ; repli sur la géométrie JSON pour un node non encore bougé ou
+ * un runtime qui n'exposerait pas getBBox. */
+function runtimeNodeContains(runtimeNode: MinimalRuntimeNode | undefined, fallback: CanvasNode, pos: { x: number; y: number }): boolean {
+  const bbox = runtimeNode?.getBBox?.();
+  if (bbox) return pos.x >= bbox.minX && pos.x <= bbox.maxX && pos.y >= bbox.minY && pos.y <= bbox.maxY;
+  return pointInsideNodeData(pos, fallback);
+}
+
+/** Cible Mindmap valide sous `event` — coordonnées CANVAS via
+ * `canvas.posFromEvt` (jamais `getBoundingClientRect`, qui est en
+ * coordonnées écran et ignorerait zoom/pan).
+ *
+ * CAUSE DU BUG PRÉCÉDENT, corrigée ici : pendant un drag, le node glissé
+ * SUIT le pointeur — il se trouve donc lui-même sous le point de dépose et
+ * était systématiquement retenu comme « cible », ce qui faisait toujours
+ * échouer le reparentage (cible === node glissé). `excludedIds` écarte
+ * explicitement le node glissé, TOUS ses descendants (déjà interdits par
+ * l'anti-cycle, mais aussi entraînés visuellement avec lui) et toute la
+ * sélection courante, pour que le hit-test voie réellement le node du
+ * DESSOUS. Les groupes sont exclus par type. */
+function resolveMindmapDropTarget(
+  canvas: MinimalAdvancedCanvas,
+  event: CanvasPointerLikeEvent,
+  draggedId: string,
+  blockId: string,
+  excludedIds: Set<string>
+): { runtimeNode: MinimalRuntimeNode; data: CanvasData } | null {
+  if (!canvas.posFromEvt) return null;
+  const pos = canvas.posFromEvt(event);
+  const data = liveCanvasData(canvas);
+  if (!data) return null;
+  const candidate = data.nodes.find(
+    (node) =>
+      node.type !== "group" &&
+      !excludedIds.has(node.id) &&
+      runtimeNodeContains(canvas.nodes?.get(node.id), node, pos) &&
+      canReparentByDrop(data, blockId, draggedId, node.id)
+  );
+  if (!candidate) return null;
+  const runtimeNode = canvas.nodes?.get(candidate.id);
+  if (!runtimeNode) return null;
+  return { runtimeNode, data };
+}
+
+/** Ids à écarter du hit-test pour un drag de `draggedId` : lui-même, tous
+ * ses descendants structurels, et toute la sélection courante (un drag
+ * multiple entraîne plusieurs nodes qui suivent tous le pointeur). */
+function draggedExclusionSet(canvas: MinimalAdvancedCanvas, data: CanvasData, blockId: string, draggedId: string): Set<string> {
+  const excluded = new Set<string>([draggedId]);
+  for (const descendant of mindmapSubtree(data, blockId, draggedId)) excluded.add(descendant.id);
+  if (canvas.selection) for (const selected of canvas.selection) excluded.add(selected.id);
+  return excluded;
+}
+
+/** Correctif drag/reparent RÉEL (Mindmap) — écouteurs pointer posés sur
+ * `canvas.wrapperEl` (membre RÉEL du Canvas natif, vérifié sur le bundle
+ * Advanced Canvas qui l'utilise directement depuis `view.canvas`), jamais
+ * document/window, jamais un monkey-patch.
+ *
+ * `canvas.handleSelectionDrag` — envisagé au correctif précédent — N'EXISTE
+ * PAS : vérifié, 0 occurrence dans le bundle réel. Tout wrapper autour de
+ * cette méthode était donc du code mort, ce qui explique que le drag n'ait
+ * jamais rien fait.
+ *
+ * Le drag natif d'Obsidian continue de déplacer le node visuellement à
+ * l'identique (ces écouteurs sont purement passifs, aucun preventDefault) ;
+ * au relâchement sur une cible valide, le moteur reparente puis relayout SA
+ * Mindmap uniquement. Une seule fois par vue (`dragScopedCanvasViews`),
+ * cleanup complet au déchargement de la vue ET du plugin. */
+function registerMindmapDragReparent(plugin: FeuilletsPluginLike, view: CanvasLeafView): void {
+  const canvas = view.canvas;
+  const wrapper = canvas?.wrapperEl;
+  if (!canvas || !wrapper || !canvas.posFromEvt || dragScopedCanvasViews.has(view)) return;
+  dragScopedCanvasViews.add(view);
+
+  let draggedId: string | null = null;
+  let draggedBlockId: string | null = null;
+  let hoveredEl: HTMLElement | undefined;
+  const clearHover = () => {
+    hoveredEl?.classList.remove(MINDMAP_DROP_TARGET_CLASS);
+    hoveredEl = undefined;
+  };
+
+  const onPointerDown = (evt: PointerEvent) => {
+    draggedId = null;
+    draggedBlockId = null;
+    const data = liveCanvasData(canvas);
+    if (!data || !canvas.posFromEvt) return;
+    const pos = canvas.posFromEvt(evt);
+    const hit = data.nodes.find((node) => node.type !== "group" && runtimeNodeContains(canvas.nodes?.get(node.id), node, pos));
+    if (!hit || typeof hit.feuillets_block_id !== "string" || !isMindmapMemberNode(hit, hit.feuillets_block_id)) return;
+    if (canvas.nodes?.get(hit.id)?.isEditing) return;
+    draggedId = hit.id;
+    draggedBlockId = hit.feuillets_block_id;
+  };
+
+  const onPointerMove = (evt: PointerEvent) => {
+    if (!draggedId || !draggedBlockId) return;
+    const data = liveCanvasData(canvas);
+    if (!data) { clearHover(); return; }
+    const excluded = draggedExclusionSet(canvas, data, draggedBlockId, draggedId);
+    const target = resolveMindmapDropTarget(canvas, evt, draggedId, draggedBlockId, excluded);
+    const targetEl = target?.runtimeNode.nodeEl;
+    if (hoveredEl !== targetEl) {
+      clearHover();
+      if (targetEl) { hoveredEl = targetEl; hoveredEl.classList.add(MINDMAP_DROP_TARGET_CLASS); }
+    }
+  };
+
+  const onPointerUp = (evt: PointerEvent) => {
+    clearHover();
+    const dragged = draggedId;
+    const blockId = draggedBlockId;
+    draggedId = null;
+    draggedBlockId = null;
+    if (!dragged || !blockId) return;
+    const data = liveCanvasData(canvas);
+    if (!data) return;
+    const excluded = draggedExclusionSet(canvas, data, blockId, dragged);
+    const target = resolveMindmapDropTarget(canvas, evt, dragged, blockId, excluded);
+    if (!target) return;
+    if (!reparentMindmapNodeByDrop(target.data, blockId, dragged, target.runtimeNode.id)) return;
+    persistCanvasData(canvas, target.data);
+    refreshIdeaTreeNodeClasses(canvas);
+  };
+
+  wrapper.addEventListener("pointerdown", onPointerDown);
+  wrapper.addEventListener("pointermove", onPointerMove);
+  wrapper.addEventListener("pointerup", onPointerUp);
+  const unregister = () => {
+    clearHover();
+    wrapper.removeEventListener("pointerdown", onPointerDown);
+    wrapper.removeEventListener("pointermove", onPointerMove);
+    wrapper.removeEventListener("pointerup", onPointerUp);
+  };
+  view.register(unregister);
+  plugin.register?.(unregister);
+}
+
 /** Parcourt les vues Canvas déjà ouvertes et attache le Scope Tab/Entrée à
  * celles qui affichent le Carnet du projet actif — jamais aux autres Canvas
  * du coffre (section 9 : aucun autre Canvas/node ne doit être affecté).
  * Silencieux si `getLeavesOfType` est absent (repli défensif, comme le
  * reste de ce fichier). */
-function attachIdeaTreeKeymaps(plugin: FeuilletsPluginLike): void {
+function attachMindmapKeymaps(plugin: FeuilletsPluginLike): void {
   const workspace = plugin.app.workspace as unknown as WorkspaceWithCanvasLeaves;
   if (!workspace.getLeavesOfType) return;
   for (const leaf of workspace.getLeavesOfType("canvas")) {
     const view = leaf?.view;
-    if (view && isActiveNotebook(plugin, view.file)) registerIdeaTreeKeymap(plugin, view);
+    /* `isFeuilletsCarnet` (global OU Carnet de dossier) plutôt que
+       `isActiveNotebook` (global seul, historique idea-tree) : Tab/Entrée/
+       Shift+Tab servent maintenant aussi la Mindmap (Prompt 2/5), qui doit
+       fonctionner dans N'IMPORTE QUEL Carnet Feuillets, pas seulement le
+       Carnet global. Repli identique à l'ancien comportement quand
+       `plugin.isFeuilletsCarnetFile` est absent (voir isFeuilletsCarnet). */
+    if (view && isFeuilletsCarnet(plugin, view.file)) registerMindmapKeymap(plugin, view);
   }
 }
 
-/** Action menu « Ajouter une branche » (section 7) — un seul enfant, texte
- * vide. Même stratégie API live/repli disque que `applyIdeaBranches`, dont
- * elle reste distincte : celle-ci ne demande jamais de texte (pas de
- * modale). Le node créé n'est ni sélectionné ni mis en édition
- * automatiquement (décision produit, voir `handleIdeaTreeKey`). */
-async function applyIdeaChild(
-  app: App,
-  canvas: MinimalAdvancedCanvas,
-  canvasFile: TFile,
-  parentId: string
-): Promise<void> {
-  const readLive = canvas.getData && canvas.setData && canvas.requestSave;
-  let data: CanvasData;
-  try {
-    data = readLive ? canvas.getData!() : (JSON.parse(await app.vault.read(canvasFile)) as CanvasData);
-  } catch {
-    new Notice(t("main.notice.canvasUnreadable"));
-    return;
+/** Correctif drag/reparent (Mindmap, §2) — parcourt les vues Canvas déjà
+ * ouvertes et attache les écouteurs pointer à celles qui affichent un
+ * Carnet Feuillets (global ou de dossier). Idempotente comme
+ * `attachMindmapKeymaps` (`dragScopedCanvasViews`), rappelée aux mêmes
+ * événements workspace. */
+function attachMindmapDragKeymaps(plugin: FeuilletsPluginLike): void {
+  const workspace = plugin.app.workspace as unknown as WorkspaceWithCanvasLeaves;
+  if (!workspace.getLeavesOfType) return;
+  for (const leaf of workspace.getLeavesOfType("canvas")) {
+    const view = leaf?.view;
+    if (view && isFeuilletsCarnet(plugin, view.file)) registerMindmapDragReparent(plugin, view);
   }
-
-  const created = createIdeaChild(data, parentId);
-  if (!created) return;
-  if (readLive) persistCanvasData(canvas, data);
-  else await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
-  refreshIdeaTreeNodeClasses(canvas);
 }
 
-/** Action menu « Réorganiser l'arbre » (section 7) — appelle EXCLUSIVEMENT
- * `reflowIdeaTree`, déjà existant et testé : aucune nouvelle logique de
- * layout, aucun zoom (section 9 : le viewport de l'utilisateur reste
- * strictement inchangé). */
-async function applyIdeaTreeReflow(
-  app: App,
-  canvas: MinimalAdvancedCanvas,
-  canvasFile: TFile,
-  memberId: string
-): Promise<void> {
-  const readLive = canvas.getData && canvas.setData && canvas.requestSave;
-  let data: CanvasData;
-  try {
-    data = readLive ? canvas.getData!() : (JSON.parse(await app.vault.read(canvasFile)) as CanvasData);
-  } catch {
-    new Notice(t("main.notice.canvasUnreadable"));
-    return;
-  }
+/** Correctif « drop Binder/Recherche → FileNode » (§5) : attache
+ * `dragover`/`drop` au wrapper DOM de CETTE vue Canvas — jamais document/
+ * window, une seule fois par vue (`fileDropScopedCanvasViews`), cleanup
+ * complet au déchargement de la vue ET du plugin. `dragover` accepte
+ * uniquement un `dataTransfer` portant `FEUILLETS_FILE_DRAG_MIME` dont le
+ * chemin résout un TFile réel — jamais un déplacement du fichier, seulement
+ * `dropEffect = "copy"`. `drop` crée un VRAI FileNode (`createCarnetFileNode`,
+ * carnet/canvas/adapter.ts) à la position convertie par `canvas.posFromEvt`
+ * (jamais une coordonnée écran), puis `preventDefault`/`stopPropagation`
+ * pour empêcher le comportement natif Canvas de créer EN PLUS un TextNode
+ * `[[lien]]` pour ce même dépôt. Un TFile lâché dans l'espace d'une Mindmap
+ * ne reçoit ici AUCUNE relation structurelle (§6) — jamais déduite de sa
+ * position de dépôt. */
+function registerCarnetFileDrop(plugin: FeuilletsPluginLike, view: CanvasLeafView): void {
+  const canvas = view.canvas;
+  const wrapper = canvas?.wrapperEl;
+  if (!canvas || !wrapper || !canvas.posFromEvt || fileDropScopedCanvasViews.has(view)) return;
+  fileDropScopedCanvasViews.add(view);
 
-  reflowIdeaTree(data, memberId);
-  if (readLive) persistCanvasData(canvas, data);
-  else await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
+  const resolveDroppedFile = (evt: DragEvent): TFile | null => {
+    const path = feuilletsFileDragPath(evt.dataTransfer);
+    if (!path) return null;
+    const file = plugin.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? file : null;
+  };
+
+  const onDragOver = (evt: DragEvent) => {
+    if (!resolveDroppedFile(evt)) return;
+    evt.preventDefault();
+    if (evt.dataTransfer) evt.dataTransfer.dropEffect = "copy";
+  };
+
+  const onDrop = (evt: DragEvent) => {
+    const file = resolveDroppedFile(evt);
+    if (!file || !canvas.posFromEvt) return;
+    evt.preventDefault();
+    evt.stopPropagation();
+    const pos = canvas.posFromEvt(evt);
+    /* Prompt 4, §3 — un dépôt qui tombe DANS un bloc Relations/Généalogie
+       déjà présent l'ajoute comme MEMBRE (feuillets_block_id posé), jamais
+       comme relation automatique. Comportement Mindmap intentionnellement
+       INCHANGÉ (§6 de son propre correctif, non touché ici) :
+       `containingGroupBlockAt` ne reconnaît que Relations/Généalogie, donc
+       un dépôt dans l'espace d'une Mindmap retombe sur le FileNode libre
+       ci-dessous, exactement comme avant. */
+    const data = canvas.getData?.();
+    const group = data ? containingGroupBlockAt(data, pos) : null;
+    if (group && typeof group.feuillets_block_id === "string") {
+      addGroupBlockFileMember(canvas, data as CanvasData, group.feuillets_block_id, file, pos, plugin.app);
+      refreshGenealogyPersonClasses(canvas, plugin.app);
+      return;
+    }
+    if (createCarnetFileNode(canvas, file, pos)) refreshIdeaTreeNodeClasses(canvas);
+  };
+
+  /* Phase CAPTURE, sur `canvas.wrapperEl` : le handler de dépôt natif du
+     Canvas vit sur cette même surface. Attaché en phase bouillonnement (ou
+     sur le `containerEl` extérieur, comme au correctif précédent), le nôtre
+     s'exécutait APRÈS lui — Obsidian avait déjà créé son TextNode `[[lien]]`
+     et `stopPropagation` arrivait trop tard. En capture, nous passons avant
+     et `preventDefault`/`stopPropagation` l'empêchent réellement. */
+  wrapper.addEventListener("dragover", onDragOver, true);
+  wrapper.addEventListener("drop", onDrop, true);
+  refreshGenealogyPersonClasses(canvas, plugin.app);
+  const unregister = () => {
+    wrapper.removeEventListener("dragover", onDragOver, true);
+    wrapper.removeEventListener("drop", onDrop, true);
+  };
+  view.register(unregister);
+  plugin.register?.(unregister);
+}
+
+/** Parcourt les vues Canvas déjà ouvertes et attache dragover/drop à celles
+ * qui affichent un Carnet Feuillets (global ou de dossier) — même principe
+ * que `attachMindmapDragKeymaps`. */
+function attachCarnetFileDropKeymaps(plugin: FeuilletsPluginLike): void {
+  const workspace = plugin.app.workspace as unknown as WorkspaceWithCanvasLeaves;
+  if (!workspace.getLeavesOfType) return;
+  for (const leaf of workspace.getLeavesOfType("canvas")) {
+    const view = leaf?.view;
+    if (view && isFeuilletsCarnet(plugin, view.file)) registerCarnetFileDrop(plugin, view);
+  }
 }
 
 /** Vrai si `file` est le Carnet (Tableau brainstorming.canvas) du projet
@@ -619,6 +865,10 @@ function isActiveNotebook(plugin: FeuilletsPluginLike, file: TFile | null | unde
   const root = getProjectFolder(plugin.app, plugin.settings);
   if (!root) return false;
   return file.path === canvasPathFor(plugin.app, root);
+}
+
+function isFeuilletsCarnet(plugin: FeuilletsPluginLike, file: TFile | null | undefined): file is TFile {
+  return !!file && (plugin.isFeuilletsCarnetFile?.(file) ?? isActiveNotebook(plugin, file));
 }
 
 /** Enregistre les écouteurs `canvas:selection-menu` (une ou plusieurs
@@ -635,20 +885,16 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
   if (registeredPlugins.has(plugin)) return;
   registeredPlugins.add(plugin);
   const workspace = plugin.app.workspace as unknown as WorkspaceWithCanvasMenuEvents;
-  plugin.registerEvent(workspace.on("advanced-canvas:node-rendered", (canvas, node) => {
-    if (!isActiveNotebook(plugin, canvas.view?.file)) return;
-    const data = node.getData?.();
-    if (data?.feuillets_binder_plan !== BINDER_OUTLINER_MARKER || !node.nodeEl) return;
-    node.nodeEl.addClass("feuillets-binder-plan-node");
-    node.nodeEl.querySelector(".feuillets-plan-interactive-layer")?.remove();
-    const layer = node.nodeEl.createDiv({ cls: "feuillets-plan-interactive-layer" });
-    renderBinderPlanOutliner({ ...node, contentEl: layer, canvas });
-  }));
+  /* §12 du lot Plan : le Plan n'est PLUS monté depuis
+     `advanced-canvas:node-rendered` — cet événement n'existe que si
+     Advanced Canvas est installé, alors que le Plan doit fonctionner sans
+     lui. Le montage passe désormais par le lifecycle Carnet natif (voir
+     main.ts, decoratePlanCanvasView). */
 
   plugin.registerEvent(
     workspace.on("canvas:selection-menu", (menu, canvas) => {
       const canvasFile = canvas.view?.file;
-      if (!isActiveNotebook(plugin, canvasFile)) return;
+      if (!isFeuilletsCarnet(plugin, canvasFile)) return;
 
       let selection: FeuilletsCanvasSelectionData;
       try {
@@ -656,7 +902,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
       } catch {
         return;
       }
-      const selectedNodes = selection.nodes || [];
+      const selectedNodes = (selection.nodes || []).filter((selected) => !isFeuilletsOwnedNode(selected));
 
       // Lot 1 — inchangé : idées texte sélectionnées → manuscrit/recherche.
       const textIds = selectedNodes.filter((n) => n.type === "text").map((n) => n.id);
@@ -728,7 +974,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
       const canvas = node.canvas;
       if (!canvas) return;
       const canvasFile = canvas.view?.file;
-      if (!isActiveNotebook(plugin, canvasFile)) return;
+      if (!isFeuilletsCarnet(plugin, canvasFile)) return;
 
       let data: FeuilletsCanvasNodeSelectionData | undefined;
       try {
@@ -740,11 +986,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
 
       const full = canvas.getData?.();
       const fullNode = full?.nodes.find((candidate) => candidate.id === data.id) || data;
-      const isManuscriptPath = makeManuscriptPathChecker(plugin.app, plugin.settings);
-      const canDevelopTree =
-        fullNode.type === "text" ||
-        (fullNode.type === "file" && isAdmissibleChapterNode(fullNode, isManuscriptPath));
-
+      if (isFeuilletsOwnedNode(fullNode)) return;
       if (data.type === "text") {
         const nodeId = data.id;
         const ideaTitle = deriveTitle(data.text || "") || t("modal.canvasBridge.untitledIdea");
@@ -785,80 +1027,6 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
               new CanvasSplitModal(plugin.app, ideaTitle, data.text || "", (first, second) => {
                 void applySplit(plugin.app, canvas, canvasFile, fullNode, first, second);
               }).open();
-            })
-        );
-        menu.addItem((item) =>
-          item
-            .setTitle(t("advancedCanvas.nodeMenu.addBranch"))
-            .setIcon("git-branch-plus")
-            .onClick(() => {
-              void applyIdeaChild(plugin.app, canvas, canvasFile, nodeId);
-            })
-        );
-      }
-
-      if (canDevelopTree) {
-        menu.addItem((item) =>
-          item
-            .setTitle(t("advancedCanvas.nodeMenu.developIdeaTree"))
-            .setIcon("git-branch")
-            .onClick(() => {
-              new CanvasIdeaTreeModal(plugin.app, (raw) =>
-                applyIdeaBranches(plugin.app, canvas, canvasFile, data.id, raw)
-              ).open();
-            })
-        );
-      }
-
-      if (full && isIdeaTreeNode(full, data.id)) {
-        menu.addItem((item) =>
-          item
-            .setTitle(t("advancedCanvas.nodeMenu.createChapterFromBranch"))
-            .setIcon("folder-plus")
-            .onClick(() => {
-              const fresh = canvas.getData?.() || full;
-              const branch = ideaTreeBranch(fresh, data.id);
-              new CanvasChapterModal(
-                plugin.app,
-                plugin.settings,
-                fresh,
-                { source: "idea-tree", ids: branch.map((branchNode) => branchNode.id) },
-                { persist: livePersist(canvas), saveSettings: () => plugin.saveSettings(), runtimeCanvas: canvas }
-              ).open();
-            })
-        );
-        menu.addItem((item) =>
-          item
-            .setTitle(t("advancedCanvas.nodeMenu.reorganizeTree"))
-            .setIcon("refresh-cw")
-            .onClick(() => {
-              void applyIdeaTreeReflow(plugin.app, canvas, canvasFile, data.id);
-            })
-        );
-      }
-
-      // Lot 9 : uniquement si le node cliqué possède au moins un descendant
-      // idea-tree (jamais pour une simple feuille sans enfant) — voir
-      // ideaTreeBranchToOutlineMarkdown, section 1 du Lot 9.
-      if (full && ideaTreeBranch(full, data.id).length > 1) {
-        menu.addItem((item) =>
-          item
-            .setTitle(t("advancedCanvas.nodeMenu.transformBranchToOutline"))
-            .setIcon("list-tree")
-            .onClick(() => {
-              const fresh = canvas.getData?.() || full;
-              const result = ideaTreeBranchToOutlineMarkdown(fresh, data.id);
-              if (!result.ok) {
-                const noticeKey =
-                  result.code === "non-text-node"
-                    ? "advancedCanvas.notice.branchHasMaterializedNodes"
-                    : result.code === "empty-title"
-                      ? "advancedCanvas.notice.branchEmptyTitle"
-                      : "advancedCanvas.notice.branchTooDeep";
-                new Notice(t(noticeKey));
-                return;
-              }
-              new ImportOutlineModal(plugin.app, plugin, result.markdown, { source: "idea-tree" }).open();
             })
         );
       }
@@ -915,7 +1083,7 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
         return;
       }
       if (!data) return;
-      const full = liveIdeaTreeData(canvas);
+      const full = liveCanvasData(canvas);
       if (!full || !isIdeaTreeNode(full, data.id)) return;
 
       const body = node.nodeEl?.querySelector("iframe")?.contentDocument?.body;
@@ -923,13 +1091,27 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
     })
   );
 
-  /* Lot 5 (section 3) — attache le Scope Tab/Entrée à chaque vue Canvas du
+  /* Attache le Scope Tab/Entrée Mindmap à chaque vue Canvas du
    * Carnet déjà ouverte ou qui vient de s'ouvrir. `active-leaf-change` et
    * `layout-change` sont les deux événements Workspace natifs déjà utilisés
    * ailleurs dans le plugin (main.ts) pour réagir à l'ouverture d'une vue ;
-   * `attachIdeaTreeKeymaps` reste elle-même idempotente (`scopedCanvasViews`)
+   * `attachMindmapKeymaps` reste elle-même idempotente (`scopedCanvasViews`)
    * donc aucun risque de double attache même appelée à chaque déclenchement. */
-  plugin.registerEvent(plugin.app.workspace.on("active-leaf-change", () => attachIdeaTreeKeymaps(plugin)));
-  plugin.registerEvent(plugin.app.workspace.on("layout-change", () => attachIdeaTreeKeymaps(plugin)));
-  attachIdeaTreeKeymaps(plugin);
+  plugin.registerEvent(plugin.app.workspace.on("active-leaf-change", () => attachMindmapKeymaps(plugin)));
+  plugin.registerEvent(plugin.app.workspace.on("layout-change", () => attachMindmapKeymaps(plugin)));
+  attachMindmapKeymaps(plugin);
+
+  /* Correctif drag/reparent (Mindmap, Prompt 2) — mêmes événements
+     workspace, même idempotence (dragScopedCanvasViews), écouteurs
+     indépendants du Scope Tab/Entrée ci-dessus. */
+  plugin.registerEvent(plugin.app.workspace.on("active-leaf-change", () => attachMindmapDragKeymaps(plugin)));
+  plugin.registerEvent(plugin.app.workspace.on("layout-change", () => attachMindmapDragKeymaps(plugin)));
+  attachMindmapDragKeymaps(plugin);
+
+  /* Correctif « drop Binder/Recherche → FileNode » — mêmes événements
+     workspace, même idempotence (fileDropScopedCanvasViews), indépendant
+     des deux câblages ci-dessus. */
+  plugin.registerEvent(plugin.app.workspace.on("active-leaf-change", () => attachCarnetFileDropKeymaps(plugin)));
+  plugin.registerEvent(plugin.app.workspace.on("layout-change", () => attachCarnetFileDropKeymaps(plugin)));
+  attachCarnetFileDropKeymaps(plugin);
 }

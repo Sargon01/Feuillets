@@ -823,6 +823,53 @@ export function newFolder(app: App, parent: TFolder, onDone?: () => void): void 
   }).open();
 }
 
+/** Frontmatter canonique d'un nouveau feuillet — SOURCE UNIQUE, partagée
+ * par la création interactive (`newSheet`, via sa modale) et par toute
+ * création programmatique (Plan → Binder, voir carnet/bridges/binder.ts).
+ * `position` est l'`order:` à inscrire ; l'appelant le calcule selon son
+ * contexte (fin de dossier pour newSheet, position planifiée pour le Plan). */
+export function sheetFrontmatter(app: App, settings: FeuilletsSettings, title: string, position: number): string {
+  const preset = getProjectMode(app, settings).yamlPreset;
+  const isFiction = preset === "roman" || preset === "nouvelle";
+  return [
+    "---",
+    `title: ${title || ""}`,
+    "short_title: ",
+    `order: ${position}`,
+    ...(isFiction ? ["synopsis: "] : ["summary: "]),
+    "status: ",
+    "label: ",
+    `goal: ${projectWordGoalDefault(app, settings)}`,
+    "tags: ",
+    "date: ",
+    "notes: ",
+    ...(!isFiction ? ["sources: "] : []),
+    "compile: true",
+    "---",
+    "",
+    "",
+  ].join("\n");
+}
+
+/** Création NON MODALE d'un feuillet — extraite de `newSheet` (§7 du lot
+ * Plan) pour que le pont Plan→Binder réutilise EXACTEMENT le même
+ * frontmatter sans rouvrir de modale ni dupliquer sa construction.
+ * N'ouvre jamais le fichier créé (contrairement à `newSheet`) : un Apply de
+ * Plan crée parfois plusieurs feuillets d'affilée. Lève si le chemin est
+ * déjà pris — le preflight du Plan garantit que ce cas ne survient pas. */
+export async function createSheetFile(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder,
+  fileName: string,
+  title: string,
+  position: number
+): Promise<TFile> {
+  const path = normalizePath(`${folder.path}/${fileName}.md`);
+  if (app.vault.getAbstractFileByPath(path)) throw new Error(`Sheet already exists: ${path}`);
+  return app.vault.create(path, sheetFrontmatter(app, settings, title, position));
+}
+
 export function newSheet(app: App, settings: FeuilletsSettings, folder: TFolder): void {
   new NewSheetModal(app, folder.name, async (fileName, chapTitle) => {
     const path = normalizePath(`${folder.path}/${fileName}.md`);
@@ -831,26 +878,7 @@ export function newSheet(app: App, settings: FeuilletsSettings, folder: TFolder)
       return;
     }
     const position = getOrderedChildren(app, settings, folder).length + 1;
-    const isFiction = getProjectMode(app, settings).yamlPreset === "roman" || getProjectMode(app, settings).yamlPreset === "nouvelle";
-    const lines = [
-      "---",
-      `title: ${chapTitle || ""}`,
-      "short_title: ",
-      `order: ${position}`,
-      ...(isFiction ? ["synopsis: "] : ["summary: "]),
-      "status: ",
-      "label: ",
-      `goal: ${projectWordGoalDefault(app, settings)}`,
-      "tags: ",
-      "date: ",
-      "notes: ",
-      ...(!isFiction ? ["sources: "] : []),
-      "compile: true",
-      "---",
-      "",
-      "",
-    ];
-    const file = await app.vault.create(path, lines.join("\n"));
+    const file = await createSheetFile(app, settings, folder, fileName, chapTitle || "", position);
     openFileActivating(app, app.workspace.getLeaf(false), file);
   }).open();
 }

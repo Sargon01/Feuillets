@@ -21,6 +21,8 @@ import { createFolderScope, createSelectionScope, compileScopesEqual, resolveCom
 import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
 import { t } from "../i18n/index.js";
+import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
+export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
 
 function getResearchSectionIcon(key: string): string {
   return (
@@ -145,7 +147,7 @@ export function showChoices(
  * égalité exacte, ou préfixe `oldPath/` — un chemin « voisin » (ex.
  * `oldPath-suite`) n'est jamais modifié. Fonction pure, exportée ici pour
  * les tests (le stub Obsidian n'exporte pas la classe Plugin). */
-export function remapResearchFolderLinks(
+function legacyRemapResearchFolderLinks(
   links: Record<string, string> | undefined,
   oldPath: string,
   newPath: string
@@ -317,6 +319,24 @@ export abstract class BaseFeuilletsView extends ItemView {
   researchFolderClipboardPath?: string;
   selectedText?: string;
   viewingFile?: TFile | null;
+
+  private addFolderCarnetMenuItem(menu: Menu, folder: TFolder): void {
+    const candidate = this.plugin as unknown as { canUseFolderCarnet?: (folder: TFolder) => boolean; hasFolderCarnet?: (folder: TFolder) => boolean; openFolderCarnet?: (folder: TFolder) => Promise<void> };
+    /* Appels en méthode sur `candidate` — jamais des références détachées
+       (`const canUse = candidate.canUseFolderCarnet`) : ces trois méthodes
+       lisent `this.app`/`this.settings` sur le plugin réel, une référence
+       nue appelée seule (`canUse(folder)`) perd ce `this` et lève une
+       TypeError AVANT `menu.showAtMouseEvent`, empêchant tout le menu de
+       s'afficher — pas seulement l'item Carnet (régression constatée en
+       test manuel, Binder ET Recherche). */
+    if (!candidate.canUseFolderCarnet || !candidate.hasFolderCarnet || !candidate.openFolderCarnet) return;
+    if (!candidate.canUseFolderCarnet(folder)) return;
+    const hasCarnet = candidate.hasFolderCarnet(folder);
+    menu.addItem((item) => item
+      .setTitle(t(hasCarnet ? "carnet.folder.open" : "carnet.folder.create"))
+      .setIcon("notebook-tabs")
+      .onClick(() => void candidate.openFolderCarnet!(folder)));
+  }
 
   getProjectLabels(): Label[] {
     const S = this.plugin.settings;
@@ -1542,6 +1562,9 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   private showResearchFolderContextMenu(e: MouseEvent, folder: TFolder): void {
     const menu = new Menu();
+    this.addFolderCarnetMenuItem(menu, folder);
+    const carnetPlugin = this.plugin as unknown as { canUseFolderCarnet?: (folder: TFolder) => boolean };
+    if (carnetPlugin.canUseFolderCarnet?.(folder)) menu.addSeparator();
     menu.addItem((item) =>
       item
         .setTitle(t("binder.newSubfolder"))
@@ -1607,6 +1630,13 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.plugin._researchDragPath = file.path;
       e.dataTransfer!.effectAllowed = "move";
       e.dataTransfer!.setData("text/plain", file.path);
+      /* Correctif « drag Binder/Recherche → vrai FileNode » : UNIQUEMENT
+         pour un fichier (jamais un sous-dossier, §4) — un Carnet ouvert qui
+         reçoit ce MIME privé y crée un vrai FileNode Canvas (voir main.ts,
+         handleCarnetFileDrop), jamais un TextNode `[[lien]]`. Le
+         déplacement interne Recherche existant (`_researchDragPath`,
+         attachResearchDropTarget) reste totalement inchangé. */
+      if (file instanceof TFile) e.dataTransfer!.setData(FEUILLETS_FILE_DRAG_MIME, file.path);
       row.addClass("feuillets-dragging");
       e.stopPropagation();
     });
@@ -2654,6 +2684,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         })
     );
     extraItems?.(menu);
+    this.addFolderCarnetMenuItem(menu, folder);
     menu.addSeparator();
 
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.newMenu")).setIcon("plus").onClick((evt) => showChoices(evt, e, (choices) => {
@@ -3151,6 +3182,11 @@ export abstract class BaseFeuilletsView extends ItemView {
          flux. */
       if (transfer && draggedNode instanceof TFile && !this.plugin.dragState?.multi) {
         transfer.setData("text/plain", draggedNode.path);
+        /* Correctif « drag Binder/Recherche → vrai FileNode » : MIME privé
+           supplémentaire lu par le câblage vivant du Carnet (voir
+           integrations/advanced-canvas.ts) pour matérialiser un VRAI
+           FileNode Canvas au drop, jamais un TextNode `[[lien]]`. */
+        transfer.setData(FEUILLETS_FILE_DRAG_MIME, draggedNode.path);
       }
       e.stopPropagation();
     });

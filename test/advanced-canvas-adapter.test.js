@@ -1,14 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Menu, Notice, TFile, TFolder } from "obsidian";
+import { Menu, TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { registerAdvancedCanvasIntegration } from "../src/integrations/advanced-canvas.js";
 import { canvasPathFor } from "../src/services/canvas-board.js";
 import { CanvasBridgeModal, CanvasNodeToManuscriptModal } from "../src/ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "../src/ui/canvas-chapter-modal.js";
-import { CanvasIdeaTreeModal } from "../src/ui/canvas-idea-tree-modal.js";
-import { ImportOutlineModal } from "../src/ui/import-outline-modal.js";
 import { ideaTreeBranch } from "../src/services/canvas-idea-tree.js";
+import FeuilletsPlugin from "../src/main.js";
 
 /* On ne teste jamais Advanced Canvas lui-même — seulement l'adaptateur
  * Feuillets, avec un faux objet minimal reproduisant uniquement le contrat
@@ -143,10 +142,17 @@ function makeFakeIframe() {
   };
 }
 
-function makeFakeNodeEl() {
+/** Correctif drag/reparent + collapse (Prompt 2, suite) — `rect` (settable
+ * par chaque test) simule `getBoundingClientRect()` pour le hit-test par
+ * position ; `add`/`remove` complètent `toggle`/`contains` (déjà utilisés
+ * par la classe de lecture idea-tree) pour le survol de cible de dépôt. */
+function makeFakeNodeEl(rect = { left: 0, right: 0, top: 0, bottom: 0 }) {
   const classes = new Set();
   let iframe = makeFakeIframe();
-  return {
+  const attrs = {};
+  const children = [];
+  const el = {
+    rect,
     classList: {
       toggle(cls, force) {
         const has = classes.has(cls);
@@ -158,13 +164,49 @@ function makeFakeNodeEl() {
       contains(cls) {
         return classes.has(cls);
       },
+      add(cls) { classes.add(cls); },
+      remove(cls) { classes.delete(cls); },
+    },
+    getBoundingClientRect() {
+      return el.rect;
     },
     querySelector(sel) {
-      return sel === "iframe" ? iframe : null;
+      if (sel === "iframe") return iframe;
+      return children.find((child) => child.matchesClass && sel.startsWith(".") && child.matchesClass(sel.slice(1))) || null;
     },
-    setIframe(el) {
-      iframe = el;
+    createDiv({ cls } = {}) {
+      const child = makeFakeControlEl(cls);
+      children.push(child);
+      return child;
     },
+    setAttr(name, value) { attrs[name] = value; },
+    getAttr(name) { return attrs[name]; },
+    setIframe(el2) {
+      iframe = el2;
+    },
+  };
+  return el;
+}
+
+/** Petit élément DOM factice pour le contrôle repli/dépli (`createDiv`) —
+ * juste assez pour vérifier texte, classe et rappel de clic. */
+function makeFakeControlEl(cls) {
+  const classes = new Set(cls ? cls.split(" ") : []);
+  const attrs = {};
+  return {
+    matchesClass: (name) => classes.has(name),
+    textContent: "",
+    onclick: null,
+    onpointerdown: null,
+    setText(text) { this.textContent = text; },
+    setAttr(name, value) { attrs[name] = value; },
+    getAttr(name) { return attrs[name]; },
+    toggleClass(name, force) {
+      const has = classes.has(name);
+      const next = force === undefined ? !has : !!force;
+      if (next) classes.add(name); else classes.delete(name);
+    },
+    remove() { this.removed = true; },
   };
 }
 
@@ -233,6 +275,27 @@ function makeFakeScope() {
 /** Fixture complète avec un faux workspace `getLeavesOfType("canvas")` —
  * pour tester `attachIdeaTreeKeymaps` sans dépendre du rendu réel d'une vue
  * Canvas. */
+/** Correctif drag/reparent — faux wrapper DOM de la vue Canvas :
+ * `addEventListener`/`removeEventListener` réels (pour vérifier le
+ * cleanup), `fire` pour simuler un événement pointer dans les tests. */
+function makeFakeWrapperEl() {
+  const listeners = {};
+  return {
+    addEventListener(type, cb) {
+      (listeners[type] ||= []).push(cb);
+    },
+    removeEventListener(type, cb) {
+      listeners[type] = (listeners[type] || []).filter((registered) => registered !== cb);
+    },
+    fire(type, evt) {
+      for (const cb of listeners[type] || []) cb(evt);
+    },
+    listenerCount(type) {
+      return (listeners[type] || []).length;
+    },
+  };
+}
+
 function makeScopedFixture(nodeDataList = []) {
   const volume = new TFolder("Projet");
   const manuscript = new TFolder("Projet/Manuscrit");
@@ -243,6 +306,8 @@ function makeScopedFixture(nodeDataList = []) {
   const canvas = makeRuntimeCanvas(boardFile, nodeDataList);
   const scope = makeFakeScope();
   const cleanups = [];
+  const containerEl = makeFakeWrapperEl();
+  canvas.wrapperEl = containerEl;
   const view = {
     file: boardFile,
     canvas,
@@ -276,7 +341,7 @@ function makeScopedFixture(nodeDataList = []) {
       registeredCleanups.push(cb);
     },
   };
-  return { app, plugin, settings, manuscript, boardFile, canvas, scope, view, cleanups, registeredCleanups };
+  return { app, plugin, settings, manuscript, boardFile, canvas, scope, view, containerEl, cleanups, registeredCleanups };
 }
 
 test("registerAdvancedCanvasIntegration : s'enregistre sans planter même sans Advanced Canvas", () => {
@@ -369,7 +434,7 @@ test("registerAdvancedCanvasIntegration : plusieurs text nodes → deux actions,
 });
 
 // 1. canvas:node-menu sur un text node du Carnet → actions historiques + arbre
-test("registerAdvancedCanvasIntegration : node-menu TextNode conserve les actions historiques et ajoute Développer en arbre", () => {
+test("registerAdvancedCanvasIntegration : node-menu TextNode ne propose QUE les actions Feuillets, plus aucune action idea-tree", () => {
   const { app, plugin, manuscript } = makeFixture();
   registerAdvancedCanvasIntegration(plugin);
 
@@ -378,10 +443,34 @@ test("registerAdvancedCanvasIntegration : node-menu TextNode conserve les action
   const menu = new Menu();
   fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "t1", type: "text" }) });
 
-  assert.equal(menu.items.length, 5);
-  assert.equal(menu.items.some((item) => item.title === "Développer en arbre…"), true);
-  assert.equal(menu.items.some((item) => item.title === "Ajouter une branche"), true);
+  assert.deepEqual(menu.items.map((item) => item.title), [
+    "Transformer en feuillet",
+    "Transformer en fiche Recherche",
+    "Scinder…",
+  ]);
   assert.ok(menu.items.every((item) => typeof item.callback === "function"));
+});
+
+test("Plan — keymaps legacy ignorent Tab/Entrée et le menu ne reçoit aucune action Feuillets", () => {
+  const planNode = { id: "plan", type: "text", text: "Plan du manuscrit", feuillets_binder_plan: "outliner-v1", feuillets_plan_version: 2, feuillets_plan_items: [] };
+  const { plugin, canvas, scope } = makeScopedFixture([planNode]);
+  registerAdvancedCanvasIntegration(plugin);
+  canvas.selection = new Set([canvas.nodes.get("plan")]);
+  const tab = scope.handlers.find((handler) => handler.key === "Tab");
+  const enter = scope.handlers.find((handler) => handler.key === "Enter");
+  const tabEvent = { preventDefault() { this.prevented = true; } };
+  tab.func(tabEvent, {});
+  enter.func({ preventDefault() { this.prevented = true; } }, {});
+  assert.equal(canvas.getData().nodes.length, 1, "aucune edge ou branche idea-tree n'est créée");
+  assert.equal(tabEvent.prevented, undefined, "le raccourci legacy ne consomme pas le Plan");
+
+  const { app, manuscript } = makeFixture();
+  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
+  const menuCanvas = makeLiveCanvas(boardFile, [planNode]);
+  registerAdvancedCanvasIntegration({ app, settings: { projectFolder: manuscript.path }, registerEvent() {}, saveSettings: async () => {} });
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas: menuCanvas, getData: () => planNode });
+  assert.equal(menu.items.length, 0, "aucune conversion, scission ou action idea-tree sur le Plan");
 });
 
 // 2. file node → aucune action Feuillets de transformation
@@ -657,7 +746,7 @@ test("registerAdvancedCanvasIntegration : selection-menu et node-menu coexistent
 
   const nodeMenu = new Menu();
   fireNodeMenu(app, nodeMenu, { canvas, getData: () => ({ id: "t1", type: "text" }) });
-  assert.equal(nodeMenu.items.length, 5);
+  assert.equal(nodeMenu.items.length, 3);
 });
 
 // ---------------------------------------------------------------------------
@@ -697,8 +786,8 @@ test("registerAdvancedCanvasIntegration : node-menu group d'un autre Canvas → 
   assert.equal(menu.items.length, 0);
 });
 
-// 3. file node manuscrit → arbre, mais toujours aucune scission Canvas.
-test("registerAdvancedCanvasIntegration : node-menu FileNode manuscrit → arbre sans scission Canvas", () => {
+// 3. file node manuscrit → aucune action : ni scission Canvas, ni idea-tree.
+test("registerAdvancedCanvasIntegration : node-menu FileNode manuscrit → aucune action Canvas", () => {
   const { app, plugin, manuscript, ch1 } = makeFixtureWithManuscriptFiles();
   registerAdvancedCanvasIntegration(plugin);
 
@@ -707,13 +796,10 @@ test("registerAdvancedCanvasIntegration : node-menu FileNode manuscrit → arbre
   const menu = new Menu();
   fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "f1", type: "file" }) });
 
-  assert.equal(menu.items.length, 1);
-  assert.equal(menu.items[0].title, "Développer en arbre…");
-  assert.equal(menu.items.some((i) => i.title === "Scinder…"), false);
-  assert.equal(menu.items.some((i) => i.title.includes("chapitre")), false);
+  assert.equal(menu.items.length, 0, "le menu de fichier Feuillets garde ses propres actions");
 });
 
-// 4. text node libre → conserve les actions Lot 1 et l'arbre, jamais chapitre.
+// 4. text node libre → conserve les actions Lot 1, jamais chapitre ni arbre.
 test("registerAdvancedCanvasIntegration : node-menu sur un text node → jamais l'action chapitre, toujours Scinder", () => {
   const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
   registerAdvancedCanvasIntegration(plugin);
@@ -723,39 +809,38 @@ test("registerAdvancedCanvasIntegration : node-menu sur un text node → jamais 
   const menu = new Menu();
   fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "t1", type: "text", text: "Idée" }) });
 
-  assert.equal(menu.items.length, 5);
-  assert.equal(menu.items[0].title, "Transformer en feuillet");
-  assert.equal(menu.items[1].title, "Transformer en fiche Recherche");
-  assert.equal(menu.items[2].title, "Scinder…");
-  assert.equal(menu.items[3].title, "Ajouter une branche");
-  assert.equal(menu.items[4].title, "Développer en arbre…");
+  assert.deepEqual(menu.items.map((i) => i.title), [
+    "Transformer en feuillet",
+    "Transformer en fiche Recherche",
+    "Scinder…",
+  ]);
   assert.equal(menu.items.some((i) => i.title.includes("chapitre")), false);
 });
 
-test("registerAdvancedCanvasIntegration : Développer en arbre ouvre la modale légère et persiste uniquement nodes/edges", async () => {
+/* Idea-tree = compatibilité/migration seulement : aucune commande active ne
+   crée, n'étend ni ne réorganise plus une branche. Ses DONNÉES restent
+   intactes et lisibles — ces deux tests vérifient les deux faces. */
+test("idea-tree legacy — aucune action de création/réorganisation d'arbre n'est proposée", () => {
   const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
   registerAdvancedCanvasIntegration(plugin);
   const boardFile = new TFile(canvasPathFor(app, manuscript), "");
   const parent = { id: "A", type: "text", text: "A", x: 0, y: 0, width: 240, height: 80 };
   const canvas = makeLiveCanvas(boardFile, [parent]);
 
-  let captured = null;
-  const originalOpen = CanvasIdeaTreeModal.prototype.open;
-  CanvasIdeaTreeModal.prototype.open = function () { captured = this; };
-  try {
-    const menu = new Menu();
-    fireNodeMenu(app, menu, { canvas, getData: () => parent });
-    menu.items.find((item) => item.title === "Développer en arbre…").callback();
-  } finally {
-    CanvasIdeaTreeModal.prototype.open = originalOpen;
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas, getData: () => parent });
+  for (const retired of [
+    "Développer en arbre…",
+    "Ajouter une branche",
+    "Réorganiser l'arbre",
+    "Créer un chapitre avec cette branche…",
+    "Transformer cette branche en plan…",
+  ]) {
+    assert.equal(menu.items.some((item) => item.title === retired), false, `${retired} est retirée de l'usage actif`);
   }
-  assert.ok(captured);
-  await captured.onSubmit("B\nC");
-  assert.deepEqual(canvas.getData().nodes.filter((node) => node.type === "text").map((node) => node.text), ["A", "B", "C"]);
-  assert.ok(canvas.getData().edges.every((edge) => edge.feuillets_managed === "idea-tree"));
 });
 
-test("registerAdvancedCanvasIntegration : une node d'arbre ouvre le chapitre avec l'ordre DFS exact", () => {
+test("idea-tree legacy — un Carnet contenant un ancien arbre reste lisible et n'est jamais réécrit", () => {
   const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
   registerAdvancedCanvasIntegration(plugin);
   const boardFile = new TFile(canvasPathFor(app, manuscript), "");
@@ -769,20 +854,16 @@ test("registerAdvancedCanvasIntegration : une node d'arbre ouvre le chapitre ave
     { id: "ac", fromNode: "A", toNode: "C", feuillets_managed: "idea-tree" },
     { id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" }
   );
+  const before = JSON.stringify(canvas.getData());
 
-  let captured = null;
-  const originalOpen = CanvasChapterModal.prototype.open;
-  CanvasChapterModal.prototype.open = function () { captured = this; };
-  try {
-    const menu = new Menu();
-    fireNodeMenu(app, menu, { canvas, getData: () => nodes[0] });
-    menu.items.find((item) => item.title === "Créer un chapitre avec cette branche…").callback();
-  } finally {
-    CanvasChapterModal.prototype.open = originalOpen;
-  }
-  assert.ok(captured);
-  assert.equal(captured.context.source, "idea-tree");
-  assert.deepEqual(captured.context.ids, ["A", "B", "C"]);
+  // Les données legacy restent parcourables par le service de lecture…
+  assert.deepEqual(ideaTreeBranch(canvas.getData(), "A").map((n) => n.id), ["A", "B", "C"]);
+
+  // …et l'ouverture d'un menu sur l'arbre n'écrit RIEN.
+  const menu = new Menu();
+  fireNodeMenu(app, menu, { canvas, getData: () => nodes[0] });
+  assert.equal(JSON.stringify(canvas.getData()), before);
+  assert.equal(canvas.setDataCalls.length, 0);
 });
 
 // 5. selection-menu avec 2 text nodes → action chapitre proposée
@@ -919,14 +1000,17 @@ test("registerAdvancedCanvasIntegration : aucun écouteur de synchronisation gé
 });
 
 // ---------------------------------------------------------------------------
-// Lot 5 — Arbre d'idées : raccourcis clavier (Scope), lisibilité, menu.
+// Raccourcis clavier Mindmap (Scope de la vue Carnet) et décorations de
+// LECTURE des anciens idea-tree.
 // ---------------------------------------------------------------------------
 
-test("Lot 5 — Scope : Tab et Entrée sont enregistrés dans le Scope de la vue Carnet", () => {
+test("Scope Mindmap : Tab, Entrée et Shift+Tab enregistrés avec des modificateurs EXACTS, jamais null", () => {
   const { plugin, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
   registerAdvancedCanvasIntegration(plugin);
-  assert.equal(scope.handlers.filter((h) => h.key === "Tab").length, 1);
-  assert.equal(scope.handlers.filter((h) => h.key === "Enter").length, 1);
+  assert.equal(scope.handlers.every((h) => Array.isArray(h.modifiers)), true, "`null` accepterait TOUTES les variantes, Cmd/Ctrl+Entrée du Plan comprise");
+  assert.equal(scope.handlers.filter((h) => h.key === "Tab" && h.modifiers.length === 0).length, 1);
+  assert.equal(scope.handlers.filter((h) => h.key === "Enter" && h.modifiers.length === 0).length, 1);
+  assert.equal(scope.handlers.filter((h) => h.key === "Tab" && h.modifiers.includes("Shift")).length, 1, "Mindmap : Shift+Tab outdent");
 });
 
 test("Lot 5 — Scope : un Canvas qui n'est pas le Carnet du projet actif n'obtient aucun raccourci", () => {
@@ -938,73 +1022,43 @@ test("Lot 5 — Scope : un Canvas qui n'est pas le Carnet du projet actif n'obti
   assert.equal(scope.handlers.length, 0);
 });
 
-test("Lot 5 — Tab sur un node sélectionné et non édité crée un enfant idea-tree (rien d'autre : pas de sélection/édition automatique)", () => {
+test("Tab/Entrée/Shift+Tab sur un TextNode LIBRE ne font strictement rien (aucune branche idea-tree créée)", () => {
   const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A", x: 0, y: 0, width: 260, height: 80 }]);
   registerAdvancedCanvasIntegration(plugin);
   const runtimeA = canvas.nodes.get("A");
   canvas.selection = new Set([runtimeA]);
   const selectionBefore = canvas.selection;
+  const before = JSON.stringify(canvas.getData());
 
-  const tabHandler = scope.handlers.find((h) => h.key === "Tab");
-  assert.ok(tabHandler);
-  const evt = { preventDefault() { this.prevented = true; } };
-  tabHandler.func(evt, {});
+  for (const handler of scope.handlers) {
+    const evt = { preventDefault() { this.prevented = true; } };
+    const result = handler.func(evt, {});
+    assert.equal(evt.prevented, undefined, "aucun raccourci ne consomme la frappe sur une carte libre");
+    assert.equal(result, undefined, "le comportement natif d'Obsidian reste entier");
+  }
 
-  assert.equal(evt.prevented, true);
-  const nodes = canvas.getData().nodes;
-  assert.equal(nodes.length, 2);
-  const child = nodes[1];
-  assert.equal(child.text, "");
-  assert.equal(child.width, 260);
-  assert.equal(child.height, 80);
-  assert.equal(child.x, 170);
-  assert.equal(child.y, 60);
-
-  const runtimeChild = canvas.nodes.get(child.id);
-  assert.ok(runtimeChild, "le node créé existe dans canvas.nodes");
-
-  // Décision produit VERSION FINALE : aucune sélection ni édition
-  // automatique du node créé — la sélection du Canvas reste celle de
-  // l'utilisateur (A), le nouveau node n'est pas en édition.
+  assert.equal(JSON.stringify(canvas.getData()), before, "aucun node, aucune edge créés");
   assert.equal(canvas.selection, selectionBefore);
-  assert.equal([...canvas.selection][0], runtimeA);
-  assert.equal(runtimeChild.isEditing, false);
 
-  // Aucun zoom, aucun déplacement de viewport.
   for (const zoomFn of ["zoomToSelection", "zoomToFit", "zoomToBbox", "setViewport"]) {
     assert.equal(zoomFn in canvas, false);
   }
 });
 
-test("Lot 5 — Entrée sur un membre avec parent, non édité, crée un frère juste après lui (rien d'autre)", () => {
-  const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A", x: 0, y: 0 }]);
+test("Tab/Entrée ne touchent jamais un idea-tree legacy déjà présent dans le Carnet", () => {
+  const { plugin, canvas, scope } = makeScopedFixture([
+    { id: "A", type: "text", text: "A", x: 0, y: 0 },
+    { id: "B", type: "text", text: "B", x: 170, y: 60 },
+  ]);
+  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
   registerAdvancedCanvasIntegration(plugin);
-  const runtimeA = canvas.nodes.get("A");
-  canvas.selection = new Set([runtimeA]);
-  scope.handlers.find((h) => h.key === "Tab").func({ preventDefault() {} }, {});
-  const bId = canvas.getData().nodes[1].id;
-  const runtimeB = canvas.nodes.get(bId);
-  canvas.selection = new Set([runtimeB]);
+  canvas.selection = new Set([canvas.nodes.get("B")]);
+  const before = JSON.stringify(canvas.getData());
 
-  const enterHandler = scope.handlers.find((h) => h.key === "Enter");
-  const evt = { preventDefault() { this.prevented = true; } };
-  enterHandler.func(evt, {});
+  for (const handler of scope.handlers) handler.func({ preventDefault() { this.prevented = true; } }, {});
 
-  assert.equal(evt.prevented, true);
-  const finalData = canvas.getData();
-  assert.equal(finalData.nodes.length, 3);
-  const cId = finalData.nodes[2].id;
-  assert.equal(finalData.nodes[2].text, "");
-  assert.deepEqual(ideaTreeBranch(finalData, "A").map((n) => n.id), ["A", bId, cId]);
-
-  const runtimeC = canvas.nodes.get(cId);
-  assert.ok(runtimeC, "le frère créé existe dans canvas.nodes");
-  assert.equal([...canvas.selection][0], runtimeB, "la sélection reste celle de l'utilisateur, jamais déplacée sur C");
-  assert.equal(runtimeC.isEditing, false);
-
-  for (const zoomFn of ["zoomToSelection", "zoomToFit", "zoomToBbox", "setViewport"]) {
-    assert.equal(zoomFn in canvas, false);
-  }
+  assert.equal(JSON.stringify(canvas.getData()), before, "les données legacy sont préservées telles quelles");
+  assert.deepEqual(ideaTreeBranch(canvas.getData(), "A").map((n) => n.id), ["A", "B"], "et restent lisibles");
 });
 
 test("Lot 5 — Entrée sur la racine (sans parent idea-tree) ne crée rien", () => {
@@ -1067,52 +1121,35 @@ test("Lot 5 — aucune API de zoom n'est jamais appelée par les raccourcis Tab/
   assert.doesNotThrow(() => tabHandler.func({ preventDefault() {} }, {}));
 });
 
-test("Lot 5 — VERSION FINALE : aucune logique d'autofocus ne subsiste (Tab/Entrée ne touchent ni sélection ni édition)", () => {
+test("aucune logique d'autofocus ne subsiste : les raccourcis ne touchent ni sélection ni édition", () => {
   const { plugin, canvas, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A", x: 0, y: 0 }]);
   registerAdvancedCanvasIntegration(plugin);
   const runtimeA = canvas.nodes.get("A");
   canvas.selection = new Set([runtimeA]);
   const selectionRef = canvas.selection;
 
-  // Tab : création d'un enfant.
-  scope.handlers.find((h) => h.key === "Tab").func({ preventDefault() {} }, {});
-  const bId = canvas.getData().nodes[1].id;
-  const runtimeB = canvas.nodes.get(bId);
+  for (const handler of scope.handlers) handler.func({ preventDefault() {} }, {});
 
-  // Aucun helper de sélection/édition automatique n'a été appelé : la
-  // référence de sélection du Canvas n'a même pas changé d'objet, et le
-  // nouveau node n'a jamais été touché.
   assert.equal(canvas.selection, selectionRef);
   assert.equal([...canvas.selection][0], runtimeA);
-  assert.equal(runtimeB.isEditing, false);
-  assert.equal("startEditing" in runtimeB, false);
-  assert.equal("setIsEditing" in runtimeB, false);
+  assert.equal(runtimeA.isEditing, false);
+  assert.equal("startEditing" in runtimeA, false);
+  assert.equal("setIsEditing" in runtimeA, false);
   assert.equal("selectOnly" in canvas, false);
-
-  // Entrée : création d'un frère — même constat.
-  canvas.selection = new Set([runtimeB]);
-  const selectionRef2 = canvas.selection;
-  scope.handlers.find((h) => h.key === "Enter").func({ preventDefault() {} }, {});
-  const cId = canvas.getData().nodes[2].id;
-  const runtimeC = canvas.nodes.get(cId);
-
-  assert.equal(canvas.selection, selectionRef2);
-  assert.equal([...canvas.selection][0], runtimeB);
-  assert.equal(runtimeC.isEditing, false);
 });
 
-test("Lot 5 — les handlers Tab/Entrée sont désenregistrés au déchargement de la VUE", () => {
+test("Lot 5 — les handlers Tab/Entrée/Shift+Tab sont désenregistrés au déchargement de la VUE", () => {
   const { plugin, scope, cleanups } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
   registerAdvancedCanvasIntegration(plugin);
-  assert.equal(scope.handlers.length, 2);
+  assert.equal(scope.handlers.length, 3, "Tab, Entrée, et Shift+Tab (Mindmap, Prompt 2/5)");
   cleanups.forEach((cb) => cb());
   assert.equal(scope.handlers.length, 0);
 });
 
-test("Lot 5 — les handlers Tab/Entrée sont aussi désenregistrés au déchargement du PLUGIN", () => {
+test("Lot 5 — les handlers Tab/Entrée/Shift+Tab sont aussi désenregistrés au déchargement du PLUGIN", () => {
   const { plugin, scope, registeredCleanups } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
   registerAdvancedCanvasIntegration(plugin);
-  assert.equal(scope.handlers.length, 2);
+  assert.equal(scope.handlers.length, 3);
   registeredCleanups.forEach((cb) => cb());
   assert.equal(scope.handlers.length, 0);
 });
@@ -1120,24 +1157,23 @@ test("Lot 5 — les handlers Tab/Entrée sont aussi désenregistrés au décharg
 test("Lot 5 — attachIdeaTreeKeymaps n'attache jamais deux fois la même vue Carnet", () => {
   const { plugin, scope } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
   registerAdvancedCanvasIntegration(plugin);
-  assert.equal(scope.handlers.length, 2);
+  assert.equal(scope.handlers.length, 3);
   plugin.app.workspace.handlers["active-leaf-change"]();
   plugin.app.workspace.handlers["layout-change"]();
-  assert.equal(scope.handlers.length, 2);
+  assert.equal(scope.handlers.length, 3);
 });
 
-test("Lot 5 — classe de lecture posée sur les membres idea-tree, jamais sur une carte libre", () => {
-  const { plugin, canvas, scope } = makeScopedFixture([
+test("classe de LECTURE posée sur les membres d'un idea-tree legacy, jamais sur une carte libre", () => {
+  const { plugin, canvas } = makeScopedFixture([
     { id: "A", type: "text", text: "A" },
+    { id: "B", type: "text", text: "B" },
     { id: "LIBRE", type: "text", text: "Libre" },
   ]);
+  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
   registerAdvancedCanvasIntegration(plugin);
-  canvas.selection = new Set([canvas.nodes.get("A")]);
-  scope.handlers.find((h) => h.key === "Tab").func({ preventDefault() {} }, {});
 
   assert.equal(canvas.nodes.get("A").nodeEl.classList.contains("feuillets-idea-tree-member"), true);
-  const childId = canvas.getData().nodes.find((n) => n.id !== "A" && n.id !== "LIBRE").id;
-  assert.equal(canvas.nodes.get(childId).nodeEl.classList.contains("feuillets-idea-tree-member"), true);
+  assert.equal(canvas.nodes.get("B").nodeEl.classList.contains("feuillets-idea-tree-member"), true);
   assert.equal(canvas.nodes.get("LIBRE").nodeEl.classList.contains("feuillets-idea-tree-member"), false);
 });
 
@@ -1168,52 +1204,6 @@ test("Lot 5 — classe d'édition posée sur le body de l'iframe réel de l'édi
   assert.equal(iframeLibre.contentDocument.body.classList.contains("feuillets-idea-tree-editing"), false);
 });
 
-test("Lot 5 — menu « Ajouter une branche » crée un enfant (aucune sélection/édition automatique)", () => {
-  const { app, plugin, canvas } = makeScopedFixture([{ id: "A", type: "text", text: "A" }]);
-  registerAdvancedCanvasIntegration(plugin);
-  const runtimeA = canvas.nodes.get("A");
-  canvas.selection = new Set([runtimeA]);
-
-  const menu = new Menu();
-  fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "A", type: "text", text: "A" }) });
-  const item = menu.items.find((i) => i.title === "Ajouter une branche");
-  assert.ok(item);
-  item.callback();
-
-  const nodes = canvas.getData().nodes;
-  assert.equal(nodes.length, 2);
-  const child = nodes[1];
-  assert.equal(child.text, "");
-
-  const runtimeChild = canvas.nodes.get(child.id);
-  assert.ok(runtimeChild);
-  assert.equal(runtimeChild.isEditing, false);
-  assert.equal([...canvas.selection][0], runtimeA, "la sélection reste celle de l'utilisateur");
-});
-
-test("Lot 5 — menu « Réorganiser l'arbre » appelle exclusivement reflowIdeaTree, aucun zoom", () => {
-  const nodeA = { id: "A", type: "text", text: "A", x: 0, y: 0 };
-  const nodeB = { id: "B", type: "text", text: "B", x: 999, y: 999 };
-  const { app, plugin, canvas } = makeScopedFixture([nodeA, nodeB]);
-  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
-  for (const zoomFn of ["zoomToSelection", "zoomToFit", "zoomToBbox", "setViewport"]) {
-    canvas[zoomFn] = () => {
-      throw new Error(`${zoomFn} ne doit jamais être appelée`);
-    };
-  }
-  registerAdvancedCanvasIntegration(plugin);
-
-  const menu = new Menu();
-  fireNodeMenu(app, menu, { canvas, getData: () => ({ id: "A", type: "text", text: "A" }) });
-  const item = menu.items.find((i) => i.title === "Réorganiser l'arbre");
-  assert.ok(item);
-  assert.doesNotThrow(() => item.callback());
-
-  const updatedB = canvas.getData().nodes.find((n) => n.id === "B");
-  assert.equal(updatedB.x, nodeA.x + 170);
-  assert.equal(updatedB.y, nodeA.y + 60);
-});
-
 test("Lot 5 — une carte libre (hors idea-tree) n'obtient jamais « Réorganiser l'arbre »", () => {
   const { app, plugin, canvas } = makeScopedFixture([{ id: "LIBRE", type: "text", text: "Libre" }]);
   registerAdvancedCanvasIntegration(plugin);
@@ -1222,43 +1212,8 @@ test("Lot 5 — une carte libre (hors idea-tree) n'obtient jamais « Réorganise
   assert.equal(menu.items.some((i) => i.title === "Réorganiser l'arbre"), false);
 });
 
-/* Faux <contentEl> minimal — suffisant pour CanvasChapterModal.onOpen() sans
- * dépendre d'un vrai DOM : seuls createEl/createDiv/addClass/empty/focus/
- * addEventListener sont réellement utilisés par cette modale. */
-class FakeChapterEl {
-  constructor(tag = "div") {
-    this.tag = tag;
-    this.children = [];
-    this.classes = new Set();
-    this.value = "";
-  }
-  createEl(tag, opts = {}) {
-    const el = new FakeChapterEl(tag);
-    if (opts.text !== undefined) el.text = opts.text;
-    if (opts.type !== undefined) el.type = opts.type;
-    if (opts.value !== undefined) el.value = opts.value;
-    if (opts.cls) el.classes.add(opts.cls);
-    this.children.push(el);
-    return el;
-  }
-  createDiv(opts = {}) {
-    return this.createEl("div", opts);
-  }
-  createSpan(opts = {}) {
-    return this.createEl("span", opts);
-  }
-  addClass(c) {
-    this.classes.add(c);
-    return this;
-  }
-  empty() {
-    this.children = [];
-  }
-  focus() {}
-  addEventListener() {}
-}
 
-test("Lot 5 — CanvasChapterModal (source idea-tree) préremplit le nom avec le NODE CLIQUÉ, jamais avec la racine", () => {
+test("idea-tree legacy — « Créer un chapitre avec cette branche… » n'est plus proposée sur un membre d'arbre", () => {
   const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
   registerAdvancedCanvasIntegration(plugin);
   const boardFile = new TFile(canvasPathFor(app, manuscript), "");
@@ -1271,62 +1226,14 @@ test("Lot 5 — CanvasChapterModal (source idea-tree) préremplit le nom avec le
     { id: "bc", fromNode: "B", toNode: "C", feuillets_managed: "idea-tree" }
   );
 
-  let captured = null;
-  const originalOpen = CanvasChapterModal.prototype.open;
-  CanvasChapterModal.prototype.open = function () {
-    captured = this;
-  };
-  try {
-    const menu = new Menu();
-    // Action lancée depuis B, pas depuis la racine A.
-    fireNodeMenu(app, menu, { canvas, getData: () => nodeB });
-    menu.items.find((item) => item.title === "Créer un chapitre avec cette branche…").callback();
-  } finally {
-    CanvasChapterModal.prototype.open = originalOpen;
-  }
-  assert.ok(captured);
-  assert.deepEqual(captured.context.ids, ["B", "C"]);
-
-  captured.contentEl = new FakeChapterEl();
-  captured.onOpen();
-  const nameInputEl = captured.contentEl.children.find((c) => c.tag === "input" && c.type === "text");
-  assert.ok(nameInputEl);
-  assert.equal(nameInputEl.value, "B");
-});
-
-/* ---------------------------------------------------------------------- *
- * Lot 9 — « Transformer cette branche en plan… » (node-menu) : réutilise
- * ideaTreeBranchToOutlineMarkdown puis ImportOutlineModal, sans aucune
- * mutation du Canvas.
- * ---------------------------------------------------------------------- */
-
-function captureImportOutlineModal(run) {
-  let captured = null;
-  const originalOpen = ImportOutlineModal.prototype.open;
-  ImportOutlineModal.prototype.open = function () {
-    captured = this;
-  };
-  try {
-    run();
-  } finally {
-    ImportOutlineModal.prototype.open = originalOpen;
-  }
-  return captured;
-}
-
-test("Lot 9 — un membre idea-tree avec au moins un descendant propose « Transformer cette branche en plan… »", () => {
-  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
-  registerAdvancedCanvasIntegration(plugin);
-  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
-  const nodeA = { id: "A", type: "text", text: "A", y: 0 };
-  const nodeB = { id: "B", type: "text", text: "B", y: 20 };
-  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeB]);
-  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
-
   const menu = new Menu();
-  fireNodeMenu(app, menu, { canvas, getData: () => nodeA });
-  assert.ok(menu.items.some((item) => item.title === "Transformer cette branche en plan…"));
+  fireNodeMenu(app, menu, { canvas, getData: () => nodeB });
+  assert.equal(menu.items.some((item) => item.title === "Créer un chapitre avec cette branche…"), false);
 });
+
+/* Compatibilité idea-tree : « Transformer cette branche en plan… » est
+ * retirée de l'usage actif. Ce garde-fou vérifie qu'elle ne réapparaît
+ * jamais, sur une racine comme sur une feuille. */
 
 test("Lot 9 — une simple feuille sans descendant idea-tree n'obtient jamais « Transformer cette branche en plan… »", () => {
   const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
@@ -1343,80 +1250,302 @@ test("Lot 9 — une simple feuille sans descendant idea-tree n'obtient jamais «
   assert.ok(!menu.items.some((item) => item.title === "Transformer cette branche en plan…"));
 });
 
-test("Lot 9 — le clic ouvre ImportOutlineModal préremplie avec le Markdown de la branche, sans muter le Canvas", () => {
-  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
-  registerAdvancedCanvasIntegration(plugin);
-  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
-  const nodeA = { id: "A", type: "text", text: "Partie I", y: 0 };
-  const nodeB = { id: "B", type: "text", text: "Chapitre 1", y: 20 };
-  const nodeC = { id: "C", type: "text", text: "Arrivée de Kemal", y: 40 };
-  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeB, nodeC]);
-  canvas.getData().edges.push(
-    { id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" },
-    { id: "bc", fromNode: "B", toNode: "C", feuillets_managed: "idea-tree" }
-  );
-  const canvasBefore = JSON.stringify(canvas.getData());
 
-  const menu = new Menu();
-  fireNodeMenu(app, menu, { canvas, getData: () => nodeA });
-  const captured = captureImportOutlineModal(() => {
-    menu.items.find((item) => item.title === "Transformer cette branche en plan…").callback();
-  });
+/* ================================================================
+ * Correctif Prompt 2 (suite) — DRAG MINDMAP RÉEL
+ *
+ * Le faux runtime reproduit ici l'API RÉELLE vérifiée sur le bundle
+ * Advanced Canvas 6.5.0 installé : `canvas.wrapperEl`, `canvas.posFromEvt`,
+ * `node.getBBox()`. `canvas.handleSelectionDrag` n'existe PAS (0 occurrence
+ * dans le bundle réel) et n'est donc simulé nulle part.
+ *
+ * Détail RÉALISTE décisif : pendant un drag, le node glissé SUIT le
+ * pointeur — son getBBox() se déplace avec lui. C'est exactement ce qui
+ * faisait échouer le hit-test précédent (le node glissé se retrouvait sous
+ * le point de dépose et était pris pour sa propre cible).
+ * ================================================================ */
 
-  assert.ok(captured);
-  assert.equal(captured.initialText, "# Partie I\n## Chapitre 1\n- Arrivée de Kemal");
-  assert.equal(JSON.stringify(canvas.getData()), canvasBefore, "le Carnet reste exactement tel qu'il était");
-  assert.equal(canvas.setDataCalls.length, 0);
-});
+function mindmapNode(id, extra = {}) {
+  return { id, type: "text", text: id, width: 200, height: 80, feuillets_block_id: "block-1", ...extra };
+}
 
-test("Lot 9 — une branche invalide (FileNode matérialisé) affiche une Notice, jamais de modale", () => {
-  const { app, plugin, manuscript, ch1 } = makeFixtureWithManuscriptFiles();
-  registerAdvancedCanvasIntegration(plugin);
-  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
-  const nodeA = { id: "A", type: "text", text: "A", y: 0 };
-  const nodeF = { id: "F", type: "file", file: ch1.path, y: 20 };
-  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeF]);
-  canvas.getData().edges.push({ id: "af", fromNode: "A", toNode: "F", feuillets_managed: "idea-tree" });
-
-  const menu = new Menu();
-  fireNodeMenu(app, menu, { canvas, getData: () => nodeA });
-
-  const notices = [];
-  const previousNotice = Notice.onCreate;
-  Notice.onCreate = (message) => notices.push(message);
-  const captured = captureImportOutlineModal(() => {
-    menu.items.find((item) => item.title === "Transformer cette branche en plan…").callback();
-  });
-  Notice.onCreate = previousNotice;
-
-  assert.equal(captured, null);
-  assert.deepEqual(notices, [
-    "Cette branche contient des éléments déjà matérialisés. Le plan ne peut être créé qu'à partir d'idées texte.",
-  ]);
-});
-
-test("Lot 9 — « Créer un chapitre avec cette branche… » reste présente et fonctionne comme avant", () => {
-  const { app, plugin, manuscript } = makeFixtureWithManuscriptFiles();
-  registerAdvancedCanvasIntegration(plugin);
-  const boardFile = new TFile(canvasPathFor(app, manuscript), "");
-  const nodeA = { id: "A", type: "text", text: "A", y: 0 };
-  const nodeB = { id: "B", type: "text", text: "B", y: 20 };
-  const canvas = makeLiveCanvas(boardFile, [nodeA, nodeB]);
-  canvas.getData().edges.push({ id: "ab", fromNode: "A", toNode: "B", feuillets_managed: "idea-tree" });
-
-  let captured = null;
-  const originalOpen = CanvasChapterModal.prototype.open;
-  CanvasChapterModal.prototype.open = function () {
-    captured = this;
+function bboxOf(nodeData) {
+  return {
+    minX: nodeData.x, minY: nodeData.y,
+    maxX: nodeData.x + nodeData.width, maxY: nodeData.y + nodeData.height,
   };
-  try {
-    const menu = new Menu();
-    fireNodeMenu(app, menu, { canvas, getData: () => nodeA });
-    menu.items.find((item) => item.title === "Créer un chapitre avec cette branche…").callback();
-  } finally {
-    CanvasChapterModal.prototype.open = originalOpen;
+}
+
+function makeMindmapDragFixture() {
+  // Racine → A, B → C. Rectangles disjoints en coordonnées Canvas.
+  const root = mindmapNode("root", { x: 0, y: 0 });
+  const nodeA = mindmapNode("A", { x: 300, y: 0 });
+  const nodeB = mindmapNode("B", { x: 300, y: 300 });
+  const nodeC = mindmapNode("C", { x: 600, y: 300 });
+  const group = { id: "group", type: "group", feuillets_block: "mindmap", feuillets_block_version: 1, feuillets_block_id: "block-1", x: -50, y: -50, width: 900, height: 450 };
+  const edges = [
+    { id: "e1", fromNode: "root", toNode: "A", feuillets_managed: "mindmap", feuillets_block_id: "block-1" },
+    { id: "e2", fromNode: "root", toNode: "B", feuillets_managed: "mindmap", feuillets_block_id: "block-1" },
+    { id: "e3", fromNode: "B", toNode: "C", feuillets_managed: "mindmap", feuillets_block_id: "block-1" },
+  ];
+  const fixture = makeScopedFixture([root, nodeA, nodeB, nodeC, group]);
+  fixture.canvas.getData().edges.push(...edges);
+  fixture.canvas.posFromEvt = (evt) => ({ x: evt.clientX, y: evt.clientY });
+  // getBBox() réel sur chaque instance runtime, lu depuis la donnée vivante.
+  for (const nodeData of [root, nodeA, nodeB, nodeC, group]) {
+    const runtime = fixture.canvas.nodes.get(nodeData.id);
+    if (runtime) runtime.getBBox = () => bboxOf(nodeData);
   }
-  assert.ok(captured);
-  assert.equal(captured.context.source, "idea-tree");
-  assert.deepEqual(captured.context.ids, ["A", "B"]);
+  fixture.nodeData = { root, nodeA, nodeB, nodeC, group };
+  return fixture;
+}
+
+/** Rejoue un vrai geste : pointerdown sur le node, le node SUIT le pointeur
+ * (comme le drag natif d'Obsidian le fait réellement), puis pointerup. */
+function simulateRealDrag(fixture, draggedId, endPoint) {
+  const wrapper = fixture.canvas.wrapperEl;
+  const dragged = fixture.canvas.getData().nodes.find((n) => n.id === draggedId);
+  const startPoint = { clientX: dragged.x + dragged.width / 2, clientY: dragged.y + dragged.height / 2 };
+  wrapper.fire("pointerdown", startPoint);
+  // Le node glissé se déplace sous le pointeur — reproduction fidèle.
+  dragged.x = endPoint.clientX - dragged.width / 2;
+  dragged.y = endPoint.clientY - dragged.height / 2;
+  wrapper.fire("pointermove", endPoint);
+  wrapper.fire("pointerup", endPoint);
+}
+
+const CENTER_A = { clientX: 400, clientY: 40 };
+const CENTER_C = { clientX: 700, clientY: 340 };
+const INSIDE_GROUP_ONLY = { clientX: 50, clientY: 200 };
+const OUTSIDE_ANY_BLOCK = { clientX: 5000, clientY: 5000 };
+
+test("drag Mindmap réel — C déposé sur A devient réellement enfant de A (le node glissé suit le pointeur)", () => {
+  const fixture = makeMindmapDragFixture();
+  registerAdvancedCanvasIntegration(fixture.plugin);
+
+  simulateRealDrag(fixture, "C", CENTER_A);
+
+  const data = fixture.canvas.getData();
+  assert.equal(data.edges.find((e) => e.toNode === "C").fromNode, "A", "C est maintenant enfant de A");
+  assert.equal(data.edges.some((e) => e.fromNode === "B" && e.toNode === "C"), false, "l'ancienne relation B→C a disparu");
+});
+
+test("drag Mindmap réel — branche complète conservée, persistance après reparentage", () => {
+  const fixture = makeMindmapDragFixture();
+  registerAdvancedCanvasIntegration(fixture.plugin);
+  const before = fixture.canvas.getData().nodes.map((n) => n.id).sort();
+
+  simulateRealDrag(fixture, "C", CENTER_A);
+
+  assert.deepEqual(fixture.canvas.getData().nodes.map((n) => n.id).sort(), before, "aucun node supprimé");
+  assert.equal(fixture.canvas.getData().edges.some((e) => e.fromNode === "root" && e.toNode === "B"), true, "root→B intacte");
+  const persisted = JSON.parse(JSON.stringify(fixture.canvas.getData()));
+  assert.equal(persisted.edges.find((e) => e.toNode === "C").fromNode, "A", "survit à une relecture getData");
+});
+
+test("drag Mindmap réel — descendant interdit : reparenter A sous son propre descendant C est refusé", () => {
+  const fixture = makeMindmapDragFixture();
+  registerAdvancedCanvasIntegration(fixture.plugin);
+  simulateRealDrag(fixture, "C", CENTER_A); // C devient descendant de A.
+  const edgeCount = fixture.canvas.getData().edges.length;
+
+  simulateRealDrag(fixture, "A", CENTER_C);
+
+  assert.equal(fixture.canvas.getData().edges.find((e) => e.toNode === "A").fromNode, "root", "A reste sous root");
+  assert.equal(fixture.canvas.getData().edges.length, edgeCount, "aucune edge ajoutée/retirée par le refus");
+});
+
+test("drag Mindmap réel — le groupe Canvas n'est jamais une cible", () => {
+  const fixture = makeMindmapDragFixture();
+  registerAdvancedCanvasIntegration(fixture.plugin);
+
+  simulateRealDrag(fixture, "C", INSIDE_GROUP_ONLY);
+
+  assert.equal(fixture.canvas.getData().edges.find((e) => e.toNode === "C").fromNode, "B", "C reste sous B");
+});
+
+test("drag Mindmap réel — autre Mindmap interdite", () => {
+  const fixture = makeMindmapDragFixture();
+  const otherRoot = { id: "other-root", type: "text", text: "Autre", width: 200, height: 80, feuillets_block_id: "block-2", x: 1200, y: 0 };
+  fixture.canvas.getData().nodes.push(otherRoot, { id: "other-group", type: "group", feuillets_block: "mindmap", feuillets_block_version: 1, feuillets_block_id: "block-2" });
+  fixture.canvas.nodes.set("other-root", { id: "other-root", getData: () => otherRoot, setData() {}, isEditing: false, nodeEl: makeFakeNodeEl(), getBBox: () => bboxOf(otherRoot) });
+  registerAdvancedCanvasIntegration(fixture.plugin);
+
+  simulateRealDrag(fixture, "C", { clientX: 1300, clientY: 40 });
+
+  assert.equal(fixture.canvas.getData().edges.find((e) => e.toNode === "C").fromNode, "B", "jamais reparenté vers un autre bloc");
+});
+
+test("drag Mindmap réel — un node Canvas libre n'est jamais une cible valide", () => {
+  const fixture = makeMindmapDragFixture();
+  const freeNode = { id: "free", type: "text", text: "Libre", x: 1200, y: 0, width: 200, height: 80 };
+  fixture.canvas.getData().nodes.push(freeNode);
+  fixture.canvas.nodes.set("free", { id: "free", getData: () => freeNode, setData() {}, isEditing: false, nodeEl: makeFakeNodeEl(), getBBox: () => bboxOf(freeNode) });
+  registerAdvancedCanvasIntegration(fixture.plugin);
+
+  simulateRealDrag(fixture, "C", { clientX: 1300, clientY: 40 });
+
+  assert.equal(fixture.canvas.getData().edges.find((e) => e.toNode === "C").fromNode, "B", "un node libre n'est jamais une cible");
+});
+
+test("drag Mindmap réel — dépose hors de tout node valide : aucune mutation", () => {
+  const fixture = makeMindmapDragFixture();
+  registerAdvancedCanvasIntegration(fixture.plugin);
+  const beforeEdges = JSON.stringify(fixture.canvas.getData().edges);
+
+  simulateRealDrag(fixture, "C", OUTSIDE_ANY_BLOCK);
+
+  assert.equal(JSON.stringify(fixture.canvas.getData().edges), beforeEdges);
+});
+
+test("drag Mindmap réel — surbrillance de la cible retirée à la fin du geste", () => {
+  const fixture = makeMindmapDragFixture();
+  registerAdvancedCanvasIntegration(fixture.plugin);
+
+  simulateRealDrag(fixture, "C", CENTER_A);
+
+  assert.equal(fixture.canvas.nodes.get("A").nodeEl.classList.contains("feuillets-mindmap-drop-target"), false);
+});
+
+test("drag Mindmap réel — un node hors Mindmap ne déclenche jamais de reparentage", () => {
+  const fixture = makeMindmapDragFixture();
+  const plain = { id: "plain", type: "text", text: "Ordinaire", x: 900, y: 900, width: 200, height: 80 };
+  fixture.canvas.getData().nodes.push(plain);
+  fixture.canvas.nodes.set("plain", { id: "plain", getData: () => plain, setData() {}, isEditing: false, nodeEl: makeFakeNodeEl(), getBBox: () => bboxOf(plain) });
+  registerAdvancedCanvasIntegration(fixture.plugin);
+  const beforeEdges = JSON.stringify(fixture.canvas.getData().edges);
+
+  simulateRealDrag(fixture, "plain", CENTER_A);
+
+  assert.equal(JSON.stringify(fixture.canvas.getData().edges), beforeEdges, "aucune edge touchée");
+});
+
+test("drag Mindmap réel — écouteurs pointer posés sur canvas.wrapperEl et retirés au cleanup", () => {
+  const fixture = makeMindmapDragFixture();
+  registerAdvancedCanvasIntegration(fixture.plugin);
+  const wrapper = fixture.canvas.wrapperEl;
+  assert.equal(wrapper.listenerCount("pointerdown"), 1, "attaché au wrapperEl RÉEL du Canvas");
+  assert.equal(wrapper.listenerCount("pointerup"), 1);
+
+  fixture.cleanups.forEach((cb) => cb());
+
+  assert.equal(wrapper.listenerCount("pointerdown"), 0);
+  assert.equal(wrapper.listenerCount("pointerup"), 0);
+});
+
+/* ================================================================
+ * Correctif Prompt 2 (suite) — COLLAPSE EDGES (decorateMindmapCanvasView)
+ * ================================================================ */
+
+function makeFakeEdgeEl() {
+  const classes = new Set();
+  return {
+    classList: {
+      toggle(cls, force) {
+        const has = classes.has(cls);
+        const next = force === undefined ? !has : !!force;
+        if (next) classes.add(cls); else classes.delete(cls);
+      },
+      contains: (cls) => classes.has(cls),
+    },
+  };
+}
+
+function makeFakeRuntimeEdge(edgeData) {
+  return {
+    getData: () => edgeData,
+    setData(updated) { Object.assign(edgeData, updated); },
+    lineGroupEl: makeFakeEdgeEl(),
+    lineEndGroupEl: makeFakeEdgeEl(),
+    fromLineEnd: { el: makeFakeEdgeEl() },
+    toLineEnd: { el: makeFakeEdgeEl() },
+    labelElement: { wrapperEl: makeFakeEdgeEl() },
+    path: { display: makeFakeEdgeEl(), interaction: makeFakeEdgeEl() },
+  };
+}
+
+function collapseEdgeElements(runtimeEdge) {
+  return [
+    runtimeEdge.lineGroupEl, runtimeEdge.lineEndGroupEl,
+    runtimeEdge.fromLineEnd.el, runtimeEdge.toLineEnd.el,
+    runtimeEdge.labelElement.wrapperEl,
+    runtimeEdge.path.display, runtimeEdge.path.interaction,
+  ];
+}
+
+function buildCollapseFixture() {
+  const root = mindmapNode("root");
+  const child = mindmapNode("child");
+  const grandchild = mindmapNode("grandchild");
+  const group = { id: "group", type: "group", feuillets_block: "mindmap", feuillets_block_version: 1, feuillets_block_id: "block-1" };
+  const edgeRootChild = { id: "e1", fromNode: "root", toNode: "child", feuillets_managed: "mindmap", feuillets_block_id: "block-1" };
+  const edgeChildGrandchild = { id: "e2", fromNode: "child", toNode: "grandchild", feuillets_managed: "mindmap", feuillets_block_id: "block-1" };
+  const freeEdge = { id: "free-edge", fromNode: "root", toNode: "grandchild" };
+  const canvasData = { nodes: [root, child, grandchild, group], edges: [edgeRootChild, edgeChildGrandchild, freeEdge] };
+
+  const nodeEls = new Map([root, child, grandchild].map((n) => [n.id, makeFakeNodeEl()]));
+  const nodesMap = new Map([root, child, grandchild].map((n) => [n.id, { id: n.id, nodeEl: nodeEls.get(n.id) }]));
+  const edgesMap = new Map([
+    [edgeRootChild.id, makeFakeRuntimeEdge(edgeRootChild)],
+    [edgeChildGrandchild.id, makeFakeRuntimeEdge(edgeChildGrandchild)],
+    [freeEdge.id, makeFakeRuntimeEdge(freeEdge)],
+  ]);
+
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  const view = {
+    canvas: {
+      nodes: nodesMap,
+      edges: edgesMap,
+      getData: () => canvasData,
+      setData: (updated) => { canvasData.nodes = updated.nodes; canvasData.edges = updated.edges; },
+      requestSave: () => {},
+    },
+  };
+  return { plugin, view, canvasData, nodeEls, edgesMap, root, child, grandchild, edgeRootChild, edgeChildGrandchild, freeEdge };
+}
+
+test("collapse edges — replier masque les descendants ET les edges structurelles, jamais l'edge libre", () => {
+  const { plugin, view, canvasData, nodeEls, edgesMap, child, edgeChildGrandchild, freeEdge } = buildCollapseFixture();
+  canvasData.nodes.find((n) => n.type === "group").mindmapCollapsed = [child.id];
+
+  plugin.decorateMindmapCanvasView(view);
+
+  assert.equal(nodeEls.get("grandchild").classList.contains("feuillets-mindmap-hidden"), true, "le petit-enfant est masqué");
+  assert.equal(nodeEls.get("child").classList.contains("feuillets-mindmap-hidden"), false, "le node replié lui-même reste visible");
+  for (const el of collapseEdgeElements(edgesMap.get(edgeChildGrandchild.id))) {
+    assert.equal(el.classList.contains("feuillets-mindmap-hidden"), true, "chaque élément DOM de l'edge structurelle masquée");
+  }
+  for (const el of collapseEdgeElements(edgesMap.get(freeEdge.id))) {
+    assert.equal(el.classList.contains("feuillets-mindmap-hidden"), false, "l'edge Canvas libre reste intacte");
+  }
+});
+
+test("collapse edges — dépliage restaure la visibilité de tous les éléments", () => {
+  const { plugin, view, canvasData, nodeEls, edgesMap, child, edgeChildGrandchild } = buildCollapseFixture();
+  const group = canvasData.nodes.find((n) => n.type === "group");
+  group.mindmapCollapsed = [child.id];
+  plugin.decorateMindmapCanvasView(view);
+  assert.equal(nodeEls.get("grandchild").classList.contains("feuillets-mindmap-hidden"), true);
+
+  group.mindmapCollapsed = [];
+  plugin.decorateMindmapCanvasView(view);
+
+  assert.equal(nodeEls.get("grandchild").classList.contains("feuillets-mindmap-hidden"), false, "le node redevient visible");
+  for (const el of collapseEdgeElements(edgesMap.get(edgeChildGrandchild.id))) {
+    assert.equal(el.classList.contains("feuillets-mindmap-hidden"), false, "l'edge redevient visible");
+  }
+});
+
+test("collapse edges — cleanup (forceVisible) retire toutes les classes résiduelles, nodes ET edges", () => {
+  const { plugin, view, canvasData, nodeEls, edgesMap, child, edgeChildGrandchild } = buildCollapseFixture();
+  canvasData.nodes.find((n) => n.type === "group").mindmapCollapsed = [child.id];
+  plugin.decorateMindmapCanvasView(view);
+  assert.equal(nodeEls.get("grandchild").classList.contains("feuillets-mindmap-hidden"), true);
+
+  plugin.decorateMindmapCanvasView(view, { forceVisible: true });
+
+  assert.equal(nodeEls.get("grandchild").classList.contains("feuillets-mindmap-hidden"), false);
+  for (const el of collapseEdgeElements(edgesMap.get(edgeChildGrandchild.id))) {
+    assert.equal(el.classList.contains("feuillets-mindmap-hidden"), false);
+  }
 });

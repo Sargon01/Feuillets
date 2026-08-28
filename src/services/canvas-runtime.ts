@@ -97,6 +97,16 @@ export type MinimalRuntimeNode = {
    * classe de lisibilité (jamais lu comme source de données) et, pour un
    * TextNode en édition, retrouver l'iframe de son éditeur. */
   nodeEl?: HTMLElement;
+  /** Zone de CONTENU du node, à l'intérieur de sa bordure. Monter une UI
+   * ici plutôt que sur `nodeEl` laisse libres la bordure et les poignées de
+   * redimensionnement du Canvas — sans quoi la carte devient impossible à
+   * redimensionner (correctif ergonomie du Plan). */
+  contentEl?: HTMLElement;
+  /** Rectangle du node en coordonnées CANVAS — membre réel vérifié sur le
+   * bundle Advanced Canvas (`node.getBBox()`), seule source correcte pour
+   * un test de survol pendant un drag (jamais `getBoundingClientRect`, qui
+   * est en coordonnées écran et ignore zoom/pan). */
+  getBBox?: () => CanvasBBox;
 };
 
 export type MinimalRuntimeEdgeEnd = {
@@ -116,7 +126,34 @@ export type MinimalRuntimeEdge = {
   from?: MinimalRuntimeEdgeEnd;
   to?: MinimalRuntimeEdgeEnd;
   update?: (from: MinimalRuntimeEdgeEnd, to: MinimalRuntimeEdgeEnd) => void;
+  /** Éléments DOM réels d'une edge — UNIQUEMENT ceux nécessaires au masquage
+   * repli/dépli Mindmap (correctif « collapse edges »).
+   *
+   * NOMS VÉRIFIÉS sur le bundle réel d'Advanced Canvas 6.5.0 installé
+   * (`edge.lineGroupEl` / `edge.lineEndGroupEl` dans son export d'image et
+   * son surlignage `is-focused` ; `edge.fromLineEnd.el` / `edge.toLineEnd.el`
+   * pour les pointes de flèche ; `edge.labelElement.wrapperEl` pour
+   * l'étiquette ; `edge.path.display` / `edge.path.interaction` pour les
+   * deux tracés SVG). Les noms `lineEl`/`startGroupEl`/`endGroupEl`
+   * N'EXISTENT PAS et ont été retirés. Tous optionnels : un Canvas qui
+   * n'exposerait pas l'un d'eux le voit simplement ignoré, jamais une
+   * erreur. */
+  lineGroupEl?: HTMLElement;
+  lineEndGroupEl?: HTMLElement;
+  fromLineEnd?: { el?: HTMLElement };
+  toLineEnd?: { el?: HTMLElement };
+  labelElement?: { wrapperEl?: HTMLElement };
+  path?: { display?: HTMLElement; interaction?: HTMLElement };
 };
+
+/** Événement pointeur minimal accepté par `canvas.posFromEvt` — un
+ * sous-ensemble structurel de `PointerEvent`/`DragEvent`, jamais le type DOM
+ * complet imposé à un faux runtime de test. */
+export type CanvasPointerLikeEvent = { clientX?: number; clientY?: number };
+
+/** Rectangle d'un node en coordonnées CANVAS (jamais écran) — retourné par
+ * `node.getBBox()`, membre réel vérifié sur le bundle Advanced Canvas. */
+export type CanvasBBox = { minX: number; minY: number; maxX: number; maxY: number };
 
 /** Sous-ensemble structurel du `Canvas` réellement utilisé pour le
  * remplacement runtime — distinct de `MinimalAdvancedCanvas`
@@ -127,6 +164,11 @@ export type MinimalRuntimeEdge = {
  * refléter fidèlement un contrat partiel. */
 export type MinimalRuntimeCanvas = {
   nodes?: Map<string, MinimalRuntimeNode>;
+  /** Instances runtime réelles des edges — même principe que `nodes` :
+   * jamais le JSON, ajouté pour le masquage repli/dépli Mindmap (correctif
+   * « collapse edges »), qui a besoin des éléments DOM réels de chaque
+   * edge (voir `MinimalRuntimeEdge`). */
+  edges?: Map<string, MinimalRuntimeEdge>;
   createFileNode?: (options: {
     pos: { x: number; y: number };
     size: { width: number; height: number };
@@ -141,6 +183,16 @@ export type MinimalRuntimeCanvas = {
    * voir integrations/advanced-canvas.ts, `handleIdeaTreeKey`), seulement
    * pour savoir si UN SEUL node est sélectionné avant d'agir sur Tab/Entrée. */
   selection?: Set<MinimalRuntimeNode>;
+  /** Convertit un événement pointeur (coordonnées écran) en coordonnées
+   * Canvas — seule source fiable de géométrie pour retrouver un node sous
+   * le pointeur pendant un drag réel, jamais `getBoundingClientRect` (voir
+   * correctif « drag Mindmap réel »). */
+  posFromEvt?: (event: CanvasPointerLikeEvent) => { x: number; y: number };
+  /** Conteneur DOM RÉEL de la surface Canvas (`canvas.wrapperEl`, membre
+   * vérifié sur le bundle Advanced Canvas, qui l'utilise directement depuis
+   * `view.canvas`). Seul point d'attache autorisé pour les écouteurs
+   * pointer/drag de Feuillets — jamais document/window. */
+  wrapperEl?: HTMLElement;
 };
 
 /** Vrai si `canvas` expose l'intégralité du contrat runtime nécessaire au

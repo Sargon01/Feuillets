@@ -10345,164 +10345,77 @@ body.feuillets-text-width
   min-width: 0;
 }
 /* Carte Plan Binder : mini-outliner interne, indépendant du Markdown Canvas. */
-.feuillets-binder-plan-node .feuillets-plan-outliner { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; font-size:14px; line-height:1.35; color:var(--text-normal); }
-.feuillets-binder-plan-node { position:relative; }
-.feuillets-binder-plan-node .feuillets-plan-interactive-layer { position:absolute; inset:0; z-index:2; pointer-events:auto; overflow:hidden; }
-.feuillets-binder-plan-node .canvas-node-content { visibility:hidden; pointer-events:none; }
-.feuillets-binder-plan-node .feuillets-plan-interactive-layer { visibility:visible; }
-.feuillets-binder-plan-node .feuillets-plan-header { height:36px; min-height:36px; display:flex; align-items:center; gap:5px; padding:0 6px; border-bottom:1px solid var(--background-modifier-border); font-weight:600; }
-.feuillets-binder-plan-node .feuillets-plan-dirty { color:var(--interactive-accent); }
-.feuillets-binder-plan-node .feuillets-plan-actions { margin-left:auto; display:flex; gap:2px; }
-.feuillets-binder-plan-node .feuillets-plan-actions button,.feuillets-binder-plan-node .feuillets-plan-toggle { width:26px; height:26px; padding:4px; border:0; background:transparent; color:var(--text-muted); }
-.feuillets-binder-plan-node .feuillets-plan-actions button:hover,.feuillets-binder-plan-node .feuillets-plan-toggle:hover { background:var(--background-modifier-hover); color:var(--text-normal); }
-.feuillets-binder-plan-node .feuillets-plan-tree-scroll { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:4px 0; }
-.feuillets-binder-plan-node .feuillets-plan-row { min-height:26px; height:26px; display:flex; align-items:center; gap:4px; padding-right:6px; outline:none; white-space:nowrap; }
-.feuillets-binder-plan-node .feuillets-plan-row:hover,.feuillets-binder-plan-node .feuillets-plan-row.is-selected { background:var(--background-modifier-hover); }
-.feuillets-binder-plan-node .feuillets-plan-grip { width:14px; opacity:.25; cursor:grab; }.feuillets-binder-plan-node .feuillets-plan-row:hover .feuillets-plan-grip { opacity:.8; }
-.feuillets-binder-plan-node .feuillets-plan-row.is-dragging { opacity:.45; }.feuillets-binder-plan-node .feuillets-plan-grip:active { cursor:grabbing; }
-.feuillets-binder-plan-node .feuillets-plan-row.drop-before { box-shadow:inset 0 2px var(--interactive-accent); }.feuillets-binder-plan-node .feuillets-plan-row.drop-after { box-shadow:inset 0 -2px var(--interactive-accent); }.feuillets-binder-plan-node .feuillets-plan-row.drop-inside { background:var(--background-modifier-hover); box-shadow:inset 2px 0 var(--interactive-accent); }
-.feuillets-binder-plan-node .feuillets-plan-toggle,.feuillets-binder-plan-node .feuillets-plan-toggle-space { width:16px; height:16px; padding:1px; flex:none; }.feuillets-binder-plan-node .feuillets-plan-kind { width:16px; color:var(--text-muted); flex:none; }
-.feuillets-binder-plan-node .feuillets-plan-title { overflow:hidden; text-overflow:ellipsis; }.feuillets-binder-plan-node input { min-width:0; flex:1; font:inherit; color:var(--text-normal); background:var(--background-primary); border:1px solid var(--background-modifier-border); }
-/* --- Présentation Markdown ------------------------------------------------ */
-/* Chrome de la vue uniquement : la composition d'une slide (candidats
-   FLOW/SPLIT/STACK, cellules, MediaCell, contain, overflow) est entièrement
-   déléguée au renderer partagé (presentation-slide-renderer.ts), qui pose
-   ses propres styles déterministes en inline — aucune règle de layout ici. */
-.feuillets-presentation-view {
-  --feuillets-presentation-bg: #202124;
-  --feuillets-presentation-muted: #6b7280;
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--feuillets-presentation-bg);
-  color: white;
-}
-.feuillets-presentation-view .feuillets-presentation-toolbar { display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 6px 10px; }
-.feuillets-presentation-view .feuillets-presentation-button { display: grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 5px; background: transparent; color: inherit; cursor: pointer; }
-.feuillets-presentation-view .feuillets-presentation-button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
-.feuillets-presentation-view .feuillets-presentation-button:disabled { opacity: 0.4; cursor: default; }
-.feuillets-presentation-view .feuillets-presentation-counter { min-width: 52px; text-align: center; font-variant-numeric: tabular-nums; }
-.feuillets-presentation-view .feuillets-presentation-overflow { color: #fbbf24; font-size: 12px; }
-.feuillets-presentation-view .feuillets-presentation-stage { position: relative; flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; }
-.feuillets-presentation-view .feuillets-presentation-frame { width: 1280px; height: 720px; transform-origin: center; }
-.feuillets-presentation-view .feuillets-presentation-empty { height: 100%; display: grid; place-items: center; color: var(--feuillets-presentation-muted); }
-
-.feuillets-editor-page-break { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--text-muted); font-size: 0.85em; }
-.feuillets-editor-page-break-line { flex: 1; height: 1px; background: var(--background-modifier-border); }
-.feuillets-editor-page-break-label { white-space: nowrap; }
-
-/* ===== Modale « Exporter en PDF » de la Présentation =====
-   Trois rubriques (Présentation / Support / Plan), chacune avec une grille
-   de cartes cliquables. Même langage visuel que .feuillets-content-modal-role
-   (ui/content-variant-modal.ts) : bordure discrète, accent au survol, jetons
-   de thème Obsidian uniquement — aucune couleur en dur.
-
-   Les cartes sont des div[role=button] : les <button> d'une modale Obsidian
-   reçoivent une hauteur fixe et un white-space: nowrap qui faisaient sortir
-   le texte de sa boîte. Tout est donc explicitement remis à plat ici. */
-.feuillets-presentation-export-modal {
-  width: min(100%, 44rem);
-  max-width: 94vw;
-}
-.feuillets-presentation-export-modal .modal-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-5);
-  max-height: 70vh;
-  overflow-y: auto;
-  padding-top: var(--size-4-2);
-}
-.feuillets-presentation-export-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
+.feuillets-plan-mounted .canvas-node-content { visibility:hidden; pointer-events:none; }
+.feuillets-plan-mounted .feuillets-plan-interactive-layer { visibility:visible; pointer-events:auto; position:absolute; inset:0; z-index:2; overflow:hidden; }
+.feuillets-plan-mounted .feuillets-plan-outliner { display:flex; flex-direction:column; height:100%; min-height:0; overflow:hidden; font-size:14px; line-height:1.35; color:var(--text-normal); }
+.feuillets-plan-mounted .feuillets-plan-header { height:36px; min-height:36px; display:flex; align-items:center; gap:5px; padding:0 6px; border-bottom:1px solid var(--background-modifier-border); font-weight:600; }
+.feuillets-plan-mounted .feuillets-plan-dirty { color:var(--interactive-accent); }
+.feuillets-plan-mounted .feuillets-plan-actions { margin-left:auto; display:flex; gap:2px; }
+.feuillets-plan-mounted .feuillets-plan-actions button,.feuillets-plan-mounted .feuillets-plan-toggle { width:26px; height:26px; padding:4px; border:0; background:transparent; color:var(--text-muted); }
+.feuillets-plan-mounted .feuillets-plan-actions button:hover,.feuillets-plan-mounted .feuillets-plan-toggle:hover { background:var(--background-modifier-hover); color:var(--text-normal); }
+.feuillets-plan-mounted .feuillets-plan-tree-scroll { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:4px 0; }
+.feuillets-plan-mounted .feuillets-plan-row { min-height:26px; height:26px; display:flex; align-items:center; gap:4px; padding-right:6px; outline:none; white-space:nowrap; }
+.feuillets-plan-mounted .feuillets-plan-row:hover,.feuillets-plan-mounted .feuillets-plan-row.is-selected,.feuillets-plan-mounted .feuillets-plan-row.is-active { background:var(--background-modifier-hover); }
+.feuillets-plan-mounted .feuillets-plan-row.is-dragging { opacity:.45; }
+.feuillets-plan-mounted .feuillets-plan-row.drop-before { box-shadow:inset 0 1px 0 0 var(--interactive-accent); }
+.feuillets-plan-mounted .feuillets-plan-row.drop-after { box-shadow:inset 0 -1px 0 0 var(--interactive-accent); }
+.feuillets-plan-mounted .feuillets-plan-row.drop-inside { background-color:var(--background-modifier-active-hover); }
+.feuillets-plan-mounted .feuillets-plan-toggle,.feuillets-plan-mounted .feuillets-plan-toggle-space { width:16px; height:16px; padding:1px; flex:none; }.feuillets-plan-mounted .feuillets-plan-kind { width:16px; color:var(--text-muted); flex:none; }
+/* Bloc Relations/Généalogie (Prompt 4) : petite toolbar flottante posée sur
+   le GroupNode natif — même langage visuel que les actions du Plan
+   ci-dessus (mêmes dimensions de bouton, mêmes couleurs), jamais un rendu
+   ad-hoc. Le reste du groupe (fond, bordure, poignées) reste une zone
+   Canvas normale : la toolbar ne couvre qu'elle-même, jamais tout le
+   content comme le fait le Plan (elle n'a pas besoin d'intercepter le
+   reste de la zone). */
+.feuillets-group-block-toolbar { position:absolute; top:6px; left:6px; z-index:2; display:flex; gap:2px; padding:2px; border-radius:6px; background:var(--background-primary); border:1px solid var(--background-modifier-border); box-shadow:var(--shadow-s); pointer-events:auto; }
+.feuillets-group-block-toolbar button { width:26px; height:26px; padding:4px; border:0; background:transparent; color:var(--text-muted); border-radius:4px; }
+.feuillets-group-block-toolbar button:hover:not(:disabled) { background:var(--background-modifier-hover); color:var(--text-normal); }
+.feuillets-group-block-toolbar button:disabled { opacity:.4; }
+.feuillets-genealogy-person .canvas-node-content,
+.feuillets-genealogy-person .canvas-node-content-blocker { background:transparent; border:0; box-shadow:none; }
+.feuillets-genealogy-person .canvas-node-content { padding:3px 6px; text-align:center; }
+.feuillets-genealogy-person .markdown-preview-view { background:transparent; padding:0; }
+.feuillets-genealogy-person .markdown-preview-view p { margin:0; line-height:1.25; }
+.feuillets-genealogy-person .markdown-preview-view p { font-size:.82em; color:var(--text-muted); }
+.feuillets-genealogy-person .markdown-preview-view p:first-line { font-size:1.32em; font-weight:700; color:var(--text-normal); }
+.feuillets-genealogy-union .canvas-node-content,
+.feuillets-genealogy-union .canvas-node-content-blocker { background:transparent; border:0; box-shadow:none; opacity:.12; }
+.feuillets-genealogy-union .canvas-node-content { padding:0; }
+.feuillets-plan-mounted
+.feuillets-plan-title {
+  flex: 1;
   min-width: 0;
-}
-.feuillets-presentation-export-group + .feuillets-presentation-export-group {
-  padding-top: var(--size-4-4);
-  border-top: 1px solid var(--background-modifier-border);
-}
-.feuillets-presentation-export-group-head {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--size-4-2);
-  min-width: 0;
-}
-.feuillets-presentation-export-group-icon {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: var(--radius-s);
-  background: var(--background-modifier-hover);
-  color: var(--text-muted);
-}
-.feuillets-presentation-export-group-icon svg {
-  width: 1rem;
-  height: 1rem;
-}
-.feuillets-presentation-export-group-heading {
-  min-width: 0;
-}
-.feuillets-presentation-export-group-title {
+  padding: 1px 4px;
   color: var(--text-normal);
-  font-size: var(--font-ui-medium);
-  font-weight: 600;
-  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
 }
-.feuillets-presentation-export-group-desc {
-  margin-top: 1px;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  line-height: 1.4;
+
+.feuillets-plan-title.is-placeholder {
+  color: var(--text-faint);
+  font-style: italic;
 }
-.feuillets-presentation-export-options {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: var(--size-4-2);
+
+/* En édition : même largeur, même alignement, bordure minimale — aucun
+   effet formulaire. */
+.feuillets-plan-title-input {
+  flex: 1;
   min-width: 0;
-}
-.feuillets-presentation-export-option {
-  display: block;
-  box-sizing: border-box;
-  width: auto;
-  height: auto;
-  min-width: 0;
-  min-height: 0;
-  margin: 0;
-  padding: var(--size-4-2) var(--size-4-3);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-s);
-  background: var(--background-primary);
-  box-shadow: none;
-  text-align: left;
-  white-space: normal;
-  cursor: pointer;
-  transition: border-color 0.12s ease, background-color 0.12s ease;
-}
-.feuillets-presentation-export-option:hover,
-.feuillets-presentation-export-option:focus-visible {
-  border-color: var(--interactive-accent);
-  background: var(--background-modifier-hover);
+  padding: 1px 4px;
+  border: none;
+  border-bottom: 1px solid var(--interactive-accent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-normal);
+  font-size: inherit;
+  font-family: inherit;
   box-shadow: none;
 }
-.feuillets-presentation-export-option:focus-visible {
-  outline: 2px solid var(--interactive-accent);
-  outline-offset: 1px;
-}
-.feuillets-presentation-export-option-label {
-  color: var(--text-normal);
-  font-size: var(--font-ui-small);
-  font-weight: 600;
-  line-height: 1.35;
-}
-.feuillets-presentation-export-option-hint {
-  margin-top: 3px;
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-  line-height: 1.4;
-  white-space: normal;
+
+.feuillets-plan-title-input:focus {
+  outline: none;
+  box-shadow: none;
 }

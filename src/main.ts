@@ -51,14 +51,13 @@ import { bibliographyEntries, generateBibliography, resolveBibliographySource } 
 import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
-import { remapResearchFolderLinks } from "./views/base-feuillets-view.js";
 import { BoardView, type BoardModeKey } from "./views/board-view.js";
 import { SidebarFeuilletsView, type EditionPage } from "./views/sidebar-feuillets-view.js";
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
 import { fmOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, labelColor, folderGoal } from "./services/frontmatter.js";
-import { getProjectFolder, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
+import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
 import { chronologyFolderPath, getChronoFolder, getResearchRoot, researchFolderPath, migrateLegacyResearchEntries, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
@@ -79,16 +78,61 @@ import {
   addTextNodeToNotebook,
   canvasPathFor,
   generateCanvasBoard,
-  type LiveCanvasFileView,
+  type CanvasNode,
   type CanvasData,
 } from "./services/canvas-board.js";
+import { resolveCanvasSession } from "./carnet/canvas/adapter.js";
+import { createFolderCarnet, folderCarnetCanvasPath, getFolderCarnetDisplayLabel, getFolderCarnetRegistration, isFolderCarnetCanvasFile, listCanonicalFolderCarnetOwners, canonicalizeFolderCarnetRegistration, removeFolderCarnetRegistrationsForDeletedFile, resolveExistingFolderCarnetRegistration, resolveFolderCarnet, resolveFolderCarnetContext as resolveFolderCarnetContextCore, resolveFolderCarnetTitleContext, type FolderCarnetContext } from "./carnet/core/folder-carnets.js";
+import { remapFeuilletsPathReferences } from "./carnet/core/path-reference-maintenance.js";
+import { createCarnetLifecycle, type CarnetLifecycle } from "./carnet/core/lifecycle.js";
+import {
+  createMindmapBlock,
+  applyMindmapLayout,
+  toggleMindmapNodeCollapsed,
+  toggleMindmapOrientation,
+  convertIdeaTreeBranchToMindmap,
+} from "./carnet/blocks/mindmap/mindmap.js";
+import { findMindmapChildren, isMindmapMemberNode } from "./carnet/blocks/mindmap/model.js";
+import { computeMindmapVisibility } from "./carnet/blocks/mindmap/interactions.js";
+import { renderGroupBlockToolbar, removeGroupBlockToolbar, groupBlockMemberNodes, type GroupBlockToolbarButton } from "./carnet/blocks/shared/native-group-block.js";
+import { addGroupBlockFileMember } from "./carnet/canvas/adapter.js";
+import {
+  createGenealogyBlock,
+  addGenealogySpouse,
+  isGenealogyPersonNode,
+  type GenealogyRefusalReason,
+} from "./carnet/blocks/genealogy/genealogy.js";
+import {
+  PLAN_MARKER,
+  createPlanNode,
+  findPlanNode,
+  readPlanState,
+  writePlanState,
+  markPlanDirty,
+  reconcilePlanAfterApply,
+  type PlanState,
+} from "./carnet/blocks/plan/plan.js";
+import { flattenPlan, type PlanItem } from "./carnet/blocks/plan/model.js";
+import {
+  readBinderSnapshot,
+  binderFingerprint,
+  planFromBinderSnapshot,
+  buildBinderMutationPlan,
+  applyBinderMutationPlan,
+  type BinderReader,
+  type BinderWriter,
+  type PreflightIssue,
+} from "./carnet/bridges/binder.js";
+import { renderBinderPlanOutliner } from "./ui/canvas-binder-plan-outliner.js";
+import type { MinimalRuntimeCanvas, MinimalRuntimeEdge as MindmapRuntimeEdge } from "./services/canvas-runtime.js";
+import { isIdeaTreeNode } from "./services/canvas-idea-tree.js";
 import { CaptureIdeaModal } from "./ui/capture-idea-modal.js";
 import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
 import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
 import { upsertBinderOutliner, type BinderOutlinerItem, type BinderOutlinerSnapshot } from "./services/canvas-binder-plan.js";
-import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
+import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
@@ -171,6 +215,8 @@ import {
   MarkdownView,
   Platform,
   setTooltip,
+  FuzzySuggestModal,
+  type App,
   type View,
   type WorkspaceLeaf,
   type Vault,
@@ -326,6 +372,106 @@ const nativeReviewWorkingTitles = new Map<string, string>();
  * chaque rafraîchissement des sessions) effacerait ces entrées sans le
  * savoir. Posée à l'ouverture d'une comparaison, retirée à sa fermeture. */
 const comparisonDisplayTitles = new Map<string, string>();
+
+/** Canvas runtime natif (avec OU sans Advanced Canvas — §10) étendu des
+ * membres JSON déjà utilisés ailleurs (`getData`/`setData`/`requestSave`,
+ * voir integrations/advanced-canvas.ts) : les commandes Mindmap ci-dessous
+ * en ont besoin en plus de la couche instances (`nodes`/`selection`) de
+ * `MinimalRuntimeCanvas`. */
+/** `MinimalRuntimeCanvas` (canvas-runtime.ts) couvre déjà `requestSave`,
+ * `nodes`, `edges`, `selection`, `posFromEvt`, `handleSelectionDrag` — ce
+ * type local n'ajoute QUE la couche JSON (`getData`/`setData`), délibérément
+ * séparée de la couche instances dans canvas-runtime.ts (voir son en-tête). */
+type MindmapRuntimeCanvas = MinimalRuntimeCanvas & { getData?: () => CanvasData; setData?: (data: CanvasData) => void };
+
+/** Classe du petit contrôle repli/dépli (§3/§4 du correctif drag/collapse) —
+ * un seul élément par node, jamais dupliqué : `ensureMindmapCollapseControl`
+ * réutilise l'élément déjà présent s'il existe (repéré par cette classe)
+ * plutôt que d'en créer un second à chaque refresh du lifecycle. */
+const MINDMAP_COLLAPSE_CONTROL_CLASS = "feuillets-mindmap-collapse-control";
+
+/** Borne stricte de la replanification de décoration Mindmap (~1 s à 60 fps) —
+ * voir `scheduleMindmapDecorationRetry`. */
+const MINDMAP_DECORATION_MAX_RETRIES = 60;
+
+/** Pose/actualise le contrôle ⊕/⊖ sur `nodeEl` — idempotent : un refresh
+ * répété retrouve le MÊME élément DOM et se contente d'actualiser son texte
+ * et son gestionnaire de clic (`onclick =`, jamais `addEventListener`,
+ * remplace donc toujours l'ancien sans jamais l'empiler). Le clic est
+ * strictement local au contrôle (`stopPropagation`/`preventDefault`) : il
+ * ne déclenche jamais la sélection, le drag ou l'édition du node lui-même,
+ * qui restent entièrement disponibles sur le reste de la carte. */
+function ensureMindmapCollapseControl(nodeEl: HTMLElement, collapsed: boolean, onToggle: () => void): void {
+  let control = nodeEl.querySelector<HTMLElement>(`.${MINDMAP_COLLAPSE_CONTROL_CLASS}`);
+  if (!control) {
+    control = nodeEl.createDiv({ cls: MINDMAP_COLLAPSE_CONTROL_CLASS });
+    control.setAttr("role", "button");
+    control.setAttr("aria-label", t("mindmap.action.toggleCollapse"));
+    control.setAttr("tabindex", "-1");
+  }
+  control.textContent = collapsed ? "⊕" : "⊖";
+  control.toggleClass("is-collapsed", collapsed);
+  control.onclick = (evt) => {
+    evt.preventDefault();
+    evt.stopPropagation();
+    onToggle();
+  };
+  control.onpointerdown = (evt) => evt.stopPropagation();
+}
+
+/** Retire le contrôle repli/dépli — un node qui n'a plus d'enfant (dernier
+ * enfant reparenté ailleurs, par exemple) ne doit plus en montrer un. */
+function removeMindmapCollapseControl(nodeEl: HTMLElement): void {
+  nodeEl.querySelector(`.${MINDMAP_COLLAPSE_CONTROL_CLASS}`)?.remove();
+}
+
+/** Classe de masquage repli/dépli — nodes ET edges (§3 du correctif
+ * « collapse edges »), jamais une suppression : au dépliage, la même classe
+ * est simplement retirée des mêmes éléments. */
+const MINDMAP_HIDDEN_CLASS = "feuillets-mindmap-hidden";
+
+/** Bascule `MINDMAP_HIDDEN_CLASS` sur TOUS les éléments DOM réels d'une edge
+ * runtime (ligne, groupes, embouts, étiquette, tracé d'affichage/interaction
+ * — voir `MinimalRuntimeEdge`, canvas-runtime.ts) — chaque membre est
+ * optionnel et vérifié avant usage : une edge dont l'implémentation Canvas
+ * n'expose pas tel élément voit simplement cet élément ignoré, jamais une
+ * erreur. Seules les edges dont l'id est dans `hidden` sont concernées ;
+ * une edge Canvas libre n'est jamais lue au-delà de son id. */
+function applyMindmapEdgeVisibility(edge: MindmapRuntimeEdge, id: string, hidden: Set<string>): void {
+  const shouldHide = hidden.has(id);
+  const elements = [
+    edge.lineGroupEl,
+    edge.lineEndGroupEl,
+    edge.fromLineEnd?.el,
+    edge.toLineEnd?.el,
+    edge.labelElement?.wrapperEl,
+    edge.path?.display,
+    edge.path?.interaction,
+  ];
+  for (const el of elements) el?.classList.toggle(MINDMAP_HIDDEN_CLASS, shouldHide);
+}
+
+/** Prompt 4, §2/§3 — sélection par recherche floue d'UN fichier Markdown
+ * du coffre pour l'ajouter comme membre d'un bloc Relations/Généalogie
+ * (bouton « Ajouter des fiches » de la toolbar). Aucune logique métier :
+ * uniquement l'UI de choix, la décision (doublon, création réelle) reste
+ * dans adapter.ts/native-group-block.ts (déjà pures/vérifiées). */
+class GroupBlockFilePickerModal extends FuzzySuggestModal<TFile> {
+  files: TFile[];
+  onChoose: (file: TFile) => void;
+
+  constructor(app: App, files: TFile[], onChoose: (file: TFile) => void) {
+    super(app);
+    this.files = files;
+    this.onChoose = onChoose;
+    this.setPlaceholder(t("relations.modal.pickFilePlaceholder"));
+  }
+
+  getItems(): TFile[] { return this.files; }
+  getItemText(file: TFile): string { return file.path; }
+  onChooseItem(file: TFile): void { this.onChoose(file); }
+}
+
 class FeuilletsPlugin extends Plugin {
   /**
    * Déclaré explicitement sur la sous-classe, comme le demande la doc
@@ -338,6 +484,7 @@ class FeuilletsPlugin extends Plugin {
    * propriété d'instance sur les versions antérieures).
    */
   settings!: FeuilletsSettings;
+  carnetLifecycle?: CarnetLifecycle;
   nativeReviewEditorContext: { reviewId: string; location: NativeReviewStorageLocation; documentId?: string } | null = null;
   activeNativeReviewThreadPopover: NativeReviewThreadPopover | null = null;
 
@@ -527,6 +674,23 @@ class FeuilletsPlugin extends Plugin {
     this.registerNativeReviewHighlightSync();
     this.registerNativeReviewContextMenu();
     this.registerVaultEvents();
+    this.carnetLifecycle = createCarnetLifecycle(
+      this.app,
+      (file) => this.isFeuilletsCarnetFile(file),
+      (file) => this.resolveCarnetTitleForFile(file),
+      (view, options) => {
+        this.decorateMindmapCanvasView(view, options);
+        this.decoratePlanCanvasView(view, options);
+        this.removeRelationsCanvasToolbar(view);
+        this.decorateGenealogyCanvasView(view, options);
+      }
+    );
+    this.carnetLifecycle.refresh();
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.carnetLifecycle?.refresh()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.carnetLifecycle?.refresh()));
+    this.registerMindmapCommands();
+    this.registerPlanCommands();
+    this.registerGenealogyCommands();
     this.patchTabTitles();
     this.registerSwipeGestures();
     this.registerAutoBackup();
@@ -1369,6 +1533,27 @@ class FeuilletsPlugin extends Plugin {
           if (error instanceof LayoutFileCorruptedError) console.warn("Feuillets layout.json delete maintenance", file.path, error);
         });
       }
+      /* Correctif « suppression/recréation d'un Carnet de dossier » : la
+         suppression du DOSSIER propriétaire ne doit jamais toucher au
+         registre (voir removeLayoutAfterDelete ci-dessus pour cette seule
+         maintenance-là) — uniquement la suppression du FICHIER `.canvas`
+         lui-même rend sa registration périmée, dans TOUS les projets connus
+         (jamais seulement le projet actif), afin que « Créer le Carnet »
+         redevienne immédiatement possible sans attendre un changement de
+         projet. */
+      if (file instanceof TFile && file.extension === "canvas") {
+        let anyRemoved = false;
+        for (const [manuscriptPath, meta] of Object.entries(this.settings.projectMeta)) {
+          if (!meta?.folderCarnets) continue;
+          const manuscriptRoot = this.app.vault.getAbstractFileByPath(manuscriptPath);
+          if (!(manuscriptRoot instanceof TFolder)) continue;
+          if (removeFolderCarnetRegistrationsForDeletedFile(meta, manuscriptRoot, file.path).length > 0) anyRemoved = true;
+        }
+        if (anyRemoved) {
+          void this.saveSettings();
+          this.carnetLifecycle?.refresh();
+        }
+      }
     }));
 
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
@@ -1378,7 +1563,8 @@ class FeuilletsPlugin extends Plugin {
          mémorisés des associations Binder→Recherche : on les remappe pour
          suivre le dossier déplacé, sans toucher aux chemins voisins. */
       if (oldPath && file.path && oldPath !== file.path) {
-        this.remapResearchFolderLinks(oldPath, file.path);
+        const remapped = remapFeuilletsPathReferences(this.settings, oldPath, file.path);
+        if (remapped.changed) void this.saveSettings();
         void remapAnnotationsAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         void remapWorkNotesAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         for (const settings of knownProjectContexts()) {
@@ -1386,6 +1572,11 @@ class FeuilletsPlugin extends Plugin {
             if (error instanceof LayoutFileCorruptedError) console.warn("Feuillets layout.json rename maintenance", oldPath, file.path, error);
           });
         }
+        /* §17/§18 : un dossier renommé/déplacé peut être le propriétaire
+           canonique d'un Carnet (nouveau scope, nouveau titre) ou un dossier
+           Recherche lié (linkedResearchFolderPath change) — jamais un nouveau
+           Canvas créé ici, seul le refresh du lifecycle existant recalcule. */
+        this.carnetLifecycle?.refresh();
       }
     }));
     this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
@@ -2334,6 +2525,15 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
+    if (this._mindmapDecorationFrame !== undefined) {
+      window.cancelAnimationFrame(this._mindmapDecorationFrame);
+      this._mindmapDecorationFrame = undefined;
+    }
+    if (this._groupDecorationFrame !== undefined) {
+      window.cancelAnimationFrame(this._groupDecorationFrame);
+      this._groupDecorationFrame = undefined;
+    }
+    this.carnetLifecycle?.cleanup();
     // Une comparaison ouverte tient des décorations et un verrou de lecture
     // seule sur deux vrais éditeurs : ils doivent redevenir ordinaires même
     // si le plugin part sans passer par la fermeture normale.
@@ -3298,6 +3498,7 @@ class FeuilletsPlugin extends Plugin {
     this.renderAllViews(true);
     this.syncProjectEditorScope();
     void this.updateStatusBar();
+    this.carnetLifecycle?.refresh();
     return true;
   }
 
@@ -3702,6 +3903,9 @@ class FeuilletsPlugin extends Plugin {
     if (!meta.researchFolderLinks) meta.researchFolderLinks = {};
     meta.researchFolderLinks[binderNode.path] = researchFolder.path;
     await this.saveSettings();
+    // §10/§17 : un lien (re)créé peut faire apparaître une paire canonique —
+    // jamais de Canvas recréé ici, seul le refresh recalcule titres/menus.
+    this.carnetLifecycle?.refresh();
   }
 
   /** Détache le dossier Recherche associé : supprime SEULEMENT l'entrée de
@@ -3713,6 +3917,10 @@ class FeuilletsPlugin extends Plugin {
     if (!meta || !meta.researchFolderLinks) return;
     if (delete meta.researchFolderLinks[binderNode.path]) {
       await this.saveSettings();
+      // §10/§17 : le dossier Recherche détaché redevient autonome, le Carnet
+      // Binder est conservé tel quel — jamais de suppression, seul le
+      // refresh recalcule titres/menus vers ce nouvel état.
+      this.carnetLifecycle?.refresh();
     }
   }
 
@@ -3745,18 +3953,8 @@ class FeuilletsPlugin extends Plugin {
   /** Remappe les liens Binder→Recherche de TOUS les projets connus (pas
    * seulement le projet actif) après un renommage/déplacement. */
   remapResearchFolderLinks(oldPath: string, newPath: string): void {
-    const S = this.settings;
-    let changed = false;
-    for (const projectPath of Object.keys(S.projectMeta)) {
-      const meta = S.projectMeta[projectPath];
-      if (!meta || !meta.researchFolderLinks) continue;
-      const next = remapResearchFolderLinks(meta.researchFolderLinks, oldPath, newPath);
-      if (next !== meta.researchFolderLinks) {
-        meta.researchFolderLinks = next;
-        changed = true;
-      }
-    }
-    if (changed) void this.saveSettings();
+    const result = remapFeuilletsPathReferences(this.settings, oldPath, newPath);
+    if (result.changed) void this.saveSettings();
   }
   listCompiledFilePaths() { return listCompiledFilePaths(this.app, this.settings); }
   parseStoryDate(raw: unknown, file: TFile | null = null) { return parseStoryDate(raw, file); }
@@ -4077,19 +4275,870 @@ class FeuilletsPlugin extends Plugin {
     openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
   }
 
+  canUseFolderCarnet(folder: TFolder): boolean {
+    const projectRoot = getProjectRoot(this.app, this.settings);
+    return !!projectRoot && folder.path.startsWith(`${projectRoot.path}/`);
+  }
+
+  /** Résout le contexte canonique Binder↔Recherche (§2 du correctif « Carnet
+   * logique unique ») pour ce dossier — jamais dupliqué dans les vues, ce
+   * résolveur central reste l'unique source de vérité pour hasFolderCarnet/
+   * openFolderCarnet/le titre d'onglet. */
+  resolveFolderCarnetContext(folder: TFolder): { manuscript: TFolder; projectRoot: TFolder; meta: ProjectMeta; context: FolderCarnetContext } | null {
+    const manuscript = this.getProjectFolder();
+    const projectRoot = getProjectRoot(this.app, this.settings);
+    if (!manuscript || !projectRoot || !this.canUseFolderCarnet(folder)) return null;
+    if (!this.settings.projectMeta[manuscript.path]) this.settings.projectMeta[manuscript.path] = {};
+    const meta = this.settings.projectMeta[manuscript.path];
+    const context = resolveFolderCarnetContextCore(this.app.vault, projectRoot.path, meta, folder);
+    if (!context) return null;
+    return { manuscript, projectRoot, meta, context };
+  }
+
+  /** §2 du correctif « suppression/recréation » : une registration dont le
+   * fichier `.canvas` n'existe plus réellement sur le disque ne doit JAMAIS
+   * faire croire qu'un Carnet existe déjà — sinon « Créer le Carnet »
+   * resterait bloqué indéfiniment après une suppression manuelle du
+   * fichier. La registration elle-même n'est PAS retirée ici (lecture
+   * seule) : c'est le handler vault.on("delete") (nettoyage immédiat) ou
+   * openFolderCarnet (recréation à la demande) qui s'en chargent. */
+  hasFolderCarnet(folder: TFolder): boolean {
+    const resolved = this.resolveFolderCarnetContext(folder);
+    if (!resolved) return false;
+    const registration = resolveExistingFolderCarnetRegistration(resolved.meta, resolved.context.ownerRelative, resolved.context.linkedRelative);
+    if (!registration) return false;
+    const path = folderCarnetCanvasPath(resolved.manuscript, registration.id);
+    return !!path && this.app.vault.getAbstractFileByPath(path) instanceof TFile;
+  }
+
+  isGlobalCarnetFile(file: TFile | null | undefined): boolean {
+    const root = this.getProjectFolder();
+    return !!file && !!root && file.path === canvasPathFor(this.app, root);
+  }
+
+  isFeuilletsCarnetFile(file: TFile | null | undefined): boolean {
+    const manuscript = this.getProjectFolder();
+    return this.isGlobalCarnetFile(file) || (!!manuscript && isFolderCarnetCanvasFile(manuscript, this.settings.projectMeta[manuscript.path], file));
+  }
+
+  /** Titre visible d'un onglet Canvas Feuillets (§12/§13/§14) — `null` pour
+   * un Canvas ordinaire (le titre Obsidian reste intact). Jamais le nom
+   * technique de l'UUID : uniquement « Carnet »/« Notebook » pour le Carnet
+   * global, ou « Carnet · <label> » pour un Carnet de dossier, le label
+   * étant calculé depuis le PROPRIÉTAIRE CANONIQUE actuel (même paire liée
+   * consultée depuis le Binder ou depuis Recherche → même titre unique). */
+  resolveCarnetTitleForFile(file: TFile | null | undefined): string | null {
+    if (!file) return null;
+    if (this.isGlobalCarnetFile(file)) return t("carnet.title.global");
+    const manuscript = this.getProjectFolder();
+    const projectRoot = getProjectRoot(this.app, this.settings);
+    if (!manuscript || !projectRoot) return null;
+    const meta = this.settings.projectMeta[manuscript.path];
+    if (!isFolderCarnetCanvasFile(manuscript, meta, file)) return null;
+    const titleContext = resolveFolderCarnetTitleContext(this.app.vault, manuscript, projectRoot.path, meta, file);
+    if (!titleContext) return null;
+    const allOwners = listCanonicalFolderCarnetOwners(this.app.vault, projectRoot.path, meta);
+    const label = getFolderCarnetDisplayLabel(titleContext.owner, allOwners);
+    return t("carnet.title.folder", { name: label });
+  }
+
+  /** Notice ponctuelle (§7, CAS C) : deux UUID distincts existent pour une
+   * paire Binder↔Recherche — l'UUID Binder reste canonique, celui de
+   * Recherche n'est ni fusionné ni supprimé. Affichée UNE fois par session
+   * et par propriétaire pour ne jamais spammer un menu ré-ouvert plusieurs
+   * fois (le Set en mémoire n'est pas persisté, volontairement). */
+  _folderCarnetAliasConflictNoticed?: Set<string>;
+  noticeFolderCarnetAliasConflictOnce(ownerRelative: string): void {
+    if (!this._folderCarnetAliasConflictNoticed) this._folderCarnetAliasConflictNoticed = new Set();
+    if (this._folderCarnetAliasConflictNoticed.has(ownerRelative)) return;
+    this._folderCarnetAliasConflictNoticed.add(ownerRelative);
+    new Notice(t("carnet.notice.researchAliasKept"));
+  }
+
+  async openFolderCarnet(folder: TFolder): Promise<void> {
+    const resolved = this.resolveFolderCarnetContext(folder);
+    if (!resolved) return;
+    const { manuscript, projectRoot, meta, context } = resolved;
+    const canon = canonicalizeFolderCarnetRegistration(meta, context.ownerRelative, context.linkedRelative);
+    if (canon.changed) await this.saveSettings();
+    if (canon.conflict) this.noticeFolderCarnetAliasConflictOnce(context.ownerRelative);
+    let file = resolveFolderCarnet(this.app, manuscript, meta, projectRoot.path, context.owner);
+    if (!file) {
+      /* §3 du correctif « suppression/recréation » : une registration dont
+         le Canvas est absent au moment d'une demande EXPLICITE (clic sur
+         « Ouvrir/Créer le Carnet ») est périmée — retirée puis recréée
+         avec un NOUVEL UUID, jamais l'ancien UUID absent réutilisé. */
+      if (getFolderCarnetRegistration(meta, context.ownerRelative) && meta.folderCarnets) {
+        delete meta.folderCarnets[context.ownerRelative];
+      }
+      const created = await createFolderCarnet(this.app, manuscript, meta, projectRoot.path, context.owner);
+      if (!created) return;
+      file = created.file;
+      await this.saveSettings();
+    }
+    this.carnetLifecycle?.refresh();
+    const existing = this.app.workspace.getLeavesOfType("canvas").find((leaf) => (leaf.view as unknown as { file?: TFile }).file?.path === file.path);
+    if (existing) { await this.app.workspace.revealLeaf(existing); return; }
+    openFileActivating(this.app, this.app.workspace.getLeaf(true), file);
+  }
+
+  /* ---------- Mindmap (Prompt 2/5) ----------
+   * Câblage vivant du bloc pur src/carnet/blocks/mindmap/* — jamais d'accès
+   * runtime Canvas DEPUIS ce bloc lui-même (model/layout/interactions/
+   * mindmap.ts ne connaissent que CanvasData). Ici, comme pour l'Arbre
+   * d'idées existant (integrations/advanced-canvas.ts), `view.canvas` et
+   * `.getData()/.setData()/.requestSave()/.nodes/.selection` sont l'API
+   * NATIVE du Canvas d'Obsidian (présente avec ou sans Advanced Canvas
+   * installé, voir le commentaire de tête de ce fichier) — les commandes
+   * ci-dessous fonctionnent donc identiquement les deux cas (§10). */
+
+  /** La leaf Canvas actuellement active, si `this.app.workspace.activeLeaf`
+   * en est une — jamais une hypothèse sur LAQUELLE (Carnet global, de
+   * dossier, ou tout autre .canvas du coffre : les commandes Mindmap
+   * agissent sur n'importe quel Canvas actif, comme Tab/Entrée pour l'Arbre
+   * d'idées). */
+  activeCanvasView(): { file?: TFile | null; canvas?: MindmapRuntimeCanvas } | null {
+    const workspace = this.app.workspace as unknown as { activeLeaf?: unknown; getLeavesOfType(type: "canvas"): Array<{ view: { file?: TFile | null; canvas?: MindmapRuntimeCanvas } }> };
+    const leaves = workspace.getLeavesOfType("canvas");
+    const active = leaves.find((leaf) => leaf === workspace.activeLeaf);
+    return active?.view || null;
+  }
+
+  /** Le node runtime unique actuellement sélectionné dans `canvas` — même
+   * garde que l'Arbre d'idées (Lot 5) : jamais d'action sur une sélection
+   * vide/multiple. */
+  activeMindmapSelection(canvas: MindmapRuntimeCanvas): { id: string } | null {
+    const selection = canvas.selection;
+    if (!selection || selection.size !== 1) return null;
+    const [only] = selection;
+    return only || null;
+  }
+
+  /** Compteur et handle de la replanification décrite dans
+   * `decorateMindmapCanvasView` — bornés et annulables (voir `onunload`). */
+  _mindmapDecorationRetries = 0;
+  _mindmapDecorationFrame?: number;
+  _groupDecorationRetries = 0;
+  _groupDecorationFrame?: number;
+
+  /** Replanifie un passage de décoration à la frame suivante, tant que le
+   * runtime Canvas n'a pas fini de matérialiser ses nodes. Borné à
+   * MINDMAP_DECORATION_MAX_RETRIES frames (~1 s) : au-delà, on abandonne
+   * silencieusement plutôt que de boucler. Un seul frame en vol à la fois. */
+  scheduleMindmapDecorationRetry(): void {
+    if (this._mindmapDecorationFrame !== undefined) return;
+    if (this._mindmapDecorationRetries >= MINDMAP_DECORATION_MAX_RETRIES) return;
+    this._mindmapDecorationRetries += 1;
+    this._mindmapDecorationFrame = window.requestAnimationFrame(() => {
+      this._mindmapDecorationFrame = undefined;
+      this.carnetLifecycle?.refresh();
+    });
+  }
+
+  scheduleGroupDecorationRetry(): void {
+    if (this._groupDecorationFrame !== undefined) return;
+    if (this._groupDecorationRetries >= MINDMAP_DECORATION_MAX_RETRIES) return;
+    this._groupDecorationRetries += 1;
+    this._groupDecorationFrame = window.requestAnimationFrame(() => {
+      this._groupDecorationFrame = undefined;
+      this.carnetLifecycle?.refresh();
+    });
+  }
+
+  /** Décoration Mindmap (§7/§12, complétée par le correctif « collapse
+   * edges ») appliquée à CHAQUE passage du lifecycle Carnet existant —
+   * jamais un second observer. Pour chaque groupe Mindmap présent dans ce
+   * Canvas, bascule la classe de masquage sur les `nodeEl` ET les éléments
+   * DOM réels des edges structurelles réellement masqués par un repli
+   * (jamais de suppression de données, jamais de mutation ici — uniquement
+   * des classes CSS). `options.forceVisible` (appelé par le `cleanup()` du
+   * lifecycle) ignore l'état replié réel et retire toutes les classes. */
+  decorateMindmapCanvasView(view: { file?: TFile | null; canvas?: unknown }, options?: { forceVisible?: boolean }): void {
+    const canvas = view.canvas as MindmapRuntimeCanvas | undefined;
+    if (!canvas?.nodes || !canvas.getData) return;
+    let data: CanvasData;
+    try {
+      data = canvas.getData();
+    } catch {
+      return;
+    }
+    /* RESTAURATION À LA RÉOUVERTURE — défaut corrigé ici.
+       `layout-change`/`active-leaf-change` se déclenchent au moment où la
+       leaf Canvas apparaît, c'est-à-dire AVANT que la vue ait fini de
+       matérialiser ses instances runtime (le chargement du fichier est
+       asynchrone). À cet instant `canvas.nodes` est encore vide alors que
+       `getData()` renvoie déjà les nodes du JSON — on décorait donc zéro
+       node, et AUCUN autre événement ne venait ensuite reposer les classes :
+       une branche repliée persistée sur disque se rouvrait visuellement
+       dépliée. On replanifie donc tant que le runtime n'a pas rattrapé la
+       donnée, sur requestAnimationFrame (jamais de MutationObserver, jamais
+       de listener global), avec une borne stricte pour ne jamais boucler
+       indéfiniment sur un Canvas réellement vide ou cassé. */
+    if (!options?.forceVisible && data.nodes.length > 0 && canvas.nodes.size === 0) {
+      this.scheduleMindmapDecorationRetry();
+      return;
+    }
+    this._mindmapDecorationRetries = 0;
+    const groups = data.nodes.filter((node) => node.type === "group" && node.feuillets_block === "mindmap" && typeof node.feuillets_block_id === "string");
+    const hiddenNodes = new Set<string>();
+    const hiddenEdges = new Set<string>();
+    const collapsedByBlock = new Map<string, string[]>();
+    if (!options?.forceVisible) {
+      for (const group of groups) {
+        const blockId = group.feuillets_block_id as string;
+        collapsedByBlock.set(blockId, group.mindmapCollapsed || []);
+        const visibility = computeMindmapVisibility(data, blockId, group.mindmapCollapsed);
+        for (const id of visibility.hiddenNodeIds) hiddenNodes.add(id);
+        for (const id of visibility.hiddenEdgeIds) hiddenEdges.add(id);
+      }
+    }
+    const byId = new Map(data.nodes.map((node) => [node.id, node]));
+    for (const [id, runtimeNode] of canvas.nodes) {
+      runtimeNode.nodeEl?.classList.toggle(MINDMAP_HIDDEN_CLASS, hiddenNodes.has(id));
+      if (!runtimeNode.nodeEl) continue;
+      const node = byId.get(id);
+      const blockId = node && typeof node.feuillets_block_id === "string" && isMindmapMemberNode(node, node.feuillets_block_id) ? node.feuillets_block_id : null;
+      if (!blockId || findMindmapChildren(data, blockId, id).length === 0) {
+        removeMindmapCollapseControl(runtimeNode.nodeEl);
+        continue;
+      }
+      const collapsed = (collapsedByBlock.get(blockId) || []).includes(id);
+      const nodeEl = runtimeNode.nodeEl;
+      ensureMindmapCollapseControl(nodeEl, collapsed, () => {
+        // Toujours relire l'état le plus frais du Canvas au clic (jamais la
+        // capture `data` figée de ce passage de refresh) : le contrôle peut
+        // rester monté entre deux refreshes du lifecycle.
+        const fresh = canvas.getData?.();
+        if (!fresh) return;
+        toggleMindmapNodeCollapsed(fresh, blockId, id);
+        canvas.setData?.(fresh);
+        canvas.requestSave?.();
+        this.carnetLifecycle?.refresh();
+      });
+    }
+    if (canvas.edges) {
+      for (const [id, runtimeEdge] of canvas.edges) applyMindmapEdgeVisibility(runtimeEdge, id, hiddenEdges);
+    }
+  }
+
+  genealogyToolbarButtons(canvas: MindmapRuntimeCanvas, blockId: string): GroupBlockToolbarButton[] {
+    return [
+      {
+        id: "add", icon: "file-plus", label: t("genealogy.action.addFiles"),
+        onClick: () => this.openGroupBlockFilePicker(canvas, blockId),
+      },
+      {
+        id: "spouse", icon: "heart", label: t("genealogy.action.spouse"),
+        onClick: () => this.createGenealogyRelationFromSelection(canvas, blockId),
+      },
+    ];
+  }
+
+  /** Relations reste lisible pour les anciens fichiers, mais sa toolbar et
+   * ses commandes ne sont plus actives. */
+  removeRelationsCanvasToolbar(view: { canvas?: unknown }): void {
+    const canvas = view.canvas as MindmapRuntimeCanvas | undefined;
+    if (!canvas?.nodes || !canvas.getData) return;
+    let data: CanvasData;
+    try { data = canvas.getData(); } catch { return; }
+    for (const group of data.nodes.filter((node) => node.type === "group" && node.feuillets_block === "relations")) {
+      const nodeEl = canvas.nodes.get(group.id)?.nodeEl;
+      if (nodeEl) removeGroupBlockToolbar(nodeEl);
+    }
+  }
+
+  decorateGenealogyCanvasView(view: { file?: TFile | null; canvas?: unknown }, options?: { forceVisible?: boolean }): void {
+    this.decorateGroupBlockToolbars(view, "genealogy", (canvas, blockId) => this.genealogyToolbarButtons(canvas, blockId), options);
+  }
+
+  decorateGroupBlockToolbars(
+    view: { file?: TFile | null; canvas?: unknown },
+    blockType: "relations" | "genealogy",
+    buttonsFor: (canvas: MindmapRuntimeCanvas, blockId: string) => GroupBlockToolbarButton[],
+    options?: { forceVisible?: boolean }
+  ): void {
+    const canvas = view.canvas as MindmapRuntimeCanvas | undefined;
+    if (!canvas?.nodes || !canvas.getData) return;
+    let data: CanvasData;
+    try { data = canvas.getData(); } catch { return; }
+    const groups = data.nodes.filter((node) => node.type === "group" && node.feuillets_block === blockType && typeof node.feuillets_block_id === "string");
+    let missingRuntime = false;
+    for (const group of groups) {
+      const runtime = canvas.nodes.get(group.id);
+      const nodeEl = runtime?.nodeEl;
+      if (!nodeEl) {
+        missingRuntime = true;
+        continue;
+      }
+      if (options?.forceVisible) { removeGroupBlockToolbar(nodeEl); continue; }
+      const blockId = group.feuillets_block_id as string;
+      renderGroupBlockToolbar(nodeEl, buttonsFor(canvas, blockId));
+    }
+    if (missingRuntime && !options?.forceVisible) this.scheduleGroupDecorationRetry();
+    else if (!missingRuntime) this._groupDecorationRetries = 0;
+  }
+
+  /** « Ajouter des fiches » (§2/§3) : sélection par recherche floue parmi
+   * TOUS les fichiers Markdown du coffre (Binder, Recherche, ou tout autre
+   * — §3 : « fichiers Markdown ordinaires du projet »), ajout comme VRAI
+   * FileNode membre. Aucune relation créée. Décale légèrement chaque ajout
+   * successif (jamais un empilement exact) — la position initiale n'a de
+   * toute façon aucune portée sémantique, seul « Réorganiser » en fait foi. */
+  openGroupBlockFilePicker(canvas: MindmapRuntimeCanvas, blockId: string): void {
+    const files = this.app.vault.getFiles().filter((file) => file.extension === "md");
+    new GroupBlockFilePickerModal(this.app, files, (file) => {
+      let data: CanvasData;
+      try { data = canvas.getData?.() as CanvasData; } catch { return; }
+      if (!data) return;
+      const group = data.nodes.find((node) => node.type === "group" && node.feuillets_block_id === blockId);
+      if (!group) return;
+      const memberCount = data.nodes.filter((node) => node.feuillets_block_id === blockId && node.type !== "group").length;
+      const pos = {
+        x: Number(group.x) + Number(group.width) / 2 + memberCount * 24,
+        y: Number(group.y) + Number(group.height) / 2 + memberCount * 24,
+      };
+      if (!addGroupBlockFileMember(canvas, data, blockId, file, pos)) return;
+      this.carnetLifecycle?.refresh();
+    }).open();
+  }
+
+  genealogyIssueMessage(reason: GenealogyRefusalReason): string {
+    switch (reason) {
+      case "self": return t("genealogy.notice.self");
+      case "not-members": return t("relations.notice.notMembers");
+      case "duplicate": return t("relations.notice.duplicate");
+      case "cycle": return t("genealogy.notice.cycle");
+    }
+  }
+
+  /** « Conjoints » : exactement deux vrais membres sélectionnés. */
+  createGenealogyRelationFromSelection(canvas: MindmapRuntimeCanvas, blockId: string): void {
+    let data: CanvasData;
+    try { data = canvas.getData?.() as CanvasData; } catch { return; }
+    if (!data) return;
+    const selected = this.selectedGroupMembers(canvas, data, blockId);
+    if (!selected || selected.length !== 2) { new Notice(t("genealogy.notice.selectTwo")); return; }
+    const [a, b] = selected;
+    const result = addGenealogySpouse(data, blockId, a.id, b.id);
+    if (!result.ok) { new Notice(this.genealogyIssueMessage(result.reason)); return; }
+    canvas.setData?.(data);
+    canvas.requestSave?.();
+    this.carnetLifecycle?.refresh();
+  }
+
+  selectedGroupMembers(canvas: MindmapRuntimeCanvas, data: CanvasData, blockId: string): Array<{ id: string; node: CanvasNode }> | null {
+    if (!canvas.selection || canvas.selection.size !== 2) return null;
+    const memberNodes = groupBlockMemberNodes(data, blockId).filter((node) => isGenealogyPersonNode(node));
+    const members = new Map(memberNodes.map((node) => [node.id, node]));
+    const selected: Array<{ id: string; node: CanvasNode }> = [];
+    for (const runtimeNode of canvas.selection) {
+      const node = members.get(runtimeNode.id);
+      if (node) selected.push({ id: runtimeNode.id, node });
+    }
+    return selected.length === 2 ? selected : null;
+  }
+
+  /** Construit des noms lisibles pour le menu, sans jamais exposer l'UUID
+   * Canvas. Les doublons sont désambiguïsés par le plus petit suffixe de
+   * chemin qui les distingue. */
+  groupMemberDisplayLabels(nodes: CanvasNode[]): string[] {
+    const entries = nodes.map((node) => {
+      const path = typeof node.file === "string" ? normalizePath(node.file) : "";
+      const abstract = path ? this.app.vault.getAbstractFileByPath(path) : null;
+      const file = abstract instanceof TFile ? abstract : null;
+      const title = file ? this.titleFor(file).trim() : "";
+      const basename = file?.basename || path.split("/").pop()?.replace(/\.md$/i, "") || "Fiche";
+      return {
+        base: title || basename,
+        pathParts: path ? path.split("/") : [],
+      };
+    });
+    const counts = new Map<string, number>();
+    for (const entry of entries) counts.set(entry.base, (counts.get(entry.base) || 0) + 1);
+    return entries.map((entry, index) => {
+      if ((counts.get(entry.base) || 0) < 2) return entry.base;
+      const duplicateEntries = entries.filter((candidate) => candidate.base === entry.base);
+      const parentParts = entry.pathParts.slice(0, -1);
+      for (let depth = 1; depth <= Math.max(...duplicateEntries.map((candidate) => candidate.pathParts.length - 1), 0); depth += 1) {
+        const labels = duplicateEntries.map((candidate) => {
+          const suffix = candidate.pathParts.slice(0, -1).slice(-depth).join(" / ");
+          return suffix ? `${candidate.base} (${suffix})` : candidate.base;
+        });
+        const suffix = parentParts.slice(-depth).join(" / ");
+        if (suffix && new Set(labels).size === labels.length) return `${entry.base} (${suffix})`;
+      }
+      return `${entry.base} (fichier ${index + 1})`;
+    });
+  }
+
+  /* ---------- Plan du Binder (Prompt 3/5) ----------
+   * Le Plan est un BROUILLON : rien n'est écrit dans le Binder tant que
+   * l'autrice n'appuie pas sur Appliquer, et jamais sans un preflight
+   * complet (§9). Le renderer ne touche jamais au vault : tout passe par
+   * `BinderBridge` (carnet/bridges/binder.ts). */
+
+  /** Périmètre du Plan pour un Carnet (§2) : le manuscrit entier pour le
+   * Carnet global ; le sous-arbre du propriétaire canonique pour un Carnet
+   * de dossier, à condition qu'il soit DANS le manuscrit ; `null` sinon
+   * (Carnet Recherche autonome, dossier hors manuscrit) — l'action Plan est
+   * alors indisponible, jamais silencieusement rabattue sur autre chose. */
+  resolvePlanScope(file: TFile | null | undefined): TFolder | null {
+    const manuscript = this.getProjectFolder();
+    if (!file || !manuscript) return null;
+    if (this.isGlobalCarnetFile(file)) return manuscript;
+    const projectRoot = getProjectRoot(this.app, this.settings);
+    const meta = this.settings.projectMeta[manuscript.path];
+    if (!projectRoot || !meta) return null;
+    const context = resolveFolderCarnetTitleContext(this.app.vault, manuscript, projectRoot.path, meta, file);
+    const owner = context?.owner;
+    if (!owner) return null;
+    const inManuscript = owner.path === manuscript.path || owner.path.startsWith(`${manuscript.path}/`);
+    return inManuscript ? owner : null;
+  }
+
+  /** Lecture du Binder dans l'ordre canonique Feuillets — jamais
+   * `folder.children` brut (§4). */
+  planBinderReader(): BinderReader {
+    return {
+      getOrderedChildren: (folder) => this.getOrderedChildren(folder),
+      shortTitleFor: (file) => this.shortTitleFor(file),
+      shortTitleRawFor: (file) => {
+        const value = this.app.metadataCache.getFileCache(file)?.frontmatter?.short_title;
+        return typeof value === "string" ? value : undefined;
+      },
+    };
+  }
+
+  /** Primitives d'écriture du pont — TOUTES déléguées aux mécanismes déjà
+   * existants du plugin (§7) : jamais une réimplémentation. */
+  planBinderWriter(): BinderWriter {
+    const folderAt = (path: string): TFolder => {
+      const node = this.app.vault.getAbstractFileByPath(normalizePath(path));
+      if (!(node instanceof TFolder)) throw new Error(`Folder not found: ${path}`);
+      return node;
+    };
+    return {
+      createFolder: async (path) => { await this.app.vault.createFolder(normalizePath(path)); },
+      createSheet: async (parentPath, fileName, title, position) => {
+        const file = await createSheetFile(this.app, this.settings, folderAt(parentPath), fileName, title, position);
+        return file.path;
+      },
+      renameFolder: async (from, to) => {
+        const node = this.app.vault.getAbstractFileByPath(normalizePath(from));
+        if (!(node instanceof TFolder)) throw new Error(`Folder not found: ${from}`);
+        await this.app.fileManager.renameFile(node, normalizePath(to));
+      },
+      move: async (fromPath, toParentPath) => {
+        const node = this.app.vault.getAbstractFileByPath(normalizePath(fromPath));
+        if (!node) throw new Error(`Item not found: ${fromPath}`);
+        const destination = folderAt(toParentPath);
+        await this.app.fileManager.renameFile(node, normalizePath(`${destination.path}/${node.name}`));
+      },
+      setShortTitle: async (path, title) => {
+        const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+        if (!(file instanceof TFile)) throw new Error(`Sheet not found: ${path}`);
+        await this.app.fileManager.processFrontMatter(file, (fm: SceneFrontmatter) => { fm.short_title = title; });
+      },
+      restoreShortTitle: async (path, previousTitle) => {
+        const file = this.app.vault.getAbstractFileByPath(normalizePath(path));
+        if (!(file instanceof TFile)) throw new Error(`Sheet not found: ${path}`);
+        await this.app.fileManager.processFrontMatter(file, (fm: SceneFrontmatter) => {
+          if (previousTitle === undefined) delete fm.short_title;
+          else fm.short_title = previousTitle;
+        });
+      },
+      writeOrder: async (parentPath, names) => {
+        const parent = folderAt(parentPath);
+        await this.writeOrder(parent, orderFromSnapshot(this.getOrderedChildren(parent), names));
+      },
+      /* Réservé au SEUL rollback d'un élément que CE lot vient de créer
+         (§10) — jamais une suppression demandée par le Plan (§11). */
+      deleteCreated: async (path) => {
+        const node = this.app.vault.getAbstractFileByPath(normalizePath(path));
+        if (node) await this.app.fileManager.trashFile(node);
+      },
+    };
+  }
+
+  /** Traduit un motif de refus du preflight en message lisible (§9). */
+  planIssueMessage(issue: PreflightIssue): string {
+    switch (issue.code) {
+      case "binder-changed": return t("plan.notice.conflict");
+      case "implicit-delete": return t("plan.notice.implicitDelete", { path: issue.path });
+      case "collision": return t("plan.notice.collision", { path: issue.path });
+      case "invalid-name": return t("plan.notice.invalidName", { title: issue.title });
+      case "empty-title": return t("plan.notice.emptyTitle");
+      case "missing-item": return t("plan.notice.missingItem", { path: issue.path });
+      case "out-of-scope": return t("plan.notice.outOfScope", { path: issue.path });
+      case "file-with-children": return t("plan.notice.fileWithChildren", { title: issue.title });
+    }
+  }
+
+  /** Persiste l'état du Plan sur son node Canvas. */
+  writePlanToCanvas(canvas: MindmapRuntimeCanvas, state: PlanState): void {
+    const data = canvas.getData?.();
+    if (!data) return;
+    const node = findPlanNode(data);
+    if (!node || node === "conflict") return;
+    writePlanState(node, state);
+    canvas.setData?.(data);
+    canvas.requestSave?.();
+  }
+
+  /** Actualiser depuis le Binder (§8). Un Plan SALE n'est jamais écrasé
+   * silencieusement : confirmation explicite d'abord. */
+  async refreshPlanFromBinder(canvas: MindmapRuntimeCanvas, scope: TFolder, state: PlanState): Promise<void> {
+    if (state.dirty) {
+      /* `ConfirmModal.onConfirm` ne se déclenche QUE sur confirmation :
+         fermer ou annuler ne rappelle rien. Sans le `onClose` ci-dessous,
+         un abandon laisserait cette promesse en suspens pour toujours. */
+      const confirmed = await new Promise<boolean>((resolve) => {
+        let accepted = false;
+        const modal = new ConfirmModal(
+          this.app,
+          t("plan.confirm.discardTitle"),
+          t("plan.confirm.discard"),
+          t("plan.action.refresh"),
+          () => { accepted = true; resolve(true); }
+        );
+        const close = modal.onClose.bind(modal);
+        modal.onClose = () => { close(); if (!accepted) resolve(false); };
+        modal.open();
+      });
+      if (!confirmed) return;
+    }
+    const snapshot = readBinderSnapshot(this.planBinderReader(), scope);
+    this.writePlanToCanvas(canvas, {
+      rootPath: scope.path,
+      items: planFromBinderSnapshot(snapshot, state.items),
+      baseFingerprint: binderFingerprint(snapshot),
+      dirty: false,
+    });
+    this.carnetLifecycle?.refresh();
+  }
+
+  /** Appliquer au Binder (§9/§10) : preflight COMPLET d'abord ; au moindre
+   * refus, aucune écriture. Les rafraîchissements provoqués par nos propres
+   * create/rename sont neutralisés le temps du lot (§10). */
+  async applyPlanToBinder(canvas: MindmapRuntimeCanvas, scope: TFolder, state: PlanState): Promise<void> {
+    const snapshot = readBinderSnapshot(this.planBinderReader(), scope);
+    const preflight = buildBinderMutationPlan(state.items, snapshot, state.baseFingerprint);
+    if (!preflight.ok) {
+      new Notice(this.planIssueMessage(preflight.issues[0]));
+      return;
+    }
+    const mutations = preflight.plan.operations.filter((operation) => operation.op !== "order");
+    const reorders = preflight.plan.operations.filter((operation) => operation.op === "order");
+    if (mutations.length === 0 && reorders.length === 0) {
+      new Notice(t("plan.notice.nothingToApply"));
+      return;
+    }
+
+    this._planApplyInProgress = true;
+    let outcome;
+    try {
+      outcome = await applyBinderMutationPlan(preflight.plan, this.planBinderWriter());
+    } finally {
+      this._planApplyInProgress = false;
+    }
+
+    if (!outcome.ok) {
+      const params = { op: outcome.failedAt.op, error: outcome.error };
+      new Notice(t(outcome.rolledBack ? "plan.notice.applyFailed" : "plan.notice.rollbackIncomplete", params));
+      return;
+    }
+
+    const after = readBinderSnapshot(this.planBinderReader(), scope);
+    this.writePlanToCanvas(canvas, reconcilePlanAfterApply(state.items, after, binderFingerprint(after), scope.path));
+    new Notice(t("plan.notice.applied", { count: String(preflight.plan.operations.length) }));
+    this.renderAllViews(true);
+    this.carnetLifecycle?.refresh();
+  }
+
+  /** État d'interface volatile du node Plan — jamais écrit dans le Canvas. */
+  _planActiveRowId?: string;
+  _planEditRowId?: string;
+
+  /** Vrai pendant un Apply : les événements vault create/rename que NOUS
+   * provoquons ne doivent pas relancer un rafraîchissement du Plan (§10). */
+  _planApplyInProgress = false;
+
+  /** Monte le Plan dans la carte Canvas correspondante — depuis le
+   * lifecycle Carnet NATIF (§12), jamais depuis un événement Advanced
+   * Canvas. Si le renderer ne peut pas se monter, le TextNode conserve son
+   * repli texte, déjà écrit par `writePlanState`. */
+  decoratePlanCanvasView(view: { file?: TFile | null; canvas?: unknown }, options?: { forceVisible?: boolean }): void {
+    const canvas = view.canvas as MindmapRuntimeCanvas | undefined;
+    if (!canvas?.nodes || !canvas.getData) return;
+    let data: CanvasData;
+    try { data = canvas.getData(); } catch { return; }
+    const planNode = findPlanNode(data);
+    if (!planNode || planNode === "conflict") return;
+    const runtime = canvas.nodes.get(planNode.id);
+    /* Monter dans la ZONE DE CONTENU du node, jamais sur `nodeEl` : un
+       calque posé sur le node entier recouvre sa bordure et ses poignées,
+       rendant la carte impossible à redimensionner, et intercepte le
+       pointerdown dont le Canvas a besoin pour la déplacer. */
+    const nodeEl = runtime?.nodeEl;
+    const contentEl = runtime?.contentEl;
+    if (!nodeEl || !contentEl) {
+      nodeEl?.removeClass("feuillets-plan-mounted");
+      return;
+    }
+
+    if (options?.forceVisible) {
+      contentEl.querySelector(".feuillets-plan-interactive-layer")?.remove();
+      nodeEl.removeClass("feuillets-plan-mounted");
+      return;
+    }
+
+    const state = readPlanState(planNode);
+    const scope = this.resolvePlanScope(view.file);
+    /* Le rendu Markdown natif du TextNode est masqué par CSS seulement une
+       fois le calque monté. Sans cela Canvas
+       affichait le texte de repli ET notre UI par-dessus : deux plans
+       superposés, dont l'un interceptait les clics. Le texte reste dans les
+       données (repli §12) — il n'est que caché. */
+    contentEl.querySelector(".feuillets-plan-interactive-layer")?.remove();
+    const layer = contentEl.createDiv({ cls: "feuillets-plan-interactive-layer" });
+    const requestedEditRowId = this._planEditRowId;
+    const editRowId = requestedEditRowId && flattenPlan(state.items).some((item) => item.id === requestedEditRowId)
+      ? requestedEditRowId
+      : undefined;
+    this._planEditRowId = undefined;
+    try {
+      renderBinderPlanOutliner({
+        host: layer,
+      items: state.items,
+      dirty: state.dirty,
+      editable: !!scope,
+      activeRowId: this._planActiveRowId,
+      editRowId,
+      onUiStateChange: (activeRowId, nextEditRowId) => {
+        this._planActiveRowId = activeRowId;
+        this._planEditRowId = nextEditRowId;
+      },
+      onChange: (items: PlanItem[], editRowId?: string) => {
+        /* Seule une création explicite passe un editRowId ; les autres
+           mutations conservent activeRowId sans rouvrir l'input. */
+        if (editRowId) {
+          this._planActiveRowId = editRowId;
+          this._planEditRowId = editRowId;
+        }
+        this.writePlanToCanvas(canvas, markPlanDirty(state, items));
+        this.carnetLifecycle?.refresh();
+      },
+      onRefresh: () => { if (scope) void this.refreshPlanFromBinder(canvas, scope, state); },
+      onApply: () => { if (scope) void this.applyPlanToBinder(canvas, scope, state); },
+      });
+      nodeEl.addClass("feuillets-plan-mounted");
+    } catch {
+      layer.remove();
+      nodeEl.removeClass("feuillets-plan-mounted");
+      return;
+    }
+  }
+
+  /** Commande « Créer le Plan du Binder » — refusée hors périmètre (§2). */
+  registerPlanCommands(): void {
+    this.addCommand({
+      id: "plan-create",
+      name: t("plan.action.create"),
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        const canvas = view?.canvas;
+        if (!canvas?.getData || !canvas.requestSave) return false;
+        if (checking) return true;
+        const scope = this.resolvePlanScope(view?.file);
+        if (!scope) { new Notice(t("plan.notice.unavailable")); return true; }
+        const data = canvas.getData();
+        const existing = findPlanNode(data);
+        if (existing === "conflict") { new Notice(t("plan.notice.conflictNodes")); return true; }
+        const snapshot = readBinderSnapshot(this.planBinderReader(), scope);
+        const state: PlanState = {
+          rootPath: scope.path,
+          items: planFromBinderSnapshot(snapshot, existing ? readPlanState(existing).items : []),
+          baseFingerprint: binderFingerprint(snapshot),
+          dirty: false,
+        };
+        if (existing) writePlanState(existing, state);
+        else data.nodes.push(createPlanNode(data, crypto.randomUUID().replace(/-/g, "").slice(0, 16), state));
+        canvas.setData?.(data);
+        canvas.requestSave?.();
+        this.carnetLifecycle?.refresh();
+        return true;
+      },
+    });
+  }
+
+  /** Actions Mindmap (§5/§7/§8/§11) exposées via la palette de commandes —
+   * fonctionnent identiquement avec ou sans Advanced Canvas (§10), agissent
+   * TOUJOURS sur le Canvas actif + sa sélection unique, jamais une hypothèse
+   * sur quel Carnet est ouvert. */
+  registerMindmapCommands(): void {
+    this.addCommand({
+      id: "mindmap-create",
+      name: t("mindmap.action.create"),
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        if (!view?.canvas?.getData || !view.canvas.requestSave) return false;
+        if (checking) return true;
+        void (async () => {
+          const canvas = view.canvas!;
+          const data = canvas.getData!();
+          const bottom = data.nodes.reduce((max, node) => Math.max(max, (Number(node.y) || 0) + (Number(node.height) || 0)), 0);
+          const centerY = data.nodes.length > 0 ? bottom + 200 : 0;
+          const blockId = crypto.randomUUID();
+          createMindmapBlock(data, { blockId, centerX: 0, centerY, rootText: t("mindmap.root.initialText") });
+          applyMindmapLayout(data, blockId);
+          canvas.setData?.(data);
+          canvas.requestSave?.();
+          this.carnetLifecycle?.refresh();
+        })();
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "mindmap-reorganize",
+      name: t("mindmap.action.reorganize"),
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        const canvas = view?.canvas;
+        if (!canvas?.getData || !canvas.requestSave) return false;
+        const selected = this.activeMindmapSelection(canvas);
+        if (!selected) return false;
+        let data: CanvasData;
+        try { data = canvas.getData(); } catch { return false; }
+        const node = data.nodes.find((candidate) => candidate.id === selected.id);
+        if (!node || typeof node.feuillets_block_id !== "string") return false;
+        if (checking) return true;
+        applyMindmapLayout(data, node.feuillets_block_id);
+        canvas.setData?.(data);
+        canvas.requestSave?.();
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "mindmap-toggle-collapse",
+      name: t("mindmap.action.toggleCollapse"),
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        const canvas = view?.canvas;
+        if (!canvas?.getData || !canvas.requestSave) return false;
+        const selected = this.activeMindmapSelection(canvas);
+        if (!selected) return false;
+        let data: CanvasData;
+        try { data = canvas.getData(); } catch { return false; }
+        const node = data.nodes.find((candidate) => candidate.id === selected.id);
+        if (!node || typeof node.feuillets_block_id !== "string" || !isMindmapMemberNode(node, node.feuillets_block_id)) return false;
+        if (findMindmapChildren(data, node.feuillets_block_id, node.id).length === 0) return false;
+        if (checking) return true;
+        toggleMindmapNodeCollapsed(data, node.feuillets_block_id, node.id);
+        canvas.setData?.(data);
+        canvas.requestSave?.();
+        this.carnetLifecycle?.refresh();
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "mindmap-convert-idea-tree",
+      name: t("mindmap.action.convertIdeaTree"),
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        const canvas = view?.canvas;
+        if (!canvas?.getData || !canvas.requestSave) return false;
+        const selected = this.activeMindmapSelection(canvas);
+        if (!selected) return false;
+        let data: CanvasData;
+        try { data = canvas.getData(); } catch { return false; }
+        if (!isIdeaTreeNode(data, selected.id)) return false;
+        if (checking) return true;
+        const result = convertIdeaTreeBranchToMindmap(data, selected.id, crypto.randomUUID());
+        if (!result.ok) {
+          new Notice(t(result.reason === "cycle-detected" ? "mindmap.notice.conversionCycle" : "mindmap.notice.conversionEmpty"));
+          return true;
+        }
+        canvas.setData?.(data);
+        canvas.requestSave?.();
+        this.carnetLifecycle?.refresh();
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "mindmap-toggle-orientation",
+      name: t("mindmap.action.toggleOrientation"),
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        const canvas = view?.canvas;
+        if (!canvas?.getData || !canvas.requestSave) return false;
+        const selected = this.activeMindmapSelection(canvas);
+        if (!selected) return false;
+        let data: CanvasData;
+        try { data = canvas.getData(); } catch { return false; }
+        const node = data.nodes.find((candidate) => candidate.id === selected.id);
+        if (!node || typeof node.feuillets_block_id !== "string") return false;
+        if (checking) return true;
+        const blockId = node.feuillets_block_id;
+        const next = toggleMindmapOrientation(data, blockId);
+        if (next) applyMindmapLayout(data, blockId);
+        canvas.setData?.(data);
+        canvas.requestSave?.();
+        this.carnetLifecycle?.refresh();
+        return true;
+      },
+    });
+  }
+
+  /** « Nouveau bloc Généalogie » (§2) — même schéma. */
+  registerGenealogyCommands(): void {
+    this.addCommand({
+      id: "genealogy-create",
+      name: t("genealogy.action.create"),
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        if (!view?.canvas?.getData || !view.canvas.requestSave) return false;
+        if (checking) return true;
+        const canvas = view.canvas;
+        const data = canvas.getData!();
+        const bottom = data.nodes.reduce((max, node) => Math.max(max, (Number(node.y) || 0) + (Number(node.height) || 0)), 0);
+        const centerY = data.nodes.length > 0 ? bottom + 200 : 0;
+        createGenealogyBlock(data, { blockId: crypto.randomUUID(), centerX: 0, centerY });
+        canvas.setData?.(data);
+        canvas.requestSave?.();
+        this.carnetLifecycle?.refresh();
+        return true;
+      },
+    });
+  }
+
+  /** Commande historique « Plan visuel » — réécrite pour produire le
+   * NOUVEAU modèle de Plan (items à UUID stables) plutôt que l'ancien
+   * (§3/§13) : sans cela, deux points d'entrée auraient écrit deux modèles
+   * concurrents dans le même node. Le Plan visé est toujours celui du
+   * Carnet GLOBAL, donc le manuscrit entier (§2). */
   async openVisualOutline(): Promise<void> {
     const root = this.getProjectFolder(); if (!root) return;
-    const makeItems = (folder: TFolder): BinderOutlinerItem[] => this.getOrderedChildren(folder).flatMap((child): BinderOutlinerItem[] => {
-      if (child instanceof TFolder) return [{ id: child.path, kind: "folder", path: child.path, title: child.name, collapsed: false, children: makeItems(child) }];
-      if (child instanceof TFile && child.extension === "md") return [{ id: child.path, kind: "file", path: child.path, title: this.shortTitleFor(child), collapsed: false, children: [] }];
-      return [];
-    });
-    const snapshot: BinderOutlinerSnapshot = { path: root.path, title: root.name, children: makeItems(root) };
     const board = await generateCanvasBoard(this.app, this.settings); if (!board) return;
-    let data: CanvasData; try { data = JSON.parse(await this.app.vault.read(board.file)) as CanvasData; } catch { return; }
-    const result = upsertBinderOutliner(data, snapshot); if (!result.ok) { new Notice("Plusieurs plans visuels sont présents dans le Carnet."); return; }
-    await this.app.vault.modify(board.file, JSON.stringify(result.canvas, null, "\t"));
+    let session; try { session = await resolveCanvasSession(this.app, board.file); } catch { return; }
+    const data = session.data;
+    const existing = findPlanNode(data);
+    if (existing === "conflict") { new Notice(t("plan.notice.conflictNodes")); return; }
+    const snapshot = readBinderSnapshot(this.planBinderReader(), root);
+    const state: PlanState = {
+      rootPath: root.path,
+      items: planFromBinderSnapshot(snapshot, existing ? readPlanState(existing).items : []),
+      baseFingerprint: binderFingerprint(snapshot),
+      dirty: false,
+    };
+    if (existing) writePlanState(existing, state);
+    else data.nodes.push(createPlanNode(data, crypto.randomUUID().replace(/-/g, "").slice(0, 16), state));
+    await session.persist(data);
     openFileActivating(this.app, this.app.workspace.getLeaf(true), board.file);
+    this.carnetLifecycle?.refresh();
   }
 
   /** Ajoute explicitement un feuillet au Carnet sans modifier le Binder. */
@@ -4099,15 +5148,8 @@ class FeuilletsPlugin extends Plugin {
     if (!root || !file.path.startsWith(`${root.path}/`)) return;
     const result = await generateCanvasBoard(this.app, this.settings);
     if (!result) return;
-    const liveView = this.app.workspace.getLeavesOfType("canvas")
-      .map((leaf) => leaf.view as unknown as { file?: TFile | null } & Partial<LiveCanvasFileView>)
-      .find((view): view is { file: TFile } & LiveCanvasFileView =>
-        view.file?.path === result.file.path &&
-        typeof view.getViewData === "function" &&
-        typeof view.setViewData === "function" &&
-        typeof view.requestSave === "function"
-      );
-    const outcome = await addFileNodeToNotebook(this.app, result.file, file.path, liveView);
+    const session = await resolveCanvasSession(this.app, result.file);
+    const outcome = await addFileNodeToNotebook(this.app, result.file, file.path, session.view);
     if (outcome === "duplicate") {
       new Notice("Ce feuillet est déjà dans le Carnet.");
     }
@@ -4129,15 +5171,8 @@ class FeuilletsPlugin extends Plugin {
     if (!root) return;
     const result = await generateCanvasBoard(this.app, this.settings);
     if (!result) return;
-    const liveView = this.app.workspace.getLeavesOfType("canvas")
-      .map((leaf) => leaf.view as unknown as { file?: TFile | null } & Partial<LiveCanvasFileView>)
-      .find((view): view is { file: TFile } & LiveCanvasFileView =>
-        view.file?.path === result.file.path &&
-        typeof view.getViewData === "function" &&
-        typeof view.setViewData === "function" &&
-        typeof view.requestSave === "function"
-      );
-    const outcome = await addFileNodesToNotebook(this.app, result.file, files.map((f) => f.path), liveView);
+    const session = await resolveCanvasSession(this.app, result.file);
+    const outcome = await addFileNodesToNotebook(this.app, result.file, files.map((f) => f.path), session.view);
     if (outcome === "invalid") return;
     const { added, duplicates } = outcome;
     if (added === 0) {
@@ -4177,15 +5212,8 @@ class FeuilletsPlugin extends Plugin {
     if (!root) return;
     const result = await generateCanvasBoard(this.app, this.settings);
     if (!result) return;
-    const liveView = this.app.workspace.getLeavesOfType("canvas")
-      .map((leaf) => leaf.view as unknown as { file?: TFile | null } & Partial<LiveCanvasFileView>)
-      .find((view): view is { file: TFile } & LiveCanvasFileView =>
-        view.file?.path === result.file.path &&
-        typeof view.getViewData === "function" &&
-        typeof view.setViewData === "function" &&
-        typeof view.requestSave === "function"
-      );
-    await addTextNodeToNotebook(this.app, result.file, rawText, liveView);
+    const session = await resolveCanvasSession(this.app, result.file);
+    await addTextNodeToNotebook(this.app, result.file, rawText, session.view);
   }
 
   /** Ouvre le pont Canvas → manuscrit/recherche (repli universel, sans
@@ -4204,15 +5232,14 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.canvasBoardMissing"));
       return;
     }
-    const raw = await this.app.vault.read(file);
-    let data: CanvasData;
+    let session;
     try {
-      data = JSON.parse(raw) as CanvasData;
+      session = await resolveCanvasSession(this.app, file);
     } catch {
       new Notice(t("main.notice.canvasUnreadable"));
       return;
     }
-    new CanvasBridgeModal(this.app, this.settings, file, data, mode).open();
+    new CanvasBridgeModal(this.app, this.settings, file, session.data, mode, { persist: session.persist, runtimeCanvas: session.runtimeCanvas }).open();
   }
 
   /** Commande palette « Carnet : créer un chapitre… » (section 4) — repli
@@ -4232,17 +5259,17 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.canvasBoardMissing"));
       return;
     }
-    const raw = await this.app.vault.read(file);
-    let data: CanvasData;
+    let session;
     try {
-      data = JSON.parse(raw) as CanvasData;
+      session = await resolveCanvasSession(this.app, file);
     } catch {
       new Notice(t("main.notice.canvasUnreadable"));
       return;
     }
-    new CanvasChapterModal(this.app, this.settings, data, { source: "command" }, {
-      persist: (updated) => this.app.vault.modify(file, JSON.stringify(updated, null, "\t")),
+    new CanvasChapterModal(this.app, this.settings, session.data, { source: "command" }, {
+      persist: session.persist,
       saveSettings: () => this.saveSettings(),
+      runtimeCanvas: session.runtimeCanvas,
     }).open();
   }
 

@@ -502,6 +502,11 @@ test("11 — DataTransfer natif : TFile single (marqueur + text/plain), TFolder 
   assert.ok(dtFile.getData("application/x-feuillets-binder"), "TFile single : valeur non vide");
   assert.ok(dtFile.hasType("text/plain"), "TFile single : text/plain Canvas préservé");
   assert.equal(dtFile.getData("text/plain"), project.a.path, "TFile single : text/plain = path historique");
+  // Correctif « drag Binder/Recherche → vrai FileNode » (§4) : MIME privé
+  // supplémentaire, lu par le drop Carnet — jamais posé pour un TFolder ni
+  // une sélection multiple.
+  assert.ok(dtFile.hasType("application/x-feuillets-file"), "TFile single : MIME FileNode posé");
+  assert.equal(dtFile.getData("application/x-feuillets-file"), project.a.path, "TFile single : chemin vault exact");
 
   // TFolder unitaire : dragstart sur le dossier Chapitre 1, sibling de
   // Recherche sous Manuscrit.
@@ -515,6 +520,23 @@ test("11 — DataTransfer natif : TFile single (marqueur + text/plain), TFolder 
   assert.ok(dtFolder.hasType("application/x-feuillets-binder"), "TFolder single : marqueur privé posé");
   assert.ok(dtFolder.getData("application/x-feuillets-binder"), "TFolder single : valeur non vide");
   assert.ok(!dtFolder.hasType("text/plain"), "TFolder single : pas de text/plain");
+  assert.ok(!dtFolder.hasType("application/x-feuillets-file"), "TFolder single : jamais le MIME FileNode");
+});
+
+test("drag Binder — sélection multiple : jamais le MIME FileNode (comportement actuel intact)", () => {
+  const project = makeProject();
+  const plugin = makePlugin(project);
+  const view = new TestView(makeApp(project), plugin);
+  const scopeEl = new FakeElement();
+  const siblings = project.chapterFolder.children;
+  const rows = buildRows(view, project.chapterFolder, siblings, scopeEl);
+
+  plugin._binderMultiSelect = new Set([project.a.path, project.c.path]);
+  const dt = fakeDataTransfer();
+  rows["C"].fire("dragstart", { target: rows["C"], dataTransfer: dt, preventDefault() {}, stopPropagation() {} });
+
+  assert.ok(dt.hasType("application/x-feuillets-binder"), "marqueur Binder multi toujours posé (comportement inchangé)");
+  assert.ok(!dt.hasType("application/x-feuillets-file"), "jamais le MIME FileNode pour une sélection multiple");
 });
 
 /* 12. toggleBinderReorderSelection (correctif final multi-drag, §3) : le

@@ -1190,6 +1190,53 @@ test("un déplacement vers un nom déjà pris est refusé", async () => {
   }
 });
 
+/* --- Correctif Prompt 2 (suite) — drag Recherche → MIME FileNode (§4) --- */
+
+function fakeDataTransfer() {
+  const data = {};
+  return {
+    effectAllowed: null,
+    setData(k, v) { data[k] = v; },
+    getData(k) { return data[k] ?? ""; },
+    hasType(k) { return Object.prototype.hasOwnProperty.call(data, k); },
+  };
+}
+
+test("attachResearchDragSource — TFile Recherche : MIME application/x-feuillets-file posé", () => {
+  const harness = createDropHarness({ vault: {} });
+  try {
+    const file = new TFile("Projet/_Recherche/Personnages/Fiche.md");
+    const row = new FakeElement();
+    harness.view.attachResearchDragSource(row, file);
+    const dt = fakeDataTransfer();
+    row.events.get("dragstart")({ dataTransfer: dt, stopPropagation() {} });
+
+    assert.equal(harness.plugin._researchDragPath, file.path, "le déplacement interne Recherche reste inchangé");
+    assert.ok(dt.hasType("text/plain"), "text/plain historique préservé");
+    assert.ok(dt.hasType("application/x-feuillets-file"), "MIME FileNode posé pour un TFile");
+    assert.equal(dt.getData("application/x-feuillets-file"), file.path, "chemin vault exact");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("attachResearchDragSource — TFolder Recherche : jamais le MIME FileNode, comportement actuel intact", () => {
+  const harness = createDropHarness({ vault: {} });
+  try {
+    const folder = new TFolder("Projet/_Recherche/Personnages/Principaux");
+    const row = new FakeElement();
+    harness.view.attachResearchDragSource(row, folder);
+    const dt = fakeDataTransfer();
+    row.events.get("dragstart")({ dataTransfer: dt, stopPropagation() {} });
+
+    assert.equal(harness.plugin._researchDragPath, folder.path, "le déplacement interne de sous-dossier reste inchangé");
+    assert.ok(dt.hasType("text/plain"), "text/plain toujours posé pour le déplacement interne");
+    assert.ok(!dt.hasType("application/x-feuillets-file"), "jamais le MIME FileNode pour un TFolder");
+  } finally {
+    harness.cleanup();
+  }
+});
+
 /* --- Rendu sans création automatique de dossiers --- */
 
 test("renderResearchBody affiche un dossier présent", async () => {

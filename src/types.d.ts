@@ -112,6 +112,7 @@ declare type MappableFrontmatterField =
  * Écrit champ par champ par ui/project-modals.ts — TOUT est optionnel,
  * `{}` est un état normal (voir `S.projectMeta[path] = {}`). */
 declare type ProjectMeta = {
+  folderCarnets?: Record<string, import("./carnet/core/folder-carnets.js").FolderCarnetRegistration>;
   /** Nom d'affichage personnalisé ; sinon le nom du dossier. */
   name?: string;
   /** Emoji ou nom d'icône Lucide. */
