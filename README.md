@@ -20,7 +20,7 @@ A sheet may remain an article, short story, column or standalone chapter. Severa
 
 - a hierarchical **Binder**;
 - **Cards**, **Outline**, **Storyline** and **Timeline**;
-- a visual **Notebook**;
+- a visual project or folder **Notebook**, with a **Binder Plan** and **mindmaps**;
 - project **Research**;
 - **working annotations**;
 - **Continuous** mode, to write several sheets as one manuscript;
@@ -88,9 +88,11 @@ See [Continuous mode](docs/CONTINUOUS-MODE.md).
 | Check event order | Timeline |
 | Write several sheets together | Continuous |
 | Read the composed document | Preview |
-| Explore freely | Notebook |
+| Explore freely or think around a folder | Notebook |
 
-These views do not create parallel databases: they show the same files from different angles.
+These views do not create parallel databases: they show the same files from different angles. The **Notebook** remains a free-form Canvas; it can be project-wide or attached to a folder and can host a **Binder Plan** or **mindmaps** without changing Markdown until an explicit Binder action is applied.
+
+See [Notebook — from ideas to manuscript](docs/HOW-TO-NOTEBOOK.md).
 
 ![Multiple views: Storyline, Outline, Timeline and Cards](docs/feuillets-mosaique-narrative.png)
 
@@ -131,6 +133,8 @@ Annotations remain **outside Markdown** and are never exported.
 See [Working annotations](docs/WORKING-ANNOTATIONS.md).
 
 ## Proofreading and comparison
+
+Before a major rewrite, take a **snapshot** of the sheet or project. Rewrite normally, then use **Compare a version** to confront the current state with that snapshot. The comparison view helps identify additions, deletions, replacements and moves, and can restore a precise passage without rolling back the whole text.
 
 Proofreading separates several needs:
 

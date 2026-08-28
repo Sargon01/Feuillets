@@ -18,7 +18,11 @@ Un dossier peut aussi être associé à une documentation externe déjà présen
 
 ## 3. Penser avec le Carnet
 
-Utilisez le Canvas du Carnet pour capturer, grouper et développer les idées. Une branche peut devenir un plan Feuillets ; lors d’un réimport, l’ordre source est conservé explicitement.
+Utilisez le **Carnet global** lorsque vous réfléchissez à l’ensemble du projet, ou créez un **Carnet attaché à un dossier** lorsque vous voulez concentrer les idées, fichiers et liens autour d’une partie précise du manuscrit. Un dossier Recherche associé peut partager le même Carnet logique.
+
+Le Canvas reste libre. Ajoutez un **Plan du Binder** lorsque vous voulez préparer une réorganisation avant de l’appliquer explicitement au Classeur, ou créez une **mindmap** pour développer une idée par branches.
+
+Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
 
 ## 4. Écrire
 
@@ -50,16 +54,19 @@ Dans **Projet**, définissez objectifs, statuts, labels, tags favoris et, si né
 
 Cartes, Plan, Chemin de fer et Chronologie montrent les mêmes fichiers sous d’autres angles. Le Plan peut maintenant renvoyer à la ligne les colonnes de texte long. Le tri naturel sert de repli lorsque l’ordre explicite n’existe pas.
 
-## 10. Relire
+## 10. Réécrire et comparer
 
-Dans **Relecture**, choisissez selon le besoin :
+Avant une réécriture importante, prenez un **instantané** du feuillet ou du projet. Réécrivez ensuite normalement : l’instantané reste un point de référence indépendant.
+
+Dans **Relecture**, **Comparer une version** permet de confronter le texte actuel à cet état antérieur. Le mode **Changements** distingue ajouts, suppressions, remplacements et déplacements ; le mode **Versions** permet de lire les deux états côte à côte sans décorations. Le défilement synchronisé est optionnel et un passage peut être restauré depuis l’instantané sans restaurer tout le fichier.
+
+Selon le besoin, Relecture réunit aussi :
 
 - Analyse de texte ;
 - Relecture collaborative ;
-- Révision DOCX ;
-- Comparer une version.
+- Révision DOCX.
 
-Le comparateur propose les modes Changements/Versions et un défilement synchronisé optionnel.
+Voir [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md).
 
 ## 11. Collaborer
 

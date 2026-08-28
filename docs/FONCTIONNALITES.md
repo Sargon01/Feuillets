@@ -50,13 +50,19 @@ Dans l’éditeur Markdown natif, le menu contextuel propose selon le contexte *
 
 ## Carnet
 
-- Canvas Obsidian ordinaire ;
-- capture d’idées ;
-- conversion idée → feuillet ou Recherche ;
-- Arbre d’idées ;
-- branche → plan ;
-- réimport idempotent ;
-- préservation de l’ordre source lors de l’import de plan.
+- Carnet global du projet et **Carnets attachés aux dossiers** ;
+- vrai Canvas Obsidian, sans format visuel propriétaire ;
+- identité du Carnet de dossier conservée lors des renommages/déplacements ;
+- un dossier Recherche associé peut partager le même Carnet logique que son dossier Binder ;
+- glisser-déposer depuis le Classeur ou Recherche → vraie carte de fichier, sans modifier le Markdown source ;
+- capture d’idées et conversion idée → feuillet ou Recherche ;
+- **Plan du Binder** interactif : Actualiser depuis le Binder, préparer la structure, puis Appliquer au Binder explicitement ;
+- création/réorganisation de feuillets et dossiers depuis le Plan avec validation préalable ;
+- **mindmaps** avec enfants/frères, reparentage, repli, orientation horizontale/verticale et réorganisation ;
+- conversion explicite d’une ancienne branche d’Arbre d’idées en mindmap ;
+- fonctionnement de base indépendant d’Advanced Canvas.
+
+Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
 
 ## Cartes, Plan, Chemin de fer, Chronologie
 

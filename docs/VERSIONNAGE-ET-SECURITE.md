@@ -12,6 +12,8 @@ Les sauvegardes ZIP protègent les fichiers du projet. Un dossier utilisé tel q
 
 Un instantané marque un état précis d’un feuillet ou du projet avant une réécriture risquée. Il sert de point de comparaison et de restauration.
 
+Le flux recommandé pour une réécriture importante est simple : **prendre un instantané → réécrire normalement → Comparer une version → restaurer seulement les passages nécessaires**. L’instantané n’empêche pas l’écriture et ne remplace pas le fichier courant : il fournit un état de référence auquel revenir localement si la nouvelle direction ne convient pas.
+
 ## Comparateur 2.5
 
 Le comparateur est désormais une vraie surface à deux vues Markdown.

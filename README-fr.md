@@ -20,7 +20,7 @@ Un feuillet peut rester un article, une nouvelle, une chronique ou un chapitre a
 
 - un **Classeur** hiérarchique ;
 - des **Cartes**, un **Plan**, un **Chemin de fer** et une **Chronologie** ;
-- un **Carnet** d’idées ;
+- un **Carnet** visuel global ou attaché à un dossier, avec **Plan du Binder** et **mindmaps** ;
 - un espace **Recherche** ;
 - des **annotations de travail** ;
 - le mode **Continu**, pour écrire plusieurs feuillets comme un seul manuscrit ;
@@ -88,9 +88,11 @@ Voir [Mode Continu](docs/MODE-CONTINU.md).
 | Vérifier l’ordre des événements | Chronologie |
 | Écrire plusieurs feuillets ensemble | Continu |
 | Lire le document composé | Aperçu |
-| Explorer librement | Carnet |
+| Explorer librement ou réfléchir autour d’un dossier | Carnet |
 
-Ces vues ne créent pas de base parallèle : elles montrent les mêmes fichiers sous des angles différents.
+Ces vues ne créent pas de base parallèle : elles montrent les mêmes fichiers sous des angles différents. Le **Carnet** reste un Canvas libre ; il peut être global ou attaché à un dossier et accueillir un **Plan du Binder** ou des **mindmaps** sans modifier le Markdown tant qu’aucune action explicite n’est appliquée au Binder.
+
+Voir [Le Carnet — des idées au manuscrit](docs/HOW-TO-CARNET.md).
 
 ![Plusieurs vues : Chemin de fer, Plan, Chronologie et Cartes](docs/feuillets-mosaique-narrative.png)
 
@@ -131,6 +133,8 @@ Les annotations restent **hors du Markdown** et ne sont pas exportées.
 Voir [Annotations de travail](docs/ANNOTATIONS-DE-TRAVAIL.md).
 
 ## Relecture et comparaison
+
+Avant une réécriture importante, prenez un **instantané** du feuillet ou du projet. Réécrivez ensuite normalement, puis utilisez **Comparer une version** pour confronter l’état actuel à cet instantané. Le comparateur permet de comprendre les ajouts, suppressions, remplacements et déplacements, et de restaurer un passage précis sans revenir en arrière sur l’ensemble du texte.
 
 La relecture distingue plusieurs besoins :
 

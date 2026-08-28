@@ -24,9 +24,13 @@ You do not need to learn all of Feuillets before you start. Begin with what you 
 
 - **My research already lives elsewhere in the vault.** Do not move it: an existing folder can be **linked as Research** while remaining physically where it is. See [Research and linked folders](RESEARCH-AND-LINKED-FOLDERS.md).
 
+- **I want a visual workspace around one folder.** Use **Create Notebook** from the folder menu, then reopen it with **Open Notebook**. This Canvas can remain entirely free-form or host a **Binder Plan** and **mindmaps**. A linked Research folder can share the same logical Notebook. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
+
 - **I already use my own YAML properties.** In **Project**, Feuillets can map its logical fields to properties that already exist in your vault. You do not need to rename your properties or migrate your files. See [Project and YAML properties](PROJECT-AND-YAML-PROPERTIES.md).
 
-- **I want to review my text or send it to someone else.** For a personal reminder, use an **Annotation**; to compare two states, use **Compare a version**, for example with a snapshot; for a reviewer using Feuillets, use **Collaborative Review** with a `.feuillets` package; for an editor or proofreader working in Word, use **DOCX Review**. See [Rewriting, backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md), [Collaborative Review](COLLABORATIVE-REVIEW.md) and [DOCX Review](HOW-TO-DOCX-REVISION.md).
+- **I want to attempt a major rewrite without losing my current state.** Take a **snapshot**, rewrite normally, then use **Compare a version**. Feuillets shows additions, deletions, replacements and moves side by side; you can restore one passage from the snapshot without rolling back the whole file. See [Rewriting, backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md).
+
+- **I want to review my text or send it to someone else.** For a personal reminder, use an **Annotation**; for a reviewer using Feuillets, use **Collaborative Review** with a `.feuillets` package; for an editor or proofreader working in Word, use **DOCX Review**. See [Collaborative Review](COLLABORATIVE-REVIEW.md) and [DOCX Review](HOW-TO-DOCX-REVISION.md).
 
 - **I want to export only a few chapters.** Select the sheets or folders you want and use that selection as the scope. There is no need to create a separate project or duplicate the manuscript.
 
@@ -40,7 +44,9 @@ You do not need to learn all of Feuillets before you start. Begin with what you 
 - The same scope model lets you work with one sheet, a folder, a selection or the whole project.
 - **Reorder text** moves paragraphs or fragments without relying on cut and paste.
 - **Annotations** also work in Continuous while remaining outside Markdown.
+- **Snapshot → rewrite → comparison → passage restore** provides a non-destructive rewriting workflow.
 - An existing documentation folder can be **linked as Research** without being moved.
+- A manuscript folder can have its **own Canvas Notebook**, with Binder Plan and mindmaps.
 - **YAML mapping** lets Feuillets adapt to properties already used in the vault.
 - **Preview is optional for export**: it is for checking composition, not for enabling export.
 - **Semantic roles are optional**, but can drive variants, extractions and collections from one source.
@@ -58,7 +64,7 @@ The **Binder** is the working structure of the manuscript. It is used to navigat
 
 ### Structural views
 
-**Cards**, **Outline**, **Storyline** and **Timeline** show the same files from different angles: visual organization, metadata, narrative threads or event order. **Notebook** remains the free-form Canvas space.
+**Cards**, **Outline**, **Storyline** and **Timeline** show the same files from different angles: visual organization, metadata, narrative threads or event order. **Notebook** is the visual thinking Canvas: it can be project-wide or attached to a folder, remain entirely free-form, or host a **Binder Plan** and **mindmaps**. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
 ### Right panel
 

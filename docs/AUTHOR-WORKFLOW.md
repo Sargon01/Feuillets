@@ -14,7 +14,11 @@ Create, rename, move and multi-select sheets. Search, filter, isolate a folder w
 
 ## 3. Think in the Notebook
 
-Use the Notebook Canvas to capture, group and develop ideas. A branch can become a Feuillets outline; outline re-import now persists source order explicitly.
+Use the **project Notebook** when thinking about the whole project, or create a **Notebook attached to a folder** when you want ideas, files and links focused around one part of the manuscript. A linked Research folder can share the same logical Notebook.
+
+Canvas remains free-form. Add a **Binder Plan** when you want to prepare a structural reorganization before explicitly applying it to the Binder, or create a **mindmap** to develop an idea in branches.
+
+See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
 ## 4. Write
 
@@ -46,9 +50,15 @@ In **Project**, configure goals, statuses, labels, favorite tags and, when neede
 
 Cards, Outline, Storyline and Timeline show the same files from different angles. Outline can wrap long-text columns. Natural sorting is used only as a fallback when no explicit order exists.
 
-## 10. Review
+## 10. Rewrite and compare
 
-In **Proofreading**, choose Text analysis, Collaborative review, DOCX Review or Compare a version. The comparison surface provides Changes/Versions modes and optional linked scrolling.
+Before a major rewrite, take a **snapshot** of the sheet or project. Then rewrite normally: the snapshot remains an independent reference point.
+
+In **Proofreading**, **Compare a version** confronts the current text with that earlier state. **Changes** mode distinguishes additions, deletions, replacements and moves; **Versions** mode lets you read both states side by side without diff decorations. Linked scrolling is optional, and a passage can be restored from the snapshot without restoring the whole file.
+
+Proofreading also provides Text analysis, Collaborative review and DOCX Review.
+
+See [Rewriting, backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md).
 
 ## 11. Collaborate
 

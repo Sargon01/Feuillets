@@ -50,13 +50,19 @@ In the native Markdown editor, the context menu can offer **Footnote >**, **Anno
 
 ## Notebook
 
-- ordinary Obsidian Canvas;
-- capture and develop ideas;
-- idea → sheet or Research;
-- Idea Trees;
-- branch → outline;
-- idempotent outline re-import;
-- source order preserved during outline import.
+- project Notebook and **Notebooks attached to folders**;
+- real Obsidian Canvas, without a proprietary visual format;
+- folder Notebook identity preserved across rename/move operations;
+- a linked Research folder can share the same logical Notebook as its Binder folder;
+- drag and drop from Binder or Research → real file card, without changing source Markdown;
+- capture ideas and convert idea → sheet or Research;
+- interactive **Binder Plan**: Refresh from Binder, prepare structure, then explicitly Apply to Binder;
+- create/reorder sheets and folders from the Plan with validation before writes;
+- **mindmaps** with children/siblings, reparenting, collapse, horizontal/vertical orientation and reorganize;
+- explicit conversion of an older Idea Tree branch into a mindmap;
+- core behavior independent from Advanced Canvas.
+
+See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
 ## Cards, Outline, Storyline and Timeline
 

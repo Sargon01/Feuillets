@@ -12,6 +12,8 @@ ZIP backups protect project files. An as-is folder is backed up within its own s
 
 A snapshot marks a precise state of one sheet or the project before risky rewriting. It is a comparison/restoration point.
 
+For a major rewrite, the recommended workflow is straightforward: **take a snapshot → rewrite normally → Compare a version → restore only the passages you need**. The snapshot does not block writing or replace the current file; it provides a reference state you can return to locally if the new direction does not work.
+
 ## The 2.5 comparison view
 
 The comparison view is now a real two-editor surface.

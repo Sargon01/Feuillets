@@ -24,9 +24,13 @@ Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer. Partez
 
 - **Ma documentation existe déjà ailleurs dans le coffre.** Ne la déplacez pas : un dossier existant peut être **associé comme Recherche** tout en restant physiquement à son emplacement. Voir [Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md).
 
+- **Je veux réfléchir visuellement autour d’un dossier.** Utilisez **Créer le Carnet** depuis le menu du dossier, puis retrouvez-le avec **Ouvrir le Carnet**. Ce Canvas peut rester entièrement libre ou accueillir un **Plan du Binder** et des **mindmaps**. Un dossier Recherche associé peut partager le même Carnet logique. Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
+
 - **J’utilise déjà mes propres propriétés YAML.** Dans **Projet**, Feuillets peut mapper ses champs logiques vers les propriétés déjà utilisées dans votre coffre. Vous n’avez pas besoin de renommer vos propriétés ni de migrer vos fichiers. Voir [Projet et propriétés YAML](PROJET-ET-PROPRIETES-YAML.md).
 
-- **Je veux relire ou faire relire mon texte.** Pour une remarque personnelle, utilisez une **Annotation** ; pour comparer deux états, utilisez **Comparer une version**, par exemple avec un instantané ; pour un relecteur utilisant Feuillets, utilisez la **Relecture collaborative** `.feuillets` ; pour un éditeur ou correcteur travaillant dans Word, utilisez **Révision DOCX**. Voir [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md), [Relecture collaborative](RELECTURE-COLLABORATIVE.md) et [Révision DOCX](HOW-TO-REVISION-DOCX.md).
+- **Je veux tenter une grosse réécriture sans perdre mon état actuel.** Prenez un **instantané**, réécrivez normalement, puis utilisez **Comparer une version**. Feuillets affiche les ajouts, suppressions, remplacements et déplacements côte à côte ; vous pouvez restaurer un passage depuis l’instantané sans revenir en arrière sur tout le fichier. Voir [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md).
+
+- **Je veux relire ou faire relire mon texte.** Pour une remarque personnelle, utilisez une **Annotation** ; pour un relecteur utilisant Feuillets, utilisez la **Relecture collaborative** `.feuillets` ; pour un éditeur ou correcteur travaillant dans Word, utilisez **Révision DOCX**. Voir [Relecture collaborative](RELECTURE-COLLABORATIVE.md) et [Révision DOCX](HOW-TO-REVISION-DOCX.md).
 
 - **Je veux exporter seulement quelques chapitres.** Sélectionnez les feuillets ou dossiers voulus et utilisez cette sélection comme portée. Il n’est pas nécessaire de créer un projet séparé ni une copie du manuscrit.
 
@@ -40,7 +44,9 @@ Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer. Partez
 - La même logique de portée permet de travailler sur un feuillet, un dossier, une sélection ou le projet entier.
 - **Réorganiser le texte** déplace des paragraphes ou des fragments sans passer par couper-coller.
 - Les **annotations** fonctionnent aussi dans Continu tout en restant hors du Markdown.
+- **Instantané → réécriture → comparaison → restauration d’un passage** forme un flux de réécriture non destructif.
 - Un dossier documentaire existant peut être **associé comme Recherche** sans être déplacé.
+- Un dossier du manuscrit peut avoir son **propre Carnet Canvas**, avec Plan du Binder et mindmaps.
 - Le **remappage YAML** permet à Feuillets de s’adapter aux propriétés déjà présentes dans le coffre.
 - L’**Aperçu est facultatif pour exporter** : il sert à vérifier la composition, pas à autoriser l’export.
 - Les **rôles sémantiques sont facultatifs** mais permettent de produire variantes, extractions et collections depuis une source unique.
@@ -58,7 +64,7 @@ Le **Classeur** est la structure de travail du manuscrit. Il sert à naviguer, r
 
 ### Les vues de structure
 
-**Cartes**, **Plan**, **Chemin de fer** et **Chronologie** montrent les mêmes fichiers sous des angles différents : organisation visuelle, métadonnées, fils narratifs ou ordre des événements. Le **Carnet** reste l’espace d’exploration libre sur Canvas.
+**Cartes**, **Plan**, **Chemin de fer** et **Chronologie** montrent les mêmes fichiers sous des angles différents : organisation visuelle, métadonnées, fils narratifs ou ordre des événements. Le **Carnet** est le Canvas de réflexion : il peut être global ou attaché à un dossier, rester entièrement libre, ou accueillir un **Plan du Binder** et des **mindmaps**. Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
 
 ### Le panneau droit
 

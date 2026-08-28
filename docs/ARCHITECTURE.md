@@ -30,6 +30,26 @@ Le Tableau projette les mêmes fichiers sous plusieurs modes : **Cartes**, **Pla
 
 Le **Plan** est la représentation structurelle tabulaire du manuscrit. Il ne doit pas être confondu avec `Composition → Structure`, qui configure des règles de numérotation/compilation.
 
+### Carnet — `src/carnet/`
+
+Le Carnet repose sur le **Canvas natif d’Obsidian**. Le Carnet global conserve le flux historique de `services/canvas-board.ts`; les Carnets attachés aux dossiers sont gérés par `src/carnet/core/folder-carnets.ts`.
+
+Une registration de Carnet de dossier associe une portée relative à un UUID stable. Le fichier Canvas correspondant vit dans l’espace Ressources Feuillets sous `Carnets/<uuid>.canvas` : le nom ou le chemin courant du dossier n’est donc pas l’identité du Canvas. `path-reference-maintenance.ts` et le lifecycle du Carnet assurent la maintenance lors des changements de chemins et suppressions.
+
+Lorsqu’un dossier Recherche est explicitement associé à un dossier Binder et que l’association est non ambiguë, `folder-carnets.ts` résout un **propriétaire canonique** : les deux points d’entrée peuvent ouvrir le même Carnet logique sans déplacer le dossier Recherche.
+
+`src/carnet/canvas/adapter.ts` isole les opérations Canvas nécessaires au noyau. Le drag/drop Feuillets → Carnet crée de vrais FileNodes et ne modifie jamais le fichier Markdown source. Les Canvas ordinaires qui ne sont pas reconnus comme Carnets Feuillets ne sont pas interceptés.
+
+Les blocs stables documentés pour le Carnet sont :
+
+- **Mindmap** — `src/carnet/blocks/mindmap/` : modèle parent/enfant, layout déterministe, reparentage protégé contre les cycles, repli persistant, orientations horizontale/verticale ; les opérations restent scopées au bloc et ne touchent pas les cartes/edges libres voisines ;
+- **Plan du Binder** — `src/carnet/blocks/plan/` + `src/ui/canvas-binder-plan-outliner.ts` : état du Plan stocké dans un TextNode Canvas, UI d’outliner et état `dirty` distinct du Binder réel ;
+- **pont Plan → Binder** — `src/carnet/bridges/binder.ts` : lecture canonique via `getOrderedChildren()`, preflight complet avant écriture, application par les primitives Binder existantes, puis réconciliation du Plan.
+
+Le Plan n’écrit jamais dans le Vault depuis son renderer. Toute mutation réelle passe par le bridge Binder et l’action utilisateur **Appliquer au Binder**. Un changement concurrent du Binder invalide l’empreinte de base et force un Actualiser avant application.
+
+`src/integrations/advanced-canvas.ts` reste une intégration optionnelle. Le clavier du Plan et le modèle Mindmap ne dépendent pas d’Advanced Canvas ; l’absence du plugin ne doit pas rendre un Carnet inutilisable.
+
 ### Continu — `views/scrivenings-view.ts` + `services/scrivenings-document.ts`
 
 Continu assemble une `CompileScope` dans un seul `EditorView` CodeMirror. Les séparations entre fichiers sont protégées ; les modifications sont redistribuées vers les fichiers sources.
