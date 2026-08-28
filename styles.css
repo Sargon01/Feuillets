@@ -9406,6 +9406,45 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   height: 100%;
 }
 
+/* Callouts Markdown rendus directement dans l'éditeur Continu. Les
+ * décorations de ligne sont réunies visuellement en un bloc sans modifier le
+ * texte source. */
+.feuillets-scrivenings-view .cm-line.cm-scrivenings-callout-line {
+  margin-inline: 0.25rem;
+  padding-inline: 0.75rem;
+  background: color-mix(in srgb, var(--text-accent) 8%, transparent);
+  border-inline: 1px solid var(--background-modifier-border);
+  border-inline-start: 3px solid var(--text-accent);
+}
+
+.feuillets-scrivenings-view .cm-line.cm-scrivenings-callout-first {
+  padding-top: 0.35rem;
+  border-start-start-radius: var(--radius-s);
+  border-start-end-radius: var(--radius-s);
+}
+
+.feuillets-scrivenings-view .cm-line.cm-scrivenings-callout-last {
+  padding-bottom: 0.35rem;
+  border-end-start-radius: var(--radius-s);
+  border-end-end-radius: var(--radius-s);
+}
+
+.feuillets-scrivenings-view .cm-line.cm-scrivenings-callout-title {
+  font-weight: var(--font-bold, 700);
+  color: var(--text-accent);
+}
+
+.feuillets-scrivenings-view .cm-line.cm-scrivenings-callout-body {
+  color: var(--text-normal);
+}
+
+.feuillets-scrivenings-view .cm-line.cm-scrivenings-callout-title-auto:not(.cm-scrivenings-callout-active)::before {
+  content: attr(data-callout-label);
+  margin-inline-end: 0.4rem;
+  font-weight: var(--font-bold, 700);
+  color: var(--text-accent);
+}
+
 /* Italique/gras inline (LOT 1.3, cm-scrivenings-markdown.ts) : décorations
  * CodeMirror seules, jamais une classe qui existerait déjà ailleurs — le
  * gras emprunte la variable de poids native Obsidian, sans réglage propre

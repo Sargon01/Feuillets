@@ -122,6 +122,84 @@ test("parseScriveningsSegmentFormatting : syntaxe incomplète jamais rendue", ()
   assert.equal(parseScriveningsSegmentFormatting("**pas fermé").nodes.length, 0);
 });
 
+/* ==================== Callouts Markdown dans Continu ==================== */
+
+test("parseScriveningsSegmentFormatting : les callouts sont reconnus uniquement dans un Blockquote", () => {
+  const parsed = parseScriveningsSegmentFormatting("> [!warning] Attention\n> Corps");
+  assert.equal(parsed.callouts.length, 1);
+  assert.equal(parsed.callouts[0].type, "warning");
+  assert.equal(parsed.callouts[0].explicitTitle, true);
+  assert.equal(parsed.callouts[0].titleFrom !== undefined, true);
+  assert.equal(parseScriveningsSegmentFormatting("[!note]").callouts.length, 0);
+  assert.equal(parseScriveningsSegmentFormatting("> simple citation").callouts.length, 0);
+  assert.equal(parseScriveningsSegmentFormatting("```text\n> [!note]\n```").callouts.length, 0);
+});
+
+test("parseScriveningsSegmentFormatting : les suffixes + et - sont acceptés et le label automatique est déterministe", () => {
+  const parsed = parseScriveningsSegmentFormatting("> [!question-directrice]+\n> Corps");
+  assert.equal(parsed.callouts.length, 1);
+  assert.equal(parsed.callouts[0].type, "question-directrice");
+  assert.equal(parsed.callouts[0].explicitTitle, false);
+  assert.equal(parsed.callouts[0].autoLabel, "Question directrice");
+});
+
+test("buildScriveningsMarkdownPlan : un callout inactif masque les marqueurs et décore toutes ses lignes", () => {
+  const text = "> [!note]\n> Corps";
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [],
+  });
+  assert.equal(plan.calloutLines.length, 2);
+  assert.match(plan.calloutLines[0].classes, /cm-scrivenings-callout-title-auto/);
+  assert.match(plan.calloutLines[0].classes, /cm-scrivenings-callout-first/);
+  assert.match(plan.calloutLines[1].classes, /cm-scrivenings-callout-last/);
+  assert.equal(plan.calloutLines[0].attributes["data-callout-label"], "Note");
+  assert.ok(plan.hiddenMarkRanges.some((range) => range.from === 0 && range.to > 1));
+});
+
+test("buildScriveningsMarkdownPlan : un callout actif conserve toute sa syntaxe", () => {
+  const text = "> [!warning] Attention\n> Corps *italique*";
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [{ from: 3, to: 3 }],
+  });
+  assert.equal(plan.calloutLines.length, 2);
+  assert.ok(plan.calloutLines.every((line) => line.classes.includes("cm-scrivenings-callout-active")));
+  assert.equal(plan.hiddenMarkRanges.some((range) => range.from === 0 && range.to === 1), false);
+  assert.equal(plan.hiddenMarkRanges.some((range) => text.slice(range.from, range.to).includes("[!warning]")), false);
+  assert.equal(plan.styleRanges.some((range) => range.type === "emphasis"), true);
+});
+
+test("createScriveningsMarkdownPlugin : un callout produit des décorations de ligne CodeMirror", () => {
+  const text = "> [!note]\n> Corps";
+  const fakeDoc = { text, get length() { return this.text.length; }, sliceString(from, to) { return this.text.slice(from, to); } };
+  const fakeState = {
+    doc: fakeDoc,
+    selection: { main: { from: 0, to: 0 }, ranges: [] },
+    field: () => [],
+  };
+  const PluginClass = createScriveningsMarkdownPlugin(FAKE_BOUNDARIES_FIELD);
+  const instance = new PluginClass({ state: fakeState, visibleRanges: [{ from: 0, to: text.length }] });
+  assert.equal(instance.decorations.filter((decoration) => typeof decoration.class === "string" && decoration.class.includes("cm-scrivenings-callout-line")).length, 2);
+});
+
+test("compositeScriveningsFormatting : un callout ne traverse jamais une frontière de feuillet", () => {
+  const first = "> [!note]\n> A";
+  const second = "> B";
+  const separator = "\n";
+  const segment = { from: 0, to: first.length };
+  const composite = compositeScriveningsFormatting(segment, first);
+  assert.equal(composite.callouts.length, 1);
+  const other = compositeScriveningsFormatting({ from: first.length + separator.length, to: first.length + separator.length + second.length }, second);
+  assert.equal(other.callouts.length, 0);
+});
+
 /* ==================== `***` seul = trois étoiles, jamais une ligne horizontale (micro-lot 1.3.1) ==================== */
 
 test("parseScriveningsSegmentFormatting : `***` seul sur sa ligne (HorizontalRule pour @lezer/markdown) ne produit AUCUN nœud ni groupe — sa plage est reconnue à part", () => {

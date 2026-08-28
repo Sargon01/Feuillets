@@ -60,6 +60,7 @@ interface DecorationStatic {
   none: DecorationSet;
   mark(spec: { class: string }): { range(from: number, to: number): DecoRange };
   replace(spec: Record<string, never>): { range(from: number, to: number): DecoRange };
+  line(spec: { attributes: Record<string, string> }): { range(from: number): DecoRange };
   set(ranges: DecoRange[], sort?: boolean): DecorationSet;
 }
 interface SelectionRangeLike {
@@ -155,6 +156,29 @@ export interface ScriveningsMarkGroup {
   marks: { from: number; to: number }[];
 }
 
+export interface ScriveningsCalloutLine {
+  lineStart: number;
+  lineEnd: number;
+  prefixFrom?: number;
+  prefixTo?: number;
+  isTitle: boolean;
+  isFirst: boolean;
+  isLast: boolean;
+}
+
+export interface ScriveningsCalloutNode {
+  type: string;
+  from: number;
+  to: number;
+  explicitTitle: boolean;
+  autoLabel: string;
+  headerFrom: number;
+  headerTo: number;
+  titleFrom?: number;
+  titleTo?: number;
+  lines: ScriveningsCalloutLine[];
+}
+
 /* --- Titres ATX (finition Continu : `#` → `######` rendus) ------------------ */
 
 export type ScriveningsHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
@@ -199,6 +223,7 @@ export interface ScriveningsSegmentFormatting {
    * sont masqués pour que `***` apparaisse à l'écran, exactement comme dans
    * le rendu Feuillets normal. */
   escapedSeparators: { from: number; to: number }[];
+  callouts: ScriveningsCalloutNode[];
 }
 
 interface ParseFrame {
@@ -222,6 +247,39 @@ function scriveningsHeadingLevelOf(nodeName: string): ScriveningsHeadingLevel | 
   const match = /^ATXHeading([1-6])$/.exec(nodeName);
   if (!match) return null;
   return Number(match[1]) as ScriveningsHeadingLevel;
+}
+
+function calloutAutoLabel(type: string): string {
+  const words = type.replace(/[-_]+/g, " ");
+  return words.length === 0 ? words : words[0].toUpperCase() + words.slice(1);
+}
+
+function parseCalloutHeader(text: string, lineStart: number, lineEnd: number): { type: string; explicitTitle: boolean; headerTo: number; titleFrom?: number; titleTo?: number } | null {
+  let cursor = lineStart;
+  while (cursor < lineEnd && (text[cursor] === " " || text[cursor] === "\t")) cursor++;
+  if (cursor >= lineEnd || text[cursor] !== ">") return null;
+  cursor++;
+  while (cursor < lineEnd && (text[cursor] === " " || text[cursor] === "\t")) cursor++;
+  if (text[cursor] !== "[" || text[cursor + 1] !== "!") return null;
+  const typeStart = cursor + 2;
+  let typeEnd = typeStart;
+  while (typeEnd < lineEnd) {
+    const char = text[typeEnd];
+    if (!/[A-Za-z0-9_-]/.test(char)) break;
+    typeEnd++;
+  }
+  if (typeEnd === typeStart || text[typeEnd] !== "]") return null;
+  const type = text.slice(typeStart, typeEnd).toLowerCase();
+  cursor = typeEnd + 1;
+  if (text[cursor] === "+" || text[cursor] === "-") cursor++;
+  while (cursor < lineEnd && (text[cursor] === " " || text[cursor] === "\t")) cursor++;
+  const hasTitle = cursor < lineEnd;
+  return {
+    type,
+    explicitTitle: hasTitle,
+    headerTo: hasTitle ? cursor : lineEnd,
+    ...(hasTitle ? { titleFrom: cursor, titleTo: lineEnd } : {}),
+  };
 }
 
 /** Chaîne EXACTE (après `.trim()` de la ligne) d'un séparateur `***`
@@ -299,12 +357,60 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
   const groups: ScriveningsMarkGroup[] = [];
   const headings: ScriveningsHeadingNode[] = [];
   const horizontalRules: { from: number; to: number }[] = [];
+  const callouts: ScriveningsCalloutNode[] = [];
   const escapeNodes: { from: number; to: number }[] = [];
   const stack: ParseFrame[] = [];
   const headingStack: { level: ScriveningsHeadingLevel; from: number; to: number; marks: { from: number; to: number }[] }[] = [];
+  let blockquoteDepth = 0;
 
   tree.iterate({
     enter(node) {
+      if (node.name === "Blockquote") {
+        if (blockquoteDepth === 0) {
+          const firstLineEnd = text.indexOf("\n", node.from) === -1 ? node.to : text.indexOf("\n", node.from);
+          const header = parseCalloutHeader(text, node.from, firstLineEnd);
+          if (header) {
+            const lines: ScriveningsCalloutLine[] = [];
+            let lineStart = node.from;
+            while (lineStart < node.to) {
+              const newline = text.indexOf("\n", lineStart);
+              const lineEnd = newline === -1 || newline > node.to ? node.to : newline;
+              let prefixFrom: number | undefined;
+              let prefixTo: number | undefined;
+              let cursor = lineStart;
+              while (cursor < lineEnd && (text[cursor] === " " || text[cursor] === "\t")) cursor++;
+              if (cursor < lineEnd && text[cursor] === ">") {
+                prefixFrom = cursor;
+                prefixTo = cursor + 1;
+              }
+              lines.push({
+                lineStart,
+                lineEnd,
+                ...(prefixFrom === undefined ? {} : { prefixFrom, prefixTo }),
+                isTitle: lines.length === 0,
+                isFirst: lines.length === 0,
+                isLast: lineEnd === node.to,
+              });
+              if (newline === -1 || newline >= node.to) break;
+              lineStart = newline + 1;
+            }
+            if (lines.length > 0) lines[lines.length - 1].isLast = true;
+            callouts.push({
+              type: header.type,
+              from: node.from,
+              to: node.to,
+              explicitTitle: header.explicitTitle,
+              autoLabel: calloutAutoLabel(header.type),
+              headerFrom: node.from,
+              headerTo: header.headerTo,
+              ...(header.titleFrom === undefined ? {} : { titleFrom: header.titleFrom, titleTo: header.titleTo }),
+              lines,
+            });
+          }
+        }
+        blockquoteDepth++;
+        return;
+      }
       if (node.name === "HorizontalRule") {
         horizontalRules.push({ from: node.from, to: node.to });
         return false; // jamais descendu : un HorizontalRule n'a rien à offrir à l'emphase
@@ -345,6 +451,10 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
       }
     },
     leave(node) {
+      if (node.name === "Blockquote") {
+        blockquoteDepth--;
+        return;
+      }
       const type = scriveningsEmphasisTypeOf(node.name);
       if (type) {
         const frame = stack.pop();
@@ -382,7 +492,7 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
     },
   });
 
-  return { nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes) };
+  return { nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes), callouts };
 }
 
 /* --- Cache par segment (LOT 1.3 section 3 — jamais un scan global) -------- */
@@ -444,6 +554,23 @@ function shiftHeading(heading: ScriveningsHeadingNode, delta: number): Scrivenin
   };
 }
 
+function shiftCallout(callout: ScriveningsCalloutNode, delta: number): ScriveningsCalloutNode {
+  return {
+    ...callout,
+    from: callout.from + delta,
+    to: callout.to + delta,
+    headerFrom: callout.headerFrom + delta,
+    headerTo: callout.headerTo + delta,
+    ...(callout.titleFrom === undefined ? {} : { titleFrom: callout.titleFrom + delta, titleTo: (callout.titleTo ?? callout.titleFrom) + delta }),
+    lines: callout.lines.map((line) => ({
+      ...line,
+      lineStart: line.lineStart + delta,
+      lineEnd: line.lineEnd + delta,
+      ...(line.prefixFrom === undefined ? {} : { prefixFrom: line.prefixFrom + delta, prefixTo: (line.prefixTo ?? line.prefixFrom) + delta }),
+    })),
+  };
+}
+
 function shiftRange(range: { from: number; to: number }, delta: number): { from: number; to: number } {
   return { from: range.from + delta, to: range.to + delta };
 }
@@ -459,6 +586,7 @@ export function compositeScriveningsFormatting(segment: ScriveningsSegmentRange,
     headings: local.headings.map((heading) => shiftHeading(heading, segment.from)),
     horizontalRules: local.horizontalRules.map((range) => shiftRange(range, segment.from)),
     escapedSeparators: local.escapedSeparators.map((range) => shiftRange(range, segment.from)),
+    callouts: local.callouts.map((callout) => shiftCallout(callout, segment.from)),
   };
 }
 
@@ -476,6 +604,10 @@ export function scriveningsGroupIsActive(group: ScriveningsMarkGroup, selections
  * touche `[heading.from, heading.to]` — exactement comme une emphase. */
 export function scriveningsHeadingIsActive(heading: ScriveningsHeadingNode, selections: readonly SelectionRangeLike[]): boolean {
   return selections.some((selection) => selection.from <= heading.to && selection.to >= heading.from);
+}
+
+export function scriveningsCalloutIsActive(callout: ScriveningsCalloutNode, selections: readonly SelectionRangeLike[]): boolean {
+  return selections.some((selection) => selection.from <= callout.to && selection.to >= callout.from);
 }
 
 /* --- Plan de décorations (couche pure, testable sans CodeMirror réel) ----- */
@@ -507,7 +639,8 @@ export interface ScriveningsMarkdownDecorationPlan {
    *   INCONDITIONNEL, jamais réaffiché par le curseur : ce n'est pas une
    *   emphase, juste le rendu Feuillets normal de ce séparateur.
    */
-   hiddenMarkRanges: { from: number; to: number }[];
+  hiddenMarkRanges: { from: number; to: number }[];
+  calloutLines: { from: number; classes: string; attributes: Record<string, string> }[];
 }
 
 /**
@@ -529,10 +662,11 @@ export function buildScriveningsMarkdownPlan(params: {
 
   const styleRanges: ScriveningsMarkdownStyleRange[] = [];
   const hiddenMarkRanges: { from: number; to: number }[] = [];
+  const calloutLines: { from: number; classes: string; attributes: Record<string, string> }[] = [];
 
   for (const segment of segments) {
     const segmentText = sliceText(segment.from, segment.to);
-    const { nodes, groups, headings, horizontalRules, escapedSeparators } = compositeScriveningsFormatting(segment, segmentText);
+    const { nodes, groups, headings, horizontalRules, escapedSeparators, callouts } = compositeScriveningsFormatting(segment, segmentText);
     const overlapsHorizontalRule = (from: number, to: number): boolean =>
       horizontalRules.some((hr) => from < hr.to && to > hr.from);
 
@@ -540,6 +674,29 @@ export function buildScriveningsMarkdownPlan(params: {
     // `scriveningsGroupIsActive` (ce n'est pas une emphase) — voir la doc de
     // `ScriveningsMarkdownDecorationPlan.hiddenMarkRanges` ci-dessus.
     for (const range of escapedSeparators) hiddenMarkRanges.push(range);
+
+    for (const callout of callouts) {
+      const active = scriveningsCalloutIsActive(callout, selections);
+      for (const line of callout.lines) {
+        const classes = [
+          "cm-scrivenings-callout-line",
+          line.isTitle ? "cm-scrivenings-callout-title" : "cm-scrivenings-callout-body",
+          ...(line.isFirst ? ["cm-scrivenings-callout-first"] : []),
+          ...(line.isLast ? ["cm-scrivenings-callout-last"] : []),
+          ...(active ? ["cm-scrivenings-callout-active"] : []),
+          ...(line.isTitle && !callout.explicitTitle ? ["cm-scrivenings-callout-title-auto"] : []),
+        ].join(" ");
+        const attributes: Record<string, string> = { "data-callout-type": callout.type };
+        if (line.isTitle && !callout.explicitTitle) attributes["data-callout-label"] = callout.autoLabel;
+        calloutLines.push({ from: line.lineStart, classes, attributes });
+        if (!active && !line.isTitle && line.prefixFrom !== undefined && line.prefixTo !== undefined) {
+          hiddenMarkRanges.push({ from: line.prefixFrom, to: line.prefixTo });
+        }
+      }
+      if (!active) {
+        hiddenMarkRanges.push({ from: callout.headerFrom, to: callout.headerTo });
+      }
+    }
 
     for (const node of nodes) {
       // Garde-fou explicite : un `HorizontalRule` (ligne `***` seule) ne
@@ -580,7 +737,8 @@ export function buildScriveningsMarkdownPlan(params: {
 
   styleRanges.sort((a, b) => a.from - b.from);
   hiddenMarkRanges.sort((a, b) => a.from - b.from);
-  return { styleRanges, hiddenMarkRanges };
+  calloutLines.sort((a, b) => a.from - b.from);
+  return { styleRanges, hiddenMarkRanges, calloutLines };
 }
 
 /* --- Rendu CodeMirror réel (fine couche de branchement) -------------------- */
@@ -619,6 +777,10 @@ function buildDecorationSet(plan: ScriveningsMarkdownDecorationPlan): Decoration
   for (const mark of plan.hiddenMarkRanges) {
     if (typeof DecorationTyped.replace !== "function") continue;
     ranges.push(DecorationTyped.replace({}).range(mark.from, mark.to));
+  }
+  for (const line of plan.calloutLines) {
+    if (typeof DecorationTyped.line !== "function") continue;
+    ranges.push(DecorationTyped.line({ attributes: { class: line.classes, ...line.attributes } }).range(line.from));
   }
   return DecorationTyped.set(ranges, true);
 }
