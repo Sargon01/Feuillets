@@ -56,7 +56,7 @@ import { SidebarFeuilletsView, type EditionPage } from "./views/sidebar-feuillet
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
-import { fmOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, labelColor, folderGoal } from "./services/frontmatter.js";
+import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, labelColor, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
@@ -78,10 +78,9 @@ import {
   addTextNodeToNotebook,
   canvasPathFor,
   generateCanvasBoard,
-  type CanvasNode,
   type CanvasData,
 } from "./services/canvas-board.js";
-import { resolveCanvasSession } from "./carnet/canvas/adapter.js";
+import { resolveCanvasSession, type CanvasSession } from "./carnet/canvas/adapter.js";
 import { createFolderCarnet, folderCarnetCanvasPath, getFolderCarnetDisplayLabel, getFolderCarnetRegistration, isFolderCarnetCanvasFile, listCanonicalFolderCarnetOwners, canonicalizeFolderCarnetRegistration, removeFolderCarnetRegistrationsForDeletedFile, resolveExistingFolderCarnetRegistration, resolveFolderCarnet, resolveFolderCarnetContext as resolveFolderCarnetContextCore, resolveFolderCarnetTitleContext, type FolderCarnetContext } from "./carnet/core/folder-carnets.js";
 import { remapFeuilletsPathReferences } from "./carnet/core/path-reference-maintenance.js";
 import { createCarnetLifecycle, type CarnetLifecycle } from "./carnet/core/lifecycle.js";
@@ -97,7 +96,6 @@ import { computeMindmapVisibility } from "./carnet/blocks/mindmap/interactions.j
 import { renderGenealogyMarkdown } from "./markdown/genealogy/renderer.js";
 import { removeGroupBlockToolbar } from "./carnet/blocks/shared/native-group-block.js";
 import {
-  PLAN_MARKER,
   createPlanNode,
   findPlanNode,
   readPlanState,
@@ -116,6 +114,7 @@ import {
   type BinderReader,
   type BinderWriter,
   type PreflightIssue,
+  type ApplyOutcome,
 } from "./carnet/bridges/binder.js";
 import { renderBinderPlanOutliner } from "./ui/canvas-binder-plan-outliner.js";
 import type { MinimalRuntimeCanvas, MinimalRuntimeEdge as MindmapRuntimeEdge } from "./services/canvas-runtime.js";
@@ -125,7 +124,6 @@ import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
 import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
-import { upsertBinderOutliner, type BinderOutlinerItem, type BinderOutlinerSnapshot } from "./services/canvas-binder-plan.js";
 import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
@@ -209,8 +207,6 @@ import {
   MarkdownView,
   Platform,
   setTooltip,
-  FuzzySuggestModal,
-  type App,
   type View,
   type WorkspaceLeaf,
   type Vault,
@@ -4540,7 +4536,7 @@ class FeuilletsPlugin extends Plugin {
       getOrderedChildren: (folder) => this.getOrderedChildren(folder),
       shortTitleFor: (file) => this.shortTitleFor(file),
       shortTitleRawFor: (file) => {
-        const value = this.app.metadataCache.getFileCache(file)?.frontmatter?.short_title;
+        const value = rawFrontmatterOf(this.app, file).short_title;
         return typeof value === "string" ? value : undefined;
       },
     };
@@ -4638,8 +4634,12 @@ class FeuilletsPlugin extends Plugin {
           t("plan.action.refresh"),
           () => { accepted = true; resolve(true); }
         );
-        const close = modal.onClose.bind(modal);
-        modal.onClose = () => { close(); if (!accepted) resolve(false); };
+        modal.onClose = () => {
+          ConfirmModal.prototype.onClose.call(modal);
+          window.setTimeout(() => {
+            if (!accepted) resolve(false);
+          }, 0);
+        };
         modal.open();
       });
       if (!confirmed) return;
@@ -4672,7 +4672,7 @@ class FeuilletsPlugin extends Plugin {
     }
 
     this._planApplyInProgress = true;
-    let outcome;
+    let outcome: ApplyOutcome;
     try {
       outcome = await applyBinderMutationPlan(preflight.plan, this.planBinderWriter());
     } finally {
@@ -4938,7 +4938,7 @@ class FeuilletsPlugin extends Plugin {
   async openVisualOutline(): Promise<void> {
     const root = this.getProjectFolder(); if (!root) return;
     const board = await generateCanvasBoard(this.app, this.settings); if (!board) return;
-    let session; try { session = await resolveCanvasSession(this.app, board.file); } catch { return; }
+    let session: CanvasSession; try { session = await resolveCanvasSession(this.app, board.file); } catch { return; }
     const data = session.data;
     const existing = findPlanNode(data);
     if (existing === "conflict") { new Notice(t("plan.notice.conflictNodes")); return; }
@@ -5047,7 +5047,7 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.canvasBoardMissing"));
       return;
     }
-    let session;
+    let session: CanvasSession;
     try {
       session = await resolveCanvasSession(this.app, file);
     } catch {
@@ -5074,7 +5074,7 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.canvasBoardMissing"));
       return;
     }
-    let session;
+    let session: CanvasSession;
     try {
       session = await resolveCanvasSession(this.app, file);
     } catch {

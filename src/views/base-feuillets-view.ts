@@ -142,33 +142,6 @@ export function showChoices(
   menu.showAtMouseEvent(origin);
 }
 
-/** Remappe les chemins d'une map de liens Binder→Recherche après un
- * renommage/déplacement dans le coffre (vault.on("rename"), main.ts). Règle :
- * égalité exacte, ou préfixe `oldPath/` — un chemin « voisin » (ex.
- * `oldPath-suite`) n'est jamais modifié. Fonction pure, exportée ici pour
- * les tests (le stub Obsidian n'exporte pas la classe Plugin). */
-function legacyRemapResearchFolderLinks(
-  links: Record<string, string> | undefined,
-  oldPath: string,
-  newPath: string
-): Record<string, string> | undefined {
-  if (!links) return links;
-  const remap = (p: string): string => {
-    if (p === oldPath) return newPath;
-    if (p.startsWith(oldPath + "/")) return newPath + p.slice(oldPath.length);
-    return p;
-  };
-  const out: Record<string, string> = {};
-  let changed = false;
-  for (const [key, value] of Object.entries(links)) {
-    const nextKey = remap(key);
-    const nextValue = remap(value);
-    if (nextKey !== key || nextValue !== value) changed = true;
-    out[nextKey] = nextValue;
-  }
-  return changed ? out : links;
-}
-
 /** Vrai si `folderPath` est un dossier STRICTEMENT sous `basePath` — jamais
  * `basePath` lui-même. N'est plus utilisée pour restreindre l'association
  * Binder → Recherche (un dossier lié peut être n'importe où dans le coffre,

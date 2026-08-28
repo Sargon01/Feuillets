@@ -1,4 +1,3 @@
-import { normalizePath } from "obsidian";
 import { folderPathToRelativeScope, relativeScopeToFolderPath } from "./folder-carnets.js";
 
 export function remapPath(path: string, oldPath: string, newPath: string): string {

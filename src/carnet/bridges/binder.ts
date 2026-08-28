@@ -1,5 +1,4 @@
 import { normalizePath, TFile, TFolder } from "obsidian";
-import type { App } from "obsidian";
 import { canAcceptChildren, draftCreates, flattenPlan, isPlanDraft, type PlanItem } from "../blocks/plan/model.js";
 import { remapPath } from "../core/path-reference-maintenance.js";
 

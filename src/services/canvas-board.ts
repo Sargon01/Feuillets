@@ -1,6 +1,6 @@
 import { normalizePath, Notice, TFile } from "obsidian";
 export type { CanvasNode, CanvasEdge, CanvasData, LiveCanvasFileView } from "../carnet/canvas/types.js";
-import type { CanvasNode, CanvasEdge, CanvasData, LiveCanvasFileView } from "../carnet/canvas/types.js";
+import type { CanvasData, LiveCanvasFileView } from "../carnet/canvas/types.js";
 import type { App, TFolder } from "obsidian";
 import { getProjectFolder, resourcesFolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
@@ -8,41 +8,6 @@ import { ensureFolder } from "./project-files.js";
 /** Valeurs conservées pour les nodes créés explicitement par Feuillets. */
 export type FeuilletsManagedKind = "manuscript" | "research" | "thread";
 export type FeuilletsManagedEdgeKind = FeuilletsManagedKind | "idea-tree";
-
-type LegacyCanvasNode = {
-  id: string;
-  type?: string;
-  text?: string;
-  file?: string;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-  color?: string;
-  feuillets_managed?: FeuilletsManagedKind;
-  [key: string]: unknown;
-};
-
-type LegacyCanvasEdge = {
-  id: string;
-  fromNode?: string;
-  toNode?: string;
-  fil?: string;
-  feuillets_fil?: string;
-  feuillets_managed?: FeuilletsManagedEdgeKind;
-  [key: string]: unknown;
-};
-
-type LegacyCanvasData = { nodes: LegacyCanvasNode[]; edges: LegacyCanvasEdge[] };
-
-/** Sous-ensemble public d'une vue de fichier Canvas déjà ouverte. Il ne
- * dépend d'aucune API interne Canvas : `TextFileView` expose ces méthodes
- * pour toutes les vues de fichier d'Obsidian. */
-type LegacyLiveCanvasFileView = {
-  getViewData(): string;
-  setViewData(data: string, clear: boolean): void;
-  requestSave(): void;
-};
 
 export type AddFileNodeResult = "added" | "duplicate" | "invalid";
 
