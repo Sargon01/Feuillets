@@ -31,6 +31,7 @@
     "@codemirror/language": "^6.12.4",
     "@codemirror/state": "^6.5.0",
     "@codemirror/view": "^6.38.6",
+    "@dagrejs/dagre": "^3.1.1",
     "@lezer/markdown": "1.6.3",
     "diff": "^9.0.0",
     "docx": "^9.7.1",

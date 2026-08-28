@@ -18,7 +18,7 @@ import type { CanvasData, CanvasNode } from "../../canvas/types.js";
 export const GROUP_BLOCK_VERSION = 1;
 export const GROUP_BLOCK_DEFAULT_PADDING = 60;
 
-export type GroupBlockType = "relations" | "genealogy";
+export type GroupBlockType = "relations";
 
 export function isGroupBlockNode(node: CanvasNode, blockType: GroupBlockType): boolean {
   return node.type === "group" && node.feuillets_block === blockType && typeof node.feuillets_block_id === "string";
@@ -32,7 +32,7 @@ export function findGroupBlockNode(canvas: CanvasData, blockType: GroupBlockType
  * groupe lui-même — un `feuillets_block_id` donné n'appartient jamais qu'à
  * un seul bloc, donc indépendant du type précis de ce bloc ici. */
 export function isGroupBlockMember(node: CanvasNode, blockId: string): boolean {
-  return node.type !== "group" && node.feuillets_block !== "genealogy-union" && node.feuillets_block_id === blockId;
+  return node.type !== "group" && node.feuillets_block_id === blockId;
 }
 
 export function groupBlockMemberNodes(canvas: CanvasData, blockId: string): CanvasNode[] {
@@ -81,7 +81,7 @@ export type CreateGroupBlockOptions = {
 };
 
 /** Crée le GroupNode Canvas natif portant les marqueurs du socle — ne crée
- * AUCUN membre, l'appelant (relations.ts/genealogy.ts) reste responsable de
+ * AUCUN membre, l'appelant reste responsable de
  * son contenu initial. Poussé directement dans `canvas.nodes`. */
 export function createGroupBlockNode(canvas: CanvasData, options: CreateGroupBlockOptions): CanvasNode {
   const node: CanvasNode = {
@@ -134,7 +134,7 @@ export function findContainingGroupBlock(canvas: CanvasData, pos: { x: number; y
   return (
     (canvas.nodes || []).find((node) => {
       if (node.type !== "group" || typeof node.feuillets_block_id !== "string") return false;
-      if (node.feuillets_block !== "relations" && node.feuillets_block !== "genealogy") return false;
+      if (node.feuillets_block !== "relations") return false;
       const x = Number(node.x) || 0;
       const y = Number(node.y) || 0;
       const width = Number(node.width) || 0;

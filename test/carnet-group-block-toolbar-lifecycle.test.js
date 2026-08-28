@@ -127,9 +127,7 @@ test("un feuillets_block de type INCONNU n'est jamais reconnu comme un groupe g�
   };
   const before = JSON.stringify(canvas);
   assert.equal(isGroupBlockNode(canvas.nodes[0], "relations"), false);
-  assert.equal(isGroupBlockNode(canvas.nodes[0], "genealogy"), false);
   assert.equal(findGroupBlockNode(canvas, "relations", "b1"), null);
-  assert.equal(findGroupBlockNode(canvas, "genealogy", "b1"), null);
   // Les membres restent lisibles par block_id (indépendant du type précis
   // du groupe), mais AUCUNE fonction ci-dessus n'a muté quoi que ce soit.
   assert.deepEqual(groupBlockMemberNodes(canvas, "b1").map((n) => n.id), ["m1"]);

@@ -1,8 +1,7 @@
 import type { App, TFile } from "obsidian";
-import { shortTitleFor } from "../../services/frontmatter.js";
 import type { MinimalRuntimeCanvas, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 import type { CanvasData, CanvasNode, LiveCanvasFileView } from "./types.js";
-import { findContainingGroupBlock, hasFileMember, freshNodeId } from "../blocks/shared/native-group-block.js";
+import { findContainingGroupBlock } from "../blocks/shared/native-group-block.js";
 
 type RuntimeCanvasView = LiveCanvasFileView & { canvas?: MinimalRuntimeCanvas & { getData?: () => CanvasData; setData?: (data: CanvasData) => void } };
 
@@ -76,13 +75,6 @@ export const FEUILLETS_FILE_DRAG_MIME = "application/x-feuillets-file";
  * préférence utilisateur. */
 export const CARNET_FILE_NODE_SIZE = { width: 320, height: 220 } as const;
 
-/** Normalise uniquement les valeurs YAML scalaires admises pour une date. */
-export function normalizeGenealogyDate(value: unknown): string {
-  if (typeof value === "string") return value.trim();
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  return "";
-}
-
 /** Chemin vault d'un TFile Feuillets transporté par un drag, ou `null` si ce
  * `dataTransfer` ne porte pas notre MIME privé (drag Canvas ordinaire, ou
  * provenant d'ailleurs que Binder/Recherche). */
@@ -123,55 +115,6 @@ export function createCarnetFileNode(
  * de ce bloc (§3 : jamais deux fois le même fichier). L'appelant
  * (integrations/advanced-canvas.ts) doit avoir déjà vérifié, via
  * `findContainingGroupBlock`, que `pos` tombe bien dans un groupe géré. */
-export function addGroupBlockFileMember(
-  canvas: Pick<MinimalRuntimeCanvas, "createFileNode" | "requestSave"> & { setData?: (data: CanvasData) => void },
-  data: CanvasData,
-  blockId: string,
-  file: TFile,
-  pos: { x: number; y: number },
-  app?: Pick<App, "metadataCache">
-): MinimalRuntimeNode | null {
-  if (hasFileMember(data, blockId, file.path)) return null;
-  const group = (data.nodes || []).find((candidate) => candidate.type === "group" && candidate.feuillets_block_id === blockId);
-  if (group?.feuillets_block === "genealogy") {
-    if (!canvas.setData) {
-      const fallback = createCarnetFileNode(canvas, file, pos);
-      if (!fallback) return null;
-      fallback.setData({ ...fallback.getData(), feuillets_block_id: blockId });
-      return fallback;
-    }
-    const hasMetadata = !!app?.metadataCache?.getFileCache;
-    const frontmatter = hasMetadata && app
-      ? (app.metadataCache.getFileCache(file)?.frontmatter as Record<string, unknown> | undefined) || {}
-      : {};
-    const label = hasMetadata && app ? shortTitleFor(app as App, file) : file.basename;
-    const birth = normalizeGenealogyDate(frontmatter.birth);
-    const death = normalizeGenealogyDate(frontmatter.death);
-    const dates = birth || death ? `\n${birth}–${death}` : "";
-    const person: CanvasNode = {
-      id: freshNodeId(data), type: "text", text: `${label}${dates}`,
-      x: pos.x - 90, y: pos.y - 28, width: 180, height: 56,
-      feuillets_block_id: blockId,
-      feuillets_genealogy_person: true,
-      feuillets_genealogy_source: file.path,
-      feuillets_genealogy_name: label,
-      feuillets_genealogy_dates: birth || death ? `${birth}–${death}` : "",
-      ...(birth ? { birth } : {}),
-      ...(death ? { death } : {}),
-    };
-    data.nodes.push(person);
-    canvas.setData?.(data);
-    canvas.requestSave?.();
-    return null;
-  } else {
-    const node = createCarnetFileNode(canvas, file, pos);
-    if (!node) return null;
-    node.setData({ ...node.getData(), feuillets_block_id: blockId });
-    canvas.requestSave?.();
-    return node;
-  }
-}
-
 /** Prompt 4, §3 — groupe Relations/Généalogie (le seul socle qui accepte
  * une adhésion automatique par dépose, jamais la Mindmap : voir §6 du
  * correctif Mindmap, comportement intentionnellement inchangé) dont la

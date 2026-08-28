@@ -94,14 +94,8 @@ import {
 } from "./carnet/blocks/mindmap/mindmap.js";
 import { findMindmapChildren, isMindmapMemberNode } from "./carnet/blocks/mindmap/model.js";
 import { computeMindmapVisibility } from "./carnet/blocks/mindmap/interactions.js";
-import { renderGroupBlockToolbar, removeGroupBlockToolbar, groupBlockMemberNodes, type GroupBlockToolbarButton } from "./carnet/blocks/shared/native-group-block.js";
-import { addGroupBlockFileMember } from "./carnet/canvas/adapter.js";
-import {
-  createGenealogyBlock,
-  addGenealogySpouse,
-  isGenealogyPersonNode,
-  type GenealogyRefusalReason,
-} from "./carnet/blocks/genealogy/genealogy.js";
+import { renderGenealogyMarkdown } from "./markdown/genealogy/renderer.js";
+import { removeGroupBlockToolbar } from "./carnet/blocks/shared/native-group-block.js";
 import {
   PLAN_MARKER,
   createPlanNode,
@@ -451,27 +445,6 @@ function applyMindmapEdgeVisibility(edge: MindmapRuntimeEdge, id: string, hidden
   for (const el of elements) el?.classList.toggle(MINDMAP_HIDDEN_CLASS, shouldHide);
 }
 
-/** Prompt 4, §2/§3 — sélection par recherche floue d'UN fichier Markdown
- * du coffre pour l'ajouter comme membre d'un bloc Relations/Généalogie
- * (bouton « Ajouter des fiches » de la toolbar). Aucune logique métier :
- * uniquement l'UI de choix, la décision (doublon, création réelle) reste
- * dans adapter.ts/native-group-block.ts (déjà pures/vérifiées). */
-class GroupBlockFilePickerModal extends FuzzySuggestModal<TFile> {
-  files: TFile[];
-  onChoose: (file: TFile) => void;
-
-  constructor(app: App, files: TFile[], onChoose: (file: TFile) => void) {
-    super(app);
-    this.files = files;
-    this.onChoose = onChoose;
-    this.setPlaceholder(t("relations.modal.pickFilePlaceholder"));
-  }
-
-  getItems(): TFile[] { return this.files; }
-  getItemText(file: TFile): string { return file.path; }
-  onChooseItem(file: TFile): void { this.onChoose(file); }
-}
-
 class FeuilletsPlugin extends Plugin {
   /**
    * Déclaré explicitement sur la sous-classe, comme le demande la doc
@@ -682,7 +655,6 @@ class FeuilletsPlugin extends Plugin {
         this.decorateMindmapCanvasView(view, options);
         this.decoratePlanCanvasView(view, options);
         this.removeRelationsCanvasToolbar(view);
-        this.decorateGenealogyCanvasView(view, options);
       }
     );
     this.carnetLifecycle.refresh();
@@ -690,7 +662,6 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.carnetLifecycle?.refresh()));
     this.registerMindmapCommands();
     this.registerPlanCommands();
-    this.registerGenealogyCommands();
     this.patchTabTitles();
     this.registerSwipeGestures();
     this.registerAutoBackup();
@@ -708,6 +679,9 @@ class FeuilletsPlugin extends Plugin {
     if (initialLayoutFile) void this.refreshDocumentLayoutPageBreaks(initialLayoutFile);
     this.registerEditorExtension(paragraphIndentPlugin);
     this.registerEditorExtension(createParagraphReorderExtension());
+    this.registerMarkdownCodeBlockProcessor("genealogy", (source, el) => {
+      renderGenealogyMarkdown(source, el);
+    });
 
     this.registerMarkdownPostProcessor((element) => {
       const paragraphs = element.matches("p")
@@ -4521,19 +4495,6 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  genealogyToolbarButtons(canvas: MindmapRuntimeCanvas, blockId: string): GroupBlockToolbarButton[] {
-    return [
-      {
-        id: "add", icon: "file-plus", label: t("genealogy.action.addFiles"),
-        onClick: () => this.openGroupBlockFilePicker(canvas, blockId),
-      },
-      {
-        id: "spouse", icon: "heart", label: t("genealogy.action.spouse"),
-        onClick: () => this.createGenealogyRelationFromSelection(canvas, blockId),
-      },
-    ];
-  }
-
   /** Relations reste lisible pour les anciens fichiers, mais sa toolbar et
    * ses commandes ne sont plus actives. */
   removeRelationsCanvasToolbar(view: { canvas?: unknown }): void {
@@ -4545,130 +4506,6 @@ class FeuilletsPlugin extends Plugin {
       const nodeEl = canvas.nodes.get(group.id)?.nodeEl;
       if (nodeEl) removeGroupBlockToolbar(nodeEl);
     }
-  }
-
-  decorateGenealogyCanvasView(view: { file?: TFile | null; canvas?: unknown }, options?: { forceVisible?: boolean }): void {
-    this.decorateGroupBlockToolbars(view, "genealogy", (canvas, blockId) => this.genealogyToolbarButtons(canvas, blockId), options);
-  }
-
-  decorateGroupBlockToolbars(
-    view: { file?: TFile | null; canvas?: unknown },
-    blockType: "relations" | "genealogy",
-    buttonsFor: (canvas: MindmapRuntimeCanvas, blockId: string) => GroupBlockToolbarButton[],
-    options?: { forceVisible?: boolean }
-  ): void {
-    const canvas = view.canvas as MindmapRuntimeCanvas | undefined;
-    if (!canvas?.nodes || !canvas.getData) return;
-    let data: CanvasData;
-    try { data = canvas.getData(); } catch { return; }
-    const groups = data.nodes.filter((node) => node.type === "group" && node.feuillets_block === blockType && typeof node.feuillets_block_id === "string");
-    let missingRuntime = false;
-    for (const group of groups) {
-      const runtime = canvas.nodes.get(group.id);
-      const nodeEl = runtime?.nodeEl;
-      if (!nodeEl) {
-        missingRuntime = true;
-        continue;
-      }
-      if (options?.forceVisible) { removeGroupBlockToolbar(nodeEl); continue; }
-      const blockId = group.feuillets_block_id as string;
-      renderGroupBlockToolbar(nodeEl, buttonsFor(canvas, blockId));
-    }
-    if (missingRuntime && !options?.forceVisible) this.scheduleGroupDecorationRetry();
-    else if (!missingRuntime) this._groupDecorationRetries = 0;
-  }
-
-  /** « Ajouter des fiches » (§2/§3) : sélection par recherche floue parmi
-   * TOUS les fichiers Markdown du coffre (Binder, Recherche, ou tout autre
-   * — §3 : « fichiers Markdown ordinaires du projet »), ajout comme VRAI
-   * FileNode membre. Aucune relation créée. Décale légèrement chaque ajout
-   * successif (jamais un empilement exact) — la position initiale n'a de
-   * toute façon aucune portée sémantique, seul « Réorganiser » en fait foi. */
-  openGroupBlockFilePicker(canvas: MindmapRuntimeCanvas, blockId: string): void {
-    const files = this.app.vault.getFiles().filter((file) => file.extension === "md");
-    new GroupBlockFilePickerModal(this.app, files, (file) => {
-      let data: CanvasData;
-      try { data = canvas.getData?.() as CanvasData; } catch { return; }
-      if (!data) return;
-      const group = data.nodes.find((node) => node.type === "group" && node.feuillets_block_id === blockId);
-      if (!group) return;
-      const memberCount = data.nodes.filter((node) => node.feuillets_block_id === blockId && node.type !== "group").length;
-      const pos = {
-        x: Number(group.x) + Number(group.width) / 2 + memberCount * 24,
-        y: Number(group.y) + Number(group.height) / 2 + memberCount * 24,
-      };
-      if (!addGroupBlockFileMember(canvas, data, blockId, file, pos)) return;
-      this.carnetLifecycle?.refresh();
-    }).open();
-  }
-
-  genealogyIssueMessage(reason: GenealogyRefusalReason): string {
-    switch (reason) {
-      case "self": return t("genealogy.notice.self");
-      case "not-members": return t("relations.notice.notMembers");
-      case "duplicate": return t("relations.notice.duplicate");
-      case "cycle": return t("genealogy.notice.cycle");
-    }
-  }
-
-  /** « Conjoints » : exactement deux vrais membres sélectionnés. */
-  createGenealogyRelationFromSelection(canvas: MindmapRuntimeCanvas, blockId: string): void {
-    let data: CanvasData;
-    try { data = canvas.getData?.() as CanvasData; } catch { return; }
-    if (!data) return;
-    const selected = this.selectedGroupMembers(canvas, data, blockId);
-    if (!selected || selected.length !== 2) { new Notice(t("genealogy.notice.selectTwo")); return; }
-    const [a, b] = selected;
-    const result = addGenealogySpouse(data, blockId, a.id, b.id);
-    if (!result.ok) { new Notice(this.genealogyIssueMessage(result.reason)); return; }
-    canvas.setData?.(data);
-    canvas.requestSave?.();
-    this.carnetLifecycle?.refresh();
-  }
-
-  selectedGroupMembers(canvas: MindmapRuntimeCanvas, data: CanvasData, blockId: string): Array<{ id: string; node: CanvasNode }> | null {
-    if (!canvas.selection || canvas.selection.size !== 2) return null;
-    const memberNodes = groupBlockMemberNodes(data, blockId).filter((node) => isGenealogyPersonNode(node));
-    const members = new Map(memberNodes.map((node) => [node.id, node]));
-    const selected: Array<{ id: string; node: CanvasNode }> = [];
-    for (const runtimeNode of canvas.selection) {
-      const node = members.get(runtimeNode.id);
-      if (node) selected.push({ id: runtimeNode.id, node });
-    }
-    return selected.length === 2 ? selected : null;
-  }
-
-  /** Construit des noms lisibles pour le menu, sans jamais exposer l'UUID
-   * Canvas. Les doublons sont désambiguïsés par le plus petit suffixe de
-   * chemin qui les distingue. */
-  groupMemberDisplayLabels(nodes: CanvasNode[]): string[] {
-    const entries = nodes.map((node) => {
-      const path = typeof node.file === "string" ? normalizePath(node.file) : "";
-      const abstract = path ? this.app.vault.getAbstractFileByPath(path) : null;
-      const file = abstract instanceof TFile ? abstract : null;
-      const title = file ? this.titleFor(file).trim() : "";
-      const basename = file?.basename || path.split("/").pop()?.replace(/\.md$/i, "") || "Fiche";
-      return {
-        base: title || basename,
-        pathParts: path ? path.split("/") : [],
-      };
-    });
-    const counts = new Map<string, number>();
-    for (const entry of entries) counts.set(entry.base, (counts.get(entry.base) || 0) + 1);
-    return entries.map((entry, index) => {
-      if ((counts.get(entry.base) || 0) < 2) return entry.base;
-      const duplicateEntries = entries.filter((candidate) => candidate.base === entry.base);
-      const parentParts = entry.pathParts.slice(0, -1);
-      for (let depth = 1; depth <= Math.max(...duplicateEntries.map((candidate) => candidate.pathParts.length - 1), 0); depth += 1) {
-        const labels = duplicateEntries.map((candidate) => {
-          const suffix = candidate.pathParts.slice(0, -1).slice(-depth).join(" / ");
-          return suffix ? `${candidate.base} (${suffix})` : candidate.base;
-        });
-        const suffix = parentParts.slice(-depth).join(" / ");
-        if (suffix && new Set(labels).size === labels.length) return `${entry.base} (${suffix})`;
-      }
-      return `${entry.base} (fichier ${index + 1})`;
-    });
   }
 
   /* ---------- Plan du Binder (Prompt 3/5) ----------
@@ -5085,28 +4922,6 @@ class FeuilletsPlugin extends Plugin {
         const blockId = node.feuillets_block_id;
         const next = toggleMindmapOrientation(data, blockId);
         if (next) applyMindmapLayout(data, blockId);
-        canvas.setData?.(data);
-        canvas.requestSave?.();
-        this.carnetLifecycle?.refresh();
-        return true;
-      },
-    });
-  }
-
-  /** « Nouveau bloc Généalogie » (§2) — même schéma. */
-  registerGenealogyCommands(): void {
-    this.addCommand({
-      id: "genealogy-create",
-      name: t("genealogy.action.create"),
-      checkCallback: (checking) => {
-        const view = this.activeCanvasView();
-        if (!view?.canvas?.getData || !view.canvas.requestSave) return false;
-        if (checking) return true;
-        const canvas = view.canvas;
-        const data = canvas.getData!();
-        const bottom = data.nodes.reduce((max, node) => Math.max(max, (Number(node.y) || 0) + (Number(node.height) || 0)), 0);
-        const centerY = data.nodes.length > 0 ? bottom + 200 : 0;
-        createGenealogyBlock(data, { blockId: crypto.randomUUID(), centerX: 0, centerY });
         canvas.setData?.(data);
         canvas.requestSave?.();
         this.carnetLifecycle?.refresh();

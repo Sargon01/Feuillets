@@ -10372,16 +10372,6 @@ body.feuillets-text-width
 .feuillets-group-block-toolbar button { width:26px; height:26px; padding:4px; border:0; background:transparent; color:var(--text-muted); border-radius:4px; }
 .feuillets-group-block-toolbar button:hover:not(:disabled) { background:var(--background-modifier-hover); color:var(--text-normal); }
 .feuillets-group-block-toolbar button:disabled { opacity:.4; }
-.feuillets-genealogy-person .canvas-node-content,
-.feuillets-genealogy-person .canvas-node-content-blocker { background:transparent; border:0; box-shadow:none; }
-.feuillets-genealogy-person .canvas-node-content { padding:3px 6px; text-align:center; }
-.feuillets-genealogy-person .markdown-preview-view { background:transparent; padding:0; }
-.feuillets-genealogy-person .markdown-preview-view p { margin:0; line-height:1.25; }
-.feuillets-genealogy-person .markdown-preview-view p { font-size:.82em; color:var(--text-muted); }
-.feuillets-genealogy-person .markdown-preview-view p:first-line { font-size:1.32em; font-weight:700; color:var(--text-normal); }
-.feuillets-genealogy-union .canvas-node-content,
-.feuillets-genealogy-union .canvas-node-content-blocker { background:transparent; border:0; box-shadow:none; opacity:.12; }
-.feuillets-genealogy-union .canvas-node-content { padding:0; }
 .feuillets-plan-mounted
 .feuillets-plan-title {
   flex: 1;

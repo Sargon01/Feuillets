@@ -11,27 +11,14 @@ export type CanvasNode = {
   height?: number;
   color?: string;
   feuillets_managed?: "manuscript" | "research" | "thread";
-  /** Groupe Canvas natif délimitant un bloc Feuillets (Mindmap : "mindmap" ;
-   * Prompt 4 : "relations"/"genealogy", voir carnet/blocks/shared/native-
-   * group-block.ts), porté UNIQUEMENT par le node `type: "group"` qui
+  /** Groupe Canvas natif délimitant un bloc Feuillets, porté UNIQUEMENT par
+   * le node `type: "group"` qui
    * délimite le bloc. */
-  feuillets_block?: "mindmap" | "relations" | "genealogy" | "genealogy-union";
+  feuillets_block?: "mindmap" | "relations";
   feuillets_block_version?: 1;
   /** Porté par le groupe ET par chaque node membre du bloc (même uuid) —
    * voir src/carnet/blocks/mindmap/model.ts. */
   feuillets_block_id?: string;
-  /** Technical genealogy junction; never a métier member or fiche. */
-  feuillets_union_id?: string;
-  feuillets_union_members?: string[];
-  feuillets_union_technical?: boolean;
-  feuillets_union_relation?: "spouse";
-  feuillets_union_relation_id?: string;
-  feuillets_genealogy_person?: boolean;
-  feuillets_genealogy_source?: string;
-  feuillets_genealogy_name?: string;
-  feuillets_genealogy_dates?: string;
-  birth?: string;
-  death?: string;
   /** IDs des nodes Mindmap actuellement repliés, portée par le groupe
    * uniquement (voir src/carnet/blocks/mindmap/interactions.ts). */
   mindmapCollapsed?: string[];
@@ -70,7 +57,7 @@ export type CanvasEdge = {
   toEnd?: "none" | "arrow";
   fil?: string;
   feuillets_fil?: string;
-  feuillets_managed?: "manuscript" | "research" | "thread" | "idea-tree" | "mindmap" | "relations" | "genealogy";
+  feuillets_managed?: "manuscript" | "research" | "thread" | "idea-tree" | "mindmap" | "relations";
   /** Même uuid que le node membre — seule une edge portant CE marqueur ET
    * ce même id est structurelle pour le moteur Mindmap (§2 du correctif),
    * ou pour un bloc Relations/Généalogie (Prompt 4, même discipline). */
@@ -83,7 +70,6 @@ export type CanvasEdge = {
    * `spouse` : non dirigée sémantiquement (le sens fromNode/toNode Canvas
    * reste arbitraire, jamais interprété comme une hiérarchie). */
   feuillets_relation?: "parent-child" | "spouse";
-  feuillets_union_display?: "spouse" | "parent-child";
   [key: string]: unknown;
 };
 

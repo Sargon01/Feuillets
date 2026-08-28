@@ -24,7 +24,6 @@ function buildCanvas() {
       { id: "m1", type: "file", file: "Recherche/Ana.md", x: 40, y: 40, width: 240, height: 80, feuillets_block_id: "block-r" },
       { id: "m2", type: "file", file: "Recherche/Bo.md", x: 320, y: 40, width: 240, height: 80, feuillets_block_id: "block-r" },
       { id: "free", type: "text", text: "Carte libre", x: 1000, y: 0, width: 200, height: 80 },
-      { id: "other-grp", type: "group", x: 2000, y: 0, width: 300, height: 300, feuillets_block: "genealogy", feuillets_block_version: 1, feuillets_block_id: "block-g" },
     ],
     edges: [
       { id: "e1", fromNode: "m1", toNode: "m2", feuillets_managed: "relations", feuillets_block_id: "block-r" },
@@ -37,11 +36,9 @@ test("isGroupBlockNode / findGroupBlockNode — reconnaît le groupe par type+ma
   const canvas = buildCanvas();
   const group = canvas.nodes[0];
   assert.equal(isGroupBlockNode(group, "relations"), true);
-  assert.equal(isGroupBlockNode(group, "genealogy"), false, "mauvais type de bloc");
   assert.equal(isGroupBlockNode(canvas.nodes[1], "relations"), false, "un membre n'est jamais un groupe");
   assert.equal(findGroupBlockNode(canvas, "relations", "block-r")?.id, "grp");
   assert.equal(findGroupBlockNode(canvas, "relations", "unknown-id"), null);
-  assert.equal(findGroupBlockNode(canvas, "genealogy", "block-r"), null, "mauvais type malgré le bon id");
 });
 
 test("isGroupBlockMember / groupBlockMemberNodes — jamais le groupe lui-même, jamais une carte libre", () => {
@@ -56,7 +53,6 @@ test("isGroupBlockManagedEdge — une edge libre n'est JAMAIS interprétée comm
   const canvas = buildCanvas();
   assert.equal(isGroupBlockManagedEdge(canvas.edges[0], "relations", "block-r"), true);
   assert.equal(isGroupBlockManagedEdge(canvas.edges[1], "relations", "block-r"), false, "edge libre, aucun feuillets_managed");
-  assert.equal(isGroupBlockManagedEdge(canvas.edges[0], "genealogy", "block-r"), false, "mauvais marqueur");
   assert.equal(isGroupBlockManagedEdge(canvas.edges[0], "relations", "block-g"), false, "mauvais block_id");
 });
 
@@ -103,7 +99,7 @@ test("hasFileMember — vrai seulement pour un FileNode du bon chemin, déjà me
   const canvas = buildCanvas();
   assert.equal(hasFileMember(canvas, "block-r", "Recherche/Ana.md"), true);
   assert.equal(hasFileMember(canvas, "block-r", "Recherche/Introuvable.md"), false);
-  assert.equal(hasFileMember(canvas, "block-g", "Recherche/Ana.md"), false, "membre d'un AUTRE bloc");
+  assert.equal(hasFileMember(canvas, "other-block", "Recherche/Ana.md"), false, "membre d'un AUTRE bloc");
 });
 
 test("removeGroupBlockMember — retire le node et ses edges (métier ou non), jamais le fichier (aucune E/S ici)", () => {
@@ -118,6 +114,6 @@ test("removeGroupBlockMember — retire le node et ses edges (métier ou non), j
 test("removeGroupBlockMember — false pour un id inconnu ou hors bloc", () => {
   const canvas = buildCanvas();
   assert.equal(removeGroupBlockMember(canvas, "block-r", "does-not-exist"), false);
-  assert.equal(removeGroupBlockMember(canvas, "block-g", "m1"), false, "m1 n'est pas membre de block-g");
-  assert.equal(canvas.nodes.length, 5, "aucune mutation en cas de refus");
+  assert.equal(removeGroupBlockMember(canvas, "other-block", "m1"), false, "m1 n'est pas membre de l'autre bloc");
+  assert.equal(canvas.nodes.length, 4, "aucune mutation en cas de refus");
 });

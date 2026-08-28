@@ -22,12 +22,10 @@ import { titleFor } from "../services/frontmatter.js";
 import type { CanvasPointerLikeEvent, MinimalRuntimeCanvas, MinimalRuntimeNode } from "../services/canvas-runtime.js";
 import type { KeymapEventHandler, KeymapEventListener, Modifier } from "obsidian";
 import { addMindmapChild, addMindmapSibling, outdentMindmapNode, reparentMindmapNodeByDrop } from "../carnet/blocks/mindmap/mindmap.js";
-import { addGroupBlockFileMember, containingGroupBlockAt, createCarnetFileNode, feuilletsFileDragPath, normalizeGenealogyDate } from "../carnet/canvas/adapter.js";
-import { shortTitleFor } from "../services/frontmatter.js";
+import { createCarnetFileNode, feuilletsFileDragPath } from "../carnet/canvas/adapter.js";
 import { isMindmapMemberNode, mindmapSubtree } from "../carnet/blocks/mindmap/model.js";
 import { canReparentByDrop } from "../carnet/blocks/mindmap/interactions.js";
 import { isFeuilletsOwnedNode } from "../carnet/canvas/owned-nodes.js";
-import { openFileActivating } from "../utils/dom.js";
 
 /* Intégration OPTIONNELLE avec Advanced Canvas (Developer-Mike/obsidian-
  * advanced-canvas). Feuillets ne dépend d'AUCUN module npm de ce plugin, ne
@@ -436,8 +434,6 @@ const IDEA_TREE_MEMBER_CLASS = "feuillets-idea-tree-member";
  * un TextNode membre en cours d'édition — voir l'écouteur
  * `advanced-canvas:node-editing-state-changed` plus bas. */
 const IDEA_TREE_EDITING_CLASS = "feuillets-idea-tree-editing";
-const GENEALOGY_PERSON_CLASS = "feuillets-genealogy-person";
-const GENEALOGY_UNION_CLASS = "feuillets-genealogy-union";
 
 /** Recalcule la classe de lecture sur CHAQUE TextNode réel du Canvas ouvert
  * — jamais sur le JSON seul (`node.nodeEl` n'existe que côté instances
@@ -457,41 +453,6 @@ function refreshIdeaTreeNodeClasses(canvas: MinimalAdvancedCanvas): void {
     const node = data.nodes.find((candidate) => candidate.id === id);
     runtimeNode.nodeEl?.classList.toggle(IDEA_TREE_MEMBER_CLASS, !isFeuilletsOwnedNode(node) && isIdeaTreeNode(data, id));
   }
-}
-
-function refreshGenealogyPersonClasses(canvas: MinimalAdvancedCanvas, app: App): void {
-  if (!canvas.nodes || !canvas.getData) return;
-  let data: CanvasData;
-  try { data = canvas.getData(); } catch { return; }
-  for (const [id, runtimeNode] of canvas.nodes) {
-    const node = data.nodes.find((candidate) => candidate.id === id);
-    runtimeNode.nodeEl?.classList.toggle(GENEALOGY_PERSON_CLASS, node?.feuillets_genealogy_person === true);
-    runtimeNode.nodeEl?.classList.toggle(GENEALOGY_UNION_CLASS, node?.feuillets_block === "genealogy-union");
-    if (node?.feuillets_genealogy_person === true && typeof node.feuillets_genealogy_source === "string") {
-      const source = app.vault.getAbstractFileByPath(node.feuillets_genealogy_source);
-      if (source instanceof TFile) {
-        const fm = (app.metadataCache.getFileCache(source)?.frontmatter as Record<string, unknown> | undefined) || {};
-        const birth = normalizeGenealogyDate(fm.birth);
-        const death = normalizeGenealogyDate(fm.death);
-        const dates = birth || death ? `\n${birth}–${death}` : "";
-        const name = shortTitleFor(app, source);
-        const dateLabel = birth || death ? `${birth}–${death}` : "";
-        const nextText = `${name}${dates}`;
-        node.feuillets_genealogy_name = name;
-        node.feuillets_genealogy_dates = dateLabel;
-        if (node.text !== nextText) node.text = nextText;
-      }
-    }
-    if (runtimeNode.nodeEl && node?.feuillets_genealogy_person === true && typeof node.feuillets_genealogy_source === "string") {
-      runtimeNode.nodeEl.ondblclick = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const source = app.vault.getAbstractFileByPath(node.feuillets_genealogy_source as string);
-        if (source instanceof TFile) openFileActivating(app, app.workspace.getLeaf(true), source);
-      };
-    }
-  }
-  canvas.setData?.(data);
 }
 
 /** Le node runtime réel actuellement sélectionné, seulement si la sélection
@@ -819,13 +780,6 @@ function registerCarnetFileDrop(plugin: FeuilletsPluginLike, view: CanvasLeafVie
        `containingGroupBlockAt` ne reconnaît que Relations/Généalogie, donc
        un dépôt dans l'espace d'une Mindmap retombe sur le FileNode libre
        ci-dessous, exactement comme avant. */
-    const data = canvas.getData?.();
-    const group = data ? containingGroupBlockAt(data, pos) : null;
-    if (group && typeof group.feuillets_block_id === "string") {
-      addGroupBlockFileMember(canvas, data as CanvasData, group.feuillets_block_id, file, pos, plugin.app);
-      refreshGenealogyPersonClasses(canvas, plugin.app);
-      return;
-    }
     if (createCarnetFileNode(canvas, file, pos)) refreshIdeaTreeNodeClasses(canvas);
   };
 
@@ -837,7 +791,6 @@ function registerCarnetFileDrop(plugin: FeuilletsPluginLike, view: CanvasLeafVie
      et `preventDefault`/`stopPropagation` l'empêchent réellement. */
   wrapper.addEventListener("dragover", onDragOver, true);
   wrapper.addEventListener("drop", onDrop, true);
-  refreshGenealogyPersonClasses(canvas, plugin.app);
   const unregister = () => {
     wrapper.removeEventListener("dragover", onDragOver, true);
     wrapper.removeEventListener("drop", onDrop, true);
