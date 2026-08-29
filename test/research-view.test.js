@@ -12,6 +12,9 @@ class FakeElement {
     this.text = options.text ?? "";
     this.value = "";
     this.attrs = new Map();
+    this.scrollTop = 0;
+    this.selectionStart = null;
+    this.selectionEnd = null;
   }
 
   addClass(className) {
@@ -43,6 +46,25 @@ class FakeElement {
 
   createSpan(options = {}) {
     return this.createEl("span", options);
+  }
+
+  find(selector) {
+    const className = selector.startsWith(".") ? selector.slice(1) : "";
+    for (const child of this.children) {
+      if (className && child.classes.has(className)) return child;
+      const nested = child.find(selector);
+      if (nested) return nested;
+    }
+    return null;
+  }
+
+  focus() {
+    if (globalThis.document) globalThis.document.activeElement = this;
+  }
+
+  setSelectionRange(start, end) {
+    this.selectionStart = start;
+    this.selectionEnd = end;
   }
 
   addEventListener(type, callback) {
@@ -141,6 +163,59 @@ test("ResearchView délègue le rendu normal au corps Recherche", async () => {
     currentRoot: root,
     generation: 1,
   });
+});
+
+test("ResearchView préserve scroll, focus et sélection du champ Recherche lors d'un rerender", async () => {
+  const root = new TFolder("Projet");
+  const view = createView({ getProjectFolder: () => root });
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  view.renderResearchBody = async (container) => {
+    const body = container.createDiv({ cls: "feuillets-research-body" });
+    body.scrollTop = 73;
+    const input = container.createEl("input", { cls: "feuillets-binder-search" });
+    input.selectionStart = 4;
+    input.selectionEnd = 7;
+    if (globalThis.document.activeElement === null) input.focus();
+  };
+  try {
+    await view.render(true);
+    const firstInput = view.contentEl.find(".feuillets-binder-search");
+    const firstBody = view.contentEl.find(".feuillets-research-body");
+    firstBody.scrollTop = 91;
+    firstInput.selectionStart = 2;
+    firstInput.selectionEnd = 5;
+    firstInput.focus();
+    await view.render(true);
+    const nextInput = view.contentEl.find(".feuillets-binder-search");
+    const nextBody = view.contentEl.find(".feuillets-research-body");
+    assert.equal(nextBody.scrollTop, 91);
+    assert.equal(globalThis.document.activeElement, nextInput);
+    assert.equal(nextInput.selectionStart, 2);
+    assert.equal(nextInput.selectionEnd, 5);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("ResearchView ne vole pas le focus lorsqu'il était ailleurs", async () => {
+  const root = new TFolder("Projet");
+  const view = createView({ getProjectFolder: () => root });
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  view.renderResearchBody = async (container) => {
+    container.createDiv({ cls: "feuillets-research-body" });
+    container.createEl("input", { cls: "feuillets-binder-search" });
+  };
+  const otherElement = new FakeElement();
+  try {
+    await view.render(true);
+    otherElement.focus();
+    await view.render(true);
+    assert.equal(globalThis.document.activeElement, otherElement);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });
 
 /* --- Création localisée des dossiers de recherche --- */

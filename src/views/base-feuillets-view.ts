@@ -666,24 +666,15 @@ export abstract class BaseFeuilletsView extends ItemView {
     let researchSearchTimer: ReturnType<Window["setTimeout"]>;
     searchInput.addEventListener("input", () => {
       window.clearTimeout(researchSearchTimer);
-      const caret = searchInput.selectionStart;
+      S.researchSearch = searchInput.value;
+      const nextFilterActive = !!searchInput.value.trim() || !!S.researchTagFilter;
+      const renderedFilterActive = !!this.researchFilterActive;
+      this.filterEntities();
       researchSearchTimer = window.setTimeout(() => {
         void (async () => {
-          S.researchSearch = searchInput.value;
           await this.plugin.saveSettings();
-          await this.render(true);
-          /* this.contentEl est la feuille ENTIÈRE (partagée par tous les
-             sous-onglets de l'Inspecteur quand cette vue est une sous-vue de
-             SidebarFeuilletsView — voir son renderXTab()/targetContainer) :
-             y chercher l'input peut retrouver un ancien nœud détaché plutôt
-             que celui qu'on vient de recréer. Se limiter au conteneur réel
-             de CETTE vue lève l'ambiguïté. */
-          const scope = this.targetContainer || this.contentEl;
-          const el = scope.querySelector<HTMLInputElement>(".feuillets-binder-search");
-          if (el) {
-            el.focus();
-            el.setSelectionRange(caret, caret);
-          }
+          if (nextFilterActive !== renderedFilterActive) await this.render(true);
+          else this.filterEntities();
         })();
       }, 250);
     });

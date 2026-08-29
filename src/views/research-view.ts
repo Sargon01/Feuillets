@@ -5,6 +5,12 @@ import { isEditing } from "../utils/dom.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 
 type ResearchViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
+type ResearchContainer = HTMLElement & { find?: <T extends HTMLElement>(selector: string) => T | null };
+
+function findResearchElement<T extends HTMLElement>(container: HTMLElement, selector: string): T | null {
+  const scoped = container as ResearchContainer;
+  return scoped.find?.<T>(selector) ?? null;
+}
 
 export class ResearchView extends BaseFeuilletsView {
   declare plugin: ResearchViewPlugin;
@@ -36,6 +42,23 @@ export class ResearchView extends BaseFeuilletsView {
     const container = this.targetContainer || this.contentEl;
     if (!force && isEditing(container)) return;
 
+    const previousBody = findResearchElement<HTMLElement>(container, ".feuillets-research-body");
+    const previousInput = findResearchElement<HTMLInputElement>(container, ".feuillets-binder-search");
+    const activeInput = typeof document !== "undefined" && document.activeElement === previousInput;
+    const previousSelection = activeInput && previousInput ? { start: previousInput.selectionStart, end: previousInput.selectionEnd } : null;
+    const previousScrollTop = previousBody?.scrollTop ?? 0;
+    const restoreUi = () => {
+      const nextBody = findResearchElement<HTMLElement>(container, ".feuillets-research-body");
+      if (nextBody) nextBody.scrollTop = previousScrollTop;
+      const nextInput = activeInput ? findResearchElement<HTMLInputElement>(container, ".feuillets-binder-search") : null;
+      if (nextInput) {
+        nextInput.focus({ preventScroll: true });
+        if (previousSelection && previousSelection.start !== null && previousSelection.end !== null) {
+          nextInput.setSelectionRange(previousSelection.start, previousSelection.end);
+        }
+      }
+    };
+
     const myGen = (this._renderGen = (this._renderGen || 0) + 1);
     container.empty();
     container.addClass("feuillets-research-container");
@@ -45,6 +68,7 @@ export class ResearchView extends BaseFeuilletsView {
       container
         .createDiv({ cls: "feuillets-empty" })
         .setText(t("board.noProjectFolder"));
+      restoreUi();
       return;
     }
 
@@ -54,11 +78,13 @@ export class ResearchView extends BaseFeuilletsView {
       );
       if (stillExists instanceof TFile) {
         await this.renderFileView(container, stillExists, root);
+        restoreUi();
         return;
       }
       this.viewingFile = null;
     }
 
     await this.renderResearchBody(container, root, myGen);
+    restoreUi();
   }
 }
