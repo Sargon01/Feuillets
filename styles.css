@@ -9445,6 +9445,55 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   color: var(--text-accent);
 }
 
+.feuillets-scrivenings-view .cm-scrivenings-image-embed {
+  display: block;
+  margin-block: 0.75rem;
+  max-width: 100%;
+  text-align: center;
+}
+
+.feuillets-scrivenings-view .cm-scrivenings-image-embed img {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  margin-inline: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.feuillets-scrivenings-view .cm-scrivenings-image-caption {
+  display: block;
+  margin-top: 0.35rem;
+  color: var(--text-muted);
+  font-size: var(--font-smaller);
+}
+
+.feuillets-scrivenings-view .cm-scrivenings-table-wrap {
+  display: block;
+  max-width: 100%;
+  margin-block: 0.75rem;
+  overflow-x: auto;
+}
+
+.feuillets-scrivenings-view .cm-scrivenings-table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text-normal);
+}
+
+.feuillets-scrivenings-view .cm-scrivenings-table th,
+.feuillets-scrivenings-view .cm-scrivenings-table td {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--background-modifier-border);
+  text-align: start;
+}
+
+.feuillets-scrivenings-view .cm-scrivenings-table th {
+  background: var(--background-secondary);
+  color: var(--text-accent);
+  font-weight: var(--font-bold, 700);
+}
+
 /* Italique/gras inline (LOT 1.3, cm-scrivenings-markdown.ts) : décorations
  * CodeMirror seules, jamais une classe qui existerait déjà ailleurs — le
  * gras emprunte la variable de poids native Obsidian, sans réglage propre

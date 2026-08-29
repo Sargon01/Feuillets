@@ -9,6 +9,7 @@ import {
   loadScriveningsDocument,
   locationToCompositeOffset,
   resolveScriveningsWrite,
+  segmentAt,
   type ScriveningsChange,
   type ScriveningsDocument,
   type ScriveningsEditResult,
@@ -16,7 +17,8 @@ import {
 } from "../services/scrivenings-document.js";
 import { shortTitleFor, splitFrontmatter } from "../services/frontmatter.js";
 import { roleOfFile } from "../services/folder-structure.js";
-import { createScriveningsEnterTypographyExtension, scriveningsChangeListener, scriveningsExtensions, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
+import { createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
+import type { ScriveningsImageResolver } from "../utils/cm-scrivenings-markdown.js";
 import {
   getScriveningsScrollAnchor,
   scrollScriveningsToAnchor,
@@ -558,8 +560,28 @@ export class ScriveningsView extends ItemView {
     this.contentEl.empty();
     const host = this.contentEl.createDiv({ cls: "markdown-source-view mod-cm6 feuillets-scrivenings-view" });
 
+    const imageExtensions = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg", "avif", "bmp"]);
+    const imageResolver: ScriveningsImageResolver = (target, _kind, compositeOffset) => {
+      if (target.length === 0 || /^https?:\/\//i.test(target)) return /^https?:\/\//i.test(target) ? target : null;
+      const segment = segmentAt(document, compositeOffset);
+      if (!segment) return null;
+      const candidates = [target];
+      try {
+        const decoded = decodeURIComponent(target);
+        if (decoded !== target) candidates.push(decoded);
+      } catch {
+        return null;
+      }
+      for (const candidate of candidates) {
+        const imageFile = this.plugin.app.metadataCache.getFirstLinkpathDest(candidate, segment.file.path);
+        if (!(imageFile instanceof TFile) || !imageExtensions.has(imageFile.extension.toLowerCase())) continue;
+        return this.plugin.app.vault.getResourcePath(imageFile);
+      }
+      return null;
+    };
+
     const extensions = [
-      ...scriveningsExtensions,
+      ...createScriveningsExtensions(imageResolver),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
       scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
       // LOT 1.4 (§33) : Continu possède son propre EditorState — jamais

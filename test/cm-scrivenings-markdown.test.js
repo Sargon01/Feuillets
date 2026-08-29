@@ -186,7 +186,7 @@ test("createScriveningsMarkdownPlugin : un callout produit des décorations de l
   };
   const PluginClass = createScriveningsMarkdownPlugin(FAKE_BOUNDARIES_FIELD);
   const instance = new PluginClass({ state: fakeState, visibleRanges: [{ from: 0, to: text.length }] });
-  assert.equal(instance.decorations.filter((decoration) => typeof decoration.class === "string" && decoration.class.includes("cm-scrivenings-callout-line")).length, 2);
+  assert.equal(instance.decorations.filter((decoration) => typeof decoration.attributes?.class === "string" && decoration.attributes.class.includes("cm-scrivenings-callout-line")).length, 2);
 });
 
 test("compositeScriveningsFormatting : un callout ne traverse jamais une frontière de feuillet", () => {
@@ -198,6 +198,150 @@ test("compositeScriveningsFormatting : un callout ne traverse jamais une fronti�
   assert.equal(composite.callouts.length, 1);
   const other = compositeScriveningsFormatting({ from: first.length + separator.length, to: first.length + separator.length + second.length }, second);
   assert.equal(other.callouts.length, 0);
+});
+
+test("parseScriveningsSegmentFormatting : images seules wikilink et Markdown sont reconnues avec leurs dimensions", () => {
+  const parsed = parseScriveningsSegmentFormatting("![[folder/image.jpg|205]]\n![Carte](image.png)\n![[image.webp|205x300]]");
+  assert.equal(parsed.images.length, 3);
+  assert.deepEqual(parsed.images[0], { ...parsed.images[0], kind: "wikilink", target: "folder/image.jpg", width: 205 });
+  assert.equal(parsed.images[1].kind, "markdown");
+  assert.equal(parsed.images[1].alt, "Carte");
+  assert.equal(parsed.images[2].width, 205);
+  assert.equal(parsed.images[2].height, 300);
+  assert.equal(parseScriveningsSegmentFormatting("Texte ![[image.png]]").images.length, 0);
+  assert.equal(parseScriveningsSegmentFormatting("![[note.md]]").images.length, 0);
+  assert.equal(parseScriveningsSegmentFormatting("```\n![[image.png]]\n```").images.length, 0);
+});
+
+test("buildScriveningsMarkdownPlan : une image distante inactive devient un remplacement, active reste éditable", () => {
+  const text = "![Carte](https://exemple.com/image.png)";
+  const inactive = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [],
+  });
+  assert.equal(inactive.imageWidgets.length, 1);
+  const active = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [{ from: 4, to: 4 }],
+  });
+  assert.equal(active.imageWidgets.length, 0);
+});
+
+test("createScriveningsMarkdownPlugin : une image produit un widget de remplacement", () => {
+  const text = "![Carte](https://exemple.com/image.png)";
+  const fakeDoc = { text, get length() { return this.text.length; }, sliceString(from, to) { return this.text.slice(from, to); } };
+  const fakeState = { doc: fakeDoc, selection: { main: { from: 0, to: 0 }, ranges: [] }, field: () => [] };
+  const PluginClass = createScriveningsMarkdownPlugin(FAKE_BOUNDARIES_FIELD);
+  const instance = new PluginClass({ state: fakeState, visibleRanges: [{ from: 0, to: text.length }] });
+  const imageDecoration = instance.decorations.find((decoration) => decoration.widget !== undefined);
+  assert.ok(imageDecoration);
+  assert.equal(imageDecoration.block, undefined);
+  assert.deepEqual([imageDecoration.from, imageDecoration.to], [0, text.length]);
+});
+
+test("resolver injecté : reçoit cible, type et offset composite puis fournit l'URL au widget", () => {
+  const text = "![[image.png]]";
+  const calls = [];
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [],
+    resolveImage: (target, kind, offset) => {
+      calls.push({ target, kind, offset });
+      return "app://local/image.png";
+    },
+  });
+  assert.deepEqual(calls, [{ target: "image.png", kind: "wikilink", offset: 0 }]);
+  assert.equal(plan.imageWidgets[0].source, "app://local/image.png");
+});
+
+test("resolver injecté : deux segments reçoivent deux offsets composites distincts", () => {
+  const first = "![[image.png]]";
+  const second = "![[image.png]]";
+  const composite = `${first}\n${second}`;
+  const calls = [];
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: composite.length,
+    sliceText: (from, to) => composite.slice(from, to),
+    boundaries: [first.length],
+    visibleRanges: [{ from: 0, to: composite.length }],
+    selections: [],
+    resolveImage: (target, kind, offset) => {
+      calls.push({ target, kind, offset });
+      return "app://vault/image.png";
+    },
+  });
+  assert.equal(plan.imageWidgets.length, 2);
+  assert.deepEqual(calls.map((call) => call.offset), [0, first.length + 1]);
+});
+
+test("parseScriveningsSegmentFormatting : les tableaux sont reconnus par Lezer", () => {
+  const parsed = parseScriveningsSegmentFormatting("| A | B |\n|---|---|\n| C | D |");
+  assert.equal(parsed.tables.length, 1);
+  assert.equal(parsed.tables[0].header.cells.length, 2);
+  assert.equal(parsed.tables[0].rows.length, 1);
+  assert.equal(parsed.tables[0].rows[0].cells.length, 2);
+  assert.equal(parseScriveningsSegmentFormatting("du texte | avec une barre").tables.length, 0);
+  assert.equal(parseScriveningsSegmentFormatting("```\n| A | B |\n|---|---|\n```").tables.length, 0);
+});
+
+test("buildScriveningsMarkdownPlan : un tableau devient widget inactif et reste Markdown actif", () => {
+  const text = "| **A** | B |\n|---|---|\n| C | D |";
+  const inactive = buildScriveningsMarkdownPlan({ docLength: text.length, sliceText: (from, to) => text.slice(from, to), boundaries: [], visibleRanges: [{ from: 0, to: text.length }], selections: [] });
+  assert.equal(inactive.tableWidgets.length, 1);
+  assert.equal(inactive.styleRanges.some((range) => range.from >= inactive.tableWidgets[0].from && range.to <= inactive.tableWidgets[0].to), false);
+  const active = buildScriveningsMarkdownPlan({ docLength: text.length, sliceText: (from, to) => text.slice(from, to), boundaries: [], visibleRanges: [{ from: 0, to: text.length }], selections: [{ from: 4, to: 4 }] });
+  assert.equal(active.tableWidgets.length, 0);
+  assert.equal(active.hiddenMarkRanges.some((range) => range.from > 0 && range.to < text.length), false);
+});
+
+test("createScriveningsMarkdownPlugin : ne produit aucun remplacement de bloc pour un tableau", () => {
+  const text = "| A | B |\n|---|---|\n| C | D |";
+  const fakeDoc = { text, get length() { return this.text.length; }, sliceString(from, to) { return this.text.slice(from, to); } };
+  const fakeState = { doc: fakeDoc, selection: { main: { from: 0, to: 0 }, ranges: [] }, field: () => [] };
+  const PluginClass = createScriveningsMarkdownPlugin(FAKE_BOUNDARIES_FIELD);
+  const instance = new PluginClass({ state: fakeState, visibleRanges: [{ from: 0, to: text.length }] });
+  assert.equal(instance.decorations.some((decoration) => decoration.widget !== undefined && decoration.block === true), false);
+});
+
+test("createScriveningsMarkdownExtensions : le StateField tableau porte seul les remplacements block", () => {
+  const text = "| A | B |\n|---|---|\n| C | D |";
+  const state = {
+    doc: { length: text.length, sliceString: (from, to) => text.slice(from, to) },
+    selection: { ranges: [] },
+    field: () => [],
+  };
+  const [tableField, markdownPlugin] = createScriveningsMarkdownExtensions(FAKE_BOUNDARIES_FIELD);
+  const tableDecorations = tableField.create(state);
+  assert.equal(tableDecorations.length, 1);
+  assert.equal(tableDecorations[0].block, true);
+  assert.equal(typeof markdownPlugin, "function");
+  const plugin = new markdownPlugin({ state, visibleRanges: [{ from: 0, to: text.length }] });
+  assert.equal(plugin.decorations.some((decoration) => decoration.block === true), false);
+});
+
+test("buildScriveningsMarkdownPlan : un tableau reste limité à son segment", () => {
+  const first = "| A | B |\n|---|---|\n| C | D |";
+  const second = "| X | Y |\n|---|---|\n| Z | W |";
+  const text = `${first}\n${second}`;
+  const plan = buildScriveningsMarkdownPlan({
+    docLength: text.length,
+    sliceText: (from, to) => text.slice(from, to),
+    boundaries: [first.length],
+    visibleRanges: [{ from: 0, to: text.length }],
+    selections: [],
+  });
+  assert.equal(plan.tableWidgets.length, 2);
+  assert.equal(plan.tableWidgets[0].to, first.length);
+  assert.equal(plan.tableWidgets[1].from, first.length + 1);
 });
 
 /* ==================== `***` seul = trois étoiles, jamais une ligne horizontale (micro-lot 1.3.1) ==================== */
@@ -619,8 +763,9 @@ test("CM_SCRIVENINGS_EMPHASIS_CLASS / CM_SCRIVENINGS_STRONG_CLASS : classes CSS 
 
 test("createScriveningsMarkdownExtensions : composé du seul plugin de rendu (micro-lot 1.3.1 : le keymap Mod-i/Mod-b vit désormais dans cm-scrivenings.ts, avec Mod-Shift-z, dans un même Prec.highest)", () => {
   const extensions = createScriveningsMarkdownExtensions(FAKE_BOUNDARIES_FIELD);
-  assert.equal(extensions.length, 1);
-  assert.equal(typeof extensions[0], "function", "en environnement de test, le stub ViewPlugin.fromClass renvoie la classe telle quelle");
+  assert.equal(extensions.length, 2);
+  assert.equal(typeof extensions[0], "object", "le premier mécanisme est le StateField des tableaux");
+  assert.equal(typeof extensions[1], "function", "le second mécanisme reste le plugin Markdown inline");
 });
 
 test("scriveningsExtensions (cm-scrivenings.ts) : inclut bien le plugin de rendu Markdown de ce lot, construit avec le VRAI champ de frontières", () => {

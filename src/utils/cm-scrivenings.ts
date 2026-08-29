@@ -5,7 +5,7 @@ import type { TFile } from "obsidian";
 import { boundaryOffsets, type ScriveningsDocument } from "../services/scrivenings-document.js";
 import { emptyLinesPlugin } from "./cm-empty-lines.js";
 import { paragraphIndentPlugin } from "./cm-paragraph-indent.js";
-import { createScriveningsMarkdownExtensions, createScriveningsToggleCommand } from "./cm-scrivenings-markdown.js";
+import { createScriveningsMarkdownExtensions, createScriveningsToggleCommand, type ScriveningsImageResolver } from "./cm-scrivenings-markdown.js";
 import { createParagraphReorderExtension } from "./cm-paragraph-reorder.js";
 
 /**
@@ -512,7 +512,8 @@ export function scriveningsChangeListener(onChanges: (changes: { from: number; t
  * `feuillets-paragraph-indent`, réutilisées telles quelles, jamais
  * réimplémentées). `scriveningsChangeListener(...)` reste ajoutée à part par
  * ScriveningsView : elle a besoin d'un callback propre à l'instance. */
-export const scriveningsExtensions = [
+export function createScriveningsExtensions(imageResolver?: ScriveningsImageResolver): unknown[] {
+  return [
   scriveningsBoundariesField,
   scriveningsBoundaryGuard,
   scriveningsTitlesField,
@@ -520,8 +521,11 @@ export const scriveningsExtensions = [
   scriveningsHistory,
   scriveningsPriorityKeymap,
   scriveningsHistoryKeymap,
-  ...createScriveningsMarkdownExtensions(scriveningsBoundariesField),
+  ...createScriveningsMarkdownExtensions(scriveningsBoundariesField, imageResolver),
   emptyLinesPlugin,
   paragraphIndentPlugin,
   ...createParagraphReorderExtension(scriveningsBoundariesField),
-];
+  ];
+}
+
+export const scriveningsExtensions = createScriveningsExtensions();

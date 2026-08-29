@@ -1,5 +1,8 @@
-import { Decoration, ViewPlugin } from "@codemirror/view";
-import { parser } from "@lezer/markdown";
+import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
+import { StateField } from "@codemirror/state";
+import { parser, Table } from "@lezer/markdown";
+
+const scriveningsMarkdownParser = parser.configure([Table]);
 
 /**
  * Couche Markdown inline de Scrivenings (LOT 1.3 + finition titres ATX) :
@@ -59,7 +62,7 @@ type DecorationSet = unknown;
 interface DecorationStatic {
   none: DecorationSet;
   mark(spec: { class: string }): { range(from: number, to: number): DecoRange };
-  replace(spec: Record<string, never>): { range(from: number, to: number): DecoRange };
+  replace(spec: Record<string, never> | { widget: unknown; block?: boolean }): { range(from: number, to: number): DecoRange };
   line(spec: { attributes: Record<string, string> }): { range(from: number): DecoRange };
   set(ranges: DecoRange[], sort?: boolean): DecorationSet;
 }
@@ -80,6 +83,8 @@ interface EditorViewInstance {
   state: StateLike;
   visibleRanges?: readonly { from: number; to: number }[];
   dispatch?(spec: { changes?: unknown; selection?: { anchor: number; head: number } }): void;
+  requestMeasure?(): void;
+  focus?(): void;
 }
 interface ViewUpdateLike {
   docChanged: boolean;
@@ -90,9 +95,27 @@ interface ViewUpdateLike {
 interface ViewPluginStatic {
   fromClass<T>(cls: new (view: EditorViewInstance) => T, spec?: { decorations?: (value: T) => DecorationSet }): unknown;
 }
+interface StateFieldStatic {
+  define<T>(config: { create(state: StateLike): T; update(value: T, transaction: { docChanged: boolean; selectionSet: boolean; state: StateLike }): T; provide?: (field: unknown) => unknown }): unknown;
+}
+interface EditorViewStatic {
+  decorations: { from(field: unknown): unknown };
+}
 
 const DecorationTyped = Decoration as DecorationStatic;
 const ViewPluginTyped = ViewPlugin as ViewPluginStatic | undefined;
+const StateFieldTyped = StateField as StateFieldStatic;
+const EditorViewTyped = EditorView as EditorViewStatic;
+
+interface ImageWidgetInstance {
+  toDOM(view?: EditorViewInstance): HTMLElement;
+  eq(other: unknown): boolean;
+  ignoreEvent(): boolean;
+}
+interface ImageWidgetStatic {
+  new (image: ScriveningsImageNode, source: string): ImageWidgetInstance;
+}
+const ImageWidgetType = WidgetType as ImageWidgetStatic;
 
 /* --- Segments Scrivenings (déduits des frontières, jamais du composite entier) --- */
 
@@ -179,6 +202,39 @@ export interface ScriveningsCalloutNode {
   lines: ScriveningsCalloutLine[];
 }
 
+export interface ScriveningsImageNode {
+  from: number;
+  to: number;
+  lineFrom: number;
+  lineTo: number;
+  lineStart: number;
+  lineEnd: number;
+  kind: "wikilink" | "markdown";
+  target: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+}
+export type ScriveningsImageResolver = (target: string, kind: ScriveningsImageNode["kind"], compositeOffset: number) => string | null;
+
+export interface ScriveningsTableCell {
+  from: number;
+  to: number;
+  text: string;
+}
+export interface ScriveningsTableRow {
+  from: number;
+  to: number;
+  cells: ScriveningsTableCell[];
+}
+export interface ScriveningsTableNode {
+  from: number;
+  to: number;
+  source: string;
+  header: ScriveningsTableRow;
+  rows: ScriveningsTableRow[];
+}
+
 /* --- Titres ATX (finition Continu : `#` → `######` rendus) ------------------ */
 
 export type ScriveningsHeadingLevel = 1 | 2 | 3 | 4 | 5 | 6;
@@ -224,6 +280,8 @@ export interface ScriveningsSegmentFormatting {
    * le rendu Feuillets normal. */
   escapedSeparators: { from: number; to: number }[];
   callouts: ScriveningsCalloutNode[];
+  images: ScriveningsImageNode[];
+  tables: ScriveningsTableNode[];
 }
 
 interface ParseFrame {
@@ -280,6 +338,46 @@ function parseCalloutHeader(text: string, lineStart: number, lineEnd: number): {
     headerTo: hasTitle ? cursor : lineEnd,
     ...(hasTitle ? { titleFrom: cursor, titleTo: lineEnd } : {}),
   };
+}
+
+const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "webp", "gif", "svg", "avif", "bmp"]);
+
+function imageExtension(target: string): boolean {
+  const clean = target.split(/[?#]/, 1)[0] ?? target;
+  const dot = clean.lastIndexOf(".");
+  return dot >= 0 && IMAGE_EXTENSIONS.has(clean.slice(dot + 1).toLowerCase());
+}
+
+function imageSize(value: string): { width?: number; height?: number } {
+  const match = /^([0-9]+)(?:x([0-9]+))?$/.exec(value);
+  if (!match) return {};
+  const width = Number(match[1]);
+  const height = match[2] === undefined ? undefined : Number(match[2]);
+  return {
+    ...(Number.isFinite(width) ? { width } : {}),
+    ...(height !== undefined && Number.isFinite(height) ? { height } : {}),
+  };
+}
+
+function parseImageLine(line: string, lineStart: number, lineEnd: number): ScriveningsImageNode | null {
+  const trimmed = line.trim();
+  const leading = line.length - line.trimStart().length;
+  const from = lineStart + leading;
+  if (trimmed.startsWith("![[") && trimmed.endsWith("]]")) {
+    const inner = trimmed.slice(3, -2);
+    const pipe = inner.indexOf("|");
+    const target = (pipe < 0 ? inner : inner.slice(0, pipe)).trim();
+    if (!imageExtension(target)) return null;
+    const size = pipe < 0 ? {} : imageSize(inner.slice(pipe + 1).trim());
+    return { from, to: from + trimmed.length, lineFrom: lineStart, lineTo: lineEnd, lineStart, lineEnd, kind: "wikilink", target, ...size };
+  }
+  if (!trimmed.startsWith("![") || !trimmed.endsWith(")")) return null;
+  const closeAlt = trimmed.indexOf("](");
+  if (closeAlt < 2 || !trimmed.endsWith(")")) return null;
+  const target = trimmed.slice(closeAlt + 2, -1).trim();
+  if (!target || !imageExtension(target)) return null;
+  const alt = trimmed.slice(2, closeAlt);
+  return { from, to: from + trimmed.length, lineFrom: lineStart, lineTo: lineEnd, lineStart, lineEnd, kind: "markdown", target, ...(alt ? { alt } : {}) };
 }
 
 /** Chaîne EXACTE (après `.trim()` de la ligne) d'un séparateur `***`
@@ -352,16 +450,22 @@ function findEscapedSeparatorHiddenRanges(
  * un `Decoration.replace()`.
  */
 export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegmentFormatting {
-  const tree = parser.parse(text);
+  const tree = scriveningsMarkdownParser.parse(text);
   const nodes: ScriveningsEmphasisNode[] = [];
   const groups: ScriveningsMarkGroup[] = [];
   const headings: ScriveningsHeadingNode[] = [];
   const horizontalRules: { from: number; to: number }[] = [];
   const callouts: ScriveningsCalloutNode[] = [];
+  const images: ScriveningsImageNode[] = [];
+  const tables: ScriveningsTableNode[] = [];
+  const fencedRanges: { from: number; to: number }[] = [];
   const escapeNodes: { from: number; to: number }[] = [];
   const stack: ParseFrame[] = [];
   const headingStack: { level: ScriveningsHeadingLevel; from: number; to: number; marks: { from: number; to: number }[] }[] = [];
   let blockquoteDepth = 0;
+  let currentTable: { from: number; to: number; header?: ScriveningsTableRow; rows: ScriveningsTableRow[] } | null = null;
+  let currentRow: ScriveningsTableRow | null = null;
+  let currentRowIsHeader = false;
 
   tree.iterate({
     enter(node) {
@@ -411,6 +515,23 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
         blockquoteDepth++;
         return;
       }
+      if (node.name === "Table") {
+        currentTable = { from: node.from, to: node.to, rows: [] };
+        return;
+      }
+      if (node.name === "TableHeader" || node.name === "TableRow") {
+        currentRow = { from: node.from, to: node.to, cells: [] };
+        currentRowIsHeader = node.name === "TableHeader";
+        return;
+      }
+      if (node.name === "TableCell" && currentRow) {
+        currentRow.cells.push({ from: node.from, to: node.to, text: text.slice(node.from, node.to) });
+        return;
+      }
+      if (node.name === "FencedCode") {
+        fencedRanges.push({ from: node.from, to: node.to });
+        return false;
+      }
       if (node.name === "HorizontalRule") {
         horizontalRules.push({ from: node.from, to: node.to });
         return false; // jamais descendu : un HorizontalRule n'a rien à offrir à l'emphase
@@ -455,6 +576,19 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
         blockquoteDepth--;
         return;
       }
+      if (node.name === "TableHeader" || node.name === "TableRow") {
+        if (currentTable && currentRow) {
+          if (currentRowIsHeader) currentTable.header = currentRow;
+          else currentTable.rows.push(currentRow);
+        }
+        currentRow = null;
+        return;
+      }
+      if (node.name === "Table") {
+        if (currentTable?.header) tables.push({ from: currentTable.from, to: currentTable.to, source: text.slice(currentTable.from, currentTable.to), header: currentTable.header, rows: currentTable.rows });
+        currentTable = null;
+        return;
+      }
       const type = scriveningsEmphasisTypeOf(node.name);
       if (type) {
         const frame = stack.pop();
@@ -492,7 +626,17 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
     },
   });
 
-  return { nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes), callouts };
+  let lineStart = 0;
+  for (const line of text.split("\n")) {
+    const lineEnd = lineStart + line.length;
+    if (!fencedRanges.some((range) => lineStart >= range.from && lineStart < range.to)) {
+      const image = parseImageLine(line, lineStart, lineEnd);
+      if (image) images.push(image);
+    }
+    lineStart = lineEnd + 1;
+  }
+
+  return { nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes), callouts, images, tables };
 }
 
 /* --- Cache par segment (LOT 1.3 section 3 — jamais un scan global) -------- */
@@ -571,6 +715,27 @@ function shiftCallout(callout: ScriveningsCalloutNode, delta: number): Scrivenin
   };
 }
 
+function shiftImage(image: ScriveningsImageNode, delta: number): ScriveningsImageNode {
+  return {
+    ...image,
+    from: image.from + delta,
+    to: image.to + delta,
+    lineFrom: image.lineFrom + delta,
+    lineTo: image.lineTo + delta,
+    lineStart: image.lineStart + delta,
+    lineEnd: image.lineEnd + delta,
+  };
+}
+
+function shiftTable(table: ScriveningsTableNode, delta: number): ScriveningsTableNode {
+  const shiftRow = (row: ScriveningsTableRow): ScriveningsTableRow => ({
+    from: row.from + delta,
+    to: row.to + delta,
+    cells: row.cells.map((cell) => ({ from: cell.from + delta, to: cell.to + delta, text: cell.text })),
+  });
+  return { from: table.from + delta, to: table.to + delta, source: table.source, header: shiftRow(table.header), rows: table.rows.map(shiftRow) };
+}
+
 function shiftRange(range: { from: number; to: number }, delta: number): { from: number; to: number } {
   return { from: range.from + delta, to: range.to + delta };
 }
@@ -587,6 +752,8 @@ export function compositeScriveningsFormatting(segment: ScriveningsSegmentRange,
     horizontalRules: local.horizontalRules.map((range) => shiftRange(range, segment.from)),
     escapedSeparators: local.escapedSeparators.map((range) => shiftRange(range, segment.from)),
     callouts: local.callouts.map((callout) => shiftCallout(callout, segment.from)),
+    images: local.images.map((image) => shiftImage(image, segment.from)),
+    tables: local.tables.map((table) => shiftTable(table, segment.from)),
   };
 }
 
@@ -608,6 +775,14 @@ export function scriveningsHeadingIsActive(heading: ScriveningsHeadingNode, sele
 
 export function scriveningsCalloutIsActive(callout: ScriveningsCalloutNode, selections: readonly SelectionRangeLike[]): boolean {
   return selections.some((selection) => selection.from <= callout.to && selection.to >= callout.from);
+}
+
+export function scriveningsImageIsActive(image: ScriveningsImageNode, selections: readonly SelectionRangeLike[]): boolean {
+  return selections.some((selection) => selection.from <= image.lineTo && selection.to >= image.lineFrom);
+}
+
+export function scriveningsTableIsActive(table: ScriveningsTableNode, selections: readonly SelectionRangeLike[]): boolean {
+  return selections.some((selection) => selection.from <= table.to && selection.to >= table.from);
 }
 
 /* --- Plan de décorations (couche pure, testable sans CodeMirror réel) ----- */
@@ -641,6 +816,8 @@ export interface ScriveningsMarkdownDecorationPlan {
    */
   hiddenMarkRanges: { from: number; to: number }[];
   calloutLines: { from: number; classes: string; attributes: Record<string, string> }[];
+  imageWidgets: { from: number; to: number; image: ScriveningsImageNode; source: string }[];
+  tableWidgets: { from: number; to: number; table: ScriveningsTableNode }[];
 }
 
 /**
@@ -656,17 +833,21 @@ export function buildScriveningsMarkdownPlan(params: {
   boundaries: readonly number[];
   visibleRanges: readonly { from: number; to: number }[];
   selections: readonly SelectionRangeLike[];
+  resolveImage?: ScriveningsImageResolver;
 }): ScriveningsMarkdownDecorationPlan {
-  const { docLength, sliceText, boundaries, visibleRanges, selections } = params;
+  const { docLength, sliceText, boundaries, visibleRanges, selections, resolveImage } = params;
   const segments = scriveningsSegmentsInRanges(scriveningsSegmentRanges(boundaries, docLength), visibleRanges);
 
   const styleRanges: ScriveningsMarkdownStyleRange[] = [];
   const hiddenMarkRanges: { from: number; to: number }[] = [];
   const calloutLines: { from: number; classes: string; attributes: Record<string, string> }[] = [];
+  const imageWidgets: { from: number; to: number; image: ScriveningsImageNode; source: string }[] = [];
+  const tableWidgets: { from: number; to: number; table: ScriveningsTableNode }[] = [];
+  const tablesInPlan: ScriveningsTableNode[] = [];
 
   for (const segment of segments) {
     const segmentText = sliceText(segment.from, segment.to);
-    const { nodes, groups, headings, horizontalRules, escapedSeparators, callouts } = compositeScriveningsFormatting(segment, segmentText);
+    const { nodes, groups, headings, horizontalRules, escapedSeparators, callouts, images, tables } = compositeScriveningsFormatting(segment, segmentText);
     const overlapsHorizontalRule = (from: number, to: number): boolean =>
       horizontalRules.some((hr) => from < hr.to && to > hr.from);
 
@@ -674,6 +855,16 @@ export function buildScriveningsMarkdownPlan(params: {
     // `scriveningsGroupIsActive` (ce n'est pas une emphase) — voir la doc de
     // `ScriveningsMarkdownDecorationPlan.hiddenMarkRanges` ci-dessus.
     for (const range of escapedSeparators) hiddenMarkRanges.push(range);
+
+    for (const image of images) {
+      if (scriveningsImageIsActive(image, selections)) continue;
+      const source = resolveImage?.(image.target, image.kind, image.from) ?? (/^https?:\/\//i.test(image.target) ? image.target : null);
+      if (source) imageWidgets.push({ from: image.from, to: image.to, image, source });
+    }
+    for (const table of tables) {
+      tablesInPlan.push(table);
+      if (!scriveningsTableIsActive(table, selections)) tableWidgets.push({ from: table.from, to: table.to, table });
+    }
 
     for (const callout of callouts) {
       const active = scriveningsCalloutIsActive(callout, selections);
@@ -738,7 +929,10 @@ export function buildScriveningsMarkdownPlan(params: {
   styleRanges.sort((a, b) => a.from - b.from);
   hiddenMarkRanges.sort((a, b) => a.from - b.from);
   calloutLines.sort((a, b) => a.from - b.from);
-  return { styleRanges, hiddenMarkRanges, calloutLines };
+  const tableContains = (from: number, to: number): boolean => tablesInPlan.some((table) => from >= table.from && to <= table.to);
+  const filteredStyleRanges = styleRanges.filter((range) => !tableContains(range.from, range.to));
+  const filteredHiddenMarkRanges = hiddenMarkRanges.filter((range) => !tableContains(range.from, range.to));
+  return { styleRanges: filteredStyleRanges, hiddenMarkRanges: filteredHiddenMarkRanges, calloutLines, imageWidgets, tableWidgets };
 }
 
 /* --- Rendu CodeMirror réel (fine couche de branchement) -------------------- */
@@ -754,6 +948,89 @@ const CM_SCRIVENINGS_HEADING_CLASSES: Record<ScriveningsHeadingLevel, string> = 
   5: "cm-scrivenings-heading-h5",
   6: "cm-scrivenings-heading-h6",
 };
+
+class ScriveningsImageWidget extends (ImageWidgetType as { new (): ImageWidgetInstance }) {
+  private readonly image: ScriveningsImageNode;
+  private readonly source: string;
+
+  constructor(image: ScriveningsImageNode, source: string) {
+    super();
+    this.image = image;
+    this.source = source;
+  }
+
+  toDOM(view?: EditorViewInstance): HTMLElement {
+    const root = createSpan({ cls: "cm-scrivenings-image-embed" });
+    root.setAttribute("data-image-kind", this.image.kind);
+    root.setAttribute("data-image-target", this.image.target);
+    const element = createEl("img");
+    element.src = this.source;
+    element.alt = this.image.alt ?? "";
+    element.loading = "lazy";
+    element.addEventListener("load", () => view?.requestMeasure?.());
+    if (this.image.width !== undefined) element.width = this.image.width;
+    if (this.image.height !== undefined) element.height = this.image.height;
+    root.appendChild(element);
+    if (this.image.alt?.trim()) {
+      const caption = createSpan({ cls: "cm-scrivenings-image-caption" });
+      caption.setText(this.image.alt);
+      root.appendChild(caption);
+    }
+    return root;
+  }
+
+  eq(other: unknown): boolean {
+    return other instanceof ScriveningsImageWidget && other.source === this.source && other.image.from === this.image.from;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
+  }
+}
+
+class ScriveningsTableWidget extends (ImageWidgetType as { new (): ImageWidgetInstance }) {
+  private readonly table: ScriveningsTableNode;
+
+  constructor(table: ScriveningsTableNode) {
+    super();
+    this.table = table;
+  }
+
+  toDOM(view?: EditorViewInstance): HTMLElement {
+    const root = createDiv({ cls: "cm-scrivenings-table-wrap" });
+    const element = createEl("table", { cls: "cm-scrivenings-table" });
+    const head = createEl("thead");
+    const headerRow = createEl("tr");
+    for (const cell of this.table.header.cells) headerRow.appendChild(createEl("th", { text: cell.text }));
+    head.appendChild(headerRow);
+    element.appendChild(head);
+    const body = createEl("tbody");
+    for (const row of this.table.rows) {
+      const bodyRow = createEl("tr");
+      for (const cell of row.cells) bodyRow.appendChild(createEl("td", { text: cell.text }));
+      body.appendChild(bodyRow);
+    }
+    element.appendChild(body);
+    root.appendChild(element);
+    const activate = (event: MouseEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      view?.dispatch?.({ selection: { anchor: this.table.from, head: this.table.from } });
+      view?.focus?.();
+    };
+    root.addEventListener("mousedown", activate);
+    root.addEventListener("click", activate);
+    return root;
+  }
+
+  eq(other: unknown): boolean {
+    return other instanceof ScriveningsTableWidget && other.table.from === this.table.from && other.table.to === this.table.to;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
 
 export function scriveningsHeadingClass(level: ScriveningsHeadingLevel): string {
   return CM_SCRIVENINGS_HEADING_CLASSES[level];
@@ -782,10 +1059,14 @@ function buildDecorationSet(plan: ScriveningsMarkdownDecorationPlan): Decoration
     if (typeof DecorationTyped.line !== "function") continue;
     ranges.push(DecorationTyped.line({ attributes: { class: line.classes, ...line.attributes } }).range(line.from));
   }
+  for (const image of plan.imageWidgets) {
+    if (typeof DecorationTyped.replace !== "function") continue;
+    ranges.push(DecorationTyped.replace({ widget: new ScriveningsImageWidget(image.image, image.source) }).range(image.from, image.to));
+  }
   return DecorationTyped.set(ranges, true);
 }
 
-function buildPlanFromView(view: EditorViewInstance, boundariesField: unknown): ScriveningsMarkdownDecorationPlan {
+function buildPlanFromView(view: EditorViewInstance, boundariesField: unknown, resolveImage?: ScriveningsImageResolver): ScriveningsMarkdownDecorationPlan {
   const boundaries = (view.state.field(boundariesField, false) as number[] | undefined) ?? [];
   const visibleRanges = view.visibleRanges ?? [{ from: 0, to: view.state.doc.length }];
   const selections = view.state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
@@ -795,7 +1076,33 @@ function buildPlanFromView(view: EditorViewInstance, boundariesField: unknown): 
     boundaries,
     visibleRanges,
     selections,
+    resolveImage,
   });
+}
+
+function buildScriveningsTableDecorations(state: StateLike, boundariesField: unknown): DecorationSet {
+  if (typeof DecorationTyped?.set !== "function" || typeof DecorationTyped?.replace !== "function") return DecorationTyped?.none;
+  const boundaries = (state.field(boundariesField, false) as number[] | undefined) ?? [];
+  const selections = state.selection.ranges.map((range) => ({ from: range.from, to: range.to }));
+  const ranges: DecoRange[] = [];
+  for (const segment of scriveningsSegmentRanges(boundaries, state.doc.length)) {
+    const formatting = compositeScriveningsFormatting(segment, state.doc.sliceString(segment.from, segment.to));
+    for (const table of formatting.tables) {
+      if (!scriveningsTableIsActive(table, selections)) {
+        ranges.push(DecorationTyped.replace({ widget: new ScriveningsTableWidget(table), block: true }).range(table.from, table.to));
+      }
+    }
+  }
+  return ranges.length === 0 ? DecorationTyped.none : DecorationTyped.set(ranges, true);
+}
+
+export function createScriveningsTableDecorationsField(boundariesField: unknown): unknown {
+  const config = {
+    create: (state: StateLike) => buildScriveningsTableDecorations(state, boundariesField),
+    update: (value: DecorationSet, transaction: { docChanged: boolean; selectionSet: boolean; state: StateLike }) => transaction.docChanged || transaction.selectionSet ? buildScriveningsTableDecorations(transaction.state, boundariesField) : value,
+    ...(typeof EditorViewTyped?.decorations?.from === "function" ? { provide: (fieldRef: unknown) => EditorViewTyped.decorations.from(fieldRef) } : {}),
+  };
+  return StateFieldTyped.define<DecorationSet>(config);
 }
 
 /** Construit le ViewPlugin qui recalcule le plan (donc les décorations) sur
@@ -806,19 +1113,19 @@ function buildPlanFromView(view: EditorViewInstance, boundariesField: unknown): 
  * PASSÉ EN PARAMÈTRE (voir en-tête de fichier — jamais importé de
  * cm-scrivenings.ts) : c'est le `scriveningsBoundariesField` de ce module,
  * fourni par `createScriveningsMarkdownExtensions` ci-dessous. */
-export function createScriveningsMarkdownPlugin(boundariesField: unknown): unknown {
+export function createScriveningsMarkdownPlugin(boundariesField: unknown, resolveImage?: ScriveningsImageResolver): unknown {
   if (typeof ViewPluginTyped?.fromClass !== "function") return [];
   return ViewPluginTyped.fromClass(
     class {
       decorations: DecorationSet;
 
       constructor(view: EditorViewInstance) {
-        this.decorations = buildDecorationSet(buildPlanFromView(view, boundariesField));
+        this.decorations = buildDecorationSet(buildPlanFromView(view, boundariesField, resolveImage));
       }
 
       update(update: ViewUpdateLike) {
         if (update.docChanged || update.viewportChanged || update.selectionSet) {
-          this.decorations = buildDecorationSet(buildPlanFromView(update.view, boundariesField));
+          this.decorations = buildDecorationSet(buildPlanFromView(update.view, boundariesField, resolveImage));
         }
       }
     },
@@ -958,6 +1265,6 @@ export function createScriveningsToggleCommand(boundariesField: unknown, type: S
  * Obsidian). `createScriveningsToggleCommand` (ci-dessus) reste la manière
  * d'obtenir les commandes elles-mêmes.
  */
-export function createScriveningsMarkdownExtensions(boundariesField: unknown): unknown[] {
-  return [createScriveningsMarkdownPlugin(boundariesField)];
+export function createScriveningsMarkdownExtensions(boundariesField: unknown, resolveImage?: ScriveningsImageResolver): unknown[] {
+  return [createScriveningsTableDecorationsField(boundariesField), createScriveningsMarkdownPlugin(boundariesField, resolveImage)];
 }
