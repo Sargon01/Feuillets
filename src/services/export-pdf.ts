@@ -8,7 +8,7 @@ import { paginateDom, paginateDomCooperatively, type CooperativePaginationOption
 import { resolvePageGeometry } from "./page-geometry.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import type { ContentVariant } from "./content-variants.js";
-import { populatePaginationFootnoteNodes, markRepeatedPaginationFootnoteReferences, cloneBodyNodesWithoutRepeatedPaginationFootnoteReferences, clearRepeatedPaginationFootnoteReferenceMarks, type PaginationFootnoteDefinition, type PaginationFootnoteCall } from "./pagination-footnotes.js";
+import { populatePaginationFootnoteNodes, markRepeatedPaginationFootnoteReferences, cloneBodyNodesWithoutRepeatedPaginationFootnoteReferences, clearRepeatedPaginationFootnoteReferenceMarks, normalizePaginationFootnoteReferenceMarkers, paginationFootnoteDisplayMarker, type PaginationFootnoteDefinition, type PaginationFootnoteCall } from "./pagination-footnotes.js";
 
 type PdfFootnote = PaginationFootnoteDefinition;
 
@@ -197,7 +197,7 @@ function createPaginationFootnoteNode(
   const markerSpan = document.createElement("span");
   markerSpan.className = "pdf-page-footnote-marker";
   markerSpan.style.fontVariantNumeric = "tabular-nums";
-  markerSpan.textContent = call.markerText;
+  markerSpan.textContent = paginationFootnoteDisplayMarker(call.markerText);
   li.appendChild(markerSpan);
 
   const contentDiv = document.createElement("div");
@@ -276,8 +276,10 @@ function prepareManuscriptPagination(
     .map((el) => el.cloneNode(true))
     .filter((node): node is Element => "tagName" in node && "classList" in node);
 
-  // Mark repeated footnote references for measurement filtering (Lot 5)
+  // Normalize display markers in footnote references (Finition typographique)
   if (footnotes && footnotes.length > 0) {
+    normalizePaginationFootnoteReferenceMarkers(elements);
+    // Mark repeated footnote references for measurement filtering (Lot 5)
     markRepeatedPaginationFootnoteReferences(elements);
   }
 
@@ -346,8 +348,10 @@ export function paginateManuscript(
     .map((el) => el.cloneNode(true))
     .filter((node): node is Element => "tagName" in node && "classList" in node);
 
-  // Mark repeated footnote references for measurement filtering (Lot 5)
+  // Normalize display markers in footnote references (Finition typographique)
   if (footnotes && footnotes.length > 0) {
+    normalizePaginationFootnoteReferenceMarkers(elements);
+    // Mark repeated footnote references for measurement filtering (Lot 5)
     markRepeatedPaginationFootnoteReferences(elements);
   }
 

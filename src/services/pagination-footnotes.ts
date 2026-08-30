@@ -310,3 +310,50 @@ export function populatePaginationFootnoteNodes(
 
   return observation;
 }
+
+/**
+ * Transform visual marker text by removing outer brackets for display.
+ * Pure function: no side effects.
+ *
+ * "[1]"   → "1"
+ * "[12]"  → "12"
+ * "1"     → "1"  (unchanged if no brackets)
+ * "[1"    → "[1" (unchanged if incomplete)
+ * "[]"    → "[]" (unchanged if empty)
+ */
+export function paginationFootnoteDisplayMarker(markerText: string): string {
+  if (markerText.length >= 3 && markerText[0] === "[" && markerText[markerText.length - 1] === "]") {
+    return markerText.slice(1, -1);
+  }
+  return markerText;
+}
+
+/**
+ * Normalize footnote reference markers in cloned bodyNodes for display.
+ * Transforms "[1]" → "1" in sup.footnote-ref link text only.
+ * Does NOT modify href, id, or structure; only textContent.
+ * Idempotent: applying twice yields same result.
+ */
+export function normalizePaginationFootnoteReferenceMarkers(bodyNodes: readonly Element[]): void {
+  for (const node of bodyNodes) {
+    // Check if node itself is sup.footnote-ref
+    if (node.classList && node.classList.contains("footnote-ref") && node.tagName === "SUP") {
+      const link = node.querySelector("a[href]");
+      if (link && link.textContent) {
+        link.textContent = paginationFootnoteDisplayMarker(link.textContent);
+      }
+    }
+
+    // Scan descendants for sup.footnote-ref
+    const descendants = node.querySelectorAll?.("sup.footnote-ref");
+    if (descendants) {
+      for (let i = 0; i < descendants.length; i++) {
+        const sup = descendants[i];
+        const link = sup.querySelector("a[href]");
+        if (link && link.textContent) {
+          link.textContent = paginationFootnoteDisplayMarker(link.textContent);
+        }
+      }
+    }
+  }
+}

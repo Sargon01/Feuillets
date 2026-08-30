@@ -6,6 +6,8 @@ import {
   markRepeatedPaginationFootnoteReferences,
   PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE,
   clearRepeatedPaginationFootnoteReferenceMarks,
+  paginationFootnoteDisplayMarker,
+  normalizePaginationFootnoteReferenceMarkers,
 } from "../src/services/pagination-footnotes.js";
 
 /**
@@ -533,8 +535,8 @@ test("pagination-footnotes : garde sur export-pdf — structure originale conser
   assert.match(sourceFile, /pdf-page-footnote-content/);
   // Verify old .pdf-footnotes-section construction is removed
   assert.doesNotMatch(sourceFile, /pdf-footnotes-section/);
-  // Verify markerText injected via textContent
-  assert.match(sourceFile, /markerSpan\.textContent = call\.markerText/);
+  // Verify markerText normalized and injected via textContent (Finition typographique)
+  assert.match(sourceFile, /markerSpan\.textContent = paginationFootnoteDisplayMarker\(call\.markerText\)/);
   // Verify no innerHTML for marker
   assert.doesNotMatch(sourceFile, /markerSpan\.innerHTML/);
   // Verify position relative conditional
@@ -550,4 +552,151 @@ test("pagination-footnotes : garde sur export-pdf — structure originale conser
   assert.match(sourceFile, /columnSpan = "all"/);
   // Verify notes placed INSIDE pdf-page-content
   assert.match(sourceFile, /pageFootnotesHtml/);
+});
+
+// Finition typographique: tests pour paginationFootnoteDisplayMarker
+test("pagination-footnotes: paginationFootnoteDisplayMarker removes outer brackets", () => {
+  assert.strictEqual(paginationFootnoteDisplayMarker("[1]"), "1");
+  assert.strictEqual(paginationFootnoteDisplayMarker("[12]"), "12");
+  assert.strictEqual(paginationFootnoteDisplayMarker("[a]"), "a");
+});
+
+test("pagination-footnotes: paginationFootnoteDisplayMarker preserves non-bracketed", () => {
+  assert.strictEqual(paginationFootnoteDisplayMarker("1"), "1");
+  assert.strictEqual(paginationFootnoteDisplayMarker("12"), "12");
+  assert.strictEqual(paginationFootnoteDisplayMarker("a"), "a");
+});
+
+test("pagination-footnotes: paginationFootnoteDisplayMarker handles incomplete brackets", () => {
+  assert.strictEqual(paginationFootnoteDisplayMarker("[1"), "[1");
+  assert.strictEqual(paginationFootnoteDisplayMarker("1]"), "1]");
+  assert.strictEqual(paginationFootnoteDisplayMarker("[]"), "[]");
+});
+
+test("pagination-footnotes: paginationFootnoteDisplayMarker handles empty string", () => {
+  assert.strictEqual(paginationFootnoteDisplayMarker(""), "");
+});
+
+test("pagination-footnotes: paginationFootnoteDisplayMarker is idempotent", () => {
+  const original = "[1]";
+  const first = paginationFootnoteDisplayMarker(original);
+  const second = paginationFootnoteDisplayMarker(first);
+  assert.strictEqual(first, "1");
+  assert.strictEqual(second, "1");
+});
+
+test("pagination-footnotes: normalizePaginationFootnoteReferenceMarkers normalizes marked reference", () => {
+  // Mock a sup.footnote-ref with mutable textContent link
+  let linkText = "[1]";
+  const link = {
+    textContent: linkText,
+    getAttribute: (attr) => (attr === "href" ? "#fn-1" : null),
+    set textContent(val) { linkText = val; },
+    get textContent() { return linkText; },
+  };
+
+  const sup = {
+    tagName: "SUP",
+    classList: { contains: (name) => name === "footnote-ref" },
+    querySelector: (sel) => (sel === "a[href]" ? link : null),
+    querySelectorAll: () => [],
+  };
+
+  normalizePaginationFootnoteReferenceMarkers([sup]);
+  assert.strictEqual(linkText, "1");
+});
+
+test("pagination-footnotes: normalizePaginationFootnoteReferenceMarkers preserves href", () => {
+  let linkText = "[99]";
+  const link = {
+    textContent: linkText,
+    getAttribute: (attr) => (attr === "href" ? "#my-id" : null),
+    set textContent(val) { linkText = val; },
+    get textContent() { return linkText; },
+  };
+
+  const sup = {
+    tagName: "SUP",
+    classList: { contains: (name) => name === "footnote-ref" },
+    querySelector: (sel) => (sel === "a[href]" ? link : null),
+    querySelectorAll: () => [],
+  };
+
+  normalizePaginationFootnoteReferenceMarkers([sup]);
+  assert.strictEqual(linkText, "99");
+  assert.strictEqual(link.getAttribute("href"), "#my-id");
+});
+
+test("pagination-footnotes: normalizePaginationFootnoteReferenceMarkers handles descendants", () => {
+  // Create a parent node with sup.footnote-ref descendants
+  let link1Text = "[1]";
+  let link2Text = "[2]";
+
+  const sup1 = {
+    tagName: "SUP",
+    classList: { contains: (name) => name === "footnote-ref" },
+    querySelector: () => ({
+      textContent: link1Text,
+      getAttribute: () => "#fn-1",
+      set textContent(val) { link1Text = val; },
+      get textContent() { return link1Text; },
+    }),
+  };
+
+  const sup2 = {
+    tagName: "SUP",
+    classList: { contains: (name) => name === "footnote-ref" },
+    querySelector: () => ({
+      textContent: link2Text,
+      getAttribute: () => "#fn-2",
+      set textContent(val) { link2Text = val; },
+      get textContent() { return link2Text; },
+    }),
+  };
+
+  const parent = {
+    querySelectorAll: (sel) => (sel === "sup.footnote-ref" ? [sup1, sup2] : []),
+  };
+
+  normalizePaginationFootnoteReferenceMarkers([parent]);
+  assert.strictEqual(link1Text, "1");
+  assert.strictEqual(link2Text, "2");
+});
+
+test("pagination-footnotes: normalizePaginationFootnoteReferenceMarkers is idempotent", () => {
+  let linkText = "[1]";
+  const link = {
+    textContent: linkText,
+    getAttribute: () => "#fn-1",
+    set textContent(val) { linkText = val; },
+    get textContent() { return linkText; },
+  };
+
+  const sup = {
+    tagName: "SUP",
+    classList: { contains: (name) => name === "footnote-ref" },
+    querySelector: () => link,
+    querySelectorAll: () => [],
+  };
+
+  normalizePaginationFootnoteReferenceMarkers([sup]);
+  assert.strictEqual(linkText, "1");
+
+  // Apply again - should remain "1", not "1]" or similar
+  normalizePaginationFootnoteReferenceMarkers([sup]);
+  assert.strictEqual(linkText, "1");
+});
+
+test("pagination-footnotes: normalizePaginationFootnoteReferenceMarkers skips non-footnote", () => {
+  let text = "[1]";
+  const p = {
+    tagName: "P",
+    classList: { contains: () => false },
+    set textContent(val) { text = val; },
+    get textContent() { return text; },
+    querySelectorAll: () => [],
+  };
+
+  normalizePaginationFootnoteReferenceMarkers([p]);
+  assert.strictEqual(text, "[1]"); // Should NOT change
 });
