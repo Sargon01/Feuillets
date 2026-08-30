@@ -11,7 +11,9 @@
     "lint:obsidian": "eslint --config obsidian-review.config.mjs src",
     "test": "npm run test:compiled",
     "test:direct": "node --test test/*.test.js",
-    "test:compiled": "node -e \"require('node:fs').rmSync('.test-dist', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node scripts/prepare-test-obsidian-stub.mjs && node --test .test-dist/test/*.test.js"
+    "test:compiled": "node -e \"require('node:fs').rmSync('.test-dist', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node scripts/prepare-test-obsidian-stub.mjs && node --test .test-dist/test/*.test.js",
+    "test:pagination-baseline": "node scripts/pagination-baseline.mjs",
+    "update:pagination-baseline": "node scripts/pagination-baseline.mjs --update"
   },
   "keywords": [],
   "author": "Halim",
@@ -24,6 +26,7 @@
     "eslint": "^10.8.0",
     "eslint-plugin-obsidianmd": "^0.4.1",
     "obsidian": "latest",
+    "playwright": "1.62.1",
     "typescript": "^5.0.0"
   },
   "dependencies": {

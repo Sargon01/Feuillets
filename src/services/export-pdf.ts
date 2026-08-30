@@ -4,15 +4,13 @@ import { composeDocumentMedia, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CS
 import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
-import { paginateDom, paginateDomCooperatively, type CooperativePaginationOptions, type PaginationGeometry, type PaginationPage } from "./pagination-engine.js";
+import { paginateDom, paginateDomCooperatively, type CooperativePaginationOptions, type PaginationGeometry, type PaginationPage, type PaginationReservedBottomAreaProvider } from "./pagination-engine.js";
 import { resolvePageGeometry } from "./page-geometry.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import type { ContentVariant } from "./content-variants.js";
+import { populatePaginationFootnoteNodes, markRepeatedPaginationFootnoteReferences, cloneBodyNodesWithoutRepeatedPaginationFootnoteReferences, clearRepeatedPaginationFootnoteReferenceMarks, normalizePaginationFootnoteReferenceMarkers, paginationFootnoteDisplayMarker, type PaginationFootnoteDefinition, type PaginationFootnoteCall } from "./pagination-footnotes.js";
 
-type PdfFootnote = {
-  id: string;
-  html: string;
-};
+type PdfFootnote = PaginationFootnoteDefinition;
 
 type PdfExportSegment = {
   text: string;
@@ -133,6 +131,129 @@ function isPrintableIframe(iframe: HTMLIFrameElement): iframe is HTMLIFrameEleme
   return iframe.contentDocument !== null && iframe.contentWindow !== null;
 }
 
+/**
+ * Create a footnote area element for measurement or rendering.
+ * If positioned=true, adds absolute positioning for final rendering.
+ * If positioned=false, creates a measuring version without positioning.
+ */
+function createPaginationFootnoteArea(
+  footnoteNodes: readonly Element[],
+  fontFamily: string,
+  positioned: boolean
+): HTMLElement | null {
+  if (footnoteNodes.length === 0) return null;
+
+  const area = document.createElement("div");
+  area.className = "pdf-page-footnotes";
+  area.style.fontFamily = fontFamily;
+  area.style.fontSize = "0.8em";
+  area.style.lineHeight = "1.2";
+  area.style.columnCount = "1";
+  area.style.columnSpan = "all";
+  if (positioned) {
+    area.style.position = "absolute";
+    area.style.left = "0";
+    area.style.right = "0";
+    area.style.bottom = "0";
+  }
+
+  const separator = document.createElement("div");
+  separator.className = "pdf-page-footnotes-separator";
+  separator.style.width = "25%";
+  separator.style.borderTop = "0.5pt solid currentColor";
+  separator.style.marginBottom = "4pt";
+  area.appendChild(separator);
+
+  const ol = document.createElement("ol");
+  ol.style.margin = "0";
+  ol.style.padding = "0";
+  ol.style.listStyle = "none";
+  footnoteNodes.forEach((node) => {
+    ol.appendChild(node.cloneNode(true));
+  });
+  area.appendChild(ol);
+
+  return area;
+}
+
+/**
+ * Create a footnote list item with marker and content (Lot 3 structure).
+ * Used both for measurement and final rendering.
+ */
+function createPaginationFootnoteNode(
+  footnote: PdfFootnote,
+  call: PaginationFootnoteCall
+): Element {
+  const li = document.createElement("li");
+  li.id = footnote.id;
+  li.style.listStyle = "none";
+  li.style.display = "grid";
+  li.style.gridTemplateColumns = "auto 1fr";
+  li.style.columnGap = "0.35em";
+  li.style.alignItems = "start";
+  li.style.margin = "0";
+  li.style.padding = "0";
+
+  const markerSpan = document.createElement("span");
+  markerSpan.className = "pdf-page-footnote-marker";
+  markerSpan.style.fontVariantNumeric = "tabular-nums";
+  markerSpan.textContent = paginationFootnoteDisplayMarker(call.markerText);
+  li.appendChild(markerSpan);
+
+  const contentDiv = document.createElement("div");
+  contentDiv.className = "pdf-page-footnote-content";
+  contentDiv.style.minWidth = "0";
+  const parsed = new DOMParser().parseFromString(footnote.html, "text/html");
+  parsed.body.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
+  while (parsed.body.firstChild) contentDiv.appendChild(parsed.body.firstChild);
+  contentDiv.querySelectorAll("p").forEach((p) => {
+    p.style.marginTop = "0";
+    p.style.marginBottom = "0";
+  });
+  li.appendChild(contentDiv);
+  return li;
+}
+
+/**
+ * Create a provider for reserved bottom area based on footnotes.
+ * Returns a callback that measures footnotes for the current page's body content,
+ * or undefined if there are no footnotes.
+ */
+function createFootnoteReservedBottomAreaProvider(
+  footnotes: readonly PdfFootnote[] | null | undefined,
+  fontFamily: string
+): PaginationReservedBottomAreaProvider | undefined {
+  if (!footnotes || footnotes.length === 0) {
+    return undefined;
+  }
+
+  return (bodyNodes: readonly Element[]): Element | null => {
+    // Filter out repeated footnote references (only measurement, not final output)
+    const filteredNodes = cloneBodyNodesWithoutRepeatedPaginationFootnoteReferences(
+      Array.from(bodyNodes)
+    );
+
+    // Create temporary page with filtered nodes
+    const tempPage: PaginationPage = {
+      bodyNodes: filteredNodes,
+      footnoteNodes: [],
+    };
+
+    // Populate footnotes for this page using the centralized helper
+    populatePaginationFootnoteNodes(
+      [tempPage],
+      footnotes,
+      createPaginationFootnoteNode
+    );
+
+    if (tempPage.footnoteNodes.length === 0) {
+      return null;
+    }
+
+    return createPaginationFootnoteArea(tempPage.footnoteNodes, fontFamily, false);
+  };
+}
+
 /** Préparation commune aux consommateurs synchrone et coopératif. */
 function prepareManuscriptPagination(
   containerEl: HTMLElement,
@@ -154,19 +275,14 @@ function prepareManuscriptPagination(
   const elements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
     .filter((node): node is Element => "tagName" in node && "classList" in node);
+
+  // Normalize display markers in footnote references (Finition typographique)
   if (footnotes && footnotes.length > 0) {
-    const fnDiv = createDiv({ cls: "pdf-footnotes-section" });
-    fnDiv.createEl("hr");
-    const ol = fnDiv.createEl("ol");
-    for (const footnote of footnotes) {
-      const li = ol.createEl("li");
-      li.id = footnote.id;
-      const parsed = new DOMParser().parseFromString(footnote.html, "text/html");
-      parsed.body.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((anchor) => anchor.remove());
-      while (parsed.body.firstChild) li.appendChild(parsed.body.firstChild);
-    }
-    elements.push(fnDiv);
+    normalizePaginationFootnoteReferenceMarkers(elements);
+    // Mark repeated footnote references for measurement filtering (Lot 5)
+    markRepeatedPaginationFootnoteReferences(elements);
   }
+
   return {
     elements,
     geometry: {
@@ -181,6 +297,7 @@ function prepareManuscriptPagination(
       columnGapPt,
       headingPageBreaks: headingPageBreakPolicy(logicalTpl),
       css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(logicalTpl),
+      reservedBottomAreaProvider: createFootnoteReservedBottomAreaProvider(footnotes, logicalTpl.fontFamily),
     },
   };
 }
@@ -230,30 +347,12 @@ export function paginateManuscript(
   const elements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
     .filter((node): node is Element => "tagName" in node && "classList" in node);
+
+  // Normalize display markers in footnote references (Finition typographique)
   if (footnotes && footnotes.length > 0) {
-    // Détaché tant qu'il n'est pas poussé dans `elements` ci-dessous — élément
-    // du document principal Obsidian (ses enfants sont déjà créés via createEl).
-    const fnDiv = createDiv({ cls: "pdf-footnotes-section" });
-    fnDiv.createEl("hr");
-    const ol = fnDiv.createEl("ol");
-    /* Le contenu d'une note est du HTML issu du rendu Markdown d'Obsidian
-       (voir extractFootnotes dans export-render.js). Il est analysé dans un
-       document inerte via DOMParser — qui n'exécute ni script ni gestionnaire
-       d'événement, et ne touche pas au document courant — puis ses nœuds sont
-       déplacés dans le <li>. Plus sûr, et plus lisible, qu'une affectation à
-       innerHTML sur un élément vivant. */
-    for (const f of footnotes) {
-      const li = ol.createEl("li");
-      li.id = f.id;
-      const parsed = new DOMParser().parseFromString(f.html, "text/html");
-      /* `f.html` garde son lien de retour (voir extractFootnotes,
-         export-render.js) — utile pour l'aller-retour cliquable en HTML/EPUB,
-         mais une page PDF imprimée/statique n'a rien à en faire : sans lui,
-         la flèche "↩" resterait un caractère mort, sans lien fonctionnel. */
-      parsed.body.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
-      while (parsed.body.firstChild) li.appendChild(parsed.body.firstChild);
-    }
-    elements.push(fnDiv);
+    normalizePaginationFootnoteReferenceMarkers(elements);
+    // Mark repeated footnote references for measurement filtering (Lot 5)
+    markRepeatedPaginationFootnoteReferences(elements);
   }
 
   const rawPages = rawPagesOverride ?? paginateDom(elements, {
@@ -269,7 +368,19 @@ export function paginateManuscript(
     headingPageBreaks: headingPageBreakPolicy(logicalTpl),
     // Scoped in a shadow root by the engine, never injected into Obsidian's document.
     css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(logicalTpl),
+    reservedBottomAreaProvider: createFootnoteReservedBottomAreaProvider(footnotes, logicalTpl.fontFamily),
   });
+
+  // Associate footnotes to pages (Lot 3: populate footnoteNodes with visible rendering)
+  // Uses the centralized createPaginationFootnoteNode helper
+  populatePaginationFootnoteNodes(rawPages, footnotes ?? [], createPaginationFootnoteNode);
+
+  // Clean up internal repeat markers before final HTML serialization (Lot 5)
+  if (footnotes && footnotes.length > 0) {
+    for (const page of rawPages) {
+      clearRepeatedPaginationFootnoteReferenceMarks(page.bodyNodes);
+    }
+  }
 
   /* Bandes en-tête/pied : même règle que la géométrie — le gabarit résolu
      prime quand il les exprime (c'est le cas d'un gabarit V2, jamais d'un
@@ -299,7 +410,8 @@ export function paginateManuscript(
   // Assemblage final des pages avec en-têtes/pieds et numérotation
   let currentPart = "";
   let currentChapter = "";
-  const logicalPagesHtml = rawPages.map((nodes, idx) => {
+  const logicalPagesHtml = rawPages.map((page, idx) => {
+    const nodes = page.bodyNodes;
     const pageNum = idx + 1;
     const isEven = pageNum % 2 === 0;
     const isFirst = pageNum === 1;
@@ -346,6 +458,31 @@ export function paginateManuscript(
       ? ` column-count: ${columnCount}; column-gap: ${columnGapPt}pt; column-fill: auto;`
       : "";
 
+    // Render footnotes at bottom if page has any
+    const hasPageFootnotes = page.footnoteNodes.length > 0;
+    const isMulticolumnWithFootnotes = hasPageFootnotes && columnCount > 1;
+
+    // For multicolumn pages with footnotes: use normal-flow footer (positioned=false)
+    // For all other cases: use positioned footer (positioned=true) — maintains Lot 3/4 behavior
+    const footnotesArea = createPaginationFootnoteArea(
+      page.footnoteNodes,
+      tpl.fontFamily,
+      !isMulticolumnWithFootnotes // positioned=true unless multicolumn with footnotes
+    );
+    const pageFootnotesHtml = footnotesArea?.outerHTML ?? "";
+
+    // pdf-page-content layout depends on whether multicolumn with footnotes
+    let contentStyle: string;
+    if (isMulticolumnWithFootnotes) {
+      // Multicolumn + footnotes: use flex layout with body wrapper
+      contentStyle = `display: flex; flex-direction: column; height: 100%; overflow: hidden;`;
+    } else {
+      // All other cases: historical layout (position:relative if footnotes, else plain)
+      contentStyle = hasPageFootnotes
+        ? `position: relative; height: 100%; overflow: hidden;${columnsStyle}`
+        : `height: 100%; overflow: hidden;${columnsStyle}`;
+    }
+
     return `
       <div class="pdf-page ${isEven ? "page-even" : "page-odd"}" style="
         width: ${pageWmm}mm;
@@ -384,8 +521,27 @@ export function paginateManuscript(
         `
             : ""
         }
-        <div class="pdf-page-content" style="height: 100%; overflow: hidden;${columnsStyle}">
+        <div class="pdf-page-content" style="${contentStyle}">
+          ${
+            isMulticolumnWithFootnotes
+              ? `
+          <div class="pdf-page-body-columns" style="
+            flex: 1 1 auto;
+            min-height: 0;
+            column-count: ${columnCount};
+            column-gap: ${columnGapPt}pt;
+            column-fill: auto;
+            overflow: hidden;
+          ">
+            ${nodesHtml}
+          </div>
+          ${pageFootnotesHtml}
+        `
+              : `
           ${nodesHtml}
+          ${pageFootnotesHtml}
+        `
+          }
         </div>
         ${
           showFooter
