@@ -281,8 +281,8 @@ function overflowsWithReservedBottomArea(
   }
 
   // Measure the bottom area in a temporary container
-  const tempContainer = root.createDiv();
-  tempContainer.setCssStyles({
+  const tempContainer = createDiv();
+  applyCss(tempContainer, {
     width: `${geometry.widthPx}px`,
     boxSizing: "border-box",
     fontFamily: geometry.fontFamily,
@@ -293,6 +293,7 @@ function overflowsWithReservedBottomArea(
     columnCount: "1",
     visibility: "hidden",
   });
+  root.appendChild(tempContainer);
 
   tempContainer.appendChild(bottomArea.cloneNode(true));
 
