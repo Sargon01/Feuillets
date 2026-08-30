@@ -644,6 +644,35 @@ export class ManageProjectsModal extends Modal {
       });
     }
 
+    // Pandoc/Zotero citation preview settings (independent of Feuillets citation style)
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("project.pandocCitationPreview.title"));
+
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("project.pandocCitationPreview.styleLabel"));
+    const pandocStyleSelect = detail.createEl("select");
+    pandocStyleSelect.createEl("option", { text: t("project.pandocCitationPreview.styleOff"), value: "off" });
+    pandocStyleSelect.createEl("option", { text: t("project.pandocCitationPreview.styleAuthorDate"), value: "author-date" });
+    pandocStyleSelect.value = (meta.pandocCitationPreviewStyle as string) || "off";
+    pandocStyleSelect.addEventListener("change", () => {
+      void (async () => {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path].pandocCitationPreviewStyle = pandocStyleSelect.value as PandocCitationPreviewStyle;
+        await this.plugin.saveSettings();
+      })();
+    });
+
+    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("project.pandocCitationPreview.bibliographyLabel"));
+    const bibPathInput = detail.createEl("input", { type: "text" });
+    bibPathInput.addClass("feuillets-grid-full-row");
+    bibPathInput.placeholder = t("project.pandocCitationPreview.bibliographyPlaceholder");
+    bibPathInput.value = (meta.pandocBibliographyPath as string) || "";
+    bibPathInput.addEventListener("blur", () => {
+      void (async () => {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path].pandocBibliographyPath = bibPathInput.value.trim();
+        await this.plugin.saveSettings();
+      })();
+    });
+
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.descriptionField"));
     const desc = detail.createEl("textarea", { attr: { rows: "2" } });
     desc.addClass("feuillets-grid-full-row");

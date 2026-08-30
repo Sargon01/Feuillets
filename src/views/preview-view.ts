@@ -15,6 +15,7 @@ import { shouldGenerateGenericTitlePage } from "../services/export-template-v2.j
 import { composeDocumentMedia, renderManuscriptHtml, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "../services/export-render.js";
 import { hasRemainingDocumentLayoutMarker } from "../services/document-layout.js";
 import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "../services/layout-store.js";
+import { applyPandocCitationPreview } from "../services/pandoc-citation-preview.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { selectedContentVariant } from "../services/content-variants.js";
@@ -1638,6 +1639,25 @@ export class PreviewView extends ItemView {
     const settings = this.plugin.settings;
     const author = settings.manuscriptAuthor || "";
     const tpl = await resolveExportTemplate(this.app, settings, settings.exportTemplate);
+
+    // Get project settings for Pandoc citation preview
+    const projectRoot = this.plugin?.getProjectFolder();
+    let projectPath: string | null = null;
+    if (projectRoot) {
+      projectPath = projectRoot.path;
+    }
+    const projectMeta = projectPath ? settings.projectMeta?.[projectPath] : null;
+    const pandocPreviewStyle = (projectMeta?.pandocCitationPreviewStyle as PandocCitationPreviewStyle) || "off";
+    const pandocBibliographyPath = (projectMeta?.pandocBibliographyPath as string) || "";
+
+    // Create afterVariant callback that chains applySourceMarkers and applyPandocCitationPreview
+    const createAfterVariantCallback = (hasSourceMarkers: boolean) => async (container: HTMLElement) => {
+      if (hasSourceMarkers) {
+        applySourceMarkers(container);
+      }
+      await applyPandocCitationPreview(this.app, container, pandocPreviewStyle, pandocBibliographyPath);
+    };
+
     // Même CSS de gabarit pour Scène, Chapitre et Manuscrit (voir helper).
     const css = previewTemplateCss(tpl) + (this.mode === "manuscript" ? `
 .feuillets-preview-title-editable {
@@ -1713,9 +1733,7 @@ export class PreviewView extends ItemView {
         (container) => {
           applyBlockSourceMarkers(container, blocksByPath);
         },
-        (container) => {
-          applySourceMarkers(container);
-        },
+        createAfterVariantCallback(true),
       );
       containerEl = rendered.containerEl;
       footnotes = rendered.footnotes;
@@ -1725,7 +1743,7 @@ export class PreviewView extends ItemView {
       const layoutStore = await loadLayoutStore(this.app, settings);
       const root = this.plugin?.getProjectFolder();
       const relative = root ? relativeLayoutFilePath(root.path, source.sourcePath) : null;
-      const rendered = await renderManuscriptHtml(this.app, source.markdown, source.sourcePath, relative ? layoutOverridesForFile(layoutStore, relative) : [], contentVariant);
+      const rendered = await renderManuscriptHtml(this.app, source.markdown, source.sourcePath, relative ? layoutOverridesForFile(layoutStore, relative) : [], contentVariant, undefined, createAfterVariantCallback(false));
       containerEl = rendered.containerEl;
       footnotes = rendered.footnotes;
       images = rendered.images;
