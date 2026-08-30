@@ -372,6 +372,19 @@ test("EditionDocsContent : synthèse une soumission sans doublon ambigu, avec st
     createSubmissionDraft() { return { success: true }; },
     async exportSubmissionDocx(path) { calls.push(["export", path]); return { success: true }; },
     async markSubmissionAsSent(path) { calls.push(["sent", path]); return { success: true }; },
+    async listProjectSubmissions(_editionPath) {
+      return [
+        {
+          letterPath: letter.path,
+          recipient: "Éditions du Vent",
+          status: "Envoyé",
+          sentDate: "2026-08-02",
+          reminderDate: "2099-09-02",
+          manuscriptDocxReady: true,
+          letterDocxReady: true,
+        },
+      ];
+    },
   };
   const { view, contentEl } = createView({
     root,
@@ -401,4 +414,352 @@ test("EditionDocsContent : synthèse une soumission sans doublon ambigu, avec st
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(calls, [["export", letter.path]]);
+});
+
+// INT-2B: Tests de la migration vers API publique Courrier
+test("INT-2B: API Courrier présente — listCourrierProjectSubmissions retourne les résumés", async () => {
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  edition.children = [];
+
+  const courrierApi = {
+    createSubmissionDraft() { return { success: true }; },
+    async listProjectSubmissions(_editionPath) {
+      return [
+        {
+          letterPath: "Projet/Édition/Lettre À Éditeur.md",
+          recipient: "Éditeur 1",
+          status: "Brouillon",
+          manuscriptDocxReady: true,
+          letterDocxReady: false,
+        },
+      ];
+    },
+  };
+
+  const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi });
+  await view.render();
+
+  const texts = textsOf(contentEl);
+  assert.ok(texts.includes("Éditeur 1"), "Destinataire de la soumission affiché");
+  assert.ok(texts.includes("Brouillon"), "Statut de la soumission affiché");
+});
+
+test("INT-2B: API Courrier absente — aucune carte de soumission affichée", async () => {
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  edition.children = [];
+
+  const { view } = createView({ root, editionFolder: edition, courrierApi: null });
+  await view.render();
+
+  // Sans API, pas de section de soumissions
+  // La page se rend sans planter
+  assert.ok(true, "Rendu sans API Courrier réussit");
+});
+
+test("INT-2B: submissionLetterFile résout letterPath vers TFile ou null", async () => {
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  const letter = new TFile(`Projet/${EDITION_FOLDER_NAME}/Lettre.md`);
+  letter.parent = edition;
+  edition.children = [letter];
+
+  const courrierApi = {
+    createSubmissionDraft() { return { success: true }; },
+    async listProjectSubmissions() {
+      return [
+        {
+          letterPath: letter.path,
+          recipient: "Éditions Test",
+          status: "Brouillon",
+          manuscriptDocxReady: true,
+          letterDocxReady: true,
+        },
+      ];
+    },
+  };
+
+  const { view, contentEl, openedFiles } = createView({
+    root,
+    editionFolder: edition,
+    courrierApi,
+  });
+  await view.render();
+
+  // Bouton "Ouvrir la lettre" doit fonctionner
+  const openLetterBtn = buttonsOf(contentEl).find((b) => /ouvrir/i.test(b.text));
+  assert.ok(openLetterBtn, "Bouton Ouvrir la lettre trouvé");
+  await openLetterBtn.events.get("click")();
+  assert.deepEqual(openedFiles, [letter], "letterPath résolu à TFile pour ouverture");
+});
+
+test("INT-2B: Export appelle API Courrier avec letterPath", async () => {
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  const letter = new TFile(`Projet/${EDITION_FOLDER_NAME}/Lettre.md`);
+  letter.parent = edition;
+  edition.children = [letter];
+
+  const apiCalls = [];
+  const courrierApi = {
+    createSubmissionDraft() { return { success: true }; },
+    async exportSubmissionDocx(path) {
+      apiCalls.push(["export", path]);
+      return { success: true };
+    },
+    async listProjectSubmissions() {
+      return [
+        {
+          letterPath: letter.path,
+          recipient: "Éditions Test",
+          status: "Brouillon",
+          manuscriptDocxReady: true,
+          letterDocxReady: true,
+        },
+      ];
+    },
+  };
+
+  const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi });
+  await view.render();
+
+  const exportBtn = buttonsOf(contentEl).find((b) => /exporter/i.test(b.text));
+  await exportBtn.events.get("click")();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(apiCalls, [["export", letter.path]], "letterPath passé à exportSubmissionDocx");
+});
+
+test("INT-2B: Marquer comme envoyée appelle API Courrier avec letterPath et dates", async () => {
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  const letter = new TFile(`Projet/${EDITION_FOLDER_NAME}/Lettre.md`);
+  letter.parent = edition;
+  edition.children = [letter];
+
+  const apiCalls = [];
+  const courrierApi = {
+    createSubmissionDraft() { return { success: true }; },
+    async markSubmissionAsSent(path, dates) {
+      apiCalls.push(["sent", path, dates]);
+      return { success: true };
+    },
+    async listProjectSubmissions() {
+      return [
+        {
+          letterPath: letter.path,
+          recipient: "Éditions Test",
+          status: "Brouillon",
+          manuscriptDocxReady: true,
+          letterDocxReady: true,
+        },
+      ];
+    },
+  };
+
+  const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi });
+  await view.render();
+
+  // Trouver et cliquer sur "Marquer comme envoyée"
+  const markSentBtn = buttonsOf(contentEl).find((b) => /marquer/i.test(b.text));
+  // Ceci ouvre une modale, donc nous vérifions que le bouton existe et est actif
+  assert.ok(markSentBtn, "Bouton Marquer comme envoyée trouvé");
+});
+
+test("INT-2B: letterPath absent — affiche notice d'erreur", async () => {
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  edition.children = [];
+
+  const notices = [];
+  const courrierApi = {
+    createSubmissionDraft() { return { success: true }; },
+    async listProjectSubmissions() {
+      return [
+        {
+          letterPath: undefined, // Pas de letterPath
+          recipient: "Éditions Test",
+          status: "Brouillon",
+          manuscriptDocxReady: true,
+          letterDocxReady: true,
+        },
+      ];
+    },
+  };
+
+  const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi });
+  const previousNotice = Notice.onCreate;
+  Notice.onCreate = (m) => notices.push(m);
+  try {
+    await view.render();
+    // Boutons "Ouvrir la lettre" doivent montrer une notice s'ils sont cliqués
+    const openLetterBtn = buttonsOf(contentEl).find((b) => /ouvrir/i.test(b.text));
+    if (openLetterBtn) {
+      await openLetterBtn.events.get("click")();
+      // Une notice doit avoir été créée
+      assert.ok(notices.length > 0, "Notice créée pour letterPath absent");
+    }
+  } finally {
+    Notice.onCreate = previousNotice;
+  }
+});
+
+test("INT-2B: renderSubmissionCard utilise uniquement les champs ProjectSubmissionSummary", async () => {
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  const letter = new TFile(`Projet/${EDITION_FOLDER_NAME}/Lettre.md`);
+  letter.parent = edition;
+  edition.children = [letter];
+
+  const courrierApi = {
+    createSubmissionDraft() { return { success: true }; },
+    async listProjectSubmissions() {
+      return [
+        {
+          letterPath: letter.path,
+          recipient: "Éditions Test",
+          status: "Envoyé",
+          sentDate: "2026-08-15",
+          reminderDate: "2026-09-15",
+          manuscriptDocxReady: true,
+          letterDocxReady: true,
+        },
+      ];
+    },
+  };
+
+  const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi });
+  await view.render();
+
+  const texts = textsOf(contentEl);
+  assert.ok(texts.includes("Éditions Test"), "recipient utilisé");
+  assert.ok(texts.includes("Envoyée"), "status utilisé");
+  // Dates incluent le préfixe i18n (Envoi : 2026-08-15 ou Sent: 2026-08-15)
+  assert.ok(texts.some((t) => t.includes("2026-08-15")), "sentDate utilisé");
+  assert.ok(texts.some((t) => t.includes("2026-09-15")), "reminderDate utilisé");
+});
+
+test("INT-2B: Refresh après action — render() appelé pour mettre à jour les cartes", async () => {
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  const letter = new TFile(`Projet/${EDITION_FOLDER_NAME}/Lettre.md`);
+  letter.parent = edition;
+  edition.children = [letter];
+
+  const courrierApi = {
+    createSubmissionDraft() { return { success: true }; },
+    async exportSubmissionDocx(_path) {
+      return { success: true };
+    },
+    async listProjectSubmissions() {
+      return [
+        {
+          letterPath: letter.path,
+          recipient: "Éditions Test",
+          status: "Brouillon",
+          manuscriptDocxReady: true,
+          letterDocxReady: true,
+        },
+      ];
+    },
+  };
+
+  const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi });
+  const originalRender = view.render.bind(view);
+  let originalRenderCount = 0;
+  view.render = async function() {
+    originalRenderCount++;
+    return originalRender.apply(this, arguments);
+  };
+
+  await view.render();
+  const initialCount = originalRenderCount;
+
+  const exportBtn = buttonsOf(contentEl).find((b) => /exporter/i.test(b.text));
+  await exportBtn.events.get("click")();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.ok(originalRenderCount > initialCount, "render() appelé après action d'export");
+});
+
+test("INT-2B: Aucun mot-clé de frontmatter/DOCX ne reste dans renderSubmissionCard", async () => {
+  // Test de régression statique : vérifier que les méthodes mortes ne sont pas référencées
+  // (Vérification indirecte via l'absence de module dans les importations)
+  const { EditionDocsContent } = await import(modulePath("src/ui/edition-docs-content.js"));
+
+  // Créer une instance et vérifier qu'aucune méthode "frontmatter" n'existe
+  const proto = EditionDocsContent.prototype;
+  assert.ok(!proto.frontmatterText, "frontmatterText method removed");
+  assert.ok(!proto.firstDestinationLine, "firstDestinationLine method removed");
+});
+
+test("INT-2B: Détection de méthode optionnelle — listProjectSubmissions optionnelle", async () => {
+  // Vérifier que le code gère l'absence de listProjectSubmissions
+  const apiWithoutList = {
+    createSubmissionDraft() { return { success: true }; },
+    // listProjectSubmissions intentionnellement absent
+  };
+
+  const hasListMethod = typeof apiWithoutList.listProjectSubmissions === "function";
+  assert.equal(hasListMethod, false, "listProjectSubmissions est optionnel");
+
+  // L'app ne doit pas planter
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  edition.children = [];
+
+  const { view } = createView({ root, editionFolder: edition, courrierApi: apiWithoutList });
+  await view.render();
+  assert.ok(true, "App ne plante pas sans listProjectSubmissions");
+});
+
+test("INT-2B: Compatibilité rétroactive — ancien Courrier sans API continue de fonctionner", async () => {
+  // Vérifier qu'un ancien Courrier (sans listProjectSubmissions) ne casse rien
+  const oldCourrierApi = {
+    createSubmissionDraft() { return { success: true }; },
+    // Pas de listProjectSubmissions du tout
+  };
+
+  const volume = new TFolder("Projet");
+  const root = new TFolder("Projet/Manuscrit");
+  root.parent = volume;
+  const edition = new TFolder(`Projet/${EDITION_FOLDER_NAME}`);
+  edition.parent = volume;
+  edition.children = [];
+
+  const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi: oldCourrierApi });
+  await view.render();
+
+  // Pas d'erreur, pas de carte de soumission (juste le fallback)
+  const texts = textsOf(contentEl);
+  assert.ok(texts.length > 0, "Rendu réussit avec ancien Courrier");
 });

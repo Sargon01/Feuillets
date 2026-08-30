@@ -3,7 +3,7 @@ import { t } from "../i18n/index.js";
 import { getEditionRoot, editionFolderPath } from "../services/folder-structure.js";
 import { ensureEditionFolder, EDITION_DOCUMENTS, editionDocumentForName } from "../services/project-files.js";
 import { openFileActivating } from "../utils/dom.js";
-import { prepareSubmission, getCourrierApi, type SubmissionHost } from "../services/courrier-integration.js";
+import { prepareSubmission, getCourrierApi, listCourrierProjectSubmissions, type SubmissionHost, type ProjectSubmissionSummary } from "../services/courrier-integration.js";
 
 type FileExplorerInstance = { revealInFolder?(file: TFile): void };
 type AppWithInternalPlugins = App & {
@@ -172,7 +172,7 @@ export class EditionDocsContent {
 
     this.renderToolbar(section, editionRoot);
     this.renderWorkflow(section);
-    this.renderSubmissionSummaries(section, editionRoot);
+    await this.renderSubmissionSummaries(section, editionRoot);
     this.renderFolderEntries(section, editionRoot);
   }
 
@@ -211,49 +211,29 @@ export class EditionDocsContent {
     });
   }
 
-  /** Synthèse opérationnelle des soumissions. L'arborescence complète reste
-   * affichée dessous, mais ses fichiers ne font pas office de statut : cette
-   * carte nomme explicitement le destinataire, les documents et les dates. */
-  private renderSubmissionSummaries(section: HTMLElement, editionRoot: TFolder): void {
-    const submissions = editionRoot.children.find(
-      (child): child is TFolder => child instanceof TFolder && child.name === "Soumissions"
-    );
-    if (!submissions) return;
-
-    const folders = submissions.children
-      .filter((child): child is TFolder => child instanceof TFolder)
-      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
-    if (folders.length === 0) return;
+  /** Synthèse opérationnelle des soumissions via l'API Courrier. L'arborescence
+   * complète reste affichée dessous, mais ses fichiers ne font pas office de
+   * statut : cette carte nomme explicitement le destinataire, les documents et
+   * les dates. Reçoit les résumés uniquement depuis Courrier — aucune lecture
+   * locale de Soumissions, Lettre.md, suivi YAML, ou détection DOCX. */
+  private async renderSubmissionSummaries(section: HTMLElement, editionRoot: TFolder): Promise<void> {
+    const summaries = await listCourrierProjectSubmissions(this.app, editionRoot.path);
+    if (summaries === null || summaries.length === 0) return;
 
     const wrapper = section.createDiv({ cls: "feuillets-submission-summary" });
     wrapper.createDiv({ cls: "feuillets-submission-summary-title", text: t("editionDocs.submission.tracking") });
-    for (const folder of folders) this.renderSubmissionCard(wrapper, folder);
+    for (const summary of summaries) this.renderSubmissionCard(wrapper, summary);
     section.createDiv({ cls: "feuillets-edition-tree-title", text: t("editionDocs.folderFiles") });
   }
 
-  private renderSubmissionCard(parent: HTMLElement, folder: TFolder): void {
-    const letter = folder.children.find(
-      (child): child is TFile => child instanceof TFile && child.name === "Lettre.md"
-    ) ?? folder.children.find((child): child is TFile => child instanceof TFile && child.extension === "md");
-    const packageFolder = folder.children.find(
-      (child): child is TFolder => child instanceof TFolder && child.name === "Dossier à envoyer"
-    );
-    const frontmatter = letter
-      ? this.app.metadataCache?.getFileCache(letter)?.frontmatter
-      : undefined;
-    const suivi = frontmatter?.suivi && typeof frontmatter.suivi === "object"
-      ? frontmatter.suivi as Record<string, unknown>
-      : {};
-    const recipient = this.frontmatterText(frontmatter?.destinataire_nom)
-      || this.firstDestinationLine(frontmatter?.destinataire)
-      || folder.name;
-    const statusValue = this.frontmatterText(suivi.statut) || "Brouillon";
+  private renderSubmissionCard(parent: HTMLElement, summary: ProjectSubmissionSummary): void {
+    const recipient = summary.recipient;
+    const statusValue = summary.status;
     const status = statusValue === "Envoyé" ? t("editionDocs.submission.sent") : statusValue === "Brouillon" ? t("editionDocs.submission.draft") : statusValue;
-    const sentDate = this.frontmatterText(suivi.date_envoi);
-    const reminderDate = this.frontmatterText(suivi.date_relance);
-    const packageFiles = packageFolder?.children.filter((child): child is TFile => child instanceof TFile) ?? [];
-    const manuscriptReady = packageFiles.some((file) => file.extension === "docx" && file.basename.toLocaleLowerCase("fr").includes("manuscrit"));
-    const letterReady = packageFiles.some((file) => file.extension === "docx" && file.basename.toLocaleLowerCase("fr").includes("lettre"));
+    const sentDate = summary.sentDate ?? "";
+    const reminderDate = summary.reminderDate ?? "";
+    const manuscriptReady = summary.manuscriptDocxReady;
+    const letterReady = summary.letterDocxReady;
     const missing = [!manuscriptReady ? "manuscrit DOCX" : "", !letterReady ? "lettre DOCX" : ""].filter(Boolean);
 
     const card = parent.createDiv({ cls: "feuillets-submission-card" });
@@ -272,6 +252,7 @@ export class EditionDocsContent {
     dates.createSpan({ text: t("editionDocs.submission.followUpOn", { date: reminderDate || "—" }) });
 
     const actions = card.createDiv({ cls: "feuillets-submission-actions" });
+    const letter = this.submissionLetterFile(summary.letterPath);
     this.submissionAction(actions, "file-text", t("editionDocs.submission.openLetter"), () => {
       if (!letter) return new Notice(t("editionDocs.submission.letterMissing"));
       openFileActivating(this.app, this.app.workspace.getLeaf(false), letter);
@@ -280,15 +261,21 @@ export class EditionDocsContent {
       if (!letter || !revealInFileExplorer(this.app, letter)) new Notice(t("editionDocs.submission.explorerUnavailable"));
     });
     this.submissionAction(actions, "file-output", t("editionDocs.submission.export"), () => {
-      void this.runSubmissionApiAction(letter, "exportSubmissionDocx");
+      void this.runSubmissionApiAction(summary.letterPath, "exportSubmissionDocx");
     });
     this.submissionAction(actions, "send", t("editionDocs.submission.markSent"), () => {
-      if (!letter) {
+      if (!summary.letterPath) {
         new Notice(t("editionDocs.submission.letterMissing"));
         return;
       }
-      new SubmissionSentModal(this.app, (dates) => this.runSubmissionApiAction(letter, "markSubmissionAsSent", dates)).open();
+      new SubmissionSentModal(this.app, (dates) => this.runSubmissionApiAction(summary.letterPath, "markSubmissionAsSent", dates)).open();
     });
+  }
+
+  private submissionLetterFile(letterPath: string | undefined): TFile | null {
+    if (!letterPath) return null;
+    const file = this.app.vault.getAbstractFileByPath(letterPath);
+    return file instanceof TFile ? file : null;
   }
 
   private submissionAction(parent: HTMLElement, iconName: string, label: string, action: () => void): void {
@@ -299,11 +286,11 @@ export class EditionDocsContent {
   }
 
   private async runSubmissionApiAction(
-    letter: TFile | undefined,
+    letterPath: string | undefined,
     action: "exportSubmissionDocx" | "markSubmissionAsSent",
     dates?: { dateEnvoi?: string; dateRelance?: string }
   ): Promise<void> {
-    if (!letter) {
+    if (!letterPath) {
       new Notice(t("editionDocs.submission.letterMissing"));
       return;
     }
@@ -316,19 +303,11 @@ export class EditionDocsContent {
       return;
     }
     const result = action === "markSubmissionAsSent"
-      ? await api.markSubmissionAsSent?.(letter.path, dates)
-      : await api.exportSubmissionDocx?.(letter.path);
+      ? await api.markSubmissionAsSent?.(letterPath, dates)
+      : await api.exportSubmissionDocx?.(letterPath);
     if (!result) return;
     if (!result.success) new Notice(result.message || t("editionDocs.submission.actionFailed"));
     await this.render();
-  }
-
-  private frontmatterText(value: unknown): string {
-    return typeof value === "string" ? value.trim() : "";
-  }
-
-  private firstDestinationLine(value: unknown): string {
-    return this.frontmatterText(value).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
   }
 
   private reminderBadge(date: string): { text: string; kind: "due" | "late" } | null {

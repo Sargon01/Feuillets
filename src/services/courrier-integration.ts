@@ -23,6 +23,21 @@ import { EDITION_DOCUMENTS, editionDocumentNames } from "./project-files.js";
 
 /** Les documents éditoriaux conventionnels viennent de project-files :
  * création et détection partagent exactement les mêmes noms et variantes. */
+
+/** Résumé d'une soumission projet retourné par l'API Courrier.
+ * Duck-typé local — aucun import depuis Courrier. Les deux plugins
+ * restent compilés séparément ; ce type représente seulement le contrat
+ * public attendu. */
+export interface ProjectSubmissionSummary {
+  letterPath?: string;
+  recipient: string;
+  status: string;
+  sentDate?: string;
+  reminderDate?: string;
+  manuscriptDocxReady: boolean;
+  letterDocxReady: boolean;
+}
+
 /** Contrat attendu de `app.plugins.plugins["courrier"].api` — duck-typé
  * (aucun type partagé au moment de la compilation, chaque plugin est
  * bundlé séparément). Doit rester le sous-ensemble MINIMAL réellement
@@ -36,6 +51,7 @@ export interface CourrierCompanionApi {
     filePath: string,
     dates?: { dateEnvoi?: string; dateRelance?: string }
   ): Promise<{ success: boolean; message?: string }>;
+  listProjectSubmissions?(editionFolderPath: string): Promise<ProjectSubmissionSummary[]>;
 }
 
 export interface SubmissionDraftData {
@@ -88,6 +104,32 @@ export function getCourrierApi(app: App): CourrierCompanionApi | null {
   const api = plugin?.api;
   if (!api || typeof (api as CourrierCompanionApi).createSubmissionDraft !== "function") return null;
   return api as CourrierCompanionApi;
+}
+
+/** Liste les résumés de soumissions pour un dossier Édition donné, en
+ * consultant l'API Courrier si disponible — aucune lecture locale
+ * n'intervient ici, la responsabilité de lire le suivi revient entièrement
+ * à Courrier. Retourne null si Courrier absent, si listProjectSubmissions
+ * n'existe pas, ou si l'appel échoue ; jamais une exception. */
+export async function listCourrierProjectSubmissions(
+  app: App,
+  editionFolderPath: string
+): Promise<ProjectSubmissionSummary[] | null> {
+  const api = getCourrierApi(app);
+  if (!api) return null;
+
+  if (typeof api.listProjectSubmissions !== "function") return null;
+
+  try {
+    const result = await api.listProjectSubmissions(editionFolderPath);
+    return result;
+  } catch (error) {
+    console.error(
+      `[Feuillets] listCourrierProjectSubmissions failed for ${editionFolderPath}:`,
+      error
+    );
+    return null;
+  }
 }
 
 /** Recherche le dernier manuscrit DOCX exporté (Sortie/) pour le projet

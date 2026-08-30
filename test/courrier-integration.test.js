@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { getCourrierApi, buildSubmissionData, detectEditorialDocuments, applySubmissionChoice, prepareSubmission } from "../src/services/courrier-integration.js";
+import { getCourrierApi, listCourrierProjectSubmissions, buildSubmissionData, detectEditorialDocuments, applySubmissionChoice, prepareSubmission } from "../src/services/courrier-integration.js";
 
 function projectFixture() {
   const volume = new TFolder("Roman1");
@@ -73,6 +73,131 @@ test("getCourrierApi : Courrier actif avec l'API attendue — renvoyée telle qu
     },
   };
   assert.equal(getCourrierApi(app), api);
+});
+
+test("getCourrierApi : ancienne API sans listProjectSubmissions — reste compatible", () => {
+  const api = { createSubmissionDraft: () => ({ success: true }) };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  assert.equal(getCourrierApi(app), api);
+});
+
+test("getCourrierApi : nouvelle API avec listProjectSubmissions — reconnue", () => {
+  const api = {
+    createSubmissionDraft: () => ({ success: true }),
+    async listProjectSubmissions() {
+      return [];
+    },
+  };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  assert.equal(getCourrierApi(app), api);
+  assert.equal(typeof getCourrierApi(app)?.listProjectSubmissions, "function");
+});
+
+test("listCourrierProjectSubmissions : Courrier absent — renvoie null sans lever", async () => {
+  const app = { plugins: { enabledPlugins: new Set(), plugins: {} } };
+
+  await assert.doesNotReject(async () => {
+    assert.equal(await listCourrierProjectSubmissions(app, "Roman1/Edition"), null);
+  });
+});
+
+test("listCourrierProjectSubmissions : méthode absente — renvoie null sans fallback Vault", async () => {
+  const app = {
+    vault: {
+      getAbstractFile() {
+        throw new Error("Vault fallback interdit");
+      },
+    },
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api: { createSubmissionDraft: () => ({ success: true }) } } },
+    },
+  };
+
+  assert.equal(await listCourrierProjectSubmissions(app, "Roman1/Edition"), null);
+});
+
+test("listCourrierProjectSubmissions : transmet exactement le chemin Édition", async () => {
+  const calls = [];
+  const api = {
+    createSubmissionDraft: () => ({ success: true }),
+    async listProjectSubmissions(path) {
+      calls.push(path);
+      return [];
+    },
+  };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  await listCourrierProjectSubmissions(app, "Roman1/Edition");
+
+  assert.deepEqual(calls, ["Roman1/Edition"]);
+});
+
+test("listCourrierProjectSubmissions : transmet le retour intact, sans transformation", async () => {
+  const submissions = [
+    {
+      letterPath: "X/Custom-letter-name.md",
+      recipient: "Maison Alpha",
+      status: "Envoyé",
+      sentDate: "2026-08-30",
+      reminderDate: "2026-09-30",
+      manuscriptDocxReady: true,
+      letterDocxReady: false,
+    },
+  ];
+  const api = {
+    createSubmissionDraft: () => ({ success: true }),
+    async listProjectSubmissions() {
+      return submissions;
+    },
+  };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  const result = await listCourrierProjectSubmissions(app, "Roman1/Edition");
+
+  assert.deepEqual(result, submissions);
+  assert.equal(result, submissions);
+});
+
+test("listCourrierProjectSubmissions : erreur API absorbée — renvoie null sans rejeter", async () => {
+  const api = {
+    createSubmissionDraft: () => ({ success: true }),
+    async listProjectSubmissions() {
+      throw new Error("boom");
+    },
+  };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  await assert.doesNotReject(async () => {
+    assert.equal(await listCourrierProjectSubmissions(app, "Roman1/Edition"), null);
+  });
 });
 
 // --- buildSubmissionData : lecture seule des métadonnées du projet ---
