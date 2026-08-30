@@ -167,6 +167,17 @@ Le panneau Relecture regroupe :
 - Titres : styles et sauts de page ;
 - Citation : marges, couleur, italique, séparateur de scène.
 
+## Aperçu
+
+- document réellement paginé pour un feuillet, un dossier, une sélection ou le projet ;
+- notes de bas de page placées au pied de la page de leur premier appel, avec espace réservé pendant la pagination ;
+- appels répétés sans duplication de la définition et notes pleine largeur sous une composition multicolonne ;
+- limitation connue : une note individuelle plus haute qu’une page utile n’est pas encore fragmentée ;
+- aperçu Pandoc/Zotero facultatif par projet à partir d’un fichier `.bib` du coffre ;
+- affichage **Clés brutes** ou **Auteur-date**, avec localisateurs et groupes simples pris en charge ;
+- Markdown source et exports natifs inchangés ; citekeys non résolues laissées brutes ;
+- aucun moteur CSL complet : le style bibliographique final peut rester géré par un flux Pandoc externe.
+
 ## Export
 
 - Markdown compilé ;

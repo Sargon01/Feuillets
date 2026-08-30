@@ -188,6 +188,20 @@ See [Semantic roles](docs/SEMANTIC-ROLES.md), [Content variants, extractions and
 
 **Preview** is the real paginated document used to judge composition. It can represent one sheet, one folder, a selection or the whole project.
 
+### Paginated footnotes
+
+In paginated Preview and PDF, a footnote is composed at the bottom of the page containing its first call. Its height is reserved during pagination, so body text is reduced or moved to the next page instead of overlapping the note. Repeated calls do not duplicate the note definition. In multi-column layouts, footnotes remain full-width below the columns.
+
+The source remains ordinary Markdown (`[^1]`); only the displayed marker is smoothed in the composed document. Current limitation: a single footnote taller than the usable height of one page is not yet split across pages.
+
+### Pandoc / Zotero citation preview
+
+A project can smooth Pandoc/Zotero citekeys in Preview without changing the manuscript. In project settings, **Pandoc / Zotero citation preview** lets you choose **Raw citekeys** or **Author-date**, then provide the path to a `.bib` file relative to the vault root.
+
+For example, `[@smith2024]` can appear as `(Smith, 2024)`, `[@smith2024, p. 42]` as `(Smith, 2024, p. 42)`, and `[@smith2024; @doe2023]` as `(Smith, 2024; Doe & Brown, 2023)`. Unknown citekeys, groups that cannot be fully resolved, and syntax outside this preview’s supported subset remain raw.
+
+This feature is **visual and Preview-only**: Markdown files and Feuillets native exports keep the original citekeys. Feuillets does not provide a full CSL engine here; an external Pandoc workflow can still apply its own final bibliography style. The `.bib` file is re-read when its modification time changes.
+
 Native formats:
 
 - **compiled Markdown**;

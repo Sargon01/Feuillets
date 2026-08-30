@@ -127,6 +127,31 @@ L’Aperçu est la référence visuelle avant export. Il utilise la même logiqu
 
 Il accepte une portée feuillet, dossier, sélection ou projet. Pour une grande portée, Feuillets peut afficher rapidement une première portion, puis finaliser le document complet ; le rendu définitif remplace alors l’aperçu provisoire. L’export reste toujours fondé sur la portée complète demandée, et l’Aperçu n’est jamais obligatoire pour exporter.
 
+### Notes de bas de page paginées
+
+Dans l’Aperçu paginé et le PDF, Feuillets rattache chaque définition de note à la page du **premier appel** correspondant. La hauteur des notes est mesurée et réservée pendant la pagination : le corps de texte dispose donc de moins de hauteur lorsque des notes sont présentes sur la page.
+
+Les appels répétés restent visibles dans le texte mais ne réservent pas une seconde définition. Dans une composition multicolonne, le corps conserve ses colonnes tandis que la zone de notes occupe toute la largeur au-dessous. Le Markdown source et ses marqueurs `[^1]` ne sont pas réécrits.
+
+Une note individuelle dont la hauteur dépasse à elle seule la hauteur utile d’une page n’est pas encore fragmentée sur plusieurs pages. Cette limite ne concerne pas les notes ordinaires ou multiparagraphes qui tiennent dans la zone disponible d’une page.
+
+### Aperçu des citations Pandoc / Zotero
+
+Les réglages du projet proposent un **Aperçu des citations Pandoc / Zotero** indépendant du système de citations interne de Feuillets. Deux modes sont disponibles :
+
+- **Clés brutes** — aucun lissage ;
+- **Auteur-date** — résolution à partir d’un fichier `.bib` dont le chemin est indiqué relativement à la racine du coffre.
+
+Le mode auteur-date prend en charge les groupes simples commençant par une citekey, les localisateurs et plusieurs références séparées par un point-virgule. Par exemple :
+
+- `[@smith2024]` → `(Smith, 2024)` ;
+- `[@smith2024, p. 42]` → `(Smith, 2024, p. 42)` ;
+- `[@smith2024; @doe2023]` → `(Smith, 2024; Doe & Brown, 2023)`.
+
+Une citation inconnue ou un groupe qui ne peut pas être entièrement résolu reste brut. Les citations narratives non encadrées, les syntaxes de suppression d’auteur, les préfixes complexes, le code et les liens ne sont pas réécrits par cet aperçu.
+
+Le lissage est appliqué uniquement au DOM de l’Aperçu, y compris aux citations présentes dans les notes de bas de page. Le Markdown source et les exports natifs Feuillets conservent toujours les citekeys originales. Il ne s’agit pas d’un moteur CSL complet : un flux Pandoc externe reste libre d’appliquer son propre style final. Le fichier `.bib` est relu lorsque sa date de modification change.
+
 ## Formats
 
 - **Markdown compilé** — assemblage Markdown local ;

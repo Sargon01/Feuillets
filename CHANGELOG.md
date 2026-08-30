@@ -2,6 +2,30 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.8.0
+
+### Notes de bas de page paginées
+
+- Dans l’**Aperçu** et le PDF, les notes de bas de page sont désormais composées au pied de la page où apparaît leur premier appel, au lieu d’être regroupées en fin de chapitre.
+- La pagination réserve réellement l’espace nécessaire aux notes ; si une note impose de réduire le corps de texte, l’appel et sa note restent associés à la bonne page.
+- Un appel répété ne réserve pas une seconde fois la définition de la note. En mise en page multicolonne, les notes restent sur toute la largeur sous les colonnes.
+- Les marqueurs affichés utilisent une numérotation typographique sans crochets, tandis que le Markdown source `[^1]` reste inchangé.
+- Limitation connue : une note individuelle plus haute que la hauteur utile d’une page n’est pas encore fragmentée sur plusieurs pages.
+
+### Aperçu des citations Pandoc / Zotero
+
+- Ajout d’un **aperçu auteur-date facultatif** pour les citekeys Pandoc/Zotero, configuré par projet à partir d’un fichier bibliographique `.bib` du coffre.
+- Par exemple, `[@smith2024]` peut être affiché comme `(Smith, 2024)`, avec prise en charge des localisateurs et des groupes de citations simples.
+- Le Markdown source n’est jamais modifié : les citekeys restent brutes dans les fichiers et dans les exports natifs Feuillets.
+- Les citekeys inconnues ou les syntaxes non prises en charge restent affichées telles quelles.
+- Cet aperçu n’est pas un moteur CSL complet : un flux Pandoc externe peut continuer à appliquer le style CSL final de son choix.
+- Le fichier `.bib` est relu lorsque sa date de modification change afin que l’Aperçu reflète les mises à jour bibliographiques.
+
+### Pagination et qualité
+
+- Le chemin de mesure des zones réservées utilise désormais des primitives DOM compatibles avec Chromium standard tout en conservant le comportement Obsidian.
+- Le baseline historique sans notes reste inchangé.
+
 ## 2.7.0
 
 ### Carnets, Plan du Binder et mindmaps

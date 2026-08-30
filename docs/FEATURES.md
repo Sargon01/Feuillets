@@ -161,6 +161,17 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - Headings: styles and page breaks;
 - Blockquote: margins, color, italic, scene separator.
 
+## Preview
+
+- genuinely paginated document for a sheet, folder, selection or project;
+- footnotes placed at the bottom of the page containing their first call, with space reserved during pagination;
+- repeated calls without duplicate definitions and full-width footnotes below multi-column composition;
+- known limitation: a single footnote taller than one usable page is not yet split;
+- optional per-project Pandoc/Zotero preview using a `.bib` file from the vault;
+- **Raw citekeys** or **Author-date** display, including locators and simple citation groups;
+- source Markdown and native exports unchanged; unresolved citekeys remain raw;
+- no full CSL engine: final bibliography styling can remain in an external Pandoc workflow.
+
 ## Export
 
 - compiled Markdown, DOCX, EPUB, ODT;

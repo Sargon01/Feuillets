@@ -99,6 +99,31 @@ Preview is the visual reference before export and shares composition/template/pa
 
 It accepts a sheet, folder, selection or project scope. For a large scope, Feuillets may show an initial portion quickly and then complete the full document; the final rendering replaces the provisional preview. Export always uses the complete requested scope, and Preview is never required for export.
 
+### Paginated footnotes
+
+In paginated Preview and PDF, Feuillets assigns each note definition to the page containing its **first call**. Footnote height is measured and reserved during pagination, reducing the body area available on pages that contain notes.
+
+Repeated calls remain visible in the text without reserving the definition again. In multi-column composition, the body keeps its columns while the footnote area spans the full width below them. Source Markdown and its `[^1]` markers are not rewritten.
+
+A single footnote taller than the usable height of one page is not yet split across pages. This limitation does not affect ordinary or multi-paragraph notes that fit within the available area of a page.
+
+### Pandoc / Zotero citation preview
+
+Project settings include a **Pandoc / Zotero citation preview** that is separate from Feuillets’ internal citation system. Two modes are available:
+
+- **Raw citekeys** — no smoothing;
+- **Author-date** — resolve citations from a `.bib` file whose path is relative to the vault root.
+
+Author-date preview supports simple bracketed groups beginning with a citekey, locators, and multiple references separated by semicolons. For example:
+
+- `[@smith2024]` → `(Smith, 2024)`;
+- `[@smith2024, p. 42]` → `(Smith, 2024, p. 42)`;
+- `[@smith2024; @doe2023]` → `(Smith, 2024; Doe & Brown, 2023)`.
+
+An unknown citation or a group that cannot be fully resolved remains raw. Unbracketed narrative citations, author-suppression syntax, complex prefixes, code, and links are not rewritten by this preview.
+
+Smoothing is applied only to the Preview DOM, including citations inside footnotes. Source Markdown and Feuillets native exports always keep the original citekeys. This is not a full CSL engine: an external Pandoc workflow remains free to apply its own final style. The `.bib` file is re-read when its modification time changes.
+
 Native output: compiled Markdown, DOCX, EPUB, ODT and desktop PDF through the system print dialog. Source Markdown is never replaced by the export artifact.
 
 When an extraction or collection is selected, Markdown export intentionally remains a source export; content derivations apply to the document-format publishing pipeline.

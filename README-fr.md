@@ -188,6 +188,20 @@ Voir [Rôles sémantiques](docs/ROLES-SEMANTIQUES.md), [Variantes, extractions e
 
 L’**Aperçu** est le vrai document paginé utilisé pour juger la composition. Il peut représenter un feuillet, un dossier, une sélection ou le projet complet.
 
+### Notes de bas de page paginées
+
+Dans l’Aperçu paginé et le PDF, une note de bas de page est composée au pied de la page où apparaît son premier appel. Sa hauteur est réservée pendant la pagination : le corps de texte se réduit ou se reporte sur la page suivante au lieu de recouvrir la note. Un appel répété ne duplique pas la définition de la note. Avec une mise en page en plusieurs colonnes, les notes restent sur toute la largeur sous les colonnes.
+
+Le Markdown de la note reste un Markdown ordinaire (`[^1]`). La numérotation est simplement lissée dans le document composé. Limitation actuelle : une note individuelle plus haute que la hauteur utile d’une page n’est pas encore fragmentée sur plusieurs pages.
+
+### Aperçu des citations Pandoc / Zotero
+
+Un projet peut lisser dans l’Aperçu les citekeys Pandoc/Zotero sans modifier le manuscrit. Dans les réglages du projet, **Aperçu des citations Pandoc / Zotero** permet de choisir entre **Clés brutes** et **Auteur-date**, puis d’indiquer le chemin d’un fichier `.bib` relatif à la racine du coffre.
+
+Par exemple, `[@smith2024]` peut apparaître comme `(Smith, 2024)`, `[@smith2024, p. 42]` comme `(Smith, 2024, p. 42)` et `[@smith2024; @doe2023]` comme `(Smith, 2024; Doe & Brown, 2023)`. Les citekeys inconnues, les groupes qui ne peuvent pas être entièrement résolus et les syntaxes hors du périmètre de cet aperçu restent bruts.
+
+Cette fonction est **visuelle et limitée à l’Aperçu** : les fichiers Markdown et les exports natifs Feuillets conservent les citekeys d’origine. Feuillets ne fournit pas ici un moteur CSL complet ; un export Pandoc externe peut donc continuer à appliquer son propre style bibliographique final. Le `.bib` est relu lorsque sa date de modification change.
+
 Formats natifs :
 
 - **Markdown compilé** ;
