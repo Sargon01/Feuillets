@@ -85,10 +85,10 @@ export function markRepeatedPaginationFootnoteReferences(bodyNodes: readonly Ele
       if (data) {
         if (seenIds.has(data.id)) {
           // Second+ occurrence: mark with "true"
-          (node as Element).setAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, "true");
+          node.setAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, "true");
         } else {
           // First occurrence: clean up any stale attribute
-          (node as Element).removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
+          node.removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
           seenIds.add(data.id);
         }
       }
@@ -174,7 +174,7 @@ export function clearRepeatedPaginationFootnoteReferenceMarks(bodyNodes: readonl
       node.classList?.contains("footnote-ref") &&
       node.hasAttribute?.(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE)
     ) {
-      (node as Element).removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
+      node.removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
     }
 
     // Check descendants
@@ -272,7 +272,7 @@ export function observePaginationFootnotes(
 
   // Find unused definitions
   const unusedIds: string[] = [];
-  for (const [id, def] of definitionMap) {
+  for (const [id] of definitionMap) {
     if (!assignedDefinitionIds.has(id)) {
       unusedIds.push(id);
     }

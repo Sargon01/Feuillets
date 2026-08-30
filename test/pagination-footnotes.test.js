@@ -542,14 +542,14 @@ test("pagination-footnotes : garde sur export-pdf — structure originale conser
   // Verify position relative conditional
   assert.match(sourceFile, /hasPageFootnotes/);
   assert.match(sourceFile, /position: relative/);
-  // Verify absolute positioning via .style
-  assert.match(sourceFile, /\.style\.position = "absolute"/);
-  assert.match(sourceFile, /\.style\.left = "0"/);
-  assert.match(sourceFile, /\.style\.right = "0"/);
-  assert.match(sourceFile, /\.style\.bottom = "0"/);
-  // Verify column handling
-  assert.match(sourceFile, /columnCount = "1"/);
-  assert.match(sourceFile, /columnSpan = "all"/);
+  // Verify absolute positioning via setCssStyles
+  assert.match(sourceFile, /position\s*:\s*["']absolute["']/);
+  assert.match(sourceFile, /left\s*:\s*["']0["']/);
+  assert.match(sourceFile, /right\s*:\s*["']0["']/);
+  assert.match(sourceFile, /bottom\s*:\s*["']0["']/);
+  // Verify column handling via setCssStyles
+  assert.match(sourceFile, /columnCount\s*:\s*["']1["']/);
+  assert.match(sourceFile, /columnSpan\s*:\s*["']all["']/);
   // Verify notes placed INSIDE pdf-page-content
   assert.match(sourceFile, /pageFootnotesHtml/);
 });

@@ -143,35 +143,32 @@ function createPaginationFootnoteArea(
 ): HTMLElement | null {
   if (footnoteNodes.length === 0) return null;
 
-  const area = document.createElement("div");
-  area.className = "pdf-page-footnotes";
-  area.style.fontFamily = fontFamily;
-  area.style.fontSize = "0.8em";
-  area.style.lineHeight = "1.2";
-  area.style.columnCount = "1";
-  area.style.columnSpan = "all";
-  if (positioned) {
-    area.style.position = "absolute";
-    area.style.left = "0";
-    area.style.right = "0";
-    area.style.bottom = "0";
-  }
+  const area = createDiv({ cls: "pdf-page-footnotes" });
+  area.setCssStyles({
+    fontFamily,
+    fontSize: "0.8em",
+    lineHeight: "1.2",
+    columnCount: "1",
+    columnSpan: "all",
+    ...(positioned ? { position: "absolute", left: "0", right: "0", bottom: "0" } : {}),
+  });
 
-  const separator = document.createElement("div");
-  separator.className = "pdf-page-footnotes-separator";
-  separator.style.width = "25%";
-  separator.style.borderTop = "0.5pt solid currentColor";
-  separator.style.marginBottom = "4pt";
-  area.appendChild(separator);
+  const separator = area.createDiv({ cls: "pdf-page-footnotes-separator" });
+  separator.setCssStyles({
+    width: "25%",
+    borderTop: "0.5pt solid currentColor",
+    marginBottom: "4pt",
+  });
 
-  const ol = document.createElement("ol");
-  ol.style.margin = "0";
-  ol.style.padding = "0";
-  ol.style.listStyle = "none";
+  const ol = area.createEl("ol");
+  ol.setCssStyles({
+    margin: "0",
+    padding: "0",
+    listStyle: "none",
+  });
   footnoteNodes.forEach((node) => {
     ol.appendChild(node.cloneNode(true));
   });
-  area.appendChild(ol);
 
   return area;
 }
@@ -184,33 +181,30 @@ function createPaginationFootnoteNode(
   footnote: PdfFootnote,
   call: PaginationFootnoteCall
 ): Element {
-  const li = document.createElement("li");
-  li.id = footnote.id;
-  li.style.listStyle = "none";
-  li.style.display = "grid";
-  li.style.gridTemplateColumns = "auto 1fr";
-  li.style.columnGap = "0.35em";
-  li.style.alignItems = "start";
-  li.style.margin = "0";
-  li.style.padding = "0";
+  const li = createEl("li", { attr: { id: footnote.id } });
+  li.setCssStyles({
+    listStyle: "none",
+    display: "grid",
+    gridTemplateColumns: "auto 1fr",
+    columnGap: "0.35em",
+    alignItems: "start",
+    margin: "0",
+    padding: "0",
+  });
 
-  const markerSpan = document.createElement("span");
-  markerSpan.className = "pdf-page-footnote-marker";
-  markerSpan.style.fontVariantNumeric = "tabular-nums";
+  const markerSpan = li.createSpan({ cls: "pdf-page-footnote-marker" });
+  markerSpan.setCssStyles({ fontVariantNumeric: "tabular-nums" });
   markerSpan.textContent = paginationFootnoteDisplayMarker(call.markerText);
-  li.appendChild(markerSpan);
 
-  const contentDiv = document.createElement("div");
-  contentDiv.className = "pdf-page-footnote-content";
-  contentDiv.style.minWidth = "0";
+  const contentDiv = li.createDiv({ cls: "pdf-page-footnote-content" });
+  contentDiv.setCssStyles({ minWidth: "0" });
   const parsed = new DOMParser().parseFromString(footnote.html, "text/html");
   parsed.body.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
   while (parsed.body.firstChild) contentDiv.appendChild(parsed.body.firstChild);
   contentDiv.querySelectorAll("p").forEach((p) => {
-    p.style.marginTop = "0";
-    p.style.marginBottom = "0";
+    p.setCssStyles({ marginTop: "0", marginBottom: "0" });
   });
-  li.appendChild(contentDiv);
+
   return li;
 }
 

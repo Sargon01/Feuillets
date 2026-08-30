@@ -26,14 +26,14 @@ test("pagination-footnote-layout: footnotes zone full width", async () => {
     "utf8"
   );
 
-  // Verify columnSpan = "all" and columnCount = "1"
-  assert.match(sourceFile, /columnSpan\s*=\s*["']all["']/);
-  assert.match(sourceFile, /columnCount\s*=\s*["']1["']/);
+  // Verify columnSpan and columnCount in setCssStyles
+  assert.match(sourceFile, /columnSpan\s*:\s*["']all["']/);
+  assert.match(sourceFile, /columnCount\s*:\s*["']1["']/);
 
-  // Verify left/right/bottom positioning for absolute
-  assert.match(sourceFile, /\.style\.left\s*=\s*["']0["']/);
-  assert.match(sourceFile, /\.style\.right\s*=\s*["']0["']/);
-  assert.match(sourceFile, /\.style\.bottom\s*=\s*["']0["']/);
+  // Verify left/right/bottom positioning in setCssStyles for absolute
+  assert.match(sourceFile, /left\s*:\s*["']0["']/);
+  assert.match(sourceFile, /right\s*:\s*["']0["']/);
+  assert.match(sourceFile, /bottom\s*:\s*["']0["']/);
 });
 
 test("pagination-footnote-layout: two-up helper exists", async () => {

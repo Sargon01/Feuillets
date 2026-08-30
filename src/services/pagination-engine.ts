@@ -4,6 +4,7 @@
  * page-sized DOM box and asks that box whether it overflows.
  */
 
+
 export type PaginationReservedBottomAreaProvider =
   (bodyNodes: readonly Element[]) => Element | null;
 
@@ -280,19 +281,20 @@ function overflowsWithReservedBottomArea(
   }
 
   // Measure the bottom area in a temporary container
-  const tempContainer = document.createElement("div");
-  tempContainer.style.width = `${geometry.widthPx}px`;
-  tempContainer.style.boxSizing = "border-box";
-  tempContainer.style.fontFamily = geometry.fontFamily;
-  tempContainer.style.fontSize = `${geometry.fontSizePt}pt`;
-  tempContainer.style.lineHeight = String(geometry.lineHeight);
-  tempContainer.style.textAlign = geometry.textAlign || "initial";
-  tempContainer.style.hyphens = geometry.hyphens ? "auto" : "none";
-  tempContainer.style.columnCount = "1";
-  tempContainer.style.visibility = "hidden";
+  const tempContainer = root.createDiv();
+  tempContainer.setCssStyles({
+    width: `${geometry.widthPx}px`,
+    boxSizing: "border-box",
+    fontFamily: geometry.fontFamily,
+    fontSize: `${geometry.fontSizePt}pt`,
+    lineHeight: String(geometry.lineHeight),
+    textAlign: geometry.textAlign || "initial",
+    hyphens: geometry.hyphens ? "auto" : "none",
+    columnCount: "1",
+    visibility: "hidden",
+  });
 
   tempContainer.appendChild(bottomArea.cloneNode(true));
-  root.appendChild(tempContainer);
 
   let reservedHeight = 0;
   try {
