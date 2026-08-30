@@ -7,6 +7,12 @@
 
 import type { PaginationPage } from "./pagination-engine.js";
 
+/**
+ * Internal attribute used to mark second+ occurrences of repeated footnote references.
+ * Only applied during measurement; never affects final output.
+ */
+export const PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE = "data-pagination-footnote-repeat";
+
 export type PaginationFootnoteDefinition = {
   id: string;
   html: string;
@@ -57,6 +63,128 @@ function extractFootnoteData(supElement: Element): { id: string; markerText: str
   const markerText = link.textContent?.trim() ?? "";
 
   return { id: fragment, markerText };
+}
+
+/**
+ * Mark second+ occurrences of footnote references with the repeat attribute.
+ * Modifies bodyNodes in place (on clones only).
+ *
+ * Used during measurement to prevent repeated references from reserving height multiple times.
+ * Only the second and later occurrences of the same footnote ID are marked with "true".
+ * First occurrences have any stale attribute removed.
+ *
+ * Idempotent: calling twice on the same nodes produces the same result.
+ */
+export function markRepeatedPaginationFootnoteReferences(bodyNodes: readonly Element[]): void {
+  const seenIds = new Set<string>();
+
+  for (const node of bodyNodes) {
+    // Mark the node itself if it is a sup.footnote-ref
+    if (node.tagName?.toLowerCase() === "sup" && node.classList?.contains("footnote-ref")) {
+      const data = extractFootnoteData(node);
+      if (data) {
+        if (seenIds.has(data.id)) {
+          // Second+ occurrence: mark with "true"
+          (node as Element).setAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, "true");
+        } else {
+          // First occurrence: clean up any stale attribute
+          (node as Element).removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
+          seenIds.add(data.id);
+        }
+      }
+    }
+
+    // Mark descendants
+    const descendants = node.querySelectorAll?.("sup.footnote-ref");
+    if (descendants) {
+      for (let i = 0; i < descendants.length; i++) {
+        const sup = descendants[i];
+        const data = extractFootnoteData(sup);
+        if (data) {
+          if (seenIds.has(data.id)) {
+            // Second+ occurrence: mark with "true"
+            sup.setAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, "true");
+          } else {
+            // First occurrence: clean up any stale attribute
+            sup.removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
+            seenIds.add(data.id);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Clone bodyNodes and remove second+ occurrences of repeated footnote references.
+ * Returns new Element[] with cloned structure, but marked sup.footnote-ref removed.
+ *
+ * Used for measurement only: this prevents measurement from seeing repeated references
+ * that don't actually trigger the provider (they're associated to earlier pages).
+ *
+ * Logic:
+ * - If a bodyNode itself is a sup.footnote-ref with repeat="true", skip it entirely
+ * - Otherwise, clone it and remove only sup.footnote-ref[data-pagination-footnote-repeat="true"]
+ * - Source is never modified; clones are independent
+ */
+export function cloneBodyNodesWithoutRepeatedPaginationFootnoteReferences(bodyNodes: readonly Element[]): Element[] {
+  const cloned: Element[] = [];
+
+  for (const node of bodyNodes) {
+    // If the node itself is a marked repeated reference, skip it entirely
+    if (
+      node.tagName?.toLowerCase() === "sup" &&
+      node.classList?.contains("footnote-ref") &&
+      node.getAttribute?.(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE) === "true"
+    ) {
+      continue;
+    }
+
+    // Clone the node
+    const clone = node.cloneNode(true) as Element;
+
+    // Remove all sup.footnote-ref with repeat="true" from the clone
+    const markedRepeats = clone.querySelectorAll?.(`sup.footnote-ref[${PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE}="true"]`);
+    if (markedRepeats) {
+      for (let i = markedRepeats.length - 1; i >= 0; i--) {
+        const elem = markedRepeats[i];
+        elem.remove?.();
+      }
+    }
+
+    cloned.push(clone);
+  }
+
+  return cloned;
+}
+
+/**
+ * Remove the repeat attribute from all marked footnote references.
+ * This is called before final HTML serialization to ensure the internal attribute
+ * doesn't leak into the exported PDF.
+ *
+ * Does not remove the sup elements themselves, only the internal marker attribute.
+ * Does not modify href, markerText, or any other properties.
+ */
+export function clearRepeatedPaginationFootnoteReferenceMarks(bodyNodes: readonly Element[]): void {
+  for (const node of bodyNodes) {
+    // Check if the node itself is a marked sup
+    if (
+      node.tagName?.toLowerCase() === "sup" &&
+      node.classList?.contains("footnote-ref") &&
+      node.hasAttribute?.(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE)
+    ) {
+      (node as Element).removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
+    }
+
+    // Check descendants
+    const markedDescendants = node.querySelectorAll?.(`sup.footnote-ref[${PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE}]`);
+    if (markedDescendants) {
+      for (let i = 0; i < markedDescendants.length; i++) {
+        markedDescendants[i].removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
+      }
+    }
+  }
 }
 
 /**

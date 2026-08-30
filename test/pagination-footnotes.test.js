@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   observePaginationFootnotes,
   populatePaginationFootnoteNodes,
+  markRepeatedPaginationFootnoteReferences,
+  PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE,
+  clearRepeatedPaginationFootnoteReferenceMarks,
 } from "../src/services/pagination-footnotes.js";
 
 /**
@@ -16,7 +19,15 @@ function mockDefinition(id, html = `<p>Note ${id}</p>`) {
  * Helper to create a mock sup.footnote-ref element
  */
 function mockSupElement(id, href = `#${id}`, markerText = id) {
-  const sup = { tagName: "sup", classList: { contains: (name) => name === "footnote-ref" } };
+  const attributes = {};
+  const sup = {
+    tagName: "sup",
+    classList: { contains: (name) => name === "footnote-ref" },
+    getAttribute: (attr) => attributes[attr] ?? null,
+    setAttribute: (attr, value) => { attributes[attr] = value; },
+    removeAttribute: (attr) => { delete attributes[attr]; },
+    hasAttribute: (attr) => attr in attributes,
+  };
   const link = { getAttribute: (attr) => (attr === "href" ? href : null), textContent: markerText };
   sup.querySelector = (selector) => (selector === "a[href]" ? link : null);
   return sup;
@@ -26,11 +37,30 @@ function mockSupElement(id, href = `#${id}`, markerText = id) {
  * Helper to create a mock page body node
  */
 function mockPageNode(footnoteRefs = []) {
+  const attributes = {};
   return {
     tagName: "p",
     classList: { contains: () => false },
+    getAttribute: (attr) => attributes[attr] ?? null,
+    setAttribute: (attr, value) => { attributes[attr] = value; },
+    removeAttribute: (attr) => { delete attributes[attr]; },
+    hasAttribute: (attr) => attr in attributes,
     querySelector: () => null,
-    querySelectorAll: (selector) => (selector === "sup.footnote-ref" ? footnoteRefs : []),
+    querySelectorAll: (selector) => {
+      if (selector === "sup.footnote-ref") return footnoteRefs;
+      if (selector.includes("[data-pagination-footnote-repeat")) {
+        // Return sups with repeat attribute: either "true" value or any value
+        const attrValueTrue = `[${PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE}="true"]`;
+        if (selector.includes(attrValueTrue)) {
+          // Selector specifies "true" value
+          return footnoteRefs.filter((sup) => sup.getAttribute?.(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE) === "true");
+        } else {
+          // Selector just has [data-pagination-footnote-repeat] without value
+          return footnoteRefs.filter((sup) => sup.getAttribute?.(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE) !== null);
+        }
+      }
+      return [];
+    },
   };
 }
 
@@ -289,7 +319,202 @@ test("pagination-footnotes : footnoteNodes n'est pas scanné pour les appels", (
   assert.equal(obs.calls[0].id, "fn-1");
 });
 
-test("pagination-footnotes : garde sur export-pdf", async () => {
+test("pagination-footnotes : markRepeatedPaginationFootnoteReferences marque les doublons", async () => {
+  const { markRepeatedPaginationFootnoteReferences } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  const sup1 = mockSupElement("fn-1");
+  const sup2 = mockSupElement("fn-1");
+  const sup3 = mockSupElement("fn-2");
+  const bodyNode = mockPageNode([sup1, sup2, sup3]);
+
+  markRepeatedPaginationFootnoteReferences([bodyNode]);
+
+  // First occurrence of fn-1: not marked
+  assert.strictEqual(sup1.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+  // Second occurrence of fn-1: marked with "true"
+  assert.strictEqual(sup2.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), "true");
+  // First (only) occurrence of fn-2: not marked
+  assert.strictEqual(sup3.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+});
+
+test("pagination-footnotes : markRepeated A — deux IDs distincts, aucun repeat", async () => {
+  const { markRepeatedPaginationFootnoteReferences } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  const sup1 = mockSupElement("fn-1");
+  const sup2 = mockSupElement("fn-2");
+  const bodyNode = mockPageNode([sup1, sup2]);
+
+  markRepeatedPaginationFootnoteReferences([bodyNode]);
+
+  assert.strictEqual(sup1.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+  assert.strictEqual(sup2.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+});
+
+test("pagination-footnotes : markRepeated B — trois occurrences du même ID", async () => {
+  const { markRepeatedPaginationFootnoteReferences } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  const sup1 = mockSupElement("fn-1");
+  const sup2 = mockSupElement("fn-1");
+  const sup3 = mockSupElement("fn-1");
+  const bodyNode = mockPageNode([sup1, sup2, sup3]);
+
+  markRepeatedPaginationFootnoteReferences([bodyNode]);
+
+  assert.strictEqual(sup1.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+  assert.strictEqual(sup2.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), "true");
+  assert.strictEqual(sup3.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), "true");
+});
+
+test("pagination-footnotes : markRepeated C — alterne IDs", async () => {
+  const { markRepeatedPaginationFootnoteReferences } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  const sup1 = mockSupElement("fn-1");
+  const sup2 = mockSupElement("fn-2");
+  const sup3 = mockSupElement("fn-1");
+  const sup4 = mockSupElement("fn-2");
+  const bodyNode = mockPageNode([sup1, sup2, sup3, sup4]);
+
+  markRepeatedPaginationFootnoteReferences([bodyNode]);
+
+  // First occurrences sans attribute
+  assert.strictEqual(sup1.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+  assert.strictEqual(sup2.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+  // Repeats avec "true"
+  assert.strictEqual(sup3.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), "true");
+  assert.strictEqual(sup4.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), "true");
+});
+
+test("pagination-footnotes : markRepeated D — idempotence", async () => {
+  const { markRepeatedPaginationFootnoteReferences } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  const sup1 = mockSupElement("fn-1");
+  const sup2 = mockSupElement("fn-1");
+  const bodyNode = mockPageNode([sup1, sup2]);
+
+  markRepeatedPaginationFootnoteReferences([bodyNode]);
+  const firstState = [
+    sup1.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE),
+    sup2.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE),
+  ];
+
+  markRepeatedPaginationFootnoteReferences([bodyNode]);
+  const secondState = [
+    sup1.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE),
+    sup2.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE),
+  ];
+
+  assert.deepEqual(firstState, secondState);
+});
+
+test("pagination-footnotes : markRepeated E — nettoie attribut stale", async () => {
+  const { markRepeatedPaginationFootnoteReferences } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  const sup1 = mockSupElement("fn-1");
+  const sup2 = mockSupElement("fn-1");
+
+  // Set stale attribute on first occurrence
+  sup1.setAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, "stale");
+
+  const bodyNode = mockPageNode([sup1, sup2]);
+
+  markRepeatedPaginationFootnoteReferences([bodyNode]);
+
+  // First occurrence attribute should be cleared
+  assert.strictEqual(sup1.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+  // Second occurrence should be marked
+  assert.strictEqual(sup2.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), "true");
+});
+
+test("pagination-footnotes : clearRepeatedPaginationFootnoteReferenceMarks supprime les attributs internes", async () => {
+  const { clearRepeatedPaginationFootnoteReferenceMarks } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  const sup1 = mockSupElement("fn-1");
+  const sup2 = mockSupElement("fn-1");
+
+  // Mark them
+  sup1.removeAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE);
+  sup2.setAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, "true");
+
+  const bodyNode = mockPageNode([sup1, sup2]);
+
+  clearRepeatedPaginationFootnoteReferenceMarks([bodyNode]);
+
+  // Both should have attribute removed
+  assert.strictEqual(sup1.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+  assert.strictEqual(sup2.getAttribute(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE), null);
+});
+
+test("pagination-footnotes : observePaginationFootnotes conserve tous les appels, affecte définition au premier", async () => {
+  const { observePaginationFootnotes } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  const sup1 = mockSupElement("fn-1");
+  const sup2 = mockSupElement("fn-1");  // Same ID on different page
+  const page1 = mockPage([mockPageNode([sup1])]);
+  const page2 = mockPage([mockPageNode([sup2])]);
+  const definitions = [mockDefinition("fn-1")];
+
+  const obs = observePaginationFootnotes([page1, page2], definitions);
+
+  // Both calls should be recorded
+  assert.equal(obs.calls.length, 2);
+  assert.equal(obs.calls[0].id, "fn-1");
+  assert.equal(obs.calls[0].pageIndex, 0);
+  assert.equal(obs.calls[1].id, "fn-1");
+  assert.equal(obs.calls[1].pageIndex, 1);
+
+  // But definition should only be assigned to first page
+  assert.deepEqual(obs.assignedIdsByPage[0], ["fn-1"]);
+  assert.deepEqual(obs.assignedIdsByPage[1], []);
+  assert.equal(obs.assignedDefinitionsByPage[0].length, 1);
+  assert.equal(obs.assignedDefinitionsByPage[1].length, 0);
+});
+
+test("pagination-footnotes : PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE constant existe et est une chaîne", async () => {
+  const { PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE } = await import(
+    "../src/services/pagination-footnotes.js"
+  );
+
+  assert.equal(typeof PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, "string");
+  assert.match(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, /^data-/);
+  assert.equal(PAGINATION_FOOTNOTE_REPEAT_ATTRIBUTE, "data-pagination-footnote-repeat");
+});
+
+test("pagination-footnotes : garde sur export-pdf — import des helpers Lot 5", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+
+  const sourceFile = fs.readFileSync(
+    path.resolve(process.cwd(), "src/services/export-pdf.ts"),
+    "utf8"
+  );
+
+  // Verify Lot 5 helpers are imported
+  assert.match(sourceFile, /markRepeatedPaginationFootnoteReferences/);
+  assert.match(sourceFile, /cloneBodyNodesWithoutRepeatedPaginationFootnoteReferences/);
+  assert.match(sourceFile, /clearRepeatedPaginationFootnoteReferenceMarks/);
+  // Verify marking is conditional on footnotes existing
+  assert.match(sourceFile, /if \(footnotes && footnotes\.length > 0\)/);
+  // Verify cleanup is called
+  assert.match(sourceFile, /clearRepeatedPaginationFootnoteReferenceMarks/);
+});
+
+test("pagination-footnotes : garde sur export-pdf — structure originale conservée", async () => {
   const fs = await import("node:fs");
   const path = await import("node:path");
 

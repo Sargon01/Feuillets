@@ -8,7 +8,7 @@ import { paginateDom, paginateDomCooperatively, type CooperativePaginationOption
 import { resolvePageGeometry } from "./page-geometry.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import type { ContentVariant } from "./content-variants.js";
-import { populatePaginationFootnoteNodes, type PaginationFootnoteDefinition, type PaginationFootnoteCall } from "./pagination-footnotes.js";
+import { populatePaginationFootnoteNodes, markRepeatedPaginationFootnoteReferences, cloneBodyNodesWithoutRepeatedPaginationFootnoteReferences, clearRepeatedPaginationFootnoteReferenceMarks, type PaginationFootnoteDefinition, type PaginationFootnoteCall } from "./pagination-footnotes.js";
 
 type PdfFootnote = PaginationFootnoteDefinition;
 
@@ -228,9 +228,14 @@ function createFootnoteReservedBottomAreaProvider(
   }
 
   return (bodyNodes: readonly Element[]): Element | null => {
-    // Create temporary page with current body nodes
+    // Filter out repeated footnote references (only measurement, not final output)
+    const filteredNodes = cloneBodyNodesWithoutRepeatedPaginationFootnoteReferences(
+      Array.from(bodyNodes)
+    );
+
+    // Create temporary page with filtered nodes
     const tempPage: PaginationPage = {
-      bodyNodes: Array.from(bodyNodes),
+      bodyNodes: filteredNodes,
       footnoteNodes: [],
     };
 
@@ -270,6 +275,12 @@ function prepareManuscriptPagination(
   const elements = Array.from(containerEl.children)
     .map((el) => el.cloneNode(true))
     .filter((node): node is Element => "tagName" in node && "classList" in node);
+
+  // Mark repeated footnote references for measurement filtering (Lot 5)
+  if (footnotes && footnotes.length > 0) {
+    markRepeatedPaginationFootnoteReferences(elements);
+  }
+
   return {
     elements,
     geometry: {
@@ -335,6 +346,11 @@ export function paginateManuscript(
     .map((el) => el.cloneNode(true))
     .filter((node): node is Element => "tagName" in node && "classList" in node);
 
+  // Mark repeated footnote references for measurement filtering (Lot 5)
+  if (footnotes && footnotes.length > 0) {
+    markRepeatedPaginationFootnoteReferences(elements);
+  }
+
   const rawPages = rawPagesOverride ?? paginateDom(elements, {
     widthPx: contentGeometry.widthPx,
     heightPx: contentGeometry.heightPx,
@@ -354,6 +370,13 @@ export function paginateManuscript(
   // Associate footnotes to pages (Lot 3: populate footnoteNodes with visible rendering)
   // Uses the centralized createPaginationFootnoteNode helper
   populatePaginationFootnoteNodes(rawPages, footnotes ?? [], createPaginationFootnoteNode);
+
+  // Clean up internal repeat markers before final HTML serialization (Lot 5)
+  if (footnotes && footnotes.length > 0) {
+    for (const page of rawPages) {
+      clearRepeatedPaginationFootnoteReferenceMarks(page.bodyNodes);
+    }
+  }
 
   /* Bandes en-tête/pied : même règle que la géométrie — le gabarit résolu
      prime quand il les exprime (c'est le cas d'un gabarit V2, jamais d'un
