@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { getCourrierApi, buildSubmissionData, detectEditorialDocuments, applySubmissionChoice, prepareSubmission } from "../src/services/courrier-integration.js";
+import { getCourrierApi, listCourrierProjectSubmissions, buildSubmissionData, detectEditorialDocuments, applySubmissionChoice, prepareSubmission } from "../src/services/courrier-integration.js";
 
 function projectFixture() {
   const volume = new TFolder("Roman1");
@@ -75,6 +75,131 @@ test("getCourrierApi : Courrier actif avec l'API attendue — renvoyée telle qu
   assert.equal(getCourrierApi(app), api);
 });
 
+test("getCourrierApi : ancienne API sans listProjectSubmissions — reste compatible", () => {
+  const api = { createSubmissionDraft: () => ({ success: true }) };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  assert.equal(getCourrierApi(app), api);
+});
+
+test("getCourrierApi : nouvelle API avec listProjectSubmissions — reconnue", () => {
+  const api = {
+    createSubmissionDraft: () => ({ success: true }),
+    async listProjectSubmissions() {
+      return [];
+    },
+  };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  assert.equal(getCourrierApi(app), api);
+  assert.equal(typeof getCourrierApi(app)?.listProjectSubmissions, "function");
+});
+
+test("listCourrierProjectSubmissions : Courrier absent — renvoie null sans lever", async () => {
+  const app = { plugins: { enabledPlugins: new Set(), plugins: {} } };
+
+  await assert.doesNotReject(async () => {
+    assert.equal(await listCourrierProjectSubmissions(app, "Roman1/Edition"), null);
+  });
+});
+
+test("listCourrierProjectSubmissions : méthode absente — renvoie null sans fallback Vault", async () => {
+  const app = {
+    vault: {
+      getAbstractFile() {
+        throw new Error("Vault fallback interdit");
+      },
+    },
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api: { createSubmissionDraft: () => ({ success: true }) } } },
+    },
+  };
+
+  assert.equal(await listCourrierProjectSubmissions(app, "Roman1/Edition"), null);
+});
+
+test("listCourrierProjectSubmissions : transmet exactement le chemin Édition", async () => {
+  const calls = [];
+  const api = {
+    createSubmissionDraft: () => ({ success: true }),
+    async listProjectSubmissions(path) {
+      calls.push(path);
+      return [];
+    },
+  };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  await listCourrierProjectSubmissions(app, "Roman1/Edition");
+
+  assert.deepEqual(calls, ["Roman1/Edition"]);
+});
+
+test("listCourrierProjectSubmissions : transmet le retour intact, sans transformation", async () => {
+  const submissions = [
+    {
+      letterPath: "X/Custom-letter-name.md",
+      recipient: "Maison Alpha",
+      status: "Envoyé",
+      sentDate: "2026-08-30",
+      reminderDate: "2026-09-30",
+      manuscriptDocxReady: true,
+      letterDocxReady: false,
+    },
+  ];
+  const api = {
+    createSubmissionDraft: () => ({ success: true }),
+    async listProjectSubmissions() {
+      return submissions;
+    },
+  };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  const result = await listCourrierProjectSubmissions(app, "Roman1/Edition");
+
+  assert.deepEqual(result, submissions);
+  assert.equal(result, submissions);
+});
+
+test("listCourrierProjectSubmissions : erreur API absorbée — renvoie null sans rejeter", async () => {
+  const api = {
+    createSubmissionDraft: () => ({ success: true }),
+    async listProjectSubmissions() {
+      throw new Error("boom");
+    },
+  };
+  const app = {
+    plugins: {
+      enabledPlugins: new Set(["courrier"]),
+      plugins: { courrier: { api } },
+    },
+  };
+
+  await assert.doesNotReject(async () => {
+    assert.equal(await listCourrierProjectSubmissions(app, "Roman1/Edition"), null);
+  });
+});
+
 // --- buildSubmissionData : lecture seule des métadonnées du projet ---
 
 test("buildSubmissionData : titre, auteur, nombre de mots à partir des métadonnées du projet", async () => {
@@ -142,7 +267,7 @@ test("buildSubmissionData : aucun dossier Sortie — pas de document exporté, s
   assert.ok(!("documentExportePath" in data));
 });
 
-// --- detectEditorialDocuments : Synopsis/Biographie/Lettre/Note + DOCX exporté ---
+// --- detectEditorialDocuments : documents éditoriaux complémentaires ---
 
 function editionFixture() {
   const { volume, manuscrit } = projectFixture();
@@ -195,8 +320,8 @@ test("detectEditorialDocuments : reconnaît les variantes historiques avec apost
   assert.ok(candidates.some((candidate) => candidate.id === "lettre-accompagnement" && candidate.path === letter.path));
 });
 
-test("detectEditorialDocuments : dernier DOCX exporté détecté et coché par défaut (manuscrit)", async () => {
-  const { volume, manuscrit } = projectFixture();
+test("detectEditorialDocuments : DOCX de Sortie absent des candidats facultatifs", async () => {
+  const { volume, manuscrit, edition, synopsis, bio } = editionFixture();
   const sortie = new TFolder("Roman1/Sortie");
   const docx = new TFile("Roman1/Sortie/Manuscrit.docx", "");
   docx.extension = "docx";
@@ -204,14 +329,13 @@ test("detectEditorialDocuments : dernier DOCX exporté détecté et coché par d
   sortie.children = [docx];
   sortie.parent = volume;
   volume.children.push(sortie);
-  const host = createHost({ files: [volume, manuscrit, sortie, docx] });
+  const host = createHost({ files: [volume, manuscrit, edition, synopsis, bio, sortie, docx] });
 
   const candidates = await detectEditorialDocuments(host.app, host.settings, manuscrit);
 
-  const manuscritCandidate = candidates.find((c) => c.id === "manuscrit");
-  assert.ok(manuscritCandidate);
-  assert.equal(manuscritCandidate.checkedByDefault, true);
-  assert.equal(manuscritCandidate.path, "Roman1/Sortie/Manuscrit.docx");
+  assert.ok(candidates.some((candidate) => candidate.id === "synopsis"));
+  assert.ok(candidates.some((candidate) => candidate.id === "biographie"));
+  assert.ok(!candidates.some((candidate) => candidate.id === "manuscrit"));
 });
 
 test("detectEditorialDocuments : aucun dossier Édition ni export — liste vide, sans lever", async () => {
@@ -228,24 +352,28 @@ test("detectEditorialDocuments : aucun dossier Édition ni export — liste vide
 test("applySubmissionChoice : chemins cochés transmis dans pieceJointes", () => {
   const calls = [];
   const api = { createSubmissionDraft: (data) => { calls.push(data); return { success: true }; } };
+  const exportManuscritDocx = async () => "fresh-manuscript.docx";
 
-  applySubmissionChoice(api, { titre: "La Traversée" }, ["Roman1/Edition/Synopsis.md"]);
+  applySubmissionChoice(api, { titre: "La Traversée", exportManuscritDocx }, ["Roman1/Edition/Synopsis.md"]);
 
   assert.equal(calls.length, 1);
+  assert.equal(calls[0].exportManuscritDocx, exportManuscritDocx);
   assert.deepEqual(calls[0].pieceJointes, ["Roman1/Edition/Synopsis.md"]);
 });
 
 test("applySubmissionChoice : aucun chemin coché — pieceJointes absent, jamais un tableau vide", () => {
   const calls = [];
   const api = { createSubmissionDraft: (data) => { calls.push(data); return { success: true }; } };
+  const exportManuscritDocx = async () => "fresh-manuscript.docx";
 
-  applySubmissionChoice(api, { titre: "La Traversée" }, []);
+  applySubmissionChoice(api, { titre: "La Traversée", exportManuscritDocx }, []);
 
   assert.equal(calls.length, 1);
+  assert.equal(calls[0].exportManuscritDocx, exportManuscritDocx);
   assert.ok(!("pieceJointes" in calls[0]));
 });
 
-test("applySubmissionChoice : l'export DOCX direct remplace la copie du manuscrit historique de Sortie", () => {
+test("applySubmissionChoice : ne filtre aucun chemin, le manuscrit passe par l'export frais", () => {
   const calls = [];
   const api = { createSubmissionDraft: (data) => { calls.push(data); return { success: true }; } };
   const data = {
@@ -254,7 +382,7 @@ test("applySubmissionChoice : l'export DOCX direct remplace la copie du manuscri
     exportManuscritDocx: async () => "Roman1/Edition/Soumissions/Paquet/Dossier à envoyer/Manuscrit - La Traversée.docx",
   };
 
-  applySubmissionChoice(api, data, ["Roman1/Sortie/Manuscrit.docx", "Roman1/Edition/Synopsis.md"]);
+  applySubmissionChoice(api, data, ["Roman1/Edition/Synopsis.md"]);
 
   assert.deepEqual(calls[0].pieceJointes, ["Roman1/Edition/Synopsis.md"]);
   assert.equal(typeof calls[0].exportManuscritDocx, "function");
@@ -266,6 +394,7 @@ test("buildSubmissionData : transmet le callback d'export DOCX des documents éd
 
   const data = await buildSubmissionData(host, manuscrit);
 
+  assert.equal(typeof data.exportManuscritDocx, "function");
   assert.equal(typeof data.exportEditorialDocumentDocx, "function");
 });
 

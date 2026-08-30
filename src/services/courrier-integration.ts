@@ -23,6 +23,21 @@ import { EDITION_DOCUMENTS, editionDocumentNames } from "./project-files.js";
 
 /** Les documents éditoriaux conventionnels viennent de project-files :
  * création et détection partagent exactement les mêmes noms et variantes. */
+
+/** Résumé d'une soumission projet retourné par l'API Courrier.
+ * Duck-typé local — aucun import depuis Courrier. Les deux plugins
+ * restent compilés séparément ; ce type représente seulement le contrat
+ * public attendu. */
+export interface ProjectSubmissionSummary {
+  letterPath?: string;
+  recipient: string;
+  status: string;
+  sentDate?: string;
+  reminderDate?: string;
+  manuscriptDocxReady: boolean;
+  letterDocxReady: boolean;
+}
+
 /** Contrat attendu de `app.plugins.plugins["courrier"].api` — duck-typé
  * (aucun type partagé au moment de la compilation, chaque plugin est
  * bundlé séparément). Doit rester le sous-ensemble MINIMAL réellement
@@ -36,6 +51,7 @@ export interface CourrierCompanionApi {
     filePath: string,
     dates?: { dateEnvoi?: string; dateRelance?: string }
   ): Promise<{ success: boolean; message?: string }>;
+  listProjectSubmissions?(editionFolderPath: string): Promise<ProjectSubmissionSummary[]>;
 }
 
 export interface SubmissionDraftData {
@@ -90,6 +106,32 @@ export function getCourrierApi(app: App): CourrierCompanionApi | null {
   return api as CourrierCompanionApi;
 }
 
+/** Liste les résumés de soumissions pour un dossier Édition donné, en
+ * consultant l'API Courrier si disponible — aucune lecture locale
+ * n'intervient ici, la responsabilité de lire le suivi revient entièrement
+ * à Courrier. Retourne null si Courrier absent, si listProjectSubmissions
+ * n'existe pas, ou si l'appel échoue ; jamais une exception. */
+export async function listCourrierProjectSubmissions(
+  app: App,
+  editionFolderPath: string
+): Promise<ProjectSubmissionSummary[] | null> {
+  const api = getCourrierApi(app);
+  if (!api) return null;
+
+  if (typeof api.listProjectSubmissions !== "function") return null;
+
+  try {
+    const result = await api.listProjectSubmissions(editionFolderPath);
+    return result;
+  } catch (error) {
+    console.error(
+      `[Feuillets] listCourrierProjectSubmissions failed for ${editionFolderPath}:`,
+      error
+    );
+    return null;
+  }
+}
+
 /** Recherche le dernier manuscrit DOCX exporté (Sortie/) pour le projet
  * actif — best-effort, jamais créateur du dossier (contrairement à
  * `getOutputFolder`, utilisé normalement pour ÉCRIRE un export) : une
@@ -125,18 +167,14 @@ function resolveRealEditionPath(app: App, root: TFolder): string {
   return getEditionRoot(app, root)?.path ?? editionFolderPath(app, root);
 }
 
-/** Détecte les documents éditoriaux conventionnels et le dernier DOCX
- * exporté, prêts à être proposés comme pièces jointes d'une soumission
- * (Lot 14C) — lecture seule. Manuscrit et Synopsis sont cochés par défaut
- * s'ils existent (contrainte explicite) ; les autres documents détectés
- * restent décochés — l'utilisatrice choisit. */
+/** Détecte les documents éditoriaux conventionnels, prêts à être proposés
+ * comme pièces jointes facultatives d'une soumission (Lot 14C) — lecture
+ * seule. Le manuscrit est obligatoire et généré automatiquement par le
+ * callback `exportManuscritDocx`, il n'est donc pas un candidat ici. Synopsis
+ * est coché par défaut ; les autres documents détectés restent décochés —
+ * l'utilisatrice choisit. */
 export async function detectEditorialDocuments(app: App, settings: FeuilletsSettings, root: TFolder): Promise<SubmissionAttachmentCandidate[]> {
   const candidates: SubmissionAttachmentCandidate[] = [];
-
-  const exportedDocx = await findLatestExportedDocx(app, root);
-  if (exportedDocx) {
-    candidates.push({ id: "manuscrit", label: t("courrier.attachments.manuscrit"), path: exportedDocx, checkedByDefault: true });
-  }
 
   const editionRoot = getEditionRoot(app, root);
   if (editionRoot) {
@@ -187,20 +225,16 @@ export async function buildSubmissionData(host: SubmissionHost, root: TFolder): 
   return data;
 }
 
-/** Applique le choix de pièces jointes confirmé dans la modale — extrait de
+/** Applique le choix de documents éditoriaux complémentaires confirmé dans la modale — extrait de
  * `prepareSubmission` pour rester appelable directement depuis les tests
  * (`SubmissionAttachmentsModal.onConfirm` ne peut plus être attendu une
  * fois branché sur un clic réel, même convention que le reste du plugin
- * compagnon Courrier). N'ajoute `pieceJointes` que si au moins un chemin a
- * été coché — jamais un tableau vide transmis pour "rien coché". */
+ * compagnon Courrier). Le manuscrit obligatoire reste toujours dans `data`
+ * via `exportManuscritDocx` et n'est jamais une pièce jointe sélectionnable.
+ * N'ajoute `pieceJointes` que si au moins un chemin a été coché — jamais un
+ * tableau vide transmis pour "rien coché". */
 export function applySubmissionChoice(api: CourrierCompanionApi, data: SubmissionDraftData, selectedPaths: string[]): void {
-  // Si l'export direct est disponible, le DOCX historique de Sortie sert
-  // uniquement de candidat visuel dans la modale : Courrier demandera un
-  // export frais directement dans le paquet. Ne pas copier les deux.
-  const pathsToCopy = data.exportManuscritDocx && data.documentExportePath
-    ? selectedPaths.filter((path) => path !== data.documentExportePath)
-    : selectedPaths;
-  const result = api.createSubmissionDraft(pathsToCopy.length > 0 ? { ...data, pieceJointes: pathsToCopy } : data);
+  const result = api.createSubmissionDraft(selectedPaths.length > 0 ? { ...data, pieceJointes: selectedPaths } : data);
   if (!result.success) {
     new Notice(result.message || t("courrier.notice.failed"));
   }

@@ -1,8 +1,9 @@
 import { Modal, type App } from "obsidian";
 import { t } from "../i18n/index.js";
 
-/** Un document éditorial détecté, proposé comme pièce jointe possible d'une
- * soumission (voir `courrier-integration.ts`, `detectEditorialDocuments`). */
+/** Un document éditorial détecté, proposé comme pièce jointe facultative d'une
+ * soumission (voir `courrier-integration.ts`, `detectEditorialDocuments`). Le
+ * manuscrit obligatoire généré automatiquement n'est pas un candidat. */
 export interface SubmissionAttachmentCandidate {
   id: string;
   label: string;
@@ -10,7 +11,7 @@ export interface SubmissionAttachmentCandidate {
   checkedByDefault: boolean;
 }
 
-/** Modale de sélection des pièces jointes avant transmission à Courrier
+/** Modale de sélection des documents éditoriaux complémentaires avant transmission à Courrier
  * (Lot 14C) — même famille que `CompileSelectionModal`
  * (`ui/selection-modals.ts` : liste de cases à cocher, boutons en bas).
  * Ne transmet RIEN toute seule : `onConfirm` reçoit juste la liste des
@@ -31,13 +32,20 @@ export class SubmissionAttachmentsModal extends Modal {
     const { contentEl } = this;
     contentEl.createEl("h3", { text: t("courrier.attachments.title") });
 
+    const listEl = contentEl.createDiv({ cls: "feuillets-read-selection" });
+    const manuscriptRow = listEl.createDiv({ cls: "feuillets-read-selection-row" });
+    const manuscriptCheckbox = manuscriptRow.createEl("input", { type: "checkbox" });
+    manuscriptCheckbox.checked = true;
+    manuscriptCheckbox.disabled = true;
+    const manuscriptLabel = manuscriptRow.createSpan();
+    manuscriptLabel.setText(t("courrier.attachments.manuscrit"));
+
     if (this.candidates.length === 0) {
       contentEl.createEl("p", { cls: "feuillets-notes-sub", text: t("courrier.attachments.none") });
     } else {
       contentEl.createEl("p", { cls: "feuillets-notes-sub", text: t("courrier.attachments.desc") });
     }
 
-    const listEl = contentEl.createDiv({ cls: "feuillets-read-selection" });
     const checkboxes: Array<[HTMLInputElement, SubmissionAttachmentCandidate]> = [];
 
     for (const candidate of this.candidates) {
