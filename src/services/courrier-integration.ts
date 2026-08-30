@@ -167,18 +167,14 @@ function resolveRealEditionPath(app: App, root: TFolder): string {
   return getEditionRoot(app, root)?.path ?? editionFolderPath(app, root);
 }
 
-/** Détecte les documents éditoriaux conventionnels et le dernier DOCX
- * exporté, prêts à être proposés comme pièces jointes d'une soumission
- * (Lot 14C) — lecture seule. Manuscrit et Synopsis sont cochés par défaut
- * s'ils existent (contrainte explicite) ; les autres documents détectés
- * restent décochés — l'utilisatrice choisit. */
+/** Détecte les documents éditoriaux conventionnels, prêts à être proposés
+ * comme pièces jointes facultatives d'une soumission (Lot 14C) — lecture
+ * seule. Le manuscrit est obligatoire et généré automatiquement par le
+ * callback `exportManuscritDocx`, il n'est donc pas un candidat ici. Synopsis
+ * est coché par défaut ; les autres documents détectés restent décochés —
+ * l'utilisatrice choisit. */
 export async function detectEditorialDocuments(app: App, settings: FeuilletsSettings, root: TFolder): Promise<SubmissionAttachmentCandidate[]> {
   const candidates: SubmissionAttachmentCandidate[] = [];
-
-  const exportedDocx = await findLatestExportedDocx(app, root);
-  if (exportedDocx) {
-    candidates.push({ id: "manuscrit", label: t("courrier.attachments.manuscrit"), path: exportedDocx, checkedByDefault: true });
-  }
 
   const editionRoot = getEditionRoot(app, root);
   if (editionRoot) {
@@ -229,20 +225,16 @@ export async function buildSubmissionData(host: SubmissionHost, root: TFolder): 
   return data;
 }
 
-/** Applique le choix de pièces jointes confirmé dans la modale — extrait de
+/** Applique le choix de documents éditoriaux complémentaires confirmé dans la modale — extrait de
  * `prepareSubmission` pour rester appelable directement depuis les tests
  * (`SubmissionAttachmentsModal.onConfirm` ne peut plus être attendu une
  * fois branché sur un clic réel, même convention que le reste du plugin
- * compagnon Courrier). N'ajoute `pieceJointes` que si au moins un chemin a
- * été coché — jamais un tableau vide transmis pour "rien coché". */
+ * compagnon Courrier). Le manuscrit obligatoire reste toujours dans `data`
+ * via `exportManuscritDocx` et n'est jamais une pièce jointe sélectionnable.
+ * N'ajoute `pieceJointes` que si au moins un chemin a été coché — jamais un
+ * tableau vide transmis pour "rien coché". */
 export function applySubmissionChoice(api: CourrierCompanionApi, data: SubmissionDraftData, selectedPaths: string[]): void {
-  // Si l'export direct est disponible, le DOCX historique de Sortie sert
-  // uniquement de candidat visuel dans la modale : Courrier demandera un
-  // export frais directement dans le paquet. Ne pas copier les deux.
-  const pathsToCopy = data.exportManuscritDocx && data.documentExportePath
-    ? selectedPaths.filter((path) => path !== data.documentExportePath)
-    : selectedPaths;
-  const result = api.createSubmissionDraft(pathsToCopy.length > 0 ? { ...data, pieceJointes: pathsToCopy } : data);
+  const result = api.createSubmissionDraft(selectedPaths.length > 0 ? { ...data, pieceJointes: selectedPaths } : data);
   if (!result.success) {
     new Notice(result.message || t("courrier.notice.failed"));
   }

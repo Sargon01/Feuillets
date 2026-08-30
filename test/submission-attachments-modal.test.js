@@ -65,7 +65,6 @@ function checkboxesAndLabels(modal) {
 
 test("SubmissionAttachmentsModal : une ligne par candidat, case cochée selon checkedByDefault", () => {
   const candidates = [
-    { id: "manuscrit", label: "Manuscrit (dernier export DOCX)", path: "Roman1/Sortie/Manuscrit.docx", checkedByDefault: true },
     { id: "biographie", label: "Biographie", path: "Roman1/Edition/Biographie.md", checkedByDefault: false },
   ];
   const modal = openModal(candidates, () => {});
@@ -73,13 +72,14 @@ test("SubmissionAttachmentsModal : une ligne par candidat, case cochée selon ch
   const rows = checkboxesAndLabels(modal);
   assert.equal(rows.length, 2);
   assert.equal(rows[0].checkbox.checked, true);
-  assert.equal(rows[0].label.text, "Manuscrit (dernier export DOCX)");
+  assert.equal(rows[0].checkbox.disabled, true);
+  assert.equal(rows[0].label.text, "Manuscrit DOCX — inclus automatiquement");
   assert.equal(rows[1].checkbox.checked, false);
 });
 
 test("SubmissionAttachmentsModal : confirmer transmet uniquement les chemins cochés", () => {
   const candidates = [
-    { id: "manuscrit", label: "Manuscrit", path: "Roman1/Sortie/Manuscrit.docx", checkedByDefault: true },
+    { id: "synopsis", label: "Synopsis", path: "Roman1/Edition/Synopsis.md", checkedByDefault: true },
     { id: "biographie", label: "Biographie", path: "Roman1/Edition/Biographie.md", checkedByDefault: false },
   ];
   let confirmed = null;
@@ -89,25 +89,25 @@ test("SubmissionAttachmentsModal : confirmer transmet uniquement les chemins coc
   const confirmBtn = buttons.find((b) => b.text === "Continue" || b.text === "Continuer");
   confirmBtn.events.get("click")();
 
-  assert.deepEqual(confirmed, ["Roman1/Sortie/Manuscrit.docx"]);
+  assert.deepEqual(confirmed, ["Roman1/Edition/Synopsis.md"]);
 });
 
 test("SubmissionAttachmentsModal : cocher manuellement une case supplémentaire l'inclut à la confirmation", () => {
   const candidates = [
-    { id: "manuscrit", label: "Manuscrit", path: "Roman1/Sortie/Manuscrit.docx", checkedByDefault: true },
+    { id: "synopsis", label: "Synopsis", path: "Roman1/Edition/Synopsis.md", checkedByDefault: true },
     { id: "biographie", label: "Biographie", path: "Roman1/Edition/Biographie.md", checkedByDefault: false },
   ];
   let confirmed = null;
   const modal = openModal(candidates, (paths) => { confirmed = paths; });
 
   const rows = checkboxesAndLabels(modal);
-  rows[1].checkbox.checked = true;
+  rows[2].checkbox.checked = true;
 
   const buttons = allEls(modal.contentEl).filter((e) => e.tag === "button");
   const confirmBtn = buttons.find((b) => b.text === "Continue" || b.text === "Continuer");
   confirmBtn.events.get("click")();
 
-  assert.deepEqual(confirmed, ["Roman1/Sortie/Manuscrit.docx", "Roman1/Edition/Biographie.md"]);
+  assert.deepEqual(confirmed, ["Roman1/Edition/Synopsis.md", "Roman1/Edition/Biographie.md"]);
 });
 
 test("SubmissionAttachmentsModal : annuler n'appelle jamais onConfirm", () => {
@@ -121,7 +121,16 @@ test("SubmissionAttachmentsModal : annuler n'appelle jamais onConfirm", () => {
   assert.equal(called, false);
 });
 
-test("SubmissionAttachmentsModal : aucun candidat — pas de ligne, message d'absence affiché", () => {
-  const modal = openModal([], () => {});
-  assert.equal(checkboxesAndLabels(modal).length, 0);
+test("SubmissionAttachmentsModal : aucun candidat — manuscrit obligatoire et message d'absence affiché", () => {
+  let confirmed = null;
+  const modal = openModal([], (paths) => { confirmed = paths; });
+  const rows = checkboxesAndLabels(modal);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].checkbox.checked, true);
+  assert.equal(rows[0].checkbox.disabled, true);
+
+  const buttons = allEls(modal.contentEl).filter((e) => e.tag === "button");
+  const confirmBtn = buttons.find((b) => b.text === "Continue" || b.text === "Continuer");
+  confirmBtn.events.get("click")();
+  assert.deepEqual(confirmed, []);
 });

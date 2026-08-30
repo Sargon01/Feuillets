@@ -267,7 +267,7 @@ test("buildSubmissionData : aucun dossier Sortie — pas de document exporté, s
   assert.ok(!("documentExportePath" in data));
 });
 
-// --- detectEditorialDocuments : Synopsis/Biographie/Lettre/Note + DOCX exporté ---
+// --- detectEditorialDocuments : documents éditoriaux complémentaires ---
 
 function editionFixture() {
   const { volume, manuscrit } = projectFixture();
@@ -320,8 +320,8 @@ test("detectEditorialDocuments : reconnaît les variantes historiques avec apost
   assert.ok(candidates.some((candidate) => candidate.id === "lettre-accompagnement" && candidate.path === letter.path));
 });
 
-test("detectEditorialDocuments : dernier DOCX exporté détecté et coché par défaut (manuscrit)", async () => {
-  const { volume, manuscrit } = projectFixture();
+test("detectEditorialDocuments : DOCX de Sortie absent des candidats facultatifs", async () => {
+  const { volume, manuscrit, edition, synopsis, bio } = editionFixture();
   const sortie = new TFolder("Roman1/Sortie");
   const docx = new TFile("Roman1/Sortie/Manuscrit.docx", "");
   docx.extension = "docx";
@@ -329,14 +329,13 @@ test("detectEditorialDocuments : dernier DOCX exporté détecté et coché par d
   sortie.children = [docx];
   sortie.parent = volume;
   volume.children.push(sortie);
-  const host = createHost({ files: [volume, manuscrit, sortie, docx] });
+  const host = createHost({ files: [volume, manuscrit, edition, synopsis, bio, sortie, docx] });
 
   const candidates = await detectEditorialDocuments(host.app, host.settings, manuscrit);
 
-  const manuscritCandidate = candidates.find((c) => c.id === "manuscrit");
-  assert.ok(manuscritCandidate);
-  assert.equal(manuscritCandidate.checkedByDefault, true);
-  assert.equal(manuscritCandidate.path, "Roman1/Sortie/Manuscrit.docx");
+  assert.ok(candidates.some((candidate) => candidate.id === "synopsis"));
+  assert.ok(candidates.some((candidate) => candidate.id === "biographie"));
+  assert.ok(!candidates.some((candidate) => candidate.id === "manuscrit"));
 });
 
 test("detectEditorialDocuments : aucun dossier Édition ni export — liste vide, sans lever", async () => {
@@ -353,24 +352,28 @@ test("detectEditorialDocuments : aucun dossier Édition ni export — liste vide
 test("applySubmissionChoice : chemins cochés transmis dans pieceJointes", () => {
   const calls = [];
   const api = { createSubmissionDraft: (data) => { calls.push(data); return { success: true }; } };
+  const exportManuscritDocx = async () => "fresh-manuscript.docx";
 
-  applySubmissionChoice(api, { titre: "La Traversée" }, ["Roman1/Edition/Synopsis.md"]);
+  applySubmissionChoice(api, { titre: "La Traversée", exportManuscritDocx }, ["Roman1/Edition/Synopsis.md"]);
 
   assert.equal(calls.length, 1);
+  assert.equal(calls[0].exportManuscritDocx, exportManuscritDocx);
   assert.deepEqual(calls[0].pieceJointes, ["Roman1/Edition/Synopsis.md"]);
 });
 
 test("applySubmissionChoice : aucun chemin coché — pieceJointes absent, jamais un tableau vide", () => {
   const calls = [];
   const api = { createSubmissionDraft: (data) => { calls.push(data); return { success: true }; } };
+  const exportManuscritDocx = async () => "fresh-manuscript.docx";
 
-  applySubmissionChoice(api, { titre: "La Traversée" }, []);
+  applySubmissionChoice(api, { titre: "La Traversée", exportManuscritDocx }, []);
 
   assert.equal(calls.length, 1);
+  assert.equal(calls[0].exportManuscritDocx, exportManuscritDocx);
   assert.ok(!("pieceJointes" in calls[0]));
 });
 
-test("applySubmissionChoice : l'export DOCX direct remplace la copie du manuscrit historique de Sortie", () => {
+test("applySubmissionChoice : ne filtre aucun chemin, le manuscrit passe par l'export frais", () => {
   const calls = [];
   const api = { createSubmissionDraft: (data) => { calls.push(data); return { success: true }; } };
   const data = {
@@ -379,7 +382,7 @@ test("applySubmissionChoice : l'export DOCX direct remplace la copie du manuscri
     exportManuscritDocx: async () => "Roman1/Edition/Soumissions/Paquet/Dossier à envoyer/Manuscrit - La Traversée.docx",
   };
 
-  applySubmissionChoice(api, data, ["Roman1/Sortie/Manuscrit.docx", "Roman1/Edition/Synopsis.md"]);
+  applySubmissionChoice(api, data, ["Roman1/Edition/Synopsis.md"]);
 
   assert.deepEqual(calls[0].pieceJointes, ["Roman1/Edition/Synopsis.md"]);
   assert.equal(typeof calls[0].exportManuscritDocx, "function");
@@ -391,6 +394,7 @@ test("buildSubmissionData : transmet le callback d'export DOCX des documents éd
 
   const data = await buildSubmissionData(host, manuscrit);
 
+  assert.equal(typeof data.exportManuscritDocx, "function");
   assert.equal(typeof data.exportEditorialDocumentDocx, "function");
 });
 
