@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pagination Baseline Test</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+    }
+    p {
+      margin: 0.5em 0;
+      text-indent: 1.5em;
+    }
+    p:first-child {
+      text-indent: 0;
+    }
+    h3 {
+      margin: 0.5em 0 0.25em 0;
+      font-size: 1.2em;
+    }
+  </style>
+</head>
+<body>
+
+<h3>Introduction aux Mécanismes de Pagination</h3>
+
+<p>La pagination est l'art de découper un texte continu en pages distinctes, en respectant des contraintes de dimension et de présentation. Dans les systèmes de composition électronique, cet art requiert une certaine finesse pour éviter les orphelins, les veuves, et les coupures malheureuses. Le moteur de pagination que nous testons ici fonctionne directement avec le Document Object Model du navigateur, en mesurant les débordements réels du contenu rendu.</p>
+
+<p>Chaque page dispose d'une hauteur et d'une largeur fixes. Le moteur teste successivement le contenu candidat dans une boîte de mesure cachée, vérifie s'il déborde avec <strong>scrollHeight > clientHeight</strong>, et décide en conséquence de poursuivre ou de fractionner le contenu. Cette approche élimine toute approximation géométrique et garantit une correspondance exacte entre la mesure de pagination et le rendu final.</p>
+
+<p>Le texte qui suit démontre comment le moteur gère un contenu réel avec des paragraphes de longueurs variées, des éléments <em>inline</em> comme le texte en italique et le texte en gras pour exercer le clonage riche du DOM, ainsi que plusieurs sections avec des titres qui marquent les ruptures logiques du discours.</p>
+
+<h3>Les Frontières de Mots dans la Fragmentation</h3>
+
+<p>Lorsqu'une coupure de page est nécessaire, le moteur n'accepte que les frontières de mots. Cette règle garantit qu'aucun mot n'est jamais amputé, même au prix d'une page légèrement moins remplie que le maximum théorique. La recherche des positions de coupure légales se fait via la fonction <code>wordPrefixEnds()</code>, qui énumère tous les débuts de mots successifs dans le texte restant d'un paragraphe.</p>
+
+<p>Cette approche conserve aussi la riche structure du DOM : chaque fragment cloné contient non seulement le texte, mais aussi tous les éléments <strong>strong</strong>, <em>em</em>, et autres marqueurs inline qui l'enrichissent. La fonction <code>cloneTextFragment()</code> utilise pour cela une Range DOM classique, avec <code>cloneContents()</code>, jamais une reconstruction à partir de texte brut.</p>
+
+<p>En résultat, un texte comme <strong>celui-ci contient plusieurs mots importants</strong> que le moteur peut couper précisément à chaque limite de mot, sans perdre la mise en forme locale. Le fragment continué portera l'attribut <code>feuillets-pagination-fragment-continuation</code>, tandis que le premier fragment d'une coupure recevra <code>feuillets-pagination-fragment-start</code>.</p>
+
+<h3>Composition Typographique et Géométrie de Page</h3>
+
+<p>La géométrie de chaque page est définie par un objet d'environ sept propriétés : largeur et hauteur en pixels, famille de police, taille de police en points, interlignage multiplicateur, alignement du texte, et politique de césure. Dans ce test, nous utilisons une géométrie fixe correspondant à une page A4 portrait avec des marges de vingt-cinq millimètres sur tous les côtés.</p>
+
+<p>Les dimensions calculées sont : largeur utile 604,72 pixels, hauteur utile 933,54 pixels, police Arial, taille 12 points, interlignage 1,5, justification, et sans césure automatique. Avec ces paramètres, le moteur exerce le chemin de code de composition simple à une colonne, sans multicolonne, sans page de garde, et sans réductions d'échelle de médias documentaires.</p>
+
+<p>Le CSS injecté par la fonction <code>styleComposition()</code> applique ces propriétés directement à un élément div conteneur. Ce conteneur est placé hors écran dans une position fixe avec visibilité cachée, de sorte que sa mesure par <code>scrollHeight</code> et <code>scrollWidth</code> soit rapide et n'affecte pas le rendu visuel de la page.</p>
+
+<h3>Le Moteur Unique de Pagination</h3>
+
+<p>Feuillets dispose d'un seul moteur de pagination, implémenté comme une fonction génératrice <code>paginateDomSteps()</code>. Deux consommateurs différents l'utilisent : <code>paginateDom()</code> qui draine le générateur immédiatement en mode synchrone pour les exports, et <code>paginateDomCooperatively()</code> qui procède par tranches de temps pour éviter de bloquer le thread du navigateur en mode Preview.</p>
+
+<p>Cette architecture à moteur unique signifie qu'il n'existe aucun second algorithme de pagination, aucune divergence entre modes sync et async, et aucun risque que des modifications accidentelles affectent un mode mais pas l'autre. Le contrat entre le moteur et ses consommateurs est simple : chaque appel à <code>steps.next()</code> avance d'une étape, effectue une mesure de débordement via <code>overflows()</code>, et remet la main à l'appelant via un <code>yield</code>.</p>
+
+<p>Ce test de pagination baseline gèle exactement ce contrat. Il exécute le moteur réel dans un navigateur Chromium réel, mesure les pages produites, enregistre leur contenu textuel et un hash SHA-256 de leur structure DOM, et comparera les exécutions ultérieures à cette référence pour détecter toute régression involontaire.</p>
+
+<h3>Gestion des Paragraphes Indivisibles et Oversized</h3>
+
+<p>Certains contenu ne peut pas être fragmenté : les titres, les listes, les éléments media. Pour ces éléments dits indivisibles, le moteur utilise une stratégie de reprise : si un élément déborde sur la page courante, il tente de le placer sur une page vierge. Si même une page vierge ne suffit pas, l'élément est marqué avec l'attribut <code>data-pagination-oversized="true"</code> et placé tel quel, en acceptant de déborder.</p>
+
+<p>Seuls les paragraphes <code>p</code> sont fragmentables, et uniquement si leur contenu textuel n'est pas vide. Cette limitation conserve l'intégrité sémantique des autres éléments et simplifie le moteur en le concentrant sur le cas d'usage principal : la fragmentation de longs textes en paragraphes multiples à travers les pages.</p>
+
+<p>La fonction <code>canSplit()</code> encode cette règle : elle retourne vrai si et seulement si le nœud est un paragraphe et possède du texte. Aucune autre vérification n'y est faite ; aucun autre élément n'y sera jamais accepté comme splittable.</p>
+
+<h3>Résultats et Mesures de Débordement</h3>
+
+<p>Après chaque composition candidat, le moteur vérifie si le contenu déborde avec une formule très simple : <code>scrollHeight > clientHeight || scrollWidth > clientWidth</code>. Cette vérification est suffisante pour déterminer le débordement vertical et horizontal. Elle est précise car elle mesure le rendu réel du navigateur, sans approximation.</p>
+
+<p>Le test de baseline enregistre, pour chaque page produite, le concaténation de son textContent et un hash SHA-256 de son HTML sérialisé. La somme textuelle de toutes les pages doit être égale au texte complet de la source, garantissant ainsi qu'aucun contenu n'a été perdu ou dupliqué pendant la pagination.</p>
+
+<p>Ce test baseline demeurera inchangé aussi longtemps que le moteur de pagination reste fonctionnellement équivalent. Toute modification du moteur qui change le nombre de pages, ou le contenu textuel d'une page, ou la structure HTML d'une page, sera immédiatement détectée lors du prochain test, avec un rapport clair indiquant la première page divergente.</p>
+
+<h3>Fixation de la Référence Actuelle</h3>
+
+<p>Le Lot 0B crée et enregistre la référence de pagination actuelle du moteur, après que le Lot 0 ait verrouillé ses invariants internes. Cette référence représente le comportement garantis du moteur : le nombre de pages, le texte de chaque page, et la structure DOM de chaque page.</p>
+
+<p>Toute exécution ultérieure du test comparera la pagination du jour à cette référence. Si le moteur a été modifié sans intention de changer la pagination, le test échouera et signalera la première page ayant divergé, ce qui permettra au développeur de comprendre immédiatement quelle modification a affecté la pagination.</p>
+
+<p>Inversement, si la pagination doit être modifiée volontairement, la référence peut être réenregistrée avec la commande <code>npm run update:pagination-baseline</code>, qui ne s'exécute que si l'intégrité textuelle est vérifiée et que le nombre de pages reste entre cinq et dix incluses.</p>
+
+<h3>Conclusion et Assurance Qualité</h3>
+
+<p>Ce test baseline démontre le fonctionnement correct du moteur de pagination en conditions réelles. Il utilise un document HTML autonome, une géométrie fixe, et le vrai navigateur Chromium pour mesurer les débordements réels. Aucun faux paginateur, aucune approximation, aucune logique manuelle de coupure.</p>
+
+<p>Le moteur lui-même demeure inchangé. Seul son comportement externe est consigné dans une référence JSON. Les développeurs peuvent ainsi modifier le moteur avec confiance, sachant que toute divergence involontaire sera détectée immédiatement.</p>
+
+<p>La pagination est un art sensible en composition typographique, où les micro-changements de géométrie ou d'algorithme produisent des cascades d'effets. Ce test baseline élimine l'incertitude en gelant le comportement actuel et en alertant sur le moindre changement. Ainsi est garantie la stabilité de Feuillets face aux modifications futures du moteur de pagination.</p>
+
+<h3>Détails d'Implémentation du Moteur</h3>
+
+<p>La fonction <code>paginateDomSteps()</code> est un générateur JavaScript qui utilise <code>yield</code> pour céder le contrôle après chaque mesure d'un candidat. Cette approche permet au mode cooperatif de fractionner le travail en petites tranches sans bloquer l'interface utilisateur. Chaque cession de contrôle suit immédiatement une mesure <code>overflows()</code>, garantissant que le prochain appel à <code>next()</code> procédera avec des informations à jour.</p>
+
+<p>L'implémentation gère aussi les cas limites : un paragraph qui déborde même sur une page vierge ne sera jamais découpé à moins qu'il ne s'agisse d'un paragraphe. Les éléments comme les titres, les listes, et les images restent intacts. Cette distinction entre éléments fragmentables et indivisibles préserve l'intégrité sémantique du document.</p>
+
+<p>La mesure elle-même est extrêmement précise. Le moteur crée un conteneur hors écran avec les propriétés CSS exactes de la page, clone le contenu candidat dans ce conteneur, et mesure immédiatement <code>scrollHeight</code> et <code>scrollWidth</code>. Cette mesure reflète exactement le rendu que verrait le lecteur final, sans approximation.</p>
+
+<h3>Optimisations et Performance</h3>
+
+<p>Une pagination complète d'un long document peut générer des centaines d'appels à <code>overflows()</code>. Pour maintenir la performance, le moteur utilise plusieurs stratégies : d'abord, il teste toujours le paragraphe complet avant de chercher une coupure, évitant de nombreuses mesures inutiles. Ensuite, il balaye les candidats de coupure en partant du plus grand, ce qui tend à remplir les pages au maximum. Enfin, le mode coopératif permet au navigateur de respirer entre les tranches, évitant les blocages perceptibles.</p>
+
+<p>Pour les documents contenant des milliers de paragraphes, ces optimisations font la différence entre une pagination instantanée et une pagination laborieuse. Le test baseline vérifie implicitement que ces optimisations fonctionnent : si une pagination devait soudainement devenir beaucoup plus lente en raison d'une modification régressive, elle pourrait ne pas terminer à temps ou épuiser les ressources du navigateur.</p>
+
+<p>L'enregistrement de la référence capture aussi indirectement les performances. Si une future modification dupliquait chaque test d'overflow ou changeait l'ordre des candidats, le nombre de pages pourrait changer, ce qui serait immédiatement détecté.</p>
+
+<h3>Intégration avec les Autres Moteurs</h3>
+
+<p>Le moteur de pagination est entièrement indépendant de l'exportation PDF et du rendu preview. L'export PDF reçoit les pages paginées et les compose dans un document PDF à l'aide de la bibliothèque pdflib. Le preview reçoit les pages et les affiche à l'écran avec navigation et curseurs. Aucun de ces deux systèmes ne contient de logique de pagination.</p>
+
+<p>Cette séparation des responsabilités rend le moteur de pagination facilement testable en isolation. Le test baseline exploite précisément cette propriété : il peut tester le moteur sans avoir besoin d'un PDF writer ou d'une interface de preview.</p>
+
+<p>En résultat, tout changement au moteur de pagination ne peut affecter que les pages produites. Les bugs de PDF ou de preview n'affecteront pas ce test. Les modifications dans d'autres parties du système n'affecteront pas non plus la pagination, sauf si quelqu'un cherche délibérément à l'affecter.</p>
+
+<h3>Mécanismes de Continuité de Page</h3>
+
+<p>Lorsqu'un paragraphe est fragmenté à travers plusieurs pages, chaque fragment reçoit une présentation appropriée. Le premier fragment reçoit l'alinéa normal et les marges normales. Les fragments suivants perdent l'alinéa de premier ligne (indentation) et la marge supérieure, ce qui évite les espaces inesthétiques au début d'une page. Le dernier fragment sur une page garde sa présentation normale, tandis que les fragments qui continuent reçoivent une marque CSS spéciale.</p>
+
+<p>Ces détails de présentation sont invisibles au test baseline, qui ne mesure que le contenu textuel et la structure DOM. Cependant, les classes CSS appliquées (<code>feuillets-pagination-fragment-start</code>, <code>feuillets-pagination-fragment-continuation</code>, <code>feuillets-pagination-fragment-continues</code>) sont préservées dans le hash HTML. Un changement accidental à cette logique serait immédiatement détecté.</p>
+
+<p>La justice du texte, notamment l'ajustement du dernier mot d'une page par rapport au premier mot de la page suivante, dépend de l'alignement spécifié dans la géométrie. Le test baseline utilise la justification, exerçant ainsi le code qui applique <code>text-align-last: justify</code> aux fragments qui se poursuivent.</p>
+
+<h3>Archivage et Maintenance</h3>
+
+<p>La référence JSON enregistrée par le test baseline ne doit jamais être modifiée manuellement. Chaque page y est identifiée par son numéro et son contenu textuel exact. Si un développeur souhaite modifier l'algorithme de pagination, il peut le faire en toute confiance, sachant que le test signalera immédiatement toute divergence involontaire.</p>
+
+<p>Si la modification est intentionnelle et améliore vraiment la pagination, la nouvelle référence peut être créée avec <code>npm run update:pagination-baseline</code>. Cette commande vérifie que la nouvelle pagination conserve l'intégrité des contenus et respecte les contraintes de page (5–10 pages). Une fois validée, la nouvelle référence devient la norme.</p>
+
+<p>La procédure d'archivage garantit ainsi que le moteur de pagination ne dérive jamais involontairement. Chaque regression sera détectée. Chaque amélioration intentionnelle peut être documentée et archivée. Le moteur reste stable, prévisible, et sous contrôle.</p>
+
+</body>
+</html>

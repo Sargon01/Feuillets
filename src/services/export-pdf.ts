@@ -8,11 +8,9 @@ import { paginateDom, paginateDomCooperatively, type CooperativePaginationOption
 import { resolvePageGeometry } from "./page-geometry.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import type { ContentVariant } from "./content-variants.js";
+import { populatePaginationFootnoteNodes, type PaginationFootnoteDefinition } from "./pagination-footnotes.js";
 
-type PdfFootnote = {
-  id: string;
-  html: string;
-};
+type PdfFootnote = PaginationFootnoteDefinition;
 
 type PdfExportSegment = {
   text: string;
@@ -271,6 +269,17 @@ export function paginateManuscript(
     css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(logicalTpl),
   });
 
+  // Associate footnotes to pages (Lot 2: observe and populate, don't render yet)
+  const createPaginationFootnoteNode = (footnote: PdfFootnote): Element => {
+    const li = document.createElement("li");
+    li.id = footnote.id;
+    const parsed = new DOMParser().parseFromString(footnote.html, "text/html");
+    parsed.body.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
+    while (parsed.body.firstChild) li.appendChild(parsed.body.firstChild);
+    return li;
+  };
+  populatePaginationFootnoteNodes(rawPages, footnotes ?? [], createPaginationFootnoteNode);
+
   /* Bandes en-tête/pied : même règle que la géométrie — le gabarit résolu
      prime quand il les exprime (c'est le cas d'un gabarit V2, jamais d'un
      gabarit intégré), sinon les anciens réglages, inchangés. */
@@ -299,7 +308,8 @@ export function paginateManuscript(
   // Assemblage final des pages avec en-têtes/pieds et numérotation
   let currentPart = "";
   let currentChapter = "";
-  const logicalPagesHtml = rawPages.map((nodes, idx) => {
+  const logicalPagesHtml = rawPages.map((page, idx) => {
+    const nodes = page.bodyNodes;
     const pageNum = idx + 1;
     const isEven = pageNum % 2 === 0;
     const isFirst = pageNum === 1;

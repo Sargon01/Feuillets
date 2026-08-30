@@ -19,7 +19,10 @@ export type PaginationGeometry = {
   headingPageBreaks?: Partial<Record<"h1" | "h2" | "h3" | "h4" | "h5" | "h6", boolean>>;
 };
 
-export type PaginationPage = Element[];
+export type PaginationPage = {
+  bodyNodes: Element[];
+  footnoteNodes: Element[];
+};
 
 export type CooperativePaginationOptions = {
   shouldAbort?: () => boolean;
@@ -455,7 +458,10 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
   }
 
   // Empty composition boxes are an implementation detail, never output pages.
-  return pages.filter((item) => item.nodes.length > 0).map((item) => item.nodes);
+  return pages.filter((item) => item.nodes.length > 0).map((item) => ({
+    bodyNodes: item.nodes,
+    footnoteNodes: []
+  }));
 }
 
 /** Consommateur historique : le moteur unique est drainé immédiatement. */
