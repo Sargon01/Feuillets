@@ -500,9 +500,55 @@ test("pagination-engine : la mesure exact de débordement est effectuée avant c
   const yieldMatches = sourceFile.match(/yield/g) || [];
   assert.ok(yieldMatches.length >= 6, "Should have multiple yields after measurements");
 
-  // Verify yields follow overflow checks
-  const overflowYieldPattern = sourceFile.match(/const.*Overflows = overflows[\s\S]{0,50}yield/);
-  assert.ok(overflowYieldPattern, "overflows() should be called before yield");
+  // Verify yields follow overflow checks (historic or with reserved area)
+  // Check for either pattern: overflow measurement before yield
+  const hasOverflowBeforeYield = sourceFile.match(/const.*Overflows = (overflows|overflowsWithReservedBottomArea)[\s\S]{0,150}yield/);
+  assert.ok(hasOverflowBeforeYield, "Overflow measurements should be called before yield");
+});
+
+// === LOT 4: TRANSACTIONAL GUARDS ===
+
+test("Lot 4 : height restoration — previousHeight sauvegardée puis restaurée", () => {
+  const sourceFile = readSourceFile();
+  // Verify the pattern: save height, modify, restore in finally
+  const heightPattern = sourceFile.match(/const previousHeight = content\.style\.height[\s\S]{0,200}content\.style\.height = [\s\S]{0,100}finally[\s\S]{0,50}content\.style\.height = previousHeight/);
+  assert.ok(heightPattern, "Height must be saved, modified, and restored in finally");
+});
+
+test("Lot 4 : geometry.heightPx — jamais assignée", () => {
+  const sourceFile = readSourceFile();
+  // Verify no direct assignment to geometry.heightPx
+  assert.doesNotMatch(sourceFile, /geometry\.heightPx\s*=/);
+  // But Math.max calculation is allowed
+  assert.match(sourceFile, /Math\.max\(0, geometry\.heightPx - reservedHeight\)/);
+});
+
+test("Lot 4 : overflows() — signature et corps inchangés", () => {
+  const sourceFile = readSourceFile();
+  // Verify overflows function signature and body
+  assert.match(sourceFile, /function overflows\(content: HTMLElement\): boolean/);
+  assert.match(sourceFile, /return content\.scrollHeight > content\.clientHeight \|\| content\.scrollWidth > content\.clientWidth/);
+});
+
+test("Lot 4 : root — typé HTMLElement | ShadowRoot, sans cast", () => {
+  const sourceFile = readSourceFile();
+  // Verify root type signature
+  assert.match(sourceFile, /root: HTMLElement \| ShadowRoot/);
+  // Verify no casts
+  assert.doesNotMatch(sourceFile, /root as HTMLElement/);
+});
+
+test("Lot 4 : aucun état de notes dans le moteur", () => {
+  const sourceFile = readSourceFile();
+  // Verify no footnote-related state variables in pagination-engine
+  assert.doesNotMatch(sourceFile, /currentFootnotes|pendingFootnotes|committedFootnotes/);
+});
+
+test("Lot 4 : provider absent = chemin historique", () => {
+  const sourceFile = readSourceFile();
+  // Verify early guard for missing provider
+  const guardPattern = sourceFile.match(/if \(!geometry\.reservedBottomAreaProvider\)\s*\{\s*return overflows\(content\)/);
+  assert.ok(guardPattern, "Must guard against missing provider and return directly");
 });
 
 // === LOT 1: PAGE STRUCTURE ===

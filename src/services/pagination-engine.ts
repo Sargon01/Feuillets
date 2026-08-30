@@ -4,6 +4,9 @@
  * page-sized DOM box and asks that box whether it overflows.
  */
 
+export type PaginationReservedBottomAreaProvider =
+  (bodyNodes: readonly Element[]) => Element | null;
+
 export type PaginationGeometry = {
   widthPx: number;
   heightPx: number;
@@ -17,6 +20,7 @@ export type PaginationGeometry = {
   columnGapPt?: number;
   /** Politique explicite par niveau ; l'absence conserve le comportement legacy. */
   headingPageBreaks?: Partial<Record<"h1" | "h2" | "h3" | "h4" | "h5" | "h6", boolean>>;
+  reservedBottomAreaProvider?: PaginationReservedBottomAreaProvider;
 };
 
 export type PaginationPage = {
@@ -242,6 +246,76 @@ function overflows(content: HTMLElement): boolean {
 }
 
 /**
+ * Wrapper around overflows() that reserves height for a bottom area if a provider exists.
+ * The provider returns an Element representing a zone (e.g., footnotes) that should consume
+ * space from the content's available height, or null if no area is needed.
+ *
+ * If the provider exists and returns an Element, we:
+ * 1. Measure the Element's actual height in the browser
+ * 2. Temporarily reduce content.style.height to account for this reservation
+ * 3. Call overflows() with the reduced height
+ * 4. Restore content.style.height (in finally)
+ *
+ * If the provider doesn't exist or returns null, this function behaves identically to overflows().
+ */
+function overflowsWithReservedBottomArea(
+  content: HTMLElement,
+  geometry: PaginationGeometry,
+  root: HTMLElement | ShadowRoot
+): boolean {
+  // If no provider, use historical path unchanged
+  if (!geometry.reservedBottomAreaProvider) {
+    return overflows(content);
+  }
+
+  // Get bodyNodes from current content's children
+  const bodyNodes = Array.from(content.children);
+
+  // Ask provider for a bottom area
+  const bottomArea = geometry.reservedBottomAreaProvider(bodyNodes);
+
+  // If provider returns null, no reservation needed
+  if (!bottomArea) {
+    return overflows(content);
+  }
+
+  // Measure the bottom area in a temporary container
+  const tempContainer = document.createElement("div");
+  tempContainer.style.width = `${geometry.widthPx}px`;
+  tempContainer.style.boxSizing = "border-box";
+  tempContainer.style.fontFamily = geometry.fontFamily;
+  tempContainer.style.fontSize = `${geometry.fontSizePt}pt`;
+  tempContainer.style.lineHeight = String(geometry.lineHeight);
+  tempContainer.style.textAlign = geometry.textAlign || "initial";
+  tempContainer.style.hyphens = geometry.hyphens ? "auto" : "none";
+  tempContainer.style.columnCount = "1";
+  tempContainer.style.visibility = "hidden";
+
+  tempContainer.appendChild(bottomArea.cloneNode(true));
+  root.appendChild(tempContainer);
+
+  let reservedHeight = 0;
+  try {
+    reservedHeight = tempContainer.scrollHeight;
+  } finally {
+    root.removeChild(tempContainer);
+  }
+
+  // Calculate available height for body
+  const availableBodyHeight = Math.max(0, geometry.heightPx - reservedHeight);
+
+  // Save and temporarily modify content height
+  const previousHeight = content.style.height;
+  content.style.height = `${availableBodyHeight}px`;
+
+  try {
+    return overflows(content);
+  } finally {
+    content.style.height = previousHeight;
+  }
+}
+
+/**
  * Paginate top-level manuscript blocks.  Overflow is determined solely by
  * scrollHeight/clientHeight or scrollWidth/clientWidth after each candidate
  * is actually laid out. The horizontal check is essential for page-height
@@ -275,7 +349,7 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
 
   const appendIfFits = (candidate: Element): boolean => {
     page.content.appendChild(candidate);
-    const fits = !overflows(page.content);
+    const fits = !overflowsWithReservedBottomArea(page.content, geometry, root);
     page.content.removeChild(candidate);
     return fits;
   };
@@ -290,7 +364,7 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
     const media = copies.find(isLandscapeContextDocumentMedia);
     if (media && scale < 1) setDocumentMediaScale(media, scale);
     copies.forEach((copy) => content.appendChild(copy));
-    const fits = !overflows(content);
+    const fits = !overflowsWithReservedBottomArea(content, geometry, root);
     copies.forEach((copy) => copy.remove());
     return fits;
   };
@@ -400,7 +474,7 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
         if (!candidate) break;
         applyFragmentPresentation(candidate, start > 0, false, geometry.textAlign);
         page.content.appendChild(candidate);
-        const candidateOverflows = overflows(page.content);
+        const candidateOverflows = overflowsWithReservedBottomArea(page.content, geometry, root);
         yield;
         if (!candidateOverflows) {
           // Keep the exact DOM element which was measured.
@@ -420,7 +494,7 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
           if (!prefix) continue;
           applyFragmentPresentation(prefix, start > 0, true, geometry.textAlign);
           page.content.appendChild(prefix);
-          const prefixOverflows = overflows(page.content);
+          const prefixOverflows = overflowsWithReservedBottomArea(page.content, geometry, root);
           yield;
           if (!prefixOverflows) {
             fitting = prefix;
