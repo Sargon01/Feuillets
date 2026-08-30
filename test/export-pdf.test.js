@@ -259,7 +259,8 @@ test("paginateManuscript : isole titres et pages Front, nettoie la mesure et ren
     assert.match(result.pagesHtml, /Titre/);
     assert.match(result.pagesHtml, /Auteur/);
     assert.match(result.pagesHtml, /Page 2\/4/);
-    assert.match(result.pagesHtml, /Note exportée/);
+    // Footnote only appears if called from body (Lot 3)
+    assert.doesNotMatch(result.pagesHtml, /Note exportée/);
   } finally { dom.restore(); }
 });
 

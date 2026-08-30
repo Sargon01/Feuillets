@@ -15,9 +15,9 @@ function mockDefinition(id, html = `<p>Note ${id}</p>`) {
 /**
  * Helper to create a mock sup.footnote-ref element
  */
-function mockSupElement(id, href = `#${id}`) {
+function mockSupElement(id, href = `#${id}`, markerText = id) {
   const sup = { tagName: "sup", classList: { contains: (name) => name === "footnote-ref" } };
-  const link = { getAttribute: (attr) => (attr === "href" ? href : null) };
+  const link = { getAttribute: (attr) => (attr === "href" ? href : null), textContent: markerText };
   sup.querySelector = (selector) => (selector === "a[href]" ? link : null);
   return sup;
 }
@@ -66,9 +66,12 @@ test("pagination-footnotes : une seule note", () => {
   assert.equal(obs.calls[0].id, "fn-1");
   assert.equal(obs.calls[0].pageIndex, 0);
   assert.equal(obs.calls[0].callIndex, 0);
+  assert.equal(obs.calls[0].markerText, "fn-1");
   assert.deepEqual(obs.assignedIdsByPage[0], ["fn-1"]);
   assert.equal(obs.assignedDefinitionsByPage[0].length, 1);
   assert.equal(obs.assignedDefinitionsByPage[0][0].id, "fn-1");
+  assert.equal(obs.assignedCallsByPage[0].length, 1);
+  assert.equal(obs.assignedCallsByPage[0][0].markerText, "fn-1");
 });
 
 test("pagination-footnotes : deux notes sur la même page", () => {
@@ -192,14 +195,40 @@ test("pagination-footnotes : fragment invalide ne fait pas planter", () => {
   });
 });
 
+test("pagination-footnotes : markerText custom", () => {
+  const sup = mockSupElement("fn-1", "#fn-1", "[1]");
+  const pages = [mockPage([mockPageNode([sup])])];
+  const definitions = [mockDefinition("fn-1")];
+
+  const obs = observePaginationFootnotes(pages, definitions);
+
+  assert.equal(obs.calls[0].markerText, "[1]");
+  assert.equal(obs.assignedCallsByPage[0][0].markerText, "[1]");
+});
+
+test("pagination-footnotes : id et markerText indépendants", () => {
+  const sup = mockSupElement("fn-custom", "#fn-custom", "7");
+  const pages = [mockPage([mockPageNode([sup])])];
+  const definitions = [mockDefinition("fn-custom")];
+
+  const obs = observePaginationFootnotes(pages, definitions);
+
+  assert.equal(obs.calls[0].id, "fn-custom");
+  assert.equal(obs.calls[0].markerText, "7");
+  assert.equal(obs.assignedCallsByPage[0][0].id, "fn-custom");
+  assert.equal(obs.assignedCallsByPage[0][0].markerText, "7");
+});
+
 test("pagination-footnotes : populate crée les nodes", () => {
   const sup = mockSupElement("fn-1");
   const pages = [mockPage([mockPageNode([sup])])];
   const definitions = [mockDefinition("fn-1", "<p>Note content</p>")];
 
   let createNodeCalled = 0;
-  const createNode = (def) => {
+  const createNodeCallParams = [];
+  const createNode = (def, call) => {
     createNodeCalled++;
+    createNodeCallParams.push({ def, call });
     return { tagName: "li", id: def.id, innerHTML: def.html };
   };
 
@@ -208,6 +237,9 @@ test("pagination-footnotes : populate crée les nodes", () => {
   assert.equal(createNodeCalled, 1);
   assert.equal(pages[0].footnoteNodes.length, 1);
   assert.equal(pages[0].footnoteNodes[0].id, "fn-1");
+  // Verify createNode received both definition and call with markerText
+  assert.equal(createNodeCallParams[0].def.id, "fn-1");
+  assert.equal(createNodeCallParams[0].call.markerText, "fn-1");
 });
 
 test("pagination-footnotes : populate est idempotent", () => {
@@ -269,6 +301,27 @@ test("pagination-footnotes : garde sur export-pdf", async () => {
   // Verify the integration point exists
   assert.match(sourceFile, /populatePaginationFootnoteNodes/);
   assert.match(sourceFile, /const nodes = page\.bodyNodes/);
-  // Verify it doesn't use footnoteNodes in serialization
-  assert.doesNotMatch(sourceFile, /page\.footnoteNodes[\s\S]{0,50}outerHTML/);
+  // Verify footnotes zone structure
+  assert.match(sourceFile, /pdf-page-footnotes/);
+  assert.match(sourceFile, /pdf-page-footnotes-separator/);
+  assert.match(sourceFile, /pdf-page-footnote-marker/);
+  assert.match(sourceFile, /pdf-page-footnote-content/);
+  // Verify old .pdf-footnotes-section construction is removed
+  assert.doesNotMatch(sourceFile, /pdf-footnotes-section/);
+  // Verify markerText injected via textContent
+  assert.match(sourceFile, /markerSpan\.textContent = call\.markerText/);
+  // Verify no innerHTML for marker
+  assert.doesNotMatch(sourceFile, /markerSpan\.innerHTML/);
+  // Verify position relative conditional
+  assert.match(sourceFile, /hasPageFootnotes/);
+  assert.match(sourceFile, /position: relative/);
+  // Verify absolute positioning with left/right = 0
+  assert.match(sourceFile, /left: 0/);
+  assert.match(sourceFile, /right: 0/);
+  assert.match(sourceFile, /bottom: 0/);
+  // Verify column handling
+  assert.match(sourceFile, /column-count: 1/);
+  assert.match(sourceFile, /column-span: all/);
+  // Verify notes placed INSIDE pdf-page-content
+  assert.match(sourceFile, /pageFootnotesHtml/);
 });

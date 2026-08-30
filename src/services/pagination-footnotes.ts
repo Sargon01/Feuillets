@@ -2,8 +2,7 @@
  * Footnote association for paginated content.
  *
  * Scans PaginationPage.bodyNodes for footnote references and associates
- * their definitions to the page of their first call, without modifying
- * the pagination or reserving height.
+ * their definitions to the page of their first call, with visible marker text.
  */
 
 import type { PaginationPage } from "./pagination-engine.js";
@@ -17,22 +16,23 @@ export type PaginationFootnoteCall = {
   id: string;
   pageIndex: number;
   callIndex: number;
+  markerText: string;
 };
 
 export type PaginationFootnoteObservation = {
   calls: PaginationFootnoteCall[];
   assignedIdsByPage: string[][];
   assignedDefinitionsByPage: PaginationFootnoteDefinition[][];
+  assignedCallsByPage: PaginationFootnoteCall[][];
   missingDefinitionIds: string[];
   duplicateDefinitionIds: string[];
   unusedDefinitionIds: string[];
 };
 
 /**
- * Extract the footnote ID from a sup.footnote-ref element.
- * Looks for an `href` attribute and extracts the fragment after `#`.
+ * Extract the footnote ID and marker text from a sup.footnote-ref element.
  */
-function extractFootnoteId(supElement: Element): string | null {
+function extractFootnoteData(supElement: Element): { id: string; markerText: string } | null {
   const link = supElement.querySelector("a[href]");
   if (!link) return null;
 
@@ -52,20 +52,24 @@ function extractFootnoteId(supElement: Element): string | null {
     // If decoding fails, use raw fragment
   }
 
-  return fragment || null;
+  if (!fragment) return null;
+
+  const markerText = link.textContent?.trim() ?? "";
+
+  return { id: fragment, markerText };
 }
 
 /**
- * Scan bodyNodes for sup.footnote-ref elements and extract footnote IDs.
+ * Scan bodyNodes for sup.footnote-ref elements and extract footnote data.
  */
-function scanBodyNodesForFootnoteIds(bodyNodes: Element[]): string[] {
-  const ids: string[] = [];
+function scanBodyNodesForFootnoteData(bodyNodes: Element[]): { id: string; markerText: string }[] {
+  const footnoteData: { id: string; markerText: string }[] = [];
 
   for (const node of bodyNodes) {
     // Check if the node itself is a sup.footnote-ref
     if (node.tagName?.toLowerCase() === "sup" && node.classList?.contains("footnote-ref")) {
-      const id = extractFootnoteId(node);
-      if (id) ids.push(id);
+      const data = extractFootnoteData(node);
+      if (data) footnoteData.push(data);
     }
 
     // Scan descendants
@@ -73,13 +77,13 @@ function scanBodyNodesForFootnoteIds(bodyNodes: Element[]): string[] {
     if (descendants) {
       for (let i = 0; i < descendants.length; i++) {
         const sup = descendants[i];
-        const id = extractFootnoteId(sup);
-        if (id) ids.push(id);
+        const data = extractFootnoteData(sup);
+        if (data) footnoteData.push(data);
       }
     }
   }
 
-  return ids;
+  return footnoteData;
 }
 
 /**
@@ -106,6 +110,7 @@ export function observePaginationFootnotes(
   const calls: PaginationFootnoteCall[] = [];
   const assignedIdsByPage: string[][] = pages.map(() => []);
   const assignedDefinitionsByPage: PaginationFootnoteDefinition[][] = pages.map(() => []);
+  const assignedCallsByPage: PaginationFootnoteCall[][] = pages.map(() => []);
   const assignedDefinitionIds = new Set<string>();
   const missingIds = new Set<string>();
 
@@ -113,24 +118,26 @@ export function observePaginationFootnotes(
   let callIndex = 0;
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
     const page = pages[pageIndex];
-    const footnoteIds = scanBodyNodesForFootnoteIds(page.bodyNodes);
+    const footnoteDataList = scanBodyNodesForFootnoteData(page.bodyNodes);
 
-    for (const id of footnoteIds) {
-      calls.push({ id, pageIndex, callIndex });
+    for (const data of footnoteDataList) {
+      const call: PaginationFootnoteCall = { id: data.id, pageIndex, callIndex, markerText: data.markerText };
+      calls.push(call);
       callIndex++;
 
       // Check if definition exists
-      const definition = definitionMap.get(id);
+      const definition = definitionMap.get(data.id);
       if (!definition) {
-        missingIds.add(id);
+        missingIds.add(data.id);
         continue;
       }
 
       // Assign definition to first occurrence only
-      if (!assignedDefinitionIds.has(id)) {
-        assignedIdsByPage[pageIndex].push(id);
+      if (!assignedDefinitionIds.has(data.id)) {
+        assignedIdsByPage[pageIndex].push(data.id);
         assignedDefinitionsByPage[pageIndex].push(definition);
-        assignedDefinitionIds.add(id);
+        assignedCallsByPage[pageIndex].push(call);
+        assignedDefinitionIds.add(data.id);
       }
     }
   }
@@ -147,6 +154,7 @@ export function observePaginationFootnotes(
     calls,
     assignedIdsByPage,
     assignedDefinitionsByPage,
+    assignedCallsByPage,
     missingDefinitionIds: Array.from(missingIds),
     duplicateDefinitionIds: Array.from(duplicateIds),
     unusedDefinitionIds: unusedIds,
@@ -155,12 +163,12 @@ export function observePaginationFootnotes(
 
 /**
  * Populate footnoteNodes on pages based on observed footnote associations.
- * The createNode callback converts a definition to a DOM element.
+ * The createNode callback converts a definition and its call to a DOM element.
  */
 export function populatePaginationFootnoteNodes(
   pages: PaginationPage[],
   definitions: readonly PaginationFootnoteDefinition[],
-  createNode: (definition: PaginationFootnoteDefinition) => Element
+  createNode: (definition: PaginationFootnoteDefinition, call: PaginationFootnoteCall) => Element
 ): PaginationFootnoteObservation {
   const observation = observePaginationFootnotes(pages, definitions);
 
@@ -168,7 +176,8 @@ export function populatePaginationFootnoteNodes(
   for (let pageIndex = 0; pageIndex < pages.length; pageIndex++) {
     const page = pages[pageIndex];
     const assignedDefinitions = observation.assignedDefinitionsByPage[pageIndex];
-    page.footnoteNodes = assignedDefinitions.map(createNode);
+    const assignedCalls = observation.assignedCallsByPage[pageIndex];
+    page.footnoteNodes = assignedDefinitions.map((def, idx) => createNode(def, assignedCalls[idx]));
   }
 
   return observation;
