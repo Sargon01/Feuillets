@@ -454,15 +454,30 @@ export function paginateManuscript(
       ? ` column-count: ${columnCount}; column-gap: ${columnGapPt}pt; column-fill: auto;`
       : "";
 
-    // Render footnotes at bottom if page has any (INSIDE pdf-page-content)
-    const footnotesArea = createPaginationFootnoteArea(page.footnoteNodes, tpl.fontFamily, true);
+    // Render footnotes at bottom if page has any
+    const hasPageFootnotes = page.footnoteNodes.length > 0;
+    const isMulticolumnWithFootnotes = hasPageFootnotes && columnCount > 1;
+
+    // For multicolumn pages with footnotes: use normal-flow footer (positioned=false)
+    // For all other cases: use positioned footer (positioned=true) — maintains Lot 3/4 behavior
+    const footnotesArea = createPaginationFootnoteArea(
+      page.footnoteNodes,
+      tpl.fontFamily,
+      !isMulticolumnWithFootnotes // positioned=true unless multicolumn with footnotes
+    );
     const pageFootnotesHtml = footnotesArea?.outerHTML ?? "";
 
-    // pdf-page-content gets position:relative only if it has footnotes
-    const hasPageFootnotes = page.footnoteNodes.length > 0;
-    const contentStyle = hasPageFootnotes
-      ? `position: relative; height: 100%; overflow: hidden;${columnsStyle}`
-      : `height: 100%; overflow: hidden;${columnsStyle}`;
+    // pdf-page-content layout depends on whether multicolumn with footnotes
+    let contentStyle: string;
+    if (isMulticolumnWithFootnotes) {
+      // Multicolumn + footnotes: use flex layout with body wrapper
+      contentStyle = `display: flex; flex-direction: column; height: 100%; overflow: hidden;`;
+    } else {
+      // All other cases: historical layout (position:relative if footnotes, else plain)
+      contentStyle = hasPageFootnotes
+        ? `position: relative; height: 100%; overflow: hidden;${columnsStyle}`
+        : `height: 100%; overflow: hidden;${columnsStyle}`;
+    }
 
     return `
       <div class="pdf-page ${isEven ? "page-even" : "page-odd"}" style="
@@ -503,8 +518,26 @@ export function paginateManuscript(
             : ""
         }
         <div class="pdf-page-content" style="${contentStyle}">
+          ${
+            isMulticolumnWithFootnotes
+              ? `
+          <div class="pdf-page-body-columns" style="
+            flex: 1 1 auto;
+            min-height: 0;
+            column-count: ${columnCount};
+            column-gap: ${columnGapPt}pt;
+            column-fill: auto;
+            overflow: hidden;
+          ">
+            ${nodesHtml}
+          </div>
+          ${pageFootnotesHtml}
+        `
+              : `
           ${nodesHtml}
           ${pageFootnotesHtml}
+        `
+          }
         </div>
         ${
           showFooter
