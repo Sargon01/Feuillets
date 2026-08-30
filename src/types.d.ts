@@ -106,6 +106,9 @@ declare type MappableFrontmatterField =
   | "characters"
   | "date";
 
+/** Style de rendu des citations Pandoc/Zotero en Aperçu. */
+declare type PandocCitationPreviewStyle = "off" | "author-date";
+
 /** Métadonnées par dossier projet : `settings.projectMeta[cheminDossier]`.
  * À la fois fiche d'identité (nom, icône, type, description) et réglages
  * propres à CE projet, qui priment sur les réglages globaux du même nom.
@@ -126,6 +129,10 @@ declare type ProjectMeta = {
   labels?: Label[];
   /** Style bibliographique — services/citations.js. */
   citationStyle?: string;
+  /** Mode d'aperçu des citations Pandoc/Zotero en Aperçu ; "off" par défaut. */
+  pandocCitationPreviewStyle?: PandocCitationPreviewStyle;
+  /** Chemin relatif au fichier .bib / Pandoc bibliography (ex. "Bibliographie/references.bib"). */
+  pandocBibliographyPath?: string;
   /** Filtres Recherche sauvegardés — ui/entity-modals.ts ManageSavedFiltersModal. */
   savedResearchFilters?: SavedResearchFilter[];
   /** Association dossier Binder (clé : chemin du dossier manuscrit) → dossier

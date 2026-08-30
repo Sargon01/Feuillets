@@ -657,6 +657,15 @@ export const fr = {
   "sidebar.project.mappingField.thread": "Fil narratif",
   "sidebar.project.mappingField.characters": "Personnages",
   "sidebar.project.mappingField.date": "Date",
+
+  /* Aperçu des citations Pandoc/Zotero */
+  "project.pandocCitationPreview.title": "Aperçu des citations Pandoc / Zotero",
+  "project.pandocCitationPreview.styleLabel": "Style d'aperçu",
+  "project.pandocCitationPreview.styleOff": "Clés brutes",
+  "project.pandocCitationPreview.styleAuthorDate": "Auteur-date",
+  "project.pandocCitationPreview.bibliographyLabel": "Bibliographie Pandoc (.bib)",
+  "project.pandocCitationPreview.bibliographyPlaceholder": "Bibliographie/references.bib",
+
   "sidebar.tab.project": "Projet",
   "sidebar.tab.edition": "Édition",
   "sidebar.edition.composition": "Composition",
