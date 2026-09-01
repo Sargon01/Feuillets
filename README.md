@@ -2,17 +2,25 @@
 
 **Version française: [README-fr.md](README-fr.md)**
 
-## Write first. Organize when the text needs it.
+**Website: https://sargon01.github.io/feuillets-site/**
 
-**Feuillets turns Obsidian into a writing and editorial studio for texts that may remain a single sheet or grow into a book.**
+## Write your whole book in Obsidian.
 
-Your texts remain ordinary Markdown files and your folders remain real folders. Feuillets adds a Binder, structural views, Continuous mode, Research, review, composition and export around them — without a proprietary project format.
+**Feuillets turns ordinary Markdown files into a complete long-form writing workflow inside Obsidian.**
+
+Organize separate files as a manuscript, write several of them as one continuous editable document, revise your work, preview the composed book, and export it — without leaving your vault or locking your text into a proprietary project format.
+
+**Local Markdown · No account · No telemetry · No lock-in · GPL-3.0**
+
+| Organize | Write | Finish |
+|---|---|---|
+| **Binder** | **Continuous** | **Preview → Edition → Export** |
+
+**New to Feuillets?** Create the built-in **Candide demo project** and discover the core workflow in a few minutes — no setup and no personal files required. [Start here](docs/DISCOVER.md).
 
 > **Text before system.**
 
-**New to Feuillets?** [Start with what you want to do](docs/DISCOVER.md): write across several sheets, annotate, reorder, review or export without reading the whole documentation first.
-
-![Feuillets — writing and Preview](docs/feuillets-ecriture-apercu.png)
+![Organize a manuscript with the Feuillets Binder](docs/feuillets-classeur.gif)
 
 ## From one sheet to a manuscript
 
@@ -63,8 +71,6 @@ The **Binder** is primarily for finding and moving text. It can:
 
 In split view, a left pane adds two navigation areas without changing the Binder on the right: **Manuscript** shows folders only for an at-a-glance structural view; **Vault** provides lightweight read-only navigation to open other vault documents. The right pane keeps exactly the same rows, menus, selections and interactions as single view.
 
-![The Binder with manuscript organization](docs/feuillets-classeur.png)
-
 See [Binder and navigation](docs/BINDER-AND-NAVIGATION.md).
 
 ## Continuous mode: several files, one editable manuscript
@@ -74,6 +80,8 @@ See [Binder and navigation](docs/BINDER-AND-NAVIGATION.md).
 It also supports **Reorder text** within each sheet: paragraphs or fragments contained in one paragraph can be moved, but never across a sheet boundary.
 
 No composite manuscript is created on disk and no batch of Obsidian tabs is opened. Continuous and Preview can stay synchronized on the same scope.
+
+![Write several Markdown files as one editable manuscript in Continuous mode](docs/feuillets-continu.gif)
 
 See [Continuous mode](docs/CONTINUOUS-MODE.md).
 
@@ -167,6 +175,8 @@ The central **Edition** workspace contains two modes:
 The **First page** has one owner only: Composition. Its presentation uses the same template model as Preview and export.
 
 Edition groups **Scope**, **Content**, **Format** and **Export**, alongside Preview refresh. The Content menu selects the full document, an extraction or a collection. Output file naming is no longer exposed as a normal control; Feuillets resolves it automatically while preserving legacy values for compatibility.
+
+![Preview, compose and export a manuscript with Feuillets Edition](docs/feuillets-edition-apercu.gif)
 
 See [Composition and export](docs/COMPOSITION-AND-EXPORT.md).
 

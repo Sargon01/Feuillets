@@ -2,17 +2,25 @@
 
 **English version: [README.md](README.md)**
 
-## Écrivez d’abord. Organisez quand le texte en a besoin.
+**Site officiel : https://sargon01.github.io/feuillets-site/**
 
-**Feuillets transforme Obsidian en atelier d’écriture et d’édition pour les textes qui peuvent rester un feuillet ou devenir un livre.**
+## Écrivez tout votre livre dans Obsidian.
 
-Vos textes restent de simples fichiers Markdown et vos dossiers restent de vrais dossiers. Feuillets ajoute autour d’eux un Classeur, des vues de structure, un mode Continu, la Recherche, la relecture, la composition et l’export — sans format propriétaire.
+**Feuillets transforme de simples fichiers Markdown en un environnement complet d’écriture longue dans Obsidian.**
+
+Organisez des fichiers séparés comme un manuscrit, écrivez-en plusieurs comme un seul document continu réellement éditable, révisez votre texte, prévisualisez le livre composé et exportez-le — sans quitter votre coffre ni enfermer vos textes dans un format de projet propriétaire.
+
+**Markdown local · Aucun compte · Aucune télémétrie · Aucun verrouillage · GPL-3.0**
+
+| Organiser | Écrire | Finaliser |
+|---|---|---|
+| **Classeur** | **Continu** | **Aperçu → Édition → Export** |
+
+**Vous découvrez Feuillets ?** Créez le projet de démonstration intégré **Candide** et découvrez le flux principal en quelques minutes — sans configuration et sans toucher à vos propres fichiers. [Commencer ici](docs/DECOUVRIR.md).
 
 > **Le texte avant le système.**
 
-**Vous découvrez Feuillets ?** [Partez de ce que vous voulez faire](docs/DECOUVRIR.md) : écrire plusieurs feuillets ensemble, annoter, réorganiser, relire ou exporter sans parcourir toute la documentation.
-
-![Feuillets — écriture et aperçu](docs/feuillets-ecriture-apercu.png)
+![Organiser un manuscrit avec le Classeur Feuillets](docs/feuillets-classeur.gif)
 
 ## Du feuillet au manuscrit
 
@@ -63,8 +71,6 @@ Le **Classeur** sert d’abord à trouver et déplacer les textes. Il permet not
 
 En double vue, un volet gauche ajoute deux accès sans modifier le Classeur de droite : **Manuscrit** affiche uniquement l’arborescence des dossiers pour lire la structure d’un coup d’œil ; **Coffre** permet de parcourir et d’ouvrir des documents du vault en lecture/navigation seule. Le volet droit conserve exactement les mêmes lignes, menus, sélections et interactions qu’en vue simple.
 
-![Le Classeur avec organisation du manuscrit](docs/feuillets-classeur.png)
-
 Voir [Classeur et navigation](docs/CLASSEUR-ET-NAVIGATION.md).
 
 ## Continu : plusieurs fichiers, un seul manuscrit éditable
@@ -74,6 +80,8 @@ Le mode **Continu** assemble un fichier, un dossier, une sélection ou un projet
 Il prend aussi en charge **Réorganiser le texte** à l’intérieur de chaque feuillet : paragraphes ou fragments contenus dans un seul paragraphe peuvent être déplacés, jamais à travers une frontière de feuillet.
 
 Aucun manuscrit composite n’est créé sur disque et aucun lot d’onglets Obsidian n’est ouvert. Continu et Aperçu peuvent rester synchronisés sur la même portée.
+
+![Écrire plusieurs fichiers Markdown comme un seul manuscrit éditable en mode Continu](docs/feuillets-continu.gif)
 
 Voir [Mode Continu](docs/MODE-CONTINU.md).
 
@@ -167,6 +175,8 @@ L’espace central **Édition** contient deux modes :
 La **Première page** n’existe qu’à un seul endroit : Composition. Sa présentation réutilise le même gabarit que l’Aperçu et les exports.
 
 La barre d’Édition regroupe **Portée**, **Contenu**, **Format** puis **Exporter**, avec l’actualisation de l’Aperçu. Le menu Contenu permet de publier le document complet, une extraction ou une collection. Le nom de fichier n’est plus un réglage visible : Feuillets gère le nom de sortie et conserve les valeurs historiques pour compatibilité.
+
+![Prévisualiser, composer et exporter un manuscrit avec l’espace Édition de Feuillets](docs/feuillets-edition-apercu.gif)
 
 Voir [Composition et export](docs/COMPOSITION-ET-EXPORT.md).
 

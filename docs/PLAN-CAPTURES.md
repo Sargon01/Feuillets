@@ -1,38 +1,170 @@
-# Plan des captures — Feuillets 2.5
+# Plan des captures — Feuillets
 
-Les captures 2.0/2.0.5 ne doivent pas être conservées lorsqu’elles montrent une surface ou un vocabulaire devenu faux.
+La présentation publique de Feuillets repose d’abord sur trois démonstrations du workflow réel :
 
-## Captures prioritaires à refaire
+> **Organiser → Écrire → Finaliser**
 
-1. **Écriture** — feuillet Markdown avec Classeur et panneau Feuillet.
-2. **Classeur simple** — navigation 2.5 actuelle.
-3. **Classeur double vue** — Manuscrit + Coffre à gauche, Classeur inchangé à droite.
-4. **Continu** — plusieurs feuillets dans un seul éditeur avec séparations visibles.
-5. **Aperçu** — document paginé à côté du texte/Continu.
-6. **Cartes**.
-7. **Plan** — colonnes actuelles et exemple de retour à la ligne des textes longs.
-8. **Recherche** — dossier externe associé visible sous Dossiers liés.
-9. **Recherche externe** — menu permettant nouvel onglet / côte à côte sans actions d’administration.
-10. **Projet** — page d’administration + sous-page Propriétés YAML.
-11. **Annotations de travail** — passage surligné + popover/liste.
-12. **Relecture** — page d’accueil avec Analyse / Collaborative / DOCX / Comparaison.
-13. **Relecture collaborative** — retour auteur ou comparaison d’un tour.
-14. **Comparateur** — déplacement + `[…]` + modes Changements/Versions.
-15. **Édition / Composition** — sommaire compact.
-16. **Première page** — sous-page unique dans Composition.
-17. **Mise en page** — Page/Corps/Titres/Citation.
-18. **Export** — barre d’Édition avec portée/format/Exporter/rafraîchir.
-19. **Import Scrivener** — écran de choix/import si une capture reste nécessaire.
+soit :
 
-## Captures à supprimer/remplacer si présentes
+> **Classeur → Continu → Aperçu / Édition → export**
 
-- ancien Inspecteur avec Notes / Édition / Analyse ;
-- ancienne Révision DOCX sous Édition ;
-- ancien espace Édition à trois onglets incluant Export ;
+Les trois démonstrations principales utilisent le projet de démonstration intégré **Candide** afin de montrer un même manuscrit dans un environnement cohérent.
+
+## Les trois démonstrations principales
+
+### 1. Organiser — Classeur
+
+**Fichier :** `feuillets-classeur.gif`
+
+Cette démonstration montre le Classeur en usage réel.
+
+Elle permet notamment de voir :
+
+- la structure du manuscrit Candide ;
+- la navigation dans le Classeur ;
+- le double panneau ;
+- l’isolation d’un dossier ;
+- le retour à la structure du projet ;
+- les vues étendues ;
+- l’ouverture avec Aperçu.
+
+**Message principal :**
+
+> Mon livre reste structuré en fichiers et dossiers dans Obsidian, mais Feuillets me permet de le parcourir et de l’organiser comme un manuscrit.
+
+Le GIF est volontairement conservé plutôt qu’une capture statique : plusieurs fonctions importantes du Classeur ne peuvent être comprises sur une seule image.
+
+---
+
+### 2. Écrire — Continu
+
+**Fichier :** `feuillets-continu.gif`
+
+Cette démonstration montre Candide dans le mode **Continu**.
+
+Elle doit rendre visible le principe central :
+
+- le Classeur conserve les différents feuillets du manuscrit ;
+- ces feuillets restent des fichiers Markdown séparés ;
+- Continu les présente comme un seul espace d’écriture.
+
+**Message principal :**
+
+> Mes chapitres restent des fichiers Markdown séparés, mais je peux écrire mon livre comme un seul manuscrit.
+
+Cette démonstration constitue la preuve visuelle principale du mode Continu.
+
+---
+
+### 3. Finaliser — Édition + Aperçu
+
+**Fichier :** `feuillets-edition-apercu.gif`
+
+Cette démonstration montre le passage du manuscrit à sa finalisation.
+
+Elle montre notamment :
+
+- l’ouverture avec Aperçu ;
+- le document paginé ;
+- l’espace Édition ;
+- les réglages de Composition / Mise en page ;
+- l’accès aux différents formats d’export.
+
+**Message principal :**
+
+> Je peux voir, préparer et exporter le livre sans quitter Feuillets.
+
+---
+
+## Cohérence du triptyque
+
+Les trois démonstrations :
+
+- utilisent Candide ;
+- montrent le vrai Feuillets dans Obsidian ;
+- utilisent la même apparence générale ;
+- ne contiennent pas de montage promotionnel ajouté ;
+- démontrent un comportement réel plutôt qu’une liste de fonctions.
+
+Elles racontent ensemble :
+
+1. **Organiser** — Classeur ;
+2. **Écrire** — Continu ;
+3. **Finaliser** — Aperçu / Édition / export.
+
+Aucune quatrième démonstration principale n’est requise.
+
+## Captures secondaires
+
+Les images ou GIF existants consacrés notamment à :
+
+- la concentration ;
+- la mosaïque des vues structurelles ;
+- la comparaison ;
+- l’import Scrivener ;
+- l’écosystème ;
+- l’Aperçu ;
+- la création du premier projet ;
+
+peuvent rester présents dans le README ou la documentation lorsqu’ils correspondent encore à l’interface actuelle.
+
+Ils montrent la profondeur de Feuillets mais ne constituent pas la démonstration principale du produit.
+
+Ils ne doivent pas être refaits uniquement pour harmoniser le marketing.
+
+## Captures documentaires
+
+Les autres surfaces peuvent recevoir des captures dans leur documentation spécialisée uniquement lorsqu’une illustration apporte réellement quelque chose au texte.
+
+Cela peut notamment concerner :
+
+- Cartes ;
+- Plan ;
+- Recherche ;
+- annotations ;
+- Relecture ;
+- comparaison ;
+- propriétés YAML ;
+- Composition détaillée ;
+- Première page ;
+- Mise en page ;
+- Présentation.
+
+Il n’existe plus de liste de dix-neuf captures marketing prioritaires.
+
+## Captures obsolètes
+
+Une capture doit être remplacée ou supprimée lorsqu’elle montre une interface ou un vocabulaire qui n’existe plus.
+
+Sont notamment obsolètes les captures montrant :
+
+- l’ancien Inspecteur avec Notes / Édition / Analyse ;
+- l’ancienne Révision DOCX sous Édition ;
+- l’ancien espace Édition à trois onglets incluant Export ;
 - Première page dupliquée dans Mise en page ;
-- ancien bouton export rapide du Classeur ;
-- essai abandonné Vault à gauche filtrant/isolant le Binder.
+- l’ancien bouton export rapide du Classeur ;
+- l’ancien essai de Vault à gauche filtrant ou isolant le Binder.
 
-## Règle
+L’âge d’une capture n’est pas un motif suffisant pour la refaire : seule son exactitude visuelle compte.
 
-Une capture doit illustrer un workflow stable, pas un réglage temporaire. Les images doivent être refaites **après** le dernier commit fonctionnel et le changement de version, afin qu’aucun détail de pré-release ne reste visible.
+## Ordre public
+
+L’ordre narratif principal est :
+
+1. **Classeur — Organiser**
+2. **Continu — Écrire**
+3. **Édition + Aperçu — Finaliser**
+
+Les autres fonctions viennent ensuite.
+
+## Règle de validation
+
+Avant toute intégration dans README.md ou README-fr.md :
+
+1. vérifier que les trois GIF définitifs existent dans `docs/` ;
+2. vérifier leur nom ;
+3. vérifier qu’ils affichent le vrai Feuillets actuel ;
+4. vérifier qu’aucune donnée personnelle n’est visible ;
+5. vérifier qu’ils restent lisibles dans une page GitHub.
+
+Le Lot 3B décidera ensuite exactement où les trois démonstrations apparaissent dans les README.

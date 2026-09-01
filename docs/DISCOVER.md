@@ -2,13 +2,46 @@
 
 > [Français](DECOUVRIR.md) · **English** · [Documentation index](README.md)
 
-Feuillets is a writing studio built **inside** Obsidian. Your manuscript remains Markdown; tools appear around it only when they become useful.
+Feuillets is a writing studio built **inside** Obsidian. Your manuscript remains a set of ordinary Markdown files; Feuillets adds the tools around it as the project grows.
 
-You do not need to learn all of Feuillets before you start. Begin with what you want to do.
+You do not need to learn all of Feuillets before you start.
 
-> **Binder → sheet/Continuous → Preview → Edition → export**
+## Discover Feuillets in five minutes with Candide
 
-## What do you want to do?
+Feuillets already includes a complete demo project based on Voltaire’s **Candide**. It lets you explore the application without preparing a manuscript or touching your own files.
+
+1. Open **Feuillets**. If no project is active, choose **Discover with a demo project** on the welcome screen.
+2. If a project is already active, open **Manage projects…** from the Binder and choose **Create a demo project…**.
+3. Open **Candide** in the **Binder** and browse a few chapters.
+4. Open a folder or several sheets in **Continuous**: the separate files appear as one genuinely editable manuscript.
+5. Open **Preview** to see the composed document.
+6. Open **Edition** to explore **Composition**, **Layout** and export.
+
+> **Binder → Continuous → Preview → Edition → export**
+
+You have now seen the core of Feuillets. Other tools — Research, Cards, Outline, Storyline, Timeline, Notebook, annotations, versions or review — can be discovered only when they become useful.
+
+## Start with your own writing
+
+### I already have my texts in Obsidian
+
+There is nothing to migrate. An existing vault folder can be used directly as a Feuillets project **without moving, renaming or converting its files**.
+
+See [Binder and navigation](BINDER-AND-NAVIGATION.md).
+
+### I am coming from Scrivener
+
+Feuillets can import a Scrivener project and recover compatible structure, text, metadata, Research and resources.
+
+See [Import a Scrivener project](IMPORT-SCRIVENER-EN.md) and [Replace Scrivener with Feuillets](REPLACE-SCRIVENER-WITH-FEUILLETS.md).
+
+### I am starting a new project
+
+Create a **Fiction**, **Non-fiction** or **Free** project and begin writing. Feuillets does not require you to use every tool from the start: the project can remain simple and grow progressively.
+
+For the complete workflow in its natural order, see [The author's workflow](AUTHOR-WORKFLOW.md).
+
+## Looking for something specific?
 
 - **I already have a folder of texts.** Use it directly as a Feuillets project: your files do not need to be moved, renamed or converted. See [Binder and navigation](BINDER-AND-NAVIGATION.md).
 

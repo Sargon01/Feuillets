@@ -3,7 +3,7 @@
   "name": "Feuillets",
   "version": "2.8.0",
   "minAppVersion": "1.13.0",
-  "description": "Writing and editorial studio for Markdown texts: organize, revise, compile and export anything from a single article to a book.",
+  "description": "Write, organize, revise and export long-form manuscripts in Obsidian while keeping everything as local Markdown.",
   "author": "Halim Yalcin",
   "authorUrl": "https://github.com/Sargon01",
   "isDesktopOnly": false

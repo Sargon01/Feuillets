@@ -2,13 +2,46 @@
 
 > **Français** · [English](DISCOVER.md) · [Index](README.md)
 
-Feuillets est un atelier d’écriture construit **dans** Obsidian. Le manuscrit reste en Markdown ; les outils apparaissent autour de lui seulement lorsqu’ils deviennent utiles.
+Feuillets est un atelier d’écriture construit **dans** Obsidian. Votre manuscrit reste constitué de fichiers Markdown ordinaires ; Feuillets ajoute autour de lui les outils nécessaires à mesure que le projet grandit.
 
-Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer. Partez simplement de ce que vous voulez faire.
+Vous n’avez pas besoin d’apprendre tout Feuillets avant de commencer.
 
-> **Classeur → feuillet/Continu → Aperçu → Édition → export**
+## Découvrir Feuillets en cinq minutes avec Candide
 
-## Que voulez-vous faire ?
+Feuillets contient déjà un projet de démonstration complet basé sur **Candide** de Voltaire. Il permet d’explorer le logiciel sans préparer de manuscrit et sans toucher à vos propres textes.
+
+1. Ouvrez **Feuillets**. Si aucun projet n’est actif, choisissez **Découvrir avec un projet de démonstration** sur l’écran d’accueil.
+2. Si un projet est déjà actif, ouvrez **Gérer les projets…** dans le Classeur puis choisissez **Créer un projet d'exemple…**.
+3. Ouvrez **Candide** dans le **Classeur** et parcourez quelques chapitres.
+4. Ouvrez un dossier ou plusieurs feuillets en **Continu** : les fichiers séparés apparaissent comme un seul manuscrit réellement éditable.
+5. Ouvrez l’**Aperçu** pour voir le document composé.
+6. Ouvrez **Édition** pour découvrir **Composition**, **Mise en page** et l’export.
+
+> **Classeur → Continu → Aperçu → Édition → export**
+
+Vous avez alors vu le cœur de Feuillets. Les autres outils — Recherche, Cartes, Plan, Chemin de fer, Chronologie, Carnet, annotations, versions ou relecture — peuvent être découverts seulement lorsqu’ils deviennent utiles.
+
+## Commencer avec vos propres textes
+
+### J’ai déjà mes textes dans Obsidian
+
+Vous n’avez rien à migrer. Un dossier existant du coffre peut être utilisé directement comme projet Feuillets **sans déplacer, renommer ni convertir ses fichiers**.
+
+Voir [Classeur et navigation](CLASSEUR-ET-NAVIGATION.md).
+
+### Je viens de Scrivener
+
+Feuillets peut importer un projet Scrivener et récupérer les éléments compatibles de sa structure, de son texte, de ses métadonnées, de sa Recherche et de ses ressources.
+
+Voir [Importer un projet Scrivener](IMPORT-SCRIVENER.md) et [Remplacer Scrivener par Feuillets](Remplacer-Scrivener-par-Feuillets.md).
+
+### Je commence un nouveau projet
+
+Créez un projet **Fiction**, **Non-fiction** ou **Libre**, puis commencez à écrire. Feuillets n’impose pas d’utiliser tous ses outils dès le départ : le projet peut rester simple et s’enrichir progressivement.
+
+Pour suivre le travail dans son ordre naturel, voir [Le parcours d’un auteur](PARCOURS-AUTEUR.md).
+
+## Vous cherchez une fonction précise ?
 
 - **J’ai déjà un dossier de textes.** Utilisez-le directement comme projet Feuillets : vos fichiers n’ont pas besoin d’être déplacés, renommés ou convertis. Voir [Classeur et navigation](CLASSEUR-ET-NAVIGATION.md).
 
