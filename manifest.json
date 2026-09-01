@@ -1,9 +1,9 @@
 {
   "id": "feuillets",
   "name": "Feuillets",
-  "version": "2.8.1",
+  "version": "2.8.2",
   "minAppVersion": "1.13.0",
-  "description": "Write, organize, revise and export long-form manuscripts in Obsidian while keeping everything as local Markdown.",
+  "description": "Write, organize, revise and export long-form manuscripts while keeping everything as local Markdown.",
   "author": "Halim Yalcin",
   "authorUrl": "https://github.com/Sargon01",
   "isDesktopOnly": false
