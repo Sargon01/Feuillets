@@ -28,7 +28,7 @@ test("les états du bouton Import et le libellé Annuler sont protégés", () =>
 });
 
 test("l'UI du sélecteur de fichier reste strictement scoped", () => {
-  assert.match(styles, /\.feuillets-feuil-import-modal \{/);
+  assert.match(styles, /\.feuillets-feuil-import-modal(?:\s*,|\s*\{)/);
   assert.match(styles, /\.feuillets-feuil-import-file-input \{[\s\S]*?display: none;/);
   assert.match(styles, /\.feuillets-feuil-import-file-name \{[\s\S]*?text-overflow: ellipsis;/);
   assert.doesNotMatch(styles, /(?<!feuillets-feuil-import-)input\[type="file"\]/);

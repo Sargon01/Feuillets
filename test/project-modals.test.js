@@ -60,6 +60,12 @@ function findElements(element, predicate) {
   return found;
 }
 
+function findCitationSelects(root) {
+  return findElements(root, (el) => el.tag === "select").filter((select) =>
+    select.children.some((child) => child.value === "footnote" || child.value === "parenthetical")
+  );
+}
+
 function createModal(ModalClass, app, plugin, ...args) {
   const modal = new ModalClass(app, plugin, ...args);
   modal.app = app;
@@ -915,7 +921,7 @@ test("Correspondance YAML — nouvelle propriété refuse les noms vides", () =>
   assert.deepEqual(results, []);
 });
 
-test("ManageProjectsModal — Style citation : projet Fiction n'affiche pas le contrôle quand étendu", async () => {
+test("ManageProjectsModal — Style citation : projet Fiction n'affiche pas le contrôle sur la page Citations", async () => {
   const { vault } = createFakeVault([]);
   const app = fakeApp(vault);
   const settings = freshSettings();
@@ -930,19 +936,14 @@ test("ManageProjectsModal — Style citation : projet Fiction n'affiche pas le c
   const modal = createModal(ManageProjectsModal, app, plugin);
 
   modal.onOpen();
-  modal.expandedProjects.add("Fiction/Manuscrit");
+  modal.detailPage = { projectPath: "Fiction/Manuscrit", page: "citations" };
   modal.render();
 
-  // Chercher les éléments select qui sont après le type select (type se distingue par ses valeurs)
-  const allSelects = findElements(modal.contentEl, (el) => el.tag === "select");
-  // Le premier select est le type, les suivants seraient Citation (s'ils existent)
-  const citationSelects = allSelects.slice(1).filter((s) =>
-    s.children.some((c) => c.value === "footnote" || c.value === "parenthetical")
-  );
+  const citationSelects = findCitationSelects(modal.contentEl);
   assert.equal(citationSelects.length, 0, "Fiction n'affiche pas le contrôle Style de citation");
 });
 
-test("ManageProjectsModal — Style citation : projet Non-fiction affiche le contrôle quand étendu", async () => {
+test("ManageProjectsModal — Style citation : projet Non-fiction affiche le contrôle sur la page Citations", async () => {
   const { vault } = createFakeVault([]);
   const app = fakeApp(vault);
   const settings = freshSettings();
@@ -957,14 +958,11 @@ test("ManageProjectsModal — Style citation : projet Non-fiction affiche le con
   const modal = createModal(ManageProjectsModal, app, plugin);
 
   modal.onOpen();
-  modal.expandedProjects.add("Nonfiction/Manuscrit");
+  modal.detailPage = { projectPath: "Nonfiction/Manuscrit", page: "citations" };
   modal.render();
 
-  const allSelects = findElements(modal.contentEl, (el) => el.tag === "select");
-  const citationSelects = allSelects.slice(1).filter((s) =>
-    s.children.some((c) => c.value === "footnote" || c.value === "parenthetical")
-  );
-  assert.ok(citationSelects.length > 0, "Non-fiction affiche le contrôle Style de citation");
+  const citationSelects = findCitationSelects(modal.contentEl);
+  assert.equal(citationSelects.length, 1, "Non-fiction affiche un contrôle Style de citation");
 });
 
 test("ManageProjectsModal — Style citation : modification écrit dans settings.projectMeta[path].citationStyle", async () => {
@@ -982,21 +980,17 @@ test("ManageProjectsModal — Style citation : modification écrit dans settings
   const modal = createModal(ManageProjectsModal, app, plugin);
 
   modal.onOpen();
-  modal.expandedProjects.add("Essay/Manuscrit");
+  modal.detailPage = { projectPath: "Essay/Manuscrit", page: "citations" };
   modal.render();
 
-  const allSelects = findElements(modal.contentEl, (el) => el.tag === "select");
-  const citationSelects = allSelects.slice(1).filter((s) =>
-    s.children.some((c) => c.value === "footnote" || c.value === "parenthetical")
-  );
-  if (citationSelects.length > 0) {
-    citationSelects[0].value = "parenthetical";
-    await citationSelects[0].trigger("change");
-    assert.equal(settings.projectMeta["Essay/Manuscrit"].citationStyle, "parenthetical", "modification écrit citationStyle");
-  }
+  const citationSelects = findCitationSelects(modal.contentEl);
+  assert.equal(citationSelects.length, 1, "le contrôle Style de citation doit être présent");
+  citationSelects[0].value = "parenthetical";
+  await citationSelects[0].trigger("change");
+  assert.equal(settings.projectMeta["Essay/Manuscrit"].citationStyle, "parenthetical", "modification écrit citationStyle");
 });
 
-test("ManageProjectsModal — Style citation : changement Fiction → Non-fiction fait apparaître le contrôle", async () => {
+test("ManageProjectsModal — Style citation : après Fiction → Non-fiction, la page Citations affiche le contrôle", async () => {
   const { vault } = createFakeVault([]);
   const app = fakeApp(vault);
   const settings = freshSettings();
@@ -1015,20 +1009,15 @@ test("ManageProjectsModal — Style citation : changement Fiction → Non-fictio
   modal.render();
 
   const allSelects1 = findElements(modal.contentEl, (el) => el.tag === "select");
-  const citationSelects1 = allSelects1.slice(1).filter((s) =>
-    s.children.some((c) => c.value === "footnote" || c.value === "parenthetical")
-  );
-  assert.equal(citationSelects1.length, 0, "Fiction initial n'affiche pas Citation");
+  assert.equal(findCitationSelects(modal.contentEl).length, 0, "la fiche projet ne rend pas Citation en ligne");
 
   // Trouver et modifier le type select
   const typeSelect = allSelects1[0];
   typeSelect.value = "nonfiction";
   await typeSelect.trigger("change");
 
-  // Re-chercher après le changement
-  const allSelects2 = findElements(modal.contentEl, (el) => el.tag === "select");
-  const citationSelects2 = allSelects2.slice(1).filter((s) =>
-    s.children.some((c) => c.value === "footnote" || c.value === "parenthetical")
-  );
-  assert.ok(citationSelects2.length > 0, "après changement vers Non-fiction, Citation apparaît");
+  assert.equal(settings.projectMeta["Test/Manuscrit"].type, "nonfiction");
+  modal.detailPage = { projectPath: "Test/Manuscrit", page: "citations" };
+  modal.render();
+  assert.equal(findCitationSelects(modal.contentEl).length, 1, "la page Citations affiche le contrôle");
 });
