@@ -8,7 +8,7 @@ type UlyssesImportPlugin = {
   saveSettings(): Promise<void>;
 };
 
-/** Lit le texte ULSS, directement ou depuis l'archive .ulstyle déposée. */
+/** Lit le texte ULSS, directement ou depuis l'archive .ulstyle sélectionnée. */
 export async function ulyssesStyleTextFromFile(file: Pick<File, "name" | "text" | "arrayBuffer">): Promise<string> {
   if (/\.ulss$/i.test(file.name)) return file.text();
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
@@ -17,9 +17,14 @@ export async function ulyssesStyleTextFromFile(file: Pick<File, "name" | "text" 
   return ulss.async("text");
 }
 
-/** Import navigateur exclusivement : aucun picker ni accès filesystem, le
- * texte ULSS d'un File déposé est transmis au service existant. */
+/** Import navigateur Ulysses : sélection native ou dépôt HTML5, sans accès Node. */
 export class UlyssesImportModal extends Modal {
+  private selectedFile: File | null = null;
+  private busy = false;
+  private importButton: HTMLButtonElement | null = null;
+  private chooseButton: HTMLButtonElement | null = null;
+  private fileNameEl: HTMLElement | null = null;
+
   constructor(
     app: App,
     private plugin: UlyssesImportPlugin,
@@ -27,30 +32,80 @@ export class UlyssesImportModal extends Modal {
   ) { super(app); }
 
   onOpen(): void {
-    this.modalEl.addClass("feuillets-ulysses-import-modal");
     const { contentEl } = this;
-    contentEl.createEl("h3", { text: "Importer un style ulysses" });
-    contentEl.createEl("p", { cls: "feuillets-notes-sub", text: "Déposez ici un fichier .ulstyle ou .ulss" });
-    const dropZone = contentEl.createDiv({ cls: "feuillets-ulysses-drop-zone", text: "Déposer un fichier Ulysses ici\n.ulstyle ou .ulss" });
-    dropZone.addEventListener("dragenter", (event) => { event.preventDefault(); dropZone.addClass("is-dragging"); });
+    contentEl.empty();
+    contentEl.addClass("feuillets-ulysses-import-modal");
+
+    contentEl.createEl("h3", { text: t("editionLayout.ulyssesImportTitle") });
+    contentEl.createDiv({ cls: "feuillets-feuil-import-intro", text: t("editionLayout.ulyssesImportDescription") });
+
+    const form = contentEl.createDiv({ cls: "feuillets-feuil-import-form" });
+    const field = form.createDiv({ cls: "feuillets-feuil-import-field" });
+    field.createEl("label", { text: t("editionLayout.ulyssesFileLabel") });
+    const fileInput = field.createEl("input", {
+      type: "file",
+      attr: { accept: ".ulstyle,.ulss" },
+      cls: "feuillets-feuil-import-file-input",
+    });
+
+    const dropZone = field.createDiv({ cls: "feuillets-drop-target" });
+    dropZone.setText(t("editionLayout.ulyssesDrop"));
+    dropZone.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      dropZone.addClass("is-dragging");
+    });
     dropZone.addEventListener("dragover", (event) => event.preventDefault());
     dropZone.addEventListener("dragleave", () => dropZone.removeClass("is-dragging"));
     dropZone.addEventListener("drop", (event: DragEvent) => {
       event.preventDefault();
       dropZone.removeClass("is-dragging");
-      void this.importFile(event.dataTransfer?.files?.[0] || null);
+      this.selectFile(event.dataTransfer?.files?.[0] || null);
     });
+
+    const fileRow = field.createDiv({ cls: "feuillets-feuil-import-file-row" });
+    this.chooseButton = fileRow.createEl("button", { type: "button", text: t("editionLayout.ulyssesChooseFile") });
+    this.chooseButton.addEventListener("click", () => fileInput.click());
+    this.fileNameEl = fileRow.createDiv({ cls: "feuillets-feuil-import-file-name" });
+    this.fileNameEl.setText(t("editionLayout.ulyssesNoFile"));
+    fileInput.addEventListener("change", () => this.selectFile(fileInput.files?.[0] || null));
+
     const footer = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    footer.createEl("button", { text: t("modal.cancel") }).addEventListener("click", () => this.close());
+    footer.createEl("button", { type: "button", text: t("shared.cancel") })
+      .addEventListener("click", () => this.close());
+    this.importButton = footer.createEl("button", {
+      type: "button",
+      text: t("editionLayout.ulyssesImportAction"),
+      cls: "mod-cta",
+    });
+    this.importButton.addEventListener("click", () => { void this.submit(); });
+    this.updateSubmitState();
   }
 
-  private async importFile(file: File | null): Promise<void> {
+  private updateSubmitState(): void {
+    const disabled = this.busy || this.selectedFile === null;
+    if (this.importButton) this.importButton.disabled = disabled;
+    if (this.chooseButton) this.chooseButton.disabled = this.busy;
+  }
+
+  private selectFile(file: File | null): void {
+    this.selectedFile = null;
+    if (this.fileNameEl) this.fileNameEl.setText(file?.name || t("editionLayout.ulyssesNoFile"));
+    this.updateSubmitState();
     if (!file || !/\.(ulstyle|ulss)$/i.test(file.name)) {
-      new Notice(t("editionLayout.importInvalidFile"));
+      if (file) new Notice(t("editionLayout.importInvalidFile"));
       return;
     }
+    this.selectedFile = file;
+    this.updateSubmitState();
+  }
+
+  private async submit(): Promise<void> {
+    if (this.busy || !this.selectedFile) return;
+    this.busy = true;
+    this.updateSubmitState();
     try {
-      const result = await importUlyssesStyleText(this.app, this.plugin.settings, await ulyssesStyleTextFromFile(file), file.name);
+      const text = await ulyssesStyleTextFromFile(this.selectedFile);
+      const result = await importUlyssesStyleText(this.app, this.plugin.settings, text, this.selectedFile.name);
       if (!result) throw new Error("Dossier projet introuvable.");
       await this.plugin.saveSettings();
       new Notice(t("editionLayout.imported", { label: result.label }));
@@ -59,6 +114,8 @@ export class UlyssesImportModal extends Modal {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       new Notice(t("editionLayout.importError", { message }));
+      this.busy = false;
+      this.updateSubmitState();
     }
   }
 

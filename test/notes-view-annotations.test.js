@@ -558,7 +558,7 @@ test("séparation stricte : chaque annotation dans une seule rubrique, jamais de
   assert.equal(rows.length, 2);
 });
 
-test("rubrique Notes de présentation vide : état vide dédié, Annotations reste rendue normalement", async () => {
+test("rubrique Notes de présentation vide : section absente, Annotations reste rendue normalement", async () => {
   const { view, app, settings, scene } = fixture();
   await saveAnnotations(app, settings, { version: 1, annotations: [
     { id: "normal-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation normale", color: "yellow" },
@@ -567,10 +567,8 @@ test("rubrique Notes de présentation vide : état vide dédié, Annotations res
   await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
 
   const presentation = sectionByTitle(wrapper, "Notes de présentation");
-  assert.ok(presentation);
-  const empty = allElements(presentation).find((el) => el.classes.has("feuillets-empty"));
-  assert.ok(empty);
-  assert.equal(empty.text, "Aucune note de présentation.");
+  assert.equal(presentation, undefined);
+  assert.equal(allElements(wrapper).some((el) => el.text === "Aucune note de présentation."), false);
   assert.ok(allElements(sectionByTitle(wrapper, "Annotations")).some((el) => el.text === "annotation normale"));
 });
 
@@ -578,6 +576,7 @@ test("filtre de portée : un seul état partagé, proposé dans les DEUX rubriqu
   const { view, app, settings, scene } = fixture();
   await saveAnnotations(app, settings, { version: 1, annotations: [
     { id: "normal-1", file: "Chapitre/Scène.md", start: 0, end: 2, quote: "Il", prefix: "", suffix: "", text: "annotation normale", color: "yellow" },
+    { id: "presentation-1", file: "Chapitre/Scène.md", start: 3, end: 10, quote: "faisait", prefix: "Il ", suffix: " nuit", text: "note présentation", color: "blue", presentationNote: true },
   ] });
   const wrapper = new FakeElement();
   await view.renderNotesAndAnnotationsPanel(wrapper, scene, {});
@@ -591,6 +590,22 @@ test("filtre de portée : un seul état partagé, proposé dans les DEUX rubriqu
   scopeButtons[1].events.get("click")({ stopPropagation: () => {} });
   Menu.lastShown.items.find((item) => item.title === "Projet").callback();
   assert.equal(view.annotationScope, "project");
+});
+
+test("filtre de portée : Notes de présentation suit uniquement les annotations dans la portée", async () => {
+  const { view, app, settings, scene } = fixture();
+  await saveAnnotations(app, settings, { version: 1, annotations: [
+    { id: "presentation-other", file: "Chapitre/Autre.md", start: 0, end: 2, quote: "Un", prefix: "", suffix: "", text: "note ailleurs", color: "blue", presentationNote: true },
+  ] });
+  const sheet = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(sheet, scene, {});
+  assert.equal(sectionByTitle(sheet, "Notes de présentation"), undefined);
+
+  view.annotationScope = "project";
+  const project = new FakeElement();
+  await view.renderNotesAndAnnotationsPanel(project, scene, {});
+  assert.ok(sectionByTitle(project, "Notes de présentation"));
+  assert.equal(allElements(project).filter((el) => el.text === "note ailleurs").length, 1);
 });
 
 test("filtre Feuillet commun aux deux rubriques : une note de présentation d'un autre feuillet n'apparaît pas en portée Feuillet", async () => {

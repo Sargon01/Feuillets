@@ -196,6 +196,7 @@ export class EditionCompositionContent {
     if (section === "before") return t("compositionSummary.beforeManuscript");
     if (section === "manuscript") return t("compositionSummary.theManuscript");
     if (section === "variants") return t("contentVariants.title");
+    if (section === "extractions") return t("contentExtractions.title");
     if (section === "collections") return t("contentCollections.title");
     if (section === "after") return t("compositionSummary.afterManuscript");
     if (section === "firstPage") return t("preview.export.firstPage");
@@ -325,7 +326,7 @@ export class EditionCompositionContent {
   }
 
   private async renderVariantsSubpage(body: HTMLElement): Promise<void> {
-    body.createDiv({ cls: "feuillets-content-variants-hint", text: t("contentVariants.optionalHint") });
+    body.createDiv({ cls: "feuillets-notes-sub feuillets-content-variants-hint", text: t("contentVariants.optionalHint") });
     const store = await loadContentVariants(this.app, this.plugin.settings).catch((error: unknown) => {
       if (!(error instanceof ContentVariantsFileCorruptedError)) throw error;
       return null;
@@ -334,9 +335,7 @@ export class EditionCompositionContent {
       body.createDiv({ cls: "feuillets-content-variants-error", text: t("contentVariants.invalidFile") });
       return;
     }
-    if (store.variants.length === 0) {
-      this.renderContentEmptyState(body, t("contentVariants.empty"));
-    } else {
+    if (store.variants.length > 0) {
       const row = body.createDiv({ cls: "feuillets-properties-row feuillets-edition-row feuillets-content-selection-control" });
       row.createSpan({ cls: "feuillets-properties-key", text: t("contentVariants.use") });
       const select = row.createEl("select");
@@ -355,7 +354,7 @@ export class EditionCompositionContent {
   }
 
   private async renderExtractionsSubpage(body: HTMLElement): Promise<void> {
-    body.createDiv({ cls: "feuillets-content-extractions-hint", text: t("contentExtractions.optionalHint") });
+    body.createDiv({ cls: "feuillets-notes-sub feuillets-content-extractions-hint", text: t("contentExtractions.optionalHint") });
     this.contentListEl = body.createDiv({ cls: "feuillets-content-entry-list" });
     await this.renderExtractionList(this.contentListEl);
     const add = body.createEl("button", { text: t("contentExtractions.newExtraction"), cls: "feuillets-content-extraction-add" });
@@ -363,7 +362,7 @@ export class EditionCompositionContent {
   }
 
   private async renderCollectionsSubpage(body: HTMLElement): Promise<void> {
-    body.createDiv({ cls: "feuillets-content-collections-hint", text: t("contentCollections.optionalHint") });
+    body.createDiv({ cls: "feuillets-notes-sub feuillets-content-collections-hint", text: t("contentCollections.optionalHint") });
     this.contentListEl = body.createDiv({ cls: "feuillets-content-entry-list" });
     await this.renderCollectionList(this.contentListEl);
     const add = body.createEl("button", { text: t("contentCollections.newCollection"), cls: "feuillets-content-collection-add" });

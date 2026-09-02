@@ -3374,8 +3374,8 @@ class FeuilletsPlugin extends Plugin {
     this.adjustSidebarWidth();
   }
 
-  /** Rafraîchit UNIQUEMENT le Binder (VIEW_SIDEBAR + VIEW_SIDEBAR_FEUILLETS)
-   * — jamais VIEW_BOARD, donc jamais la surface centrale Édition
+  /** Rafraîchit UNIQUEMENT les vues Binder (VIEW_SIDEBAR)
+   * — jamais VIEW_BOARD ni VIEW_SIDEBAR_FEUILLETS, donc jamais la surface centrale Édition
    * (Composition/Mise en page) qu'elle héberge parfois. Contrairement à
    * `refreshView()`/`renderAllViews()` (qui reconstruisent tout, y compris
    * la sous-page Composition active en cours d'édition), ce chemin ciblé
@@ -3384,15 +3384,13 @@ class FeuilletsPlugin extends Plugin {
    * défilement ni la sous-page ouverte dans Composition (dernier lot UX
    * avant 2.5, §9 : bug de perte de focus dans Composition → Structure). */
   refreshBinderViews(): void {
-    for (const type of [VIEW_SIDEBAR, VIEW_SIDEBAR_FEUILLETS]) {
-      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
-        const view = leaf.view as StaleableView;
-        if (!view) continue;
-        if (!this.leafVisible(leaf)) { view._stale = true; continue; }
-        view._stale = false;
-        if (typeof view.renderAllSubViews === "function") void view.renderAllSubViews(false);
-        else if (typeof view.render === "function") void view.render(false);
-      }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR)) {
+      const view = leaf.view as StaleableView;
+      if (!view) continue;
+      if (!this.leafVisible(leaf)) { view._stale = true; continue; }
+      view._stale = false;
+      if (typeof view.renderAllSubViews === "function") void view.renderAllSubViews(false);
+      else if (typeof view.render === "function") void view.render(false);
     }
   }
 

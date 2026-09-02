@@ -1,4 +1,4 @@
-import { App, Modal, Notice, normalizePath, setIcon, TAbstractFile, TFile, TFolder } from "obsidian";
+import { App, Modal, Notice, normalizePath, setIcon, Setting, TAbstractFile, TFile, TFolder } from "obsidian";
 import { PROJECT_MODES, projectBoardDefaults, resolveType } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
@@ -85,49 +85,48 @@ export class NewProjectModal extends Modal {
   }
   onOpen(): void {
     const { contentEl } = this;
-    contentEl.addClass("feuillets-project-modal");
+    contentEl.empty();
+    contentEl.addClass("feuillets-new-project-modal");
     contentEl.createEl("h3", { text: t("modal.newProject.title") });
-    contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("modal.newProject.desc")
-    );
+    contentEl.createDiv({ cls: "feuillets-feuil-import-intro", text: t("modal.newProject.desc") });
+
+    const form = contentEl.createDiv({ cls: "feuillets-feuil-import-form" });
+    const createField = (label: string): HTMLElement => {
+      const field = form.createDiv({ cls: "feuillets-feuil-import-field" });
+      field.createEl("label", { text: label });
+      return field;
+    };
 
     /* Ordre : nom (seul champ obligatoire) d'abord, puis les deux facultatifs
        — plutôt que l'ancien ordre dossier/nom/type, qui faisait taper le nom
        en second alors que c'est la seule information réellement requise. */
-    contentEl.createEl("label", { text: t("modal.newProject.nameLabel") });
-    const nameInput = contentEl.createEl("input", {
+    const nameField = createField(t("modal.newProject.nameLabel"));
+    const nameInput = nameField.createEl("input", {
       type: "text",
       attr: { placeholder: "Roman1" },
     });
-    nameInput.addClass("feuillets-input-full");
-    nameInput.addClass("feuillets-field-spacer");
     nameInput.focus();
 
-    contentEl.createEl("label", { text: t("modal.newProject.authorLabel") });
-    const authorInput = contentEl.createEl("input", {
+    const authorField = createField(t("modal.newProject.authorLabel"));
+    const authorInput = authorField.createEl("input", {
       type: "text",
       attr: { placeholder: t("modal.newProject.authorPlaceholder") },
     });
-    authorInput.addClass("feuillets-input-full");
-    authorInput.addClass("feuillets-field-spacer");
     /* Pré-rempli avec le réglage global (Réglages → Auteur, déjà utilisé par
        l'export) : évite de retaper son nom à chaque nouveau projet, sans
        empêcher de le changer pour ce projet précis (stocké alors dans
        projectMeta, indépendant du réglage global — voir createMinimalProject). */
     authorInput.value = this.plugin.settings.manuscriptAuthor || "";
 
-    contentEl.createEl("label", { text: t("modal.newProject.parentFolderLabel") });
-    const parentInput = contentEl.createEl("input", {
+    const parentField = createField(t("modal.newProject.parentFolderLabel"));
+    const parentInput = parentField.createEl("input", {
       type: "text",
       attr: { placeholder: t("modal.newProject.parentFolderPlaceholder") },
     });
-    parentInput.addClass("feuillets-input-full");
-    parentInput.addClass("feuillets-field-spacer");
     new FolderSuggest(this.app, parentInput);
 
-    contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
-    const typeSelect = contentEl.createEl("select");
-    typeSelect.addClass("feuillets-input-full");
+    const typeField = createField(t("modal.newProject.typeLabel"));
+    const typeSelect = typeField.createEl("select");
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
       typeSelect.createEl("option", { text: mode.label, value: key });
     }
@@ -166,12 +165,10 @@ export class NewProjectModal extends Modal {
     };
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
-    /* mod-cta : convention Obsidian pour LE bouton d'action principal d'une
-       modale (déjà utilisée ailleurs dans le plugin, ex. entity-modals.js,
-       scrivener-import-modal.js) — absente ici jusque-là, ce qui laissait ce
-       bouton se fondre visuellement dans le reste. */
+    btnRow.createEl("button", { type: "button", text: t("shared.cancel") })
+      .addEventListener("click", () => this.close());
     btnRow
-      .createEl("button", { text: t("modal.newProject.createAndActivate"), cls: "mod-cta" })
+      .createEl("button", { type: "button", text: t("modal.newProject.createAndActivate"), cls: "mod-cta" })
       .addEventListener("click", () => { void create(); });
     nameInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") void create();
@@ -338,8 +335,10 @@ export class TransformToProjectModal extends Modal {
 
 type ManageProjectDetailPage = {
   projectPath: string;
-  page: ProjectConfigPage;
+  page: ManageProjectDetailPageKind;
 };
+
+type ManageProjectDetailPageKind = ProjectConfigPage | "citations";
 
 /** Gestion des projets (créer/importer/basculer/retirer/métadonnées) — vivait
  * auparavant dans une section dédiée du panneau Projet & export ; ouverte
@@ -350,6 +349,7 @@ export class ManageProjectsModal extends Modal {
   plugin: ProjectModalsPlugin;
   expandedProjects: Set<string>;
   detailPage: ManageProjectDetailPage | null;
+  private detailContentEl: HTMLElement | null = null;
   projectConfigContent: ProjectConfigContent;
 
   constructor(app: App, plugin: ProjectModalsPlugin) {
@@ -360,7 +360,7 @@ export class ManageProjectsModal extends Modal {
     this.projectConfigContent = new ProjectConfigContent(
       app,
       plugin,
-      () => this.render()
+      () => this.renderCurrentDetailContent()
     );
   }
 
@@ -382,6 +382,7 @@ export class ManageProjectsModal extends Modal {
 
   render(): void {
     const { contentEl } = this;
+    this.detailContentEl = null;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
     const S = this.plugin.settings;
@@ -420,40 +421,74 @@ export class ManageProjectsModal extends Modal {
         .setText(t("modal.manageProjects.noneActive"));
     }
 
-    const addRow = contentEl.createDiv({ cls: "feuillets-properties-add-row" });
+    const addExisting = contentEl.createDiv({ cls: "feuillets-project-existing-folder" });
+    addExisting.createDiv({
+      cls: "feuillets-project-existing-folder-label",
+      text: t("binder.projectManager.addExisting"),
+    });
+    const addRow = addExisting.createDiv({ cls: "feuillets-project-existing-folder-row" });
     const input = addRow.createEl("input", {
       type: "text",
       attr: { placeholder: t("modal.manageProjects.addExistingPlaceholder") },
     });
+    new FolderSuggest(this.app, input);
+    const useExistingFolder = async (): Promise<void> => {
+      const p = normalizePath(input.value.trim());
+      if (!p) return;
+      const folder = this.app.vault.getAbstractFileByPath(p);
+      if (!(folder instanceof TFolder)) {
+        new Notice(t("modal.manageProjects.folderNotFound"));
+        return;
+      }
+      if (!S.projectFolder) {
+        S.projectFolder = p;
+      } else if (!S.projects.includes(p) && p !== S.projectFolder) {
+        S.projects.push(p);
+      }
+      await this.plugin.saveSettings();
+      input.value = "";
+      this.plugin.renderAllViews(true);
+      this.plugin.updateStatusBar();
+      this.render();
+    };
     input.addEventListener("keydown", (e) => {
       if (e.key !== "Enter") return;
-      void (async () => {
-        const p = normalizePath(input.value.trim());
-        if (!p) return;
-        const folder = this.app.vault.getAbstractFileByPath(p);
-        if (!(folder instanceof TFolder)) {
-          new Notice(t("modal.manageProjects.folderNotFound"));
-          return;
-        }
-        if (!S.projectFolder) {
-          S.projectFolder = p;
-        } else if (!S.projects.includes(p) && p !== S.projectFolder) {
-          S.projects.push(p);
-        }
-        await this.plugin.saveSettings();
-        input.value = "";
-        this.plugin.renderAllViews(true);
-        this.plugin.updateStatusBar();
-        this.render();
-      })();
+      void useExistingFolder();
     });
+    addRow.createEl("button", { type: "button", text: t("modal.openFolder.pickBtn") })
+      .addEventListener("click", () => { void useExistingFolder(); });
+  }
+
+  private renderCurrentDetailContent(): void {
+    const detailPage = this.detailPage;
+    const detailContentEl = this.detailContentEl;
+    if (!detailPage || !detailContentEl) return;
+
+    const projectFolder = this.app.vault.getAbstractFileByPath(detailPage.projectPath);
+    if (!(projectFolder instanceof TFolder)) {
+      this.detailPage = null;
+      this.render();
+      return;
+    }
+
+    detailContentEl.empty();
+    if (detailPage.page === "citations") {
+      this.renderProjectCitationsPage(detailContentEl, detailPage.projectPath);
+    } else {
+      this.projectConfigContent.renderPage(
+        detailPage.page,
+        detailContentEl,
+        detailPage.projectPath,
+        projectFolder,
+      );
+    }
   }
 
   private renderDetailPage(): void {
     const { contentEl } = this;
     if (!this.detailPage) return;
 
-    const { projectPath, page } = this.detailPage;
+    const { projectPath } = this.detailPage;
     const projectFile = this.app.vault.getAbstractFileByPath(projectPath);
     if (!(projectFile instanceof TFolder)) {
       this.detailPage = null;
@@ -477,7 +512,8 @@ export class ManageProjectsModal extends Modal {
     contentEl.createEl("h3", { text: this.plugin.projectDisplayName(projectPath) });
 
     const content = contentEl.createDiv({ cls: "feuillets-sidebar-project" });
-    this.projectConfigContent.renderPage(page, content, projectPath, projectFile);
+    this.detailContentEl = content;
+    this.renderCurrentDetailContent();
   }
 
   renderProjectRow(list: HTMLElement, path: string, S: FeuilletsSettings): void {
@@ -589,7 +625,7 @@ export class ManageProjectsModal extends Modal {
         S.projectMeta[path].name = nameInput.value.trim();
         await this.plugin.saveSettings();
         this.plugin.renderAllViews(true);
-        this.render();
+        name.setText(this.plugin.projectDisplayName(path));
       })();
     });
 
@@ -625,51 +661,6 @@ export class ManageProjectsModal extends Modal {
         if (!S.projectMeta[path]) S.projectMeta[path] = {};
         S.projectMeta[path].type = typeSelect.value;
         await this.plugin.saveSettings();
-        this.render();
-      })();
-    });
-
-    if (resolveType(meta.type) === "nonfiction") {
-      detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("settings.citationStyle.name"));
-      const citSelect = detail.createEl("select");
-      citSelect.createEl("option", { text: t("settings.citationStyle.footnote"), value: "footnote" });
-      citSelect.createEl("option", { text: t("settings.citationStyle.parenthetical"), value: "parenthetical" });
-      citSelect.value = meta.citationStyle || "footnote";
-      citSelect.addEventListener("change", () => {
-        void (async () => {
-          if (!S.projectMeta[path]) S.projectMeta[path] = {};
-          S.projectMeta[path].citationStyle = citSelect.value;
-          await this.plugin.saveSettings();
-        })();
-      });
-    }
-
-    // Pandoc/Zotero citation preview settings (independent of Feuillets citation style)
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("project.pandocCitationPreview.title"));
-
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("project.pandocCitationPreview.styleLabel"));
-    const pandocStyleSelect = detail.createEl("select");
-    pandocStyleSelect.createEl("option", { text: t("project.pandocCitationPreview.styleOff"), value: "off" });
-    pandocStyleSelect.createEl("option", { text: t("project.pandocCitationPreview.styleAuthorDate"), value: "author-date" });
-    pandocStyleSelect.value = (meta.pandocCitationPreviewStyle as string) || "off";
-    pandocStyleSelect.addEventListener("change", () => {
-      void (async () => {
-        if (!S.projectMeta[path]) S.projectMeta[path] = {};
-        S.projectMeta[path].pandocCitationPreviewStyle = pandocStyleSelect.value as PandocCitationPreviewStyle;
-        await this.plugin.saveSettings();
-      })();
-    });
-
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("project.pandocCitationPreview.bibliographyLabel"));
-    const bibPathInput = detail.createEl("input", { type: "text" });
-    bibPathInput.addClass("feuillets-grid-full-row");
-    bibPathInput.placeholder = t("project.pandocCitationPreview.bibliographyPlaceholder");
-    bibPathInput.value = (meta.pandocBibliographyPath as string) || "";
-    bibPathInput.addEventListener("blur", () => {
-      void (async () => {
-        if (!S.projectMeta[path]) S.projectMeta[path] = {};
-        S.projectMeta[path].pandocBibliographyPath = bibPathInput.value.trim();
-        await this.plugin.saveSettings();
       })();
     });
 
@@ -691,8 +682,63 @@ export class ManageProjectsModal extends Modal {
     this.renderProjectNavRows(detail, path, folderObj);
   }
 
+  private renderProjectCitationsPage(container: HTMLElement, path: string): void {
+    const S = this.plugin.settings;
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    section.createDiv({
+      cls: "feuillets-settings-subhead",
+      text: t("modal.manageProjects.citationsAndBibliography")
+    });
+
+    const meta = (): ProjectMeta | undefined => S.projectMeta[path];
+    const ensureMeta = (): ProjectMeta => {
+      if (!S.projectMeta[path]) S.projectMeta[path] = {};
+      return S.projectMeta[path];
+    };
+
+    if (resolveType(meta()?.type) === "nonfiction") {
+      new Setting(section)
+        .setName(t("settings.citationStyle.name"))
+        .addDropdown((d) => {
+          d.addOption("footnote", t("settings.citationStyle.footnote"));
+          d.addOption("parenthetical", t("settings.citationStyle.parenthetical"));
+          d.setValue(meta()?.citationStyle || "footnote");
+          d.onChange((value) => {
+            ensureMeta().citationStyle = value;
+            void this.plugin.saveSettings();
+          });
+        });
+    }
+
+    section.createDiv({
+      cls: "feuillets-settings-subhead",
+      text: t("project.pandocCitationPreview.title")
+    });
+    new Setting(section)
+      .setName(t("project.pandocCitationPreview.styleLabel"))
+      .addDropdown((d) => {
+        d.addOption("off", t("project.pandocCitationPreview.styleOff"));
+        d.addOption("author-date", t("project.pandocCitationPreview.styleAuthorDate"));
+        d.setValue(meta()?.pandocCitationPreviewStyle || "off");
+        d.onChange((value) => {
+          ensureMeta().pandocCitationPreviewStyle = value as PandocCitationPreviewStyle;
+          void this.plugin.saveSettings();
+        });
+      });
+    new Setting(section)
+      .setName(t("project.pandocCitationPreview.bibliographyLabel"))
+      .addText((text) => {
+        text.setPlaceholder(t("project.pandocCitationPreview.bibliographyPlaceholder"));
+        text.setValue(meta()?.pandocBibliographyPath || "");
+        text.onChange((value) => {
+          ensureMeta().pandocBibliographyPath = value.trim();
+          void this.plugin.saveSettings();
+        });
+      });
+  }
+
   private renderProjectNavRows(container: HTMLElement, path: string, root: TFolder): void {
-    const mkNavRow = (icon: string, label: string, page: ProjectConfigPage): void => {
+    const mkNavRow = (icon: string, label: string, page: ManageProjectDetailPageKind): void => {
       const row = container.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable feuillets-grid-full-row" });
       const iconSpan = row.createSpan({ cls: "feuillets-notes-section-icon" });
       setIcon(iconSpan, icon);
@@ -707,8 +753,9 @@ export class ManageProjectsModal extends Modal {
     };
 
     const section = container.createDiv({ cls: "feuillets-notes-section" });
-    section.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.rowGoals") });
+    section.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.manageProjects.configurationHeader") });
     mkNavRow("target", t("sidebar.project.rowGoals"), "goals");
+    mkNavRow("quote", t("modal.manageProjects.citationsAndBibliography"), "citations");
 
     const metaSection = container.createDiv({ cls: "feuillets-notes-section" });
     metaSection.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.metadataHeader") });

@@ -277,6 +277,9 @@ test("EditionCompositionContent : sous-page Collections vide, création, modific
     await view.renderPromise;
     assert.ok(contentEl.textContent.includes("Facultatif. Regroupe certains rôles avec leur contexte de titres."));
     assert.ok(contentEl.textContent.includes("Aucune collection créée."));
+    assert.equal(contentEl.querySelectorAll(".feuillets-content-empty-state").length, 1);
+    assert.ok(contentEl.querySelector(".feuillets-composition-subpage-title")?.textContent.includes("Collections de contenu"));
+    assert.ok(contentEl.querySelector(".feuillets-content-collections-hint")?.hasClass("feuillets-notes-sub"));
     assert.ok(contentEl.textContent.includes("Nouvelle collection…"));
     const collection = await createContentCollection(app, plugin.settings, "Dossier", ["source", "preuve"]);
     await view.render();
@@ -310,6 +313,9 @@ test("EditionCompositionContent : sous-page Extractions vide, création, modific
     await view.renderPromise;
     assert.ok(contentEl.textContent.includes("Facultatif. Extrait des sections à partir de leurs rôles."));
     assert.ok(contentEl.textContent.includes("Aucune extraction créée."));
+    assert.equal(contentEl.querySelectorAll(".feuillets-content-empty-state").length, 1);
+    assert.ok(contentEl.querySelector(".feuillets-composition-subpage-title")?.textContent.includes("Extractions de contenu"));
+    assert.ok(contentEl.querySelector(".feuillets-content-extractions-hint")?.hasClass("feuillets-notes-sub"));
     assert.ok(contentEl.textContent.includes("Nouvelle extraction…"));
     assert.equal(contentEl.textContent.includes("extraction active"), false);
     const extraction = await createContentExtraction(app, plugin.settings, "Activités", ["questions"]);
@@ -398,6 +404,8 @@ test("EditionCompositionContent : aucune variante n'affiche ni sélecteur vide n
     contentEl.querySelectorAll(".feuillets-project-row")[1].click();
     await view.renderPromise;
     assert.equal(contentEl.querySelector("select"), null);
+    assert.equal(contentEl.querySelectorAll(".feuillets-content-empty-state").length, 1);
+    assert.ok(contentEl.querySelector(".feuillets-content-variants-hint")?.hasClass("feuillets-notes-sub"));
     assert.ok(contentEl.textContent.includes("Nouvelle variante…"));
     assert.equal(contentEl.textContent.includes("Sans variante"), false);
   } finally {

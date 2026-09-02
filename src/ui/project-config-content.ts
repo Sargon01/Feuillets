@@ -377,7 +377,10 @@ export class ProjectConfigContent {
       select.addEventListener("change", () => {
         if (select.value === "__feuillets_new_yaml_property__") {
           select.value = current || "";
-          new YamlPropertyNameModal(this.app, (name) => this.applyMapping(path, field, name)).open();
+          new YamlPropertyNameModal(this.app, (name) => {
+            this.applyMapping(path, field, name);
+            this.requestRender();
+          }).open();
           return;
         }
         this.applyMapping(path, field, select.value || undefined);
@@ -436,7 +439,6 @@ export class ProjectConfigContent {
     }
     void this.plugin.saveSettings();
     this.plugin.renderAllViews(true);
-    this.requestRender();
   }
 }
 

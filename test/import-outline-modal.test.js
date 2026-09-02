@@ -38,6 +38,15 @@ function findByTag(element, tag) {
   return null;
 }
 
+function findByClass(element, className) {
+  if (element.classes.has(className)) return element;
+  for (const child of element.children) {
+    const found = findByClass(child, className);
+    if (found) return found;
+  }
+  return null;
+}
+
 function parseFrontmatterBlock(content) {
   const match = (content || "").match(/^---\n([\s\S]*?)\n---/);
   const fm = {};
@@ -282,6 +291,29 @@ test("import outline : initialText préremplit la textarea", () => {
   modal.onOpen();
   const ta = findByTag(modal.contentEl, "textarea");
   assert.equal(ta.value, "# Partie 1\n- Scène A");
+  modal.onClose();
+});
+
+test("import outline : utilise le shell compact commun sans devenir un import de fichier", () => {
+  const project = new TFolder("Projet");
+  project.children = [];
+  const { vault } = createFakeVault([project]);
+  const app = { vault };
+  const plugin = { settings: { wordGoal: 750 }, getProjectFolder: () => project, ensureFolder: () => {}, writeOrder: async () => {}, renderAllViews: () => {} };
+  const modal = new ImportOutlineModal(app, plugin);
+  modal.contentEl = new FakeElement();
+
+  modal.onOpen();
+
+  assert.equal(modal.contentEl.classes.has("feuillets-outline-import-modal"), true);
+  assert.equal(modal.contentEl.classes.has("feuillets-project-modal"), false);
+  assert.ok(findByClass(modal.contentEl, "feuillets-feuil-import-intro")?.text);
+  assert.ok(findByClass(modal.contentEl, "feuillets-feuil-import-form"));
+  assert.ok(findByClass(modal.contentEl, "feuillets-modal-buttons"));
+  assert.ok(findByClass(modal.contentEl, "feuillets-mono"));
+  assert.equal(findByTag(modal.contentEl, "input"), null);
+  assert.equal(findByClass(modal.contentEl, "feuillets-drop-target"), null);
+
   modal.onClose();
 });
 

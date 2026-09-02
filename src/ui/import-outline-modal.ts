@@ -84,13 +84,16 @@ export class ImportOutlineModal extends Modal {
   }
   onOpen() {
     const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("feuillets-outline-import-modal");
     contentEl.createEl("h3", {
       text: t("modal.importOutline.title"),
     });
-    contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
+    contentEl.createDiv({ cls: "feuillets-feuil-import-intro" }).setText(
       t("modal.importOutline.desc")
     );
-    const ta = contentEl.createEl("textarea", {
+    const form = contentEl.createDiv({ cls: "feuillets-feuil-import-form" });
+    const ta = form.createEl("textarea", {
       attr: {
         rows: 14,
         placeholder: t("modal.importOutline.placeholder"),

@@ -5,18 +5,36 @@ import { join } from "node:path";
 import JSZip from "jszip";
 import { ulyssesStyleTextFromFile } from "../src/ui/ulysses-import-modal.js";
 
-test("UlyssesImportModal : import exclusivement par dépôt HTML5, sans picker système", () => {
+test("UlyssesImportModal : picker et dépôt alimentent le même import explicite", () => {
   const source = readFileSync(join(process.cwd(), "src/ui/ulysses-import-modal.ts"), "utf8");
   assert.match(source, /class UlyssesImportModal/);
+  assert.match(source, /feuillets-ulysses-import-modal/);
+  assert.doesNotMatch(source, /feuillets-ulysses-import-modal.*feuillets-project-modal/);
   assert.match(source, /dragenter/);
   assert.match(source, /dragover/);
   assert.match(source, /dragleave/);
   assert.match(source, /drop/);
+  assert.match(source, /type: "file"/);
+  assert.match(source, /accept: "\.ulstyle,\.ulss"/);
+  assert.match(source, /feuillets-feuil-import-file-input/);
+  assert.match(source, /feuillets-feuil-import-file-row/);
+  assert.match(source, /fileInput\.click\(\)/);
+  assert.match(source, /this\.selectedFile = file/);
+  assert.match(source, /this\.importButton.*disabled/);
   assert.match(source, /arrayBuffer\(\)/);
   assert.match(source, /JSZip\.loadAsync/);
   assert.match(source, /importUlyssesStyleText/);
-  assert.doesNotMatch(source, /type:\s*["']file/);
-  assert.doesNotMatch(source, /\.click\(\)/);
+  assert.match(source, /t\("shared\.cancel"\)/);
+  assert.match(source, /t\("editionLayout\.ulyssesImportAction"\)/);
+  assert.doesNotMatch(source, /feuillets-ulysses-drop-zone/);
+});
+
+test("UlyssesImportModal : extensions valides et double soumission sont protégées", () => {
+  const source = readFileSync(join(process.cwd(), "src/ui/ulysses-import-modal.ts"), "utf8");
+  assert.match(source, /\/\\\.\(ulstyle\|ulss\)\$\/i\.test\(file\.name\)/);
+  assert.match(source, /if \(this\.busy \|\| !this\.selectedFile\) return/);
+  assert.match(source, /this\.chooseButton\.disabled = this\.busy/);
+  assert.match(source, /this\.busy = false/);
 });
 
 test("UlyssesImportModal : un .ulstyle ZIP extrait Style.ulss, ou le premier ULSS", async () => {

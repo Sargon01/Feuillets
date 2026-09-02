@@ -1827,10 +1827,8 @@ export class NotesView extends BaseFeuilletsView {
       await this.renderAnnotationGroup(annotationsList, normalAnnotations, currentRelPath, root);
     }
 
-    const presentationSection = annotationSection("presentation", "notes.section.presentationNotes");
-    if (presentationNotes.length === 0) {
-      presentationSection.createDiv({ cls: "feuillets-empty" }).setText(t("annotation.panel.emptyPresentationNotes"));
-    } else {
+    if (presentationNotes.length > 0) {
+      const presentationSection = annotationSection("presentation", "notes.section.presentationNotes");
       const presentationList = presentationSection.createDiv({ cls: "feuillets-notes-field-container" });
       await this.renderAnnotationGroup(presentationList, presentationNotes, currentRelPath, root);
     }

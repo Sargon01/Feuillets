@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import fs from "node:fs";
 import { PresentationPdfExportModal } from "../src/ui/presentation-pdf-export-modal.js";
+
+const styles = fs.readFileSync(`${process.cwd()}/styles.css`, "utf8");
+const presentationSource = fs.readFileSync(`${process.cwd()}/src/ui/presentation-pdf-export-modal.ts`, "utf8");
 
 /* La modale n'utilise plus `Setting` : elle compose trois RUBRIQUES titrées,
    chacune avec une grille de cartes cliquables, dans le langage visuel des
@@ -34,6 +38,20 @@ function allElements(element) {
 function withClass(root, cls) {
   return allElements(root).filter((el) => el.classes.has(cls));
 }
+
+test("les hooks CSS actifs de la modale PDF sont protégés contre une suppression accidentelle", () => {
+  for (const hook of [
+    "feuillets-presentation-export-modal",
+    "feuillets-presentation-export-group",
+    "feuillets-presentation-export-options",
+    "feuillets-presentation-export-option",
+    "feuillets-presentation-export-option-label",
+    "feuillets-presentation-export-option-hint",
+  ]) {
+    assert.match(styles, new RegExp(`\\.${hook}(?![a-z-])`));
+    assert.match(presentationSource, new RegExp(hook));
+  }
+});
 
 function openModal() {
   const choices = [];

@@ -371,7 +371,8 @@
 .feuillets-label-swatch {
   width: 3px;
   min-width: 3px;
-  height: 1.3em;
+  font-size: var(--font-ui-small);
+  height: 1.5em;
   border-radius: 2px;
   background: transparent;
   flex-shrink: 0;
@@ -1978,6 +1979,44 @@ body.feuillets-concentration
 
 .feuillets-project-modal {
   min-width: 520px;
+}
+
+.feuillets-project-modal .feuillets-modal-header-row {
+  margin-bottom: 0;
+}
+
+.feuillets-project-modal > .feuillets-project-list {
+  margin-top: 0;
+}
+
+.feuillets-project-existing-folder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-1);
+  margin-top: var(--size-4-2);
+}
+
+.feuillets-project-existing-folder-label {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-project-existing-folder-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+
+.feuillets-project-existing-folder-row input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.feuillets-project-existing-folder-row button {
+  flex-shrink: 0;
 }
 
 .feuillets-modal-title-row {
@@ -3597,9 +3636,27 @@ body.feuillets-text-width
 
 .feuillets-annotation-popover-presentation-note {
   display: flex;
-  gap: 0.5em;
   align-items: center;
-  margin-top: 0.75em;
+  gap: var(--size-4-1);
+  margin-top: var(--size-4-1);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller);
+  line-height: var(--line-height-tight);
+  color: var(--text-muted);
+}
+
+.feuillets-annotation-popover-presentation-note input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.feuillets-annotation-popover-presentation-note label {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
 }
 
 /* ===== annotations : page centralisée (NotesView, lot 4) =====
@@ -8666,6 +8723,58 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   font-size: var(--font-ui-smaller);
   margin-top: var(--size-4-1);
 }
+
+/* Sous-pages Variantes/Extractions/Collections dans la barre latérale :
+   même densité que les lignes de navigation, sans imposer ce rendu à la
+   surface centrale réutilisée par EditionCompositionContent. */
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-empty-state {
+  margin: var(--size-4-2) 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-empty-title {
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  font-weight: normal;
+}
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-empty-description {
+  color: var(--text-faint);
+  font-size: var(--font-ui-smaller);
+  margin-top: var(--size-4-1);
+}
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-item {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  width: 100%;
+  padding: var(--size-4-1) var(--size-4-2);
+  border: none;
+  border-radius: var(--radius-s);
+  background: transparent;
+  font-size: var(--font-ui-small);
+}
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-item:hover {
+  background: var(--background-modifier-hover);
+}
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-item .feuillets-content-entry-main {
+  display: block;
+  width: auto;
+  flex: 1 1 auto;
+}
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-item-name {
+  font-size: var(--font-ui-small);
+}
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-item-actions {
+  width: auto;
+  margin-top: 0;
+  gap: var(--size-4-1);
+}
+.feuillets-sidebar-content .feuillets-edition-composition-container .feuillets-content-item-selected {
+  border: none;
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent);
+}
 .feuillets-content-derivation-modal {
   width: min(100%, 45rem);
   max-height: none;
@@ -10496,4 +10605,225 @@ body.feuillets-text-width
 .feuillets-plan-title-input:focus {
   outline: none;
   box-shadow: none;
+}
+
+/* ===== Modale « Exporter en PDF » de la Présentation =====
+   Trois rubriques (Présentation / Support / Plan), chacune avec une grille
+   de cartes cliquables. Les cartes sont des div[role=button] : leur rendu
+   est explicitement remis à plat pour éviter les contraintes natives des
+   boutons de modale Obsidian. */
+.feuillets-presentation-export-modal {
+  width: min(100%, 44rem);
+  max-width: 94vw;
+}
+.feuillets-presentation-export-modal .modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-5);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding-top: var(--size-4-2);
+}
+.feuillets-presentation-export-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+.feuillets-presentation-export-group + .feuillets-presentation-export-group {
+  padding-top: var(--size-4-4);
+  border-top: 1px solid var(--background-modifier-border);
+}
+.feuillets-presentation-export-group-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+.feuillets-presentation-export-group-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.feuillets-presentation-export-group-icon svg {
+  width: 1rem;
+  height: 1rem;
+}
+.feuillets-presentation-export-group-heading {
+  min-width: 0;
+}
+.feuillets-presentation-export-group-title {
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.feuillets-presentation-export-group-desc {
+  margin-top: 1px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+}
+.feuillets-presentation-export-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+.feuillets-presentation-export-option {
+  display: block;
+  box-sizing: border-box;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: var(--size-4-2) var(--size-4-3);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  box-shadow: none;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.feuillets-presentation-export-option:hover,
+.feuillets-presentation-export-option:focus-visible {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  box-shadow: none;
+}
+.feuillets-presentation-export-option:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+.feuillets-presentation-export-option-label {
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.feuillets-presentation-export-option-hint {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.4;
+  white-space: normal;
+}
+
+/* ===== Import projet .feuil ===== */
+.feuillets-feuil-import-modal,
+.feuillets-new-project-modal,
+.feuillets-scrivener-import-modal,
+.feuillets-word-template-import-modal,
+.feuillets-ulysses-import-modal,
+.feuillets-outline-import-modal {
+  width: min(480px, calc(100vw - 64px));
+  max-width: 100%;
+}
+
+.feuillets-feuil-import-modal > h3,
+.feuillets-new-project-modal > h3,
+.feuillets-scrivener-import-modal > h3,
+.feuillets-word-template-import-modal > h3,
+.feuillets-ulysses-import-modal > h3,
+.feuillets-outline-import-modal > h3 {
+  margin-top: 0;
+  margin-bottom: var(--size-4-1);
+}
+
+.feuillets-feuil-import-intro {
+  margin-bottom: var(--size-4-4);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: var(--line-height-normal);
+}
+
+.feuillets-feuil-import-form {
+  display: grid;
+  gap: var(--size-4-3);
+  min-width: 0;
+}
+
+.feuillets-feuil-import-field {
+  display: grid;
+  gap: var(--size-4-1);
+  min-width: 0;
+}
+
+.feuillets-feuil-import-field > label {
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-medium, 500);
+}
+
+.feuillets-feuil-import-field > input[type="text"],
+.feuillets-feuil-import-field > select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.feuillets-feuil-import-file-input {
+  display: none;
+}
+
+.feuillets-feuil-import-file-row {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+
+.feuillets-feuil-import-file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-feuil-import-summary {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: var(--line-height-tight);
+}
+
+.feuillets-feuil-import-modal .feuillets-modal-buttons,
+.feuillets-new-project-modal .feuillets-modal-buttons,
+.feuillets-scrivener-import-modal .feuillets-modal-buttons,
+.feuillets-word-template-import-modal .feuillets-modal-buttons,
+.feuillets-ulysses-import-modal .feuillets-modal-buttons,
+.feuillets-outline-import-modal .feuillets-modal-buttons {
+  margin-top: var(--size-4-4);
+}
+
+.feuillets-outline-import-modal textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.feuillets-word-template-import-modal .feuillets-drop-target {
+  min-height: 0;
+  padding: var(--size-4-2);
+}
+
+.feuillets-ulysses-import-modal .feuillets-drop-target {
+  min-height: 0;
+  padding: var(--size-4-2);
+}
+
+.feuillets-ulysses-import-modal .feuillets-drop-target.is-dragging {
+  background: var(--background-modifier-hover);
 }

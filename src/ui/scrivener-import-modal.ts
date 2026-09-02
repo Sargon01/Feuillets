@@ -29,6 +29,7 @@ import {
 import { getResearchRoot } from "../services/research.js";
 import { getFeuilletsFolderNames, resourcesFolderPath, resourcesSubfolderPath, getOrderedChildren } from "../services/folder-structure.js";
 import { t } from "../i18n/index.js";
+import { FolderSuggest } from "./folder-suggest.js";
 
 type ScrivxItem = NonNullable<ReturnType<typeof parseScrivx>["draft"]>;
 
@@ -387,16 +388,21 @@ export class ScrivenerImportModal extends Modal {
   showForm(): void {
     const { contentEl } = this;
     contentEl.empty();
-    contentEl.addClass("feuillets-project-modal");
+    contentEl.addClass("feuillets-scrivener-import-modal");
     contentEl.createEl("h3", { text: t("modal.scrivenerImport.title") });
-    contentEl.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      t("modal.scrivenerImport.desc")
-    );
+    contentEl.createDiv({ cls: "feuillets-feuil-import-intro", text: t("modal.scrivenerImport.desc") });
+
+    const form = contentEl.createDiv({ cls: "feuillets-feuil-import-form" });
+    const createField = (label: string): HTMLElement => {
+      const field = form.createDiv({ cls: "feuillets-feuil-import-field" });
+      field.createEl("label", { text: label });
+      return field;
+    };
 
     let droppedFileMap: ScrivenerFileMap | null = null;
 
-    contentEl.createEl("label", { text: t("modal.scrivenerImport.scrivFolderLabel") });
-    const dropArea = contentEl.createDiv({ cls: "feuillets-drop-target feuillets-field-spacer" });
+    const scrivField = createField(t("modal.scrivenerImport.scrivFolderLabel"));
+    const dropArea = scrivField.createDiv({ cls: "feuillets-drop-target" });
     dropArea.setText("Glissez-déposez votre dossier .scriv ou sélectionnez une archive ZIP ci-dessous.");
 
     dropArea.addEventListener("dragover", (e) => {
@@ -464,37 +470,39 @@ export class ScrivenerImportModal extends Modal {
       })();
     });
 
-    const zipInput = contentEl.createEl("input", {
+    const zipInput = scrivField.createEl("input", {
       type: "file",
       attr: { accept: ".zip,.scriv.zip" },
+      cls: "feuillets-feuil-import-file-input",
     });
-    zipInput.addClass("feuillets-input-full");
-    zipInput.addClass("feuillets-field-spacer");
+    const zipFileRow = scrivField.createDiv({ cls: "feuillets-feuil-import-file-row" });
+    const chooseZipButton = zipFileRow.createEl("button", { type: "button", text: "Choisir une archive ZIP…" });
+    chooseZipButton.addEventListener("click", () => zipInput.click());
+    const zipFileName = zipFileRow.createDiv({ cls: "feuillets-feuil-import-file-name" });
+    zipFileName.setText("Aucun fichier choisi");
 
-    contentEl.createDiv({ cls: "feuillets-notes-sub feuillets-field-spacer" }).setText(
+    scrivField.createDiv({ cls: "feuillets-notes-sub" }).setText(
       "Sur macOS : vous pouvez glisser-déposer directement votre projet .scriv ci-dessus, ou le compresser en .zip pour le sélectionner."
     );
 
-    contentEl.createEl("label", { text: t("modal.newProject.parentFolderLabel") });
-    const parentInput = contentEl.createEl("input", {
+    const parentField = createField(t("modal.newProject.parentFolderLabel"));
+    const parentInput = parentField.createEl("input", {
       type: "text",
       attr: { placeholder: t("modal.newProject.parentFolderPlaceholder") },
     });
-    parentInput.addClass("feuillets-input-full");
-    parentInput.addClass("feuillets-field-spacer");
+    new FolderSuggest(this.app, parentInput);
 
-    contentEl.createEl("label", { text: t("modal.newProject.nameLabel") });
-    const nameInput = contentEl.createEl("input", {
+    const nameField = createField(t("modal.newProject.nameLabel"));
+    const nameInput = nameField.createEl("input", {
       type: "text",
       attr: { placeholder: "Mon roman" },
     });
-    nameInput.addClass("feuillets-input-full");
-    nameInput.addClass("feuillets-field-spacer");
 
     zipInput.addEventListener("change", () => {
       if (zipInput.files && zipInput.files.length > 0) {
         droppedFileMap = null;
         const file = zipInput.files[0];
+        zipFileName.setText(file.name);
         const baseName = file.name.replace(/\.scriv\.zip$/i, "").replace(/\.zip$/i, "");
         if (baseName && !nameInput.value) {
           nameInput.value = baseName;
@@ -502,9 +510,8 @@ export class ScrivenerImportModal extends Modal {
       }
     });
 
-    contentEl.createEl("label", { text: t("modal.newProject.typeLabel") });
-    const typeSelect = contentEl.createEl("select");
-    typeSelect.addClass("feuillets-input-full");
+    const typeField = createField(t("modal.newProject.typeLabel"));
+    const typeSelect = typeField.createEl("select");
     for (const [key, mode] of Object.entries(PROJECT_MODES)) {
       typeSelect.createEl("option", { text: mode.label, value: key });
     }
@@ -568,10 +575,11 @@ export class ScrivenerImportModal extends Modal {
     };
 
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
+    btnRow.createEl("button", { type: "button", text: t("shared.cancel") })
+      .addEventListener("click", () => this.close());
     btnRow
-      .createEl("button", { text: t("modal.scrivenerImport.analyzeBtn"), cls: "mod-cta" })
+      .createEl("button", { type: "button", text: t("modal.scrivenerImport.analyzeBtn"), cls: "mod-cta" })
       .addEventListener("click", () => { void analyze(); });
-    btnRow.createEl("button", { text: t("modal.cancel") }).addEventListener("click", () => this.close());
   }
 
   showPreview(ctx: ImportContext): void {
