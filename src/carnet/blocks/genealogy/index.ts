@@ -18,3 +18,9 @@ export { createGenealogyCanvasModel } from "./canvas-model.js";
 export type { GenealogyCanvasModel } from "./canvas-model.js";
 export { layoutGenealogy } from "./layout.js";
 export type { GenealogyLayout, GenealogyLayoutPosition } from "./layout.js";
+export {
+  createGenealogyBlock,
+  genealogyBlockIds,
+  reconcileGenealogyBlock,
+  selectGenealogyBlockId,
+} from "./genealogy.js";

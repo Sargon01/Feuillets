@@ -95,6 +95,8 @@ import { findMindmapChildren, isMindmapMemberNode } from "./carnet/blocks/mindma
 import { computeMindmapVisibility } from "./carnet/blocks/mindmap/interactions.js";
 import { renderGenealogyMarkdown } from "./markdown/genealogy/renderer.js";
 import { removeGroupBlockToolbar } from "./carnet/blocks/shared/native-group-block.js";
+import { createGenealogyBlock, reconcileGenealogyBlock, selectGenealogyBlockId } from "./carnet/blocks/genealogy/index.js";
+import { readGenealogyFolder } from "./carnet/blocks/genealogy/reader.js";
 import {
   createPlanNode,
   findPlanNode,
@@ -658,6 +660,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.carnetLifecycle?.refresh()));
     this.registerMindmapCommands();
     this.registerPlanCommands();
+    this.registerGenealogyCommands();
     this.patchTabTitles();
     this.registerSwipeGestures();
     this.registerAutoBackup();
@@ -4525,6 +4528,66 @@ class FeuilletsPlugin extends Plugin {
     if (!owner) return null;
     const inManuscript = owner.path === manuscript.path || owner.path.startsWith(`${manuscript.path}/`);
     return inManuscript ? owner : null;
+  }
+
+  resolveGenealogyScope(file: TFile | null | undefined): TFolder | null {
+    const manuscript = this.getProjectFolder();
+    const projectRoot = getProjectRoot(this.app, this.settings);
+    if (!file || !manuscript || !projectRoot) return null;
+    const meta = this.settings.projectMeta[manuscript.path];
+    const context = resolveFolderCarnetTitleContext(this.app.vault, manuscript, projectRoot.path, meta, file);
+    return context?.linkedResearchFolder ?? context?.owner ?? null;
+  }
+
+  registerGenealogyCommands(): void {
+    this.addCommand({
+      id: "genealogy-create",
+      name: "Carnet : ajouter une généalogie",
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        const file = view?.file;
+        const canvas = view?.canvas;
+        if (!file || !canvas?.getData || !canvas.requestSave || !this.resolveGenealogyScope(file)) return false;
+        if (checking) return true;
+        void (async () => {
+          const scope = this.resolveGenealogyScope(file);
+          if (!scope) return;
+          const session = await resolveCanvasSession(this.app, file);
+          const result = readGenealogyFolder(this.app, scope.path);
+          const next = createGenealogyBlock(session.data, result.graph, crypto.randomUUID());
+          await session.persist(next);
+          this.carnetLifecycle?.refresh();
+        })();
+        return true;
+      },
+    });
+
+    this.addCommand({
+      id: "genealogy-refresh",
+      name: "Carnet : actualiser la généalogie",
+      checkCallback: (checking) => {
+        const view = this.activeCanvasView();
+        const file = view?.file;
+        const canvas = view?.canvas;
+        if (!file || !canvas?.getData || !canvas.requestSave || !this.resolveGenealogyScope(file)) return false;
+        let data: CanvasData;
+        try { data = canvas.getData(); } catch { return false; }
+        const selected = this.activeMindmapSelection(canvas);
+        const blockId = selectGenealogyBlockId(data, selected?.id);
+        if (!blockId) return false;
+        if (checking) return true;
+        void (async () => {
+          const scope = this.resolveGenealogyScope(file);
+          if (!scope) return;
+          const session = await resolveCanvasSession(this.app, file);
+          const result = readGenealogyFolder(this.app, scope.path);
+          const next = reconcileGenealogyBlock(session.data, result.graph, blockId);
+          await session.persist(next);
+          this.carnetLifecycle?.refresh();
+        })();
+        return true;
+      },
+    });
   }
 
   /** Lecture du Binder dans l'ordre canonique Feuillets — jamais
