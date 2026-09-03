@@ -16,3 +16,5 @@ export type { GenealogyNormalizationResult } from "./normalizer.js";
 export { readGenealogyFolder } from "./reader.js";
 export { createGenealogyCanvasModel } from "./canvas-model.js";
 export type { GenealogyCanvasModel } from "./canvas-model.js";
+export { layoutGenealogy } from "./layout.js";
+export type { GenealogyLayout, GenealogyLayoutPosition } from "./layout.js";
