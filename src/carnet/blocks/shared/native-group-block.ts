@@ -18,7 +18,7 @@ import type { CanvasData, CanvasNode } from "../../canvas/types.js";
 export const GROUP_BLOCK_VERSION = 1;
 export const GROUP_BLOCK_DEFAULT_PADDING = 60;
 
-export type GroupBlockType = "relations";
+export type GroupBlockType = "relations" | "genealogy";
 
 export function isGroupBlockNode(node: CanvasNode, blockType: GroupBlockType): boolean {
   return node.type === "group" && node.feuillets_block === blockType && typeof node.feuillets_block_id === "string";
@@ -74,6 +74,7 @@ export function freshEdgeId(canvas: CanvasData, prefix: string): string {
 export type CreateGroupBlockOptions = {
   blockType: GroupBlockType;
   blockId: string;
+  nodeId?: string;
   x: number;
   y: number;
   width: number;
@@ -85,7 +86,7 @@ export type CreateGroupBlockOptions = {
  * son contenu initial. Poussé directement dans `canvas.nodes`. */
 export function createGroupBlockNode(canvas: CanvasData, options: CreateGroupBlockOptions): CanvasNode {
   const node: CanvasNode = {
-    id: freshNodeId(canvas),
+    id: options.nodeId ?? freshNodeId(canvas),
     type: "group",
     x: options.x,
     y: options.y,
@@ -134,7 +135,7 @@ export function findContainingGroupBlock(canvas: CanvasData, pos: { x: number; y
   return (
     (canvas.nodes || []).find((node) => {
       if (node.type !== "group" || typeof node.feuillets_block_id !== "string") return false;
-      if (node.feuillets_block !== "relations") return false;
+      if (node.feuillets_block !== "relations" && node.feuillets_block !== "genealogy") return false;
       const x = Number(node.x) || 0;
       const y = Number(node.y) || 0;
       const width = Number(node.width) || 0;

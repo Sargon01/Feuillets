@@ -14,3 +14,5 @@ export type {
 export { normalizeGenealogy } from "./normalizer.js";
 export type { GenealogyNormalizationResult } from "./normalizer.js";
 export { readGenealogyFolder } from "./reader.js";
+export { createGenealogyCanvasModel } from "./canvas-model.js";
+export type { GenealogyCanvasModel } from "./canvas-model.js";

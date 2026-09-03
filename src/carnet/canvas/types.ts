@@ -14,11 +14,13 @@ export type CanvasNode = {
   /** Groupe Canvas natif délimitant un bloc Feuillets, porté UNIQUEMENT par
    * le node `type: "group"` qui
    * délimite le bloc. */
-  feuillets_block?: "mindmap" | "relations";
+  feuillets_block?: "mindmap" | "relations" | "genealogy";
   feuillets_block_version?: 1;
   /** Porté par le groupe ET par chaque node membre du bloc (même uuid) —
    * voir src/carnet/blocks/mindmap/model.ts. */
   feuillets_block_id?: string;
+  /** Marqueur typé des nodes techniques d'union de Généalogie. */
+  feuillets_genealogy_kind?: "union";
   /** IDs des nodes Mindmap actuellement repliés, portée par le groupe
    * uniquement (voir src/carnet/blocks/mindmap/interactions.ts). */
   mindmapCollapsed?: string[];
@@ -57,7 +59,7 @@ export type CanvasEdge = {
   toEnd?: "none" | "arrow";
   fil?: string;
   feuillets_fil?: string;
-  feuillets_managed?: "manuscript" | "research" | "thread" | "idea-tree" | "mindmap" | "relations";
+  feuillets_managed?: "manuscript" | "research" | "thread" | "idea-tree" | "mindmap" | "relations" | "genealogy";
   /** Même uuid que le node membre — seule une edge portant CE marqueur ET
    * ce même id est structurelle pour le moteur Mindmap (§2 du correctif),
    * ou pour un bloc Relations/Généalogie (Prompt 4, même discipline). */
@@ -69,7 +71,7 @@ export type CanvasEdge = {
    * `parent-child` : dirigée, `fromNode` = parent, `toNode` = enfant.
    * `spouse` : non dirigée sémantiquement (le sens fromNode/toNode Canvas
    * reste arbitraire, jamais interprété comme une hiérarchie). */
-  feuillets_relation?: "parent-child" | "spouse";
+  feuillets_relation?: "parent-child" | "spouse" | "partner-union" | "union-child";
   [key: string]: unknown;
 };
 
