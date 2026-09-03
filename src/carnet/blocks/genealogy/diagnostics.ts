@@ -13,11 +13,14 @@ export type GenealogyDiagnosticCode =
   | "self-legacy-child"
   | "legacy-child-conflict"
   | "more-than-two-parents"
-  | "ancestry-cycle";
+  | "ancestry-cycle"
+  | "invalid-genealogy-field"
+  | "unresolved-genealogy-link";
 
 export type GenealogyDiagnostic = {
   severity: GenealogyDiagnosticSeverity;
   code: GenealogyDiagnosticCode;
   personId?: GenealogyPersonId;
   relatedPersonId?: GenealogyPersonId;
+  field?: string;
 };
