@@ -9,7 +9,7 @@ export type TimelineItem = NonNullable<ReturnType<typeof parseStoryDate>> & {
 };
 
 export type TimelineRenderContext = {
-  settings: Pick<FeuilletsSettings, "timelineOrder" | "timelineTagFilter">;
+  settings: Pick<FeuilletsSettings, "timelineOrder" | "timelineTagFilter" | "timelineScale">;
   flattenFiles: (folder: TFolder) => TFile[];
   passesFilter: (file: TFile) => boolean;
   isFrontMatter: (file: TFile) => boolean;
@@ -63,8 +63,62 @@ function sortTimelineItems(items: TimelineItem[], files: TFile[], order: Feuille
     const fileOrder = new Map(files.map((file, index) => [file.path, index]));
     items.sort((a, b) => (fileOrder.get(a.file.path) ?? 999) - (fileOrder.get(b.file.path) ?? 999));
   } else {
-    items.sort((a, b) => a.sort - b.sort);
+    items.sort(timelineChronologicalCompare);
   }
+}
+
+function timelineChronologicalCompare(a: TimelineItem, b: TimelineItem): number {
+  const dayOrder = a.sort - b.sort;
+  if (dayOrder !== 0) return dayOrder;
+  if (a.hour === undefined && b.hour === undefined) return 0;
+  if (a.hour === undefined) return -1;
+  if (b.hour === undefined) return 1;
+  const hourOrder = a.hour - b.hour;
+  if (hourOrder !== 0) return hourOrder;
+  return (a.minute ?? 0) - (b.minute ?? 0);
+}
+
+type TimelineScale = "siecle" | "annee" | "mois" | "jour" | "aucune";
+
+function timelineScalePeriod(item: TimelineItem, scaleValue: string | undefined): { key: string; label: string } | null {
+  const scale: TimelineScale = scaleValue === "siecle" || scaleValue === "annee" || scaleValue === "mois" || scaleValue === "jour" || scaleValue === "aucune"
+    ? scaleValue
+    : scaleValue === undefined || scaleValue === ""
+      ? "annee"
+      : "aucune";
+  if (scale === "aucune") return null;
+  if (scale === "annee") {
+    const label = String(item.y);
+    return { key: `year:${label}`, label };
+  }
+  if (scale === "mois") {
+    if (item.mo > 0) {
+      const label = `${item.y}-${String(item.mo).padStart(2, "0")}`;
+      return { key: `month:${label}`, label };
+    }
+    const label = String(item.y);
+    return { key: `year:${label}`, label };
+  }
+  if (scale === "jour") {
+    if (item.mo === 0) {
+      const label = String(item.y);
+      return { key: `year:${label}`, label };
+    }
+    const month = `${item.y}-${String(item.mo).padStart(2, "0")}`;
+    if (item.d === 0) return { key: `month:${month}`, label: month };
+    const label = `${month}-${String(item.d).padStart(2, "0")}`;
+    return { key: `day:${label}`, label };
+  }
+  if (item.y > 0) {
+    const start = Math.floor((item.y - 1) / 100) * 100 + 1;
+    const end = start + 99;
+    const label = `${start}–${end}`;
+    return { key: `century:${start}`, label };
+  }
+  const end = Math.ceil(item.y / 100) * 100 - 1;
+  const start = end - 99;
+  const label = `${start}–${end}`;
+  return { key: `century:${start}`, label };
 }
 
 export function renderBoardTimeline(container: HTMLElement, folder: TFolder, ctx: TimelineRenderContext): void {
@@ -77,7 +131,13 @@ export function renderBoardTimeline(container: HTMLElement, folder: TFolder, ctx
   }
 
   const timeline = container.createDiv({ cls: "feuillets-timeline" });
+  let previousPeriodKey: string | undefined;
   for (const item of collected.items) {
+    const period = timelineScalePeriod(item, ctx.settings.timelineScale);
+    if (period && period.key !== previousPeriodKey) {
+      timeline.createDiv({ cls: "feuillets-timeline-year", text: period.label });
+      previousPeriodKey = period.key;
+    }
     const row = timeline.createDiv({ cls: item.milestone ? "feuillets-timeline-item feuillets-timeline-milestone" : "feuillets-timeline-item" });
     const dateContainer = row.createDiv({ cls: "feuillets-timeline-date" });
     const dateDisplay = dateContainer.createDiv({ cls: "feuillets-timeline-date-display", text: item.display });

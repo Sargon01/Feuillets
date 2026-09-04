@@ -170,7 +170,7 @@ const LEADING_ZERO_YEAR = /^0\d/;
 export function parseStoryDate(
   raw: unknown,
   file: TFile | null = null
-): { sort: number; y: number; mo: number; d: number; display: string } | null {
+): { sort: number; y: number; mo: number; d: number; display: string; hour?: number; minute?: number } | null {
   let str = normalizeDateInput(raw) ?? "";
   if (!str && file) {
     /* année à 4 chiffres exigée : un fichier nommé "4.md" ou "10.md"
@@ -194,7 +194,15 @@ export function parseStoryDate(
     const display = CANONICAL_PLAIN_ISO.test(str) && !LEADING_ZERO_YEAR.test(yearPrefix)
       ? str
       : formatNaturalDate(iso) ?? str;
-    return { sort, y: iso.year, mo, d, display };
+    return {
+      sort,
+      y: iso.year,
+      mo,
+      d,
+      display,
+      ...(iso.hour !== undefined ? { hour: iso.hour } : {}),
+      ...(iso.minute !== undefined ? { minute: iso.minute } : {}),
+    };
   }
 
   // 2) Repli : français naturel.
@@ -204,7 +212,15 @@ export function parseStoryDate(
     const d = natural.precision === "day" ? natural.day : 0;
     const sort = natural.year * 10000 + mo * 100 + d;
     const display = formatNaturalDate(natural) ?? str;
-    return { sort, y: natural.year, mo, d, display };
+    return {
+      sort,
+      y: natural.year,
+      mo,
+      d,
+      display,
+      ...(natural.hour !== undefined ? { hour: natural.hour } : {}),
+      ...(natural.minute !== undefined ? { minute: natural.minute } : {}),
+    };
   }
 
   return null;

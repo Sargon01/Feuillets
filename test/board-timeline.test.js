@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder, Menu } from "obsidian";
 import { BoardView } from "../src/views/board-view.js";
+import { parseStoryDate } from "../src/utils/core.js";
 
 globalThis.window ??= { setTimeout: (...args) => setTimeout(...args), clearTimeout: (handle) => clearTimeout(handle) };
 
@@ -70,6 +71,14 @@ function render(harness) {
   const container = new FakeElement();
   harness.view.renderTimelineInner(container, harness.root, new Map());
   return container;
+}
+
+function timelineHeadings(container) {
+  return findAll(container, (element) => element.classes.has("feuillets-timeline-year")).map((element) => element.text);
+}
+
+function timelineTitles(container) {
+  return findAll(container, (element) => element.classes.has("feuillets-timeline-title")).map((element) => element.text);
 }
 
 function dated(path, date, extra = {}) { const file = new TFile(path); file.__fm = { date, ...extra }; return file; }
@@ -187,6 +196,180 @@ test("Timeline — les jalons ignorent le filtre général et suivent seulement 
   harness.view.passesFilter = () => false;
   const container = render(harness);
   assert.equal(findAll(container, (element) => element.classes.has("feuillets-timeline-milestone")).length, 1);
+});
+
+test("Timeline — l'échelle année est la valeur par défaut", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/focus.md", "1789-01-01"),
+    dated("Projet/Manuscrit/parent-a.md", "1789-07-14"),
+    dated("Projet/Manuscrit/parent-b.md", "1790-01-01"),
+  ] });
+  harness.settings.timelineScale = "";
+  const container = render(harness);
+  assert.deepEqual(timelineHeadings(container), ["1789", "1790"]);
+  assert.equal(timelineTitles(container).length, 3);
+});
+
+test("Timeline — l'échelle mois ne crée pas de janvier pour une année seule", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/focus.md", "1789"),
+    dated("Projet/Manuscrit/parent-a.md", "1789-07-01"),
+    dated("Projet/Manuscrit/parent-b.md", "1789-07-14"),
+    dated("Projet/Manuscrit/child-a.md", "1789-08-01"),
+  ] });
+  harness.settings.timelineScale = "mois";
+  assert.deepEqual(timelineHeadings(render(harness)), ["1789", "1789-07", "1789-08"]);
+});
+
+test("Timeline — l'échelle jour utilise la précision existante et garde l'ordre des heures", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/focus.md", "1789-07"),
+    dated("Projet/Manuscrit/parent-a.md", "1789-07-14 09:00"),
+    dated("Projet/Manuscrit/parent-b.md", "1789-07-14 18:00"),
+    dated("Projet/Manuscrit/child-a.md", "1789-07-15"),
+  ] });
+  harness.settings.timelineScale = "jour";
+  const container = render(harness);
+  assert.deepEqual(timelineHeadings(container), ["1789-07", "1789-07-14", "1789-07-15"]);
+  assert.deepEqual(timelineTitles(container), ["focus", "parent-a", "parent-b", "child-a"]);
+});
+
+test("Timeline — l'échelle siècle utilise les bornes historiques, sans année zéro", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/focus.md", "1701"),
+    dated("Projet/Manuscrit/parent-a.md", "1789"),
+    dated("Projet/Manuscrit/parent-b.md", "1800"),
+    dated("Projet/Manuscrit/child-a.md", "1801"),
+    dated("Projet/Manuscrit/child-b.md", "-44"),
+  ] });
+  harness.settings.timelineScale = "siecle";
+  assert.deepEqual(timelineHeadings(render(harness)), ["-100–-1", "1701–1800", "1801–1900"]);
+});
+
+test("Timeline — sans en-têtes conserve uniquement les items", () => {
+  const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14")] });
+  harness.settings.timelineScale = "aucune";
+  const container = render(harness);
+  assert.equal(timelineHeadings(container).length, 0);
+  assert.equal(timelineTitles(container).length, 1);
+});
+
+test("Timeline — en ordre narratif, une période retrouvée recrée son en-tête", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/A.md", "2001"),
+    dated("Projet/Manuscrit/B.md", "1998"),
+    dated("Projet/Manuscrit/C.md", "2001"),
+  ] });
+  harness.settings.timelineOrder = "narratif";
+  harness.settings.timelineScale = "annee";
+  const container = render(harness);
+  assert.deepEqual(timelineHeadings(container), ["2001", "1998", "2001"]);
+  assert.deepEqual(timelineTitles(container), ["A", "B", "C"]);
+});
+
+test("Timeline — jalon Recherche conserve le fallback narratif 999", () => {
+  const milestone = dated("Projet/Chronologie/milestone.md", "1700");
+  const harness = buildTimelineHarness({
+    children: [dated("Projet/Manuscrit/A.md", "2001"), dated("Projet/Manuscrit/B.md", "1998")],
+    milestones: [milestone],
+  });
+  harness.settings.timelineOrder = "narratif";
+  harness.settings.timelineScale = "annee";
+  const container = render(harness);
+  assert.deepEqual(timelineTitles(container), ["A", "B", "milestone"]);
+});
+
+test("parseStoryDate — conserve le sort journalier et expose heure/minute sans inventer minuit", () => {
+  const morning = parseStoryDate("1789-07-14 09:30");
+  const evening = parseStoryDate("1789-07-14 18:00");
+  const dateOnly = parseStoryDate("1789-07-14");
+  assert.equal(morning.sort, 17890714);
+  assert.equal(evening.sort, morning.sort);
+  assert.equal(morning.hour, 9);
+  assert.equal(morning.minute, 30);
+  assert.equal(evening.hour, 18);
+  assert.equal(evening.minute, 0);
+  assert.equal(dateOnly.hour, undefined);
+});
+
+test("Timeline — chrono trie les heures puis les minutes du même jour", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/evening.md", "1789-07-14 18:00"),
+    dated("Projet/Manuscrit/morning.md", "1789-07-14 09:00"),
+    dated("Projet/Manuscrit/noon.md", "1789-07-14 12:30"),
+  ] });
+  assert.deepEqual(timelineTitles(render(harness)), ["morning", "noon", "evening"]);
+});
+
+test("Timeline — date seule avant minuit explicite puis heure horodatée", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/evening.md", "1789-07-14 09:00"),
+    dated("Projet/Manuscrit/date-only.md", "1789-07-14"),
+    dated("Projet/Manuscrit/midnight.md", "1789-07-14 00:00"),
+  ] });
+  assert.deepEqual(timelineTitles(render(harness)), ["date-only", "midnight", "evening"]);
+});
+
+test("Timeline — chrono trie les minutes", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/late.md", "1789-07-14 09:45"),
+    dated("Projet/Manuscrit/early.md", "1789-07-14 09:05"),
+    dated("Projet/Manuscrit/middle.md", "1789-07-14 09:30"),
+  ] });
+  assert.deepEqual(timelineTitles(render(harness)), ["early", "middle", "late"]);
+});
+
+test("Timeline — mêmes horodatages et dates seules conservent l'ordre stable", () => {
+  const timed = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/A.md", "1789-07-14 09:30"),
+    dated("Projet/Manuscrit/B.md", "1789-07-14 09:30"),
+    dated("Projet/Manuscrit/C.md", "1789-07-14 09:30"),
+  ] });
+  const undated = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/A.md", "1789-07-14"),
+    dated("Projet/Manuscrit/B.md", "1789-07-14"),
+    dated("Projet/Manuscrit/C.md", "1789-07-14"),
+  ] });
+  assert.deepEqual(timelineTitles(render(timed)), ["A", "B", "C"]);
+  assert.deepEqual(timelineTitles(render(undated)), ["A", "B", "C"]);
+});
+
+test("Timeline — le jour reste prioritaire sur l'heure", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/A.md", "1789-07-15 00:01"),
+    dated("Projet/Manuscrit/B.md", "1789-07-14 23:59"),
+    dated("Projet/Manuscrit/C.md", "1789-07-13 18:00"),
+  ] });
+  assert.deepEqual(timelineTitles(render(harness)), ["C", "B", "A"]);
+});
+
+test("Timeline — le mode narratif ignore l'heure", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/A.md", "1789-07-14 18:00"),
+    dated("Projet/Manuscrit/B.md", "1789-07-14 09:00"),
+    dated("Projet/Manuscrit/C.md", "1789-07-14 12:00"),
+  ] });
+  harness.settings.timelineOrder = "narratif";
+  assert.deepEqual(timelineTitles(render(harness)), ["A", "B", "C"]);
+});
+
+test("Timeline — l'échelle jour reste unique pour plusieurs heures du même jour", () => {
+  const harness = buildTimelineHarness({ children: [
+    dated("Projet/Manuscrit/evening.md", "1789-07-14 18:00"),
+    dated("Projet/Manuscrit/morning.md", "1789-07-14 09:00"),
+  ] });
+  harness.settings.timelineScale = "jour";
+  const container = render(harness);
+  assert.deepEqual(timelineTitles(container), ["morning", "evening"]);
+  assert.deepEqual(timelineHeadings(container), ["1789-07-14"]);
+});
+
+test("Timeline — jalons Recherche horodatés sont triés en chrono", () => {
+  const evening = dated("Projet/Chronologie/evening.md", "1789-07-14 18:00");
+  const morning = dated("Projet/Chronologie/morning.md", "1789-07-14 09:00");
+  const harness = buildTimelineHarness({ milestones: [evening, morning] });
+  assert.deepEqual(timelineTitles(render(harness)), ["morning", "evening"]);
+  assert.equal(findAll(render(harness), (element) => element.classes.has("feuillets-timeline-milestone")).length, 2);
 });
 
 test("LOT4 Chronologie — Synopsis vide affiche exactement « — », cliquable", () => {
