@@ -921,10 +921,7 @@ export class BoardView extends BaseFeuilletsView {
       }
     };
 
-    if (
-      activeMode === "outline" ||
-      (activeMode === "arcs" && this.narrativeSubview === "trame")
-    ) addScopeOptions();
+    if (activeMode === "outline" || activeMode === "arcs") addScopeOptions();
 
     if (activeMode === "board") {
       menu.addItem((item) => item.setTitle(t("board.options.cardsHeader")).setDisabled(true));
@@ -1920,6 +1917,7 @@ export class BoardView extends BaseFeuilletsView {
        VUE (.feuillets-board-container) : la barre d'axe et la zone de couloirs
        y sont montées, la barre HORS du scroll (§2/§6). */
     const scope = wholeManuscript ? root : currentFolder;
+    if (!wholeManuscript) this.renderBreadcrumbs(container, root, currentFolder);
     /* §6 : clé du périmètre affiché pour le viewport de session — si le
        périmètre change (root, scope, manuscrit entier vs dossier focalisé),
        scrollLeft/scrollTop repartent de 0 ; sinon ils sont restaurés sur le

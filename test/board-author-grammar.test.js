@@ -1512,8 +1512,8 @@ test("LOT4/LOT5 finition options Story Arc — le menu distingue Trame et Couloi
   const lanesMenu = new Menu();
   view.narrativeSubview = "lanes";
   view.buildModeOptionsMenu(lanesMenu, "arcs", context);
-  assert.equal(menuItemTitles(lanesMenu).includes("Dossier par dossier"), false);
-  assert.equal(menuItemTitles(lanesMenu).includes("Tout le manuscrit"), false);
+  assert.ok(menuItemTitles(lanesMenu).includes("Dossier par dossier"));
+  assert.ok(menuItemTitles(lanesMenu).includes("Tout le manuscrit"));
 });
 
 test("LOT4/LOT5 finition options Story Arc — arcsShowSynopsis/Pov/Characters/Threads sont true par défaut", () => {
