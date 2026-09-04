@@ -17,7 +17,7 @@ import {
 } from "./folder-structure.js";
 import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType, projectNewSheetIncludeSources, projectPlanningField, projectWordGoalDefault } from "./project-settings.js";
 import { openFileActivating } from "../utils/dom.js";
-import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
+import { applyModeDefaults, resolveType, PROJECT_MODES, RESEARCH_FOLDERS, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
   const p = normalizePath(path);
@@ -564,7 +564,7 @@ export async function initResearchSubfolders(
   const defaultKeys = projectMode.defaultResearchFolders ?? [];
 
   for (const key of defaultKeys) {
-    const names = researchFolderNames(projectMode.researchFolders, key);
+    const names = researchFolderNames(RESEARCH_FOLDERS, key);
 
     let exists = false;
     for (const name of names) {

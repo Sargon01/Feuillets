@@ -231,12 +231,11 @@ test("classifyResearchFolder / researchTargetLabel", async (t) => {
   await t.test("nom de dossier cible selon le mode du projet", () => {
     assert.equal(researchTargetLabel("Characters", "fiction"), "Personnages");
     assert.equal(researchTargetLabel("Places", "fiction"), "Lieux");
-    /* La non-fiction ne force plus de rubriques Personnages/Lieux (voir
-       utils/project-modes.js) — Characters/Places Scrivener y tombent donc
-       dans le panier de repli "non classé" plutôt que dans un dossier
-       renommé Acteurs/Géographie qui n'existe plus. */
-    assert.equal(researchTargetLabel("Characters", "nonfiction"), null);
-    assert.equal(researchTargetLabel("Places", "nonfiction"), null);
+    /* La classification Research est universelle et indépendante du type. */
+    assert.equal(researchTargetLabel("Characters", "nonfiction"), "Personnages");
+    assert.equal(researchTargetLabel("Characters", "free"), "Personnages");
+    assert.equal(researchTargetLabel("Places", "nonfiction"), "Lieux");
+    assert.equal(researchTargetLabel("Places", "free"), "Lieux");
     assert.equal(researchTargetLabel("Recherches diverses", "fiction"), null);
   });
 });
@@ -2616,4 +2615,3 @@ test("§17/§23/§31 chantier S3 — ScrivenerImportReport et résumé Notice", 
     assert.match(summary, /1 ressource\(s\) ambiguë/);
   });
 });
-

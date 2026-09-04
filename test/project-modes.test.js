@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   PROJECT_MODES,
+  RESEARCH_FOLDERS,
   projectCreationStyle,
   resolveType,
   applyModeDefaults,
@@ -35,16 +36,11 @@ test("PROJECT_MODES", async (t) => {
       assert.ok(mode.defaults, `${key}.defaults`);
       assert.ok(mode.boardDefaults, `${key}.boardDefaults`);
       assert.ok(mode.researchFolders, `${key}.researchFolders`);
-      /* rf.bibliographie existe en fiction et non-fiction uniquement —
-         en libre, aucun dossier n'est imposé, l'utilisateur les crée
-         via le bouton "Nouvelle rubrique". */
-      if (key !== "free") {
-        const entry = mode.researchFolders.bibliographie;
-        assert.ok(entry, `${key}.researchFolders.bibliographie`);
-        assert.ok(entry.label, `${key}.researchFolders.bibliographie.label`);
-        assert.ok(entry.newName, `${key}.researchFolders.bibliographie.newName`);
-        assert.ok(entry.tag, `${key}.researchFolders.bibliographie.tag`);
-      }
+      const entry = mode.researchFolders.bibliographie;
+      assert.ok(entry, `${key}.researchFolders.bibliographie`);
+      assert.ok(entry.label, `${key}.researchFolders.bibliographie.label`);
+      assert.ok(entry.newName, `${key}.researchFolders.bibliographie.newName`);
+      assert.ok(entry.tag, `${key}.researchFolders.bibliographie.tag`);
     }
   });
 
@@ -77,32 +73,29 @@ test("PROJECT_MODES", async (t) => {
     );
   });
 
-  await t.test("fiction garde Personnages/Lieux/Lore/Glossaire/Événements, pas de dossier Sources dédié", () => {
-    const rf = PROJECT_MODES.fiction.researchFolders;
-    assert.equal(rf.personnages.label, "Characters");
-    assert.equal(rf.lieux.label, "Places");
-    assert.equal(rf.codex.label, "Lore");
-    assert.equal(rf.glossaire.label, "Glossary");
-    assert.equal(rf.evenements.label, "Events");
-    assert.equal(rf.sources, undefined);
+  await t.test("les trois modes connaissent le registre Research universel", () => {
+    assert.deepEqual(Object.keys(RESEARCH_FOLDERS).sort(), [
+      "bibliographie", "codex", "evenements", "glossaire",
+      "lieux", "notes", "personnages", "sources",
+    ]);
+    assert.equal(PROJECT_MODES.fiction.researchFolders, RESEARCH_FOLDERS);
+    assert.equal(PROJECT_MODES.nonfiction.researchFolders, RESEARCH_FOLDERS);
+    assert.equal(PROJECT_MODES.free.researchFolders, RESEARCH_FOLDERS);
   });
 
-  await t.test("non-fiction ne garde que Notes + Sources + Bibliographie, aucune rubrique imposée", () => {
-    const rf = PROJECT_MODES.nonfiction.researchFolders;
-    assert.equal(rf.notes.label, "Notes");
-    assert.equal(rf.sources.label, "Sources");
-    assert.equal(rf.bibliographie.label, "Bibliography");
-    assert.equal(rf.personnages, undefined);
-    assert.equal(rf.lieux, undefined);
-    assert.equal(rf.codex, undefined);
-    assert.equal(rf.glossaire, undefined);
-    assert.equal(rf.evenements, undefined);
+  await t.test("les définitions Research historiques restent inchangées", () => {
+    assert.deepEqual(RESEARCH_FOLDERS.personnages, { label: "Characters", newName: "Nouveau personnage", tag: "personnage" });
+    assert.deepEqual(RESEARCH_FOLDERS.lieux, { label: "Places", newName: "Nouveau lieu", tag: "lieu" });
+    assert.deepEqual(RESEARCH_FOLDERS.evenements, { label: "Events", newName: "Nouvel événement", tag: "evenement" });
+    assert.deepEqual(RESEARCH_FOLDERS.sources, { label: "Sources", newName: "Nouvelle source", tag: "source" });
+    assert.deepEqual(RESEARCH_FOLDERS.notes, { label: "Notes", newName: "Nouvelle note", tag: "notes" });
+    assert.deepEqual(RESEARCH_FOLDERS.bibliographie, { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" });
   });
 
-  await t.test("Bibliographie identique dans fiction et non-fiction (seul rôle partagé)", () => {
-    assert.equal(PROJECT_MODES.fiction.researchFolders.bibliographie?.label, "Bibliography");
-    assert.equal(PROJECT_MODES.nonfiction.researchFolders.bibliographie?.label, "Bibliography");
-    assert.equal(PROJECT_MODES.free.researchFolders.bibliographie, undefined, "pas de bibliographie en mode libre");
+  await t.test("les defaults de création Research restent propres aux presets", () => {
+    assert.deepEqual(PROJECT_MODES.fiction.defaultResearchFolders, ["personnages", "lieux", "evenements", "codex", "glossaire"]);
+    assert.deepEqual(PROJECT_MODES.nonfiction.defaultResearchFolders, ["notes", "sources"]);
+    assert.deepEqual(PROJECT_MODES.free.defaultResearchFolders, []);
   });
 });
 

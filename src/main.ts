@@ -129,7 +129,7 @@ import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
-import { matchesResearchLabel } from "./utils/project-modes.js";
+import { RESEARCH_FOLDERS, matchesResearchLabel } from "./utils/project-modes.js";
 import { setLocale, detectLocale, t } from "./i18n/index.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
@@ -2473,7 +2473,7 @@ class FeuilletsPlugin extends Plugin {
     if (!researchRoot) return;
     if (!file.path.startsWith(researchRoot.path + "/")) return;
     const mode = this.projectMode();
-    const rf = mode.researchFolders;
+    const rf = RESEARCH_FOLDERS;
     const parentName = file.parent ? file.parent.name : "";
     let sectionKey = "";
     if (matchesResearchLabel(rf, "sources", parentName)) sectionKey = "sources";
@@ -2482,7 +2482,7 @@ class FeuilletsPlugin extends Plugin {
     else if (matchesResearchLabel(rf, "lieux", parentName)) sectionKey = "lieux";
     else if (matchesResearchLabel(rf, "codex", parentName)) sectionKey = "codex";
     else if (matchesResearchLabel(rf, "glossaire", parentName)) sectionKey = "glossaire";
-    else if (parentName === "Chronology" || parentName === "Chronologie") sectionKey = "evenements";
+    else if (matchesResearchLabel(rf, "evenements", parentName)) sectionKey = "evenements";
     if (!sectionKey) return;
     const template = await getResearchTemplate(this.app, this.settings, mode, sectionKey, file.basename);
     if (template) {
@@ -3541,14 +3541,12 @@ class FeuilletsPlugin extends Plugin {
     ) ?? null;
   }
 
-  /** Dossier(s) proposés par « Insérer une citation » — réservé à la
-   * non-fiction (`rf.sources` défini). Réutilise `resolveBibliographySource`
+  /** Dossier(s) proposés par « Insérer une citation ». Réutilise
+   * `resolveBibliographySource`
    * (services/bibliography-generator.ts) : Sources canonique si présent,
    * sinon repli Bibliographie/Bibliography legacy, jamais les deux à la
    * fois — même règle que la bibliographie générée. */
   getCitationFolders(): TFolder[] {
-    const mode = this.projectMode();
-    if (!mode.researchFolders.sources) return [];
     const resolved = resolveBibliographySource(this.app, this.settings);
     return resolved ? [resolved.folder] : [];
   }

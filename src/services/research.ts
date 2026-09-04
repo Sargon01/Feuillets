@@ -4,7 +4,7 @@ import { foldAccents } from "../utils/core.js";
 import { fmOf, titleFor, tagsOf, stripFrontmatter } from "./frontmatter.js";
 import { feuilletsAuxiliaryPath, getProjectFolder, flattenFiles } from "./folder-structure.js";
 import { getLocale } from "../i18n/index.js";
-import { PROJECT_MODES, researchFolderNames, resolveType } from "../utils/project-modes.js";
+import { RESEARCH_FOLDERS, researchFolderNames } from "../utils/project-modes.js";
 
 const UNDERSCORED_RESEARCH_ROOT_NAMES = ["_Recherche", "_Research"] as const;
 const SIBLING_RESEARCH_ROOT_NAMES = [...UNDERSCORED_RESEARCH_ROOT_NAMES, "Recherche", "Research"] as const;
@@ -98,8 +98,7 @@ export function chronologyFolderPath(
   if (existing) return existing.path;
   const researchPath = researchFolderPath(app, settings, root);
   if (!researchPath || !root) return null;
-  const mode = PROJECT_MODES[resolveType(settings.projectMeta?.[root.path]?.type)];
-  const names = researchFolderNames(mode.researchFolders, "evenements");
+  const names = researchFolderNames(RESEARCH_FOLDERS, "evenements");
   const preferredName = names[0] || (getLocale() === "fr" ? "Chronologie" : "Timeline");
   return normalizePath(`${researchPath}/${preferredName}`);
 }

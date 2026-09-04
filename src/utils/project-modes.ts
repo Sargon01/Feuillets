@@ -9,46 +9,30 @@ import { getLocale } from "../i18n/index.js";
  * dépendre de la locale de l'interface. Les variantes anglaises et historiques
  * restent reconnues indéfiniment sur les projets existants (voir LEGACY_RESEARCH_LABELS
  * et researchFolderNames plus bas). */
-const bibliographie = { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" };
+export type ResearchFolderKey =
+  | "bibliographie" | "notes" | "sources" | "personnages"
+  | "lieux" | "codex" | "glossaire" | "evenements";
 
-type ResearchFolderDef = { label: string; newName: string; tag: string };
-/** Union réelle des deux modes : chaque catégorie n'existe que dans SON
- * mode (fiction ou non-fiction), jamais dans les deux — d'où l'optionalité
- * de chaque champ ici plutôt qu'un jeu de clés figé. */
-type ResearchFolders = {
-  bibliographie?: ResearchFolderDef;
-  glossaire?: ResearchFolderDef;
-  evenements?: ResearchFolderDef;
-  personnages?: ResearchFolderDef;
-  lieux?: ResearchFolderDef;
-  codex?: ResearchFolderDef;
-  sources?: ResearchFolderDef;
-  notes?: ResearchFolderDef;
-};
+export type ResearchFolderDef = { label: string; newName: string; tag: string };
 
-/** Catégories Recherche par défaut selon le mode du projet :
+/** Catégories Recherche connues universellement. Les rubriques créées par
+ * défaut selon le mode du projet sont choisies par `defaultResearchFolders`.
  * - Fiction : Personnages, Lieux, Événements, Lore, Glossaire
  * - Non-fiction : Notes, Sources
  * - Libre : aucune rubrique créée par défaut
  *
  * Bibliographie est conservée pour la compatibilité historique (reconnaissance
  * et affichage des anciens dossiers), mais n'est créée automatiquement dans aucun mode. */
-const FICTION_RESEARCH: ResearchFolders = {
-  bibliographie,
+export const RESEARCH_FOLDERS: Readonly<Record<ResearchFolderKey, ResearchFolderDef>> = {
+  bibliographie: { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" },
   glossaire: { label: "Glossary", newName: "Nouveau terme", tag: "glossaire" },
   evenements: { label: "Events", newName: "Nouvel événement", tag: "evenement" },
   personnages: { label: "Characters", newName: "Nouveau personnage", tag: "personnage" },
   lieux: { label: "Places", newName: "Nouveau lieu", tag: "lieu" },
   codex: { label: "Lore", newName: "Nouvelle entrée", tag: "codex" },
-};
-
-const NONFICTION_RESEARCH: ResearchFolders = {
-  bibliographie,
   notes: { label: "Notes", newName: "Nouvelle note", tag: "notes" },
   sources: { label: "Sources", newName: "Nouvelle source", tag: "source" },
 };
-
-const FREE_RESEARCH: ResearchFolders = {};
 
 type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
 
@@ -127,7 +111,7 @@ const RESEARCH_FOLDER_VARIANTS: Record<string, string[]> = {
  * liste codée en dur), sinon le libellé anglais actuel. En anglais, le
  * libellé actuel est conservé tel quel. */
 export function researchFolderLabel(
-  researchFolders: Record<string, { label: string }>,
+  researchFolders: Readonly<Record<string, { label: string }>>,
   key: string
 ): string {
   const entry = researchFolders[key];
@@ -144,7 +128,7 @@ export function researchFolderLabel(
  * actuel (anglais) et les anciens noms — permet de réutiliser un dossier
  * existant créé sous une variante au lieu d'en créer un doublon. */
 export function researchFolderNames(
-  researchFolders: Record<string, { label: string }>,
+  researchFolders: Readonly<Record<string, { label: string }>>,
   key: string
 ): string[] {
   const entry = researchFolders[key];
@@ -166,7 +150,7 @@ export function researchFolderNames(
 
 /** `name` correspond-il à la catégorie `key` de `researchFolders`, sous
  * son nom canonique, son nom anglais OU son ancien nom ? */
-export function matchesResearchLabel(researchFolders: Record<string, { label: string }>, key: string, name: string) {
+export function matchesResearchLabel(researchFolders: Readonly<Record<string, { label: string }>>, key: string, name: string) {
   const names = researchFolderNames(researchFolders, key);
   return names.includes(name);
 }
@@ -178,7 +162,7 @@ export const PROJECT_MODES = {
     unit: "scène",
     unitPlural: "scènes",
     hasSources: false,
-    researchFolders: FICTION_RESEARCH,
+    researchFolders: RESEARCH_FOLDERS,
     defaultResearchFolders: ["personnages", "lieux", "evenements", "codex", "glossaire"],
     defaults: {
       level1Role: "parties",
@@ -195,7 +179,7 @@ export const PROJECT_MODES = {
     unit: "section",
     unitPlural: "sections",
     hasSources: true,
-    researchFolders: NONFICTION_RESEARCH,
+    researchFolders: RESEARCH_FOLDERS,
     defaultResearchFolders: ["notes", "sources"],
     defaults: {
       level1Role: "chapitres",
@@ -212,7 +196,7 @@ export const PROJECT_MODES = {
     unit: "section",
     unitPlural: "sections",
     hasSources: false,
-    researchFolders: FREE_RESEARCH,
+    researchFolders: RESEARCH_FOLDERS,
     defaultResearchFolders: [],
     defaults: {
       level1Role: "chapitres",
