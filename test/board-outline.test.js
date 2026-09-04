@@ -115,6 +115,24 @@ test("Board outline — tri actif reste limité au scope", async () => {
   assert.deepEqual(names(container), ["A", "Z"]);
 });
 
+test("Board outline — le tri Characters normalise les listes et ignore les objets", async () => {
+  const multi = file("Projet/Manuscrit/Partie A/multi.md");
+  multi.__fm = { characters: ["Kemal", "Arif"] };
+  const zed = file("Projet/Manuscrit/Partie A/zed.md");
+  zed.__fm = { characters: "Zed" };
+  const objectValue = file("Projet/Manuscrit/Partie A/object.md");
+  objectValue.__fm = { characters: { name: "Objet" } };
+  const root = folder("Projet/Manuscrit", [folder("Projet/Manuscrit/Partie A", [multi, zed, objectValue])]);
+  const context = makeContext(root);
+  context.outlineColumns = { title: true, characters: true };
+  context.outlineSortColumn = "characters";
+  context.outlineSortDirection = "asc";
+  const container = new FakeElement();
+  await renderBoardOutline(container, root.children[0], context, () => {});
+  assert.deepEqual(names(container), ["multi", "zed", "object"]);
+  assert.equal(names(container).includes("[object Object]"), false);
+});
+
 test("Board outline — filtre reste limité au scope", async () => {
   const visible = file("Projet/Manuscrit/Partie A/visible.md");
   const filtered = file("Projet/Manuscrit/Partie A/filtered.md");

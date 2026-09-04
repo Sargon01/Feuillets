@@ -96,7 +96,7 @@ function sortValue(ctx: OutlineRenderContext, file: TFile, column: string): stri
     case "synopsis": return toValue(frontmatter.synopsis);
     case "summary": return toValue(frontmatter.summary);
     case "pov": return povOf(frontmatter);
-    case "characters": return String(frontmatter.characters || "");
+    case "characters": return charactersOf(frontmatter).join(", ");
     case "thread": return filsOf(frontmatter).join(", ");
     case "label": return ctx.labelOf(file);
     case "status": return String(toValue(frontmatter.status) || "");
