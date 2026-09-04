@@ -1492,17 +1492,35 @@ test("LOT4 finition Story Arc — suppression d'un pov : donnée vidée, option 
 
 /* ===================== STORY ARC — options « Informations affichées » (finition LOT 4) ===================== */
 
-test("LOT4/LOT5 finition options Story Arc — le menu contient Synopsis, Pov, Personnages, Fil dans cet ordre", () => {
+test("LOT4/LOT5 finition options Story Arc — le menu distingue Trame et Couloirs", () => {
   const { view } = buildOptionsHarness();
-  const menu = new Menu();
-  view.buildModeOptionsMenu(menu, "arcs", {
+  const context = {
     S: view.plugin.settings,
     meta: {},
     pType: "fiction",
     wholeManuscript: false,
     outlineColumns: {},
-  });
-  assert.deepEqual(menuItemTitles(menu), ["— Informations affichées —", "Synopsis", "Pov", "Personnages", "Fil"]);
+  };
+
+  const trameMenu = new Menu();
+  view.narrativeSubview = "trame";
+  view.buildModeOptionsMenu(trameMenu, "arcs", context);
+  assert.ok(menuItemTitles(trameMenu).includes("Dossier par dossier"));
+  assert.ok(menuItemTitles(trameMenu).includes("Tout le manuscrit"));
+  assert.deepEqual(menuItemTitles(trameMenu).slice(2), ["— Informations affichées —", "Synopsis", "Pov", "Personnages", "Fil"]);
+
+  const lanesMenu = new Menu();
+  view.narrativeSubview = "lanes";
+  view.buildModeOptionsMenu(lanesMenu, "arcs", context);
+  assert.ok(menuItemTitles(lanesMenu).includes("Dossier par dossier"));
+  assert.ok(menuItemTitles(lanesMenu).includes("Tout le manuscrit"));
+
+  const timelineMenu = new Menu();
+  view.plugin.getChronoFolder = () => null;
+  view.plugin.tagsOf = () => [];
+  view.buildModeOptionsMenu(timelineMenu, "timeline", context);
+  assert.ok(menuItemTitles(timelineMenu).includes("Dossier par dossier"));
+  assert.ok(menuItemTitles(timelineMenu).includes("Tout le manuscrit"));
 });
 
 test("LOT4/LOT5 finition options Story Arc — arcsShowSynopsis/Pov/Characters/Threads sont true par défaut", () => {

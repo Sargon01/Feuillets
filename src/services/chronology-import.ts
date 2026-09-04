@@ -47,6 +47,11 @@ export interface ChronologyImportBlock {
   text: string;
 }
 
+export interface ChronologyProjectionBlock extends ChronologyImportBlock {
+  sourceStart: number;
+  sourceEnd: number;
+}
+
 export interface ChronologyImportError {
   /** Titre du bloc `##` fautif (ou la date elle-même en repli, ancien
    * format, si aucun titre n'a pu en être extrait) — toujours affichable
@@ -57,6 +62,10 @@ export interface ChronologyImportError {
 
 export type ChronologyImportResult =
   | { ok: true; blocks: ChronologyImportBlock[] }
+  | { ok: false; error: ChronologyImportError };
+
+export type ChronologyProjectionResult =
+  | { ok: true; blocks: ChronologyProjectionBlock[] }
   | { ok: false; error: ChronologyImportError };
 
 /** Signature d'un titre `##` à l'ANCIEN format : commence directement par
@@ -78,14 +87,14 @@ const HAS_H2_RE = /^##[ \t]+/m;
 /** Découpe le corps (frontmatter déjà retiré) en blocs `##` avec leurs
  * bornes [start, end) de contenu (juste après le titre jusqu'au `##`
  * suivant, ou la fin du document). */
-function splitByH2(body: string): Array<{ title: string; start: number; end: number }> {
+function splitByH2(body: string): Array<{ title: string; start: number; end: number; sourceStart: number }> {
   const h2Re = /^##[ \t]+(.+)$/gm;
-  const blocks: Array<{ title: string; start: number; end: number }> = [];
-  let last: { title: string; start: number; end: number } | null = null;
+  const blocks: Array<{ title: string; start: number; end: number; sourceStart: number }> = [];
+  let last: { title: string; start: number; end: number; sourceStart: number } | null = null;
   let hm: RegExpExecArray | null;
   while ((hm = h2Re.exec(body)) !== null) {
     if (last) last.end = hm.index;
-    last = { title: hm[1].trim(), start: h2Re.lastIndex, end: body.length };
+    last = { title: hm[1].trim(), start: h2Re.lastIndex, end: body.length, sourceStart: hm.index };
     blocks.push(last);
   }
   return blocks;
@@ -94,18 +103,63 @@ function splitByH2(body: string): Array<{ title: string; start: number; end: num
 /** Ancien format à un seul niveau de titre daté — comportement HISTORIQUE
  * inchangé : `## AAAA[-MM[-JJ]] - Titre` (ou `###`), le texte qui suit
  * devient la description. */
-function parseLegacyFormat(body: string): ChronologyImportBlock[] {
+type ParsedChronologyBlock = ChronologyImportBlock & { sourceStart: number; sourceEnd: number };
+
+function parseLegacyFormat(body: string): ParsedChronologyBlock[] {
   const headRe = /^(#{2,3})\s+(\d{1,4}(?:-\d{1,2}(?:-\d{1,2})?)?)\s*[-–—:]?\s*(.*)$/gm;
-  type Block = { date: string; title: string; start: number; end: number };
+  type Block = { date: string; title: string; start: number; end: number; sourceStart: number };
   const blocks: Block[] = [];
   let last: Block | null = null;
   let m: RegExpExecArray | null;
   while ((m = headRe.exec(body)) !== null) {
     if (last) last.end = m.index;
-    last = { date: m[2], title: m[3].trim() || m[2], start: headRe.lastIndex, end: body.length };
+    last = { date: m[2], title: m[3].trim() || m[2], start: headRe.lastIndex, end: body.length, sourceStart: m.index };
     blocks.push(last);
   }
-  return blocks.map((b) => ({ date: b.date, title: b.title, text: body.slice(b.start, b.end).trim() }));
+  return blocks.map((b) => ({ date: b.date, title: b.title, text: body.slice(b.start, b.end).trim(), sourceStart: b.sourceStart, sourceEnd: b.end }));
+}
+
+function parseChronologyBlocks(body: string): { ok: true; blocks: ParsedChronologyBlock[] } | { ok: false; error: ChronologyImportError } {
+  const hasH2 = HAS_H2_RE.test(body);
+  const looksLegacy = LEGACY_H2_HEAD_RE.test(body) || (!hasH2 && LEGACY_H3_ONLY_HEAD_RE.test(body));
+  if (looksLegacy) {
+    const legacyBlocks = parseLegacyFormat(body);
+    for (const block of legacyBlocks) {
+      if (!parseFlexibleDate(block.date)) {
+        return { ok: false, error: { title: block.title || block.date, reason: "invalid-date" } };
+      }
+    }
+    return { ok: true, blocks: legacyBlocks };
+  }
+
+  const h2Blocks = splitByH2(body);
+  const blocks: ParsedChronologyBlock[] = [];
+  for (const block of h2Blocks) {
+    const section = body.slice(block.start, block.end);
+    const h3Re = /^###[ \t]+(.+)$/m;
+    const h3Match = h3Re.exec(section);
+    if (!h3Match || h3Match.index === undefined) {
+      return { ok: false, error: { title: block.title, reason: "missing-date" } };
+    }
+    const date = h3Match[1].trim();
+    if (!parseFlexibleDate(date)) {
+      return { ok: false, error: { title: block.title, reason: "invalid-date" } };
+    }
+    const textStart = h3Match.index + h3Match[0].length;
+    blocks.push({
+      title: block.title,
+      date,
+      text: section.slice(textStart).trim(),
+      sourceStart: block.sourceStart,
+      sourceEnd: block.end,
+    });
+  }
+  return { ok: true, blocks };
+}
+
+function initialFrontmatterEnd(source: string): number {
+  const match = /^---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(source);
+  return match ? match[0].length : 0;
 }
 
 /**
@@ -115,38 +169,24 @@ function parseLegacyFormat(body: string): ChronologyImportBlock[] {
  * interrompre l'import entier et informer l'auteur du titre concerné.
  */
 export function parseChronologyImport(body: string): ChronologyImportResult {
-  const hasH2 = HAS_H2_RE.test(body);
-  const looksLegacy = LEGACY_H2_HEAD_RE.test(body) || (!hasH2 && LEGACY_H3_ONLY_HEAD_RE.test(body));
-  if (looksLegacy) {
-    const legacyBlocks = parseLegacyFormat(body);
-    for (const b of legacyBlocks) {
-      if (!parseFlexibleDate(b.date)) {
-        return { ok: false, error: { title: b.title || b.date, reason: "invalid-date" } };
-      }
-    }
-    return { ok: true, blocks: legacyBlocks };
-  }
+  const result = parseChronologyBlocks(body);
+  if (!result.ok) return result;
+  return { ok: true, blocks: result.blocks.map(({ title, date, text }) => ({ title, date, text })) };
+}
 
-  const h2Blocks = splitByH2(body);
-  const blocks: ChronologyImportBlock[] = [];
-
-  for (const block of h2Blocks) {
-    const section = body.slice(block.start, block.end);
-    const h3Re = /^###[ \t]+(.+)$/m;
-    const h3Match = h3Re.exec(section);
-    if (!h3Match || h3Match.index === undefined) {
-      return { ok: false, error: { title: block.title, reason: "missing-date" } };
-    }
-
-    const date = h3Match[1].trim();
-    if (!parseFlexibleDate(date)) {
-      return { ok: false, error: { title: block.title, reason: "invalid-date" } };
-    }
-
-    const textStart = h3Match.index + h3Match[0].length;
-    const text = section.slice(textStart).trim();
-    blocks.push({ title: block.title, date, text });
-  }
-
-  return { ok: true, blocks };
+export function parseChronologyProjection(source: string): ChronologyProjectionResult {
+  const frontmatterEnd = initialFrontmatterEnd(source);
+  const body = source.slice(frontmatterEnd);
+  const result = parseChronologyBlocks(body);
+  if (!result.ok) return result;
+  return {
+    ok: true,
+    blocks: result.blocks.map((block) => ({
+      title: block.title,
+      date: block.date,
+      text: block.text,
+      sourceStart: block.sourceStart + frontmatterEnd,
+      sourceEnd: block.sourceEnd + frontmatterEnd,
+    })),
+  };
 }

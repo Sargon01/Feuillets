@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseChronologyImport } from "../src/services/chronology-import.js";
+import { parseChronologyImport, parseChronologyProjection } from "../src/services/chronology-import.js";
 
 test("nouveau format valide : « # Chronologie / ## événement / ### date / description »", () => {
   const body = [
@@ -147,4 +147,33 @@ test("ancien format avec une date invalide (mois hors bornes) : import refusé, 
   const result = parseChronologyImport(body);
   assert.equal(result.ok, false);
   assert.equal(result.error.reason, "invalid-date");
+});
+
+test("projection — l'API historique conserve exactement les trois propriétés d'un bloc", () => {
+  const result = parseChronologyImport("## Titre\n### 1755\nTexte");
+  assert.equal(result.ok, true);
+  assert.deepEqual(Object.keys(result.blocks[0]).sort(), ["date", "text", "title"]);
+});
+
+test("projection — produit des bornes absolues par événement", () => {
+  const source = "# Chronologie\n\n## Événement A\n\n### 1755\n\nTexte A\n\n## Événement B\n\n### 1756\n\nTexte B";
+  const result = parseChronologyProjection(source);
+  assert.equal(result.ok, true);
+  assert.equal(result.blocks.length, 2);
+  assert.match(source.slice(result.blocks[0].sourceStart, result.blocks[0].sourceEnd), /^## Événement A/);
+  assert.equal(source.slice(result.blocks[0].sourceStart, result.blocks[0].sourceEnd).includes("## Événement B"), false);
+  assert.equal(result.blocks[1].sourceEnd, source.length);
+});
+
+test("projection — conserve les offsets absolus après un frontmatter initial", () => {
+  const source = "---\ntags:\n  - histoire\n---\n# Chronologie\n\n## Événement A\n### 1755\nTexte";
+  const result = parseChronologyProjection(source);
+  assert.equal(result.ok, true);
+  assert.equal(source.slice(result.blocks[0].sourceStart).startsWith("## Événement A"), true);
+});
+
+test("projection — refuse atomiquement un document legacy invalide", () => {
+  const source = "## 1755 - Valide\nTexte\n\n## 1900-13-01 - Invalide\nTexte";
+  const result = parseChronologyProjection(source);
+  assert.equal(result.ok, false);
 });

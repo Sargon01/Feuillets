@@ -1,8 +1,8 @@
-import { Menu, Modal, Setting, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
+import { Menu, Modal, Setting, TAbstractFile, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
 import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { projectWordGoalDefault } from "../services/project-settings.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { openFileActivating } from "../utils/dom.js";
+import { openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
 import { parseStoryDate, stripMarkdown } from "../utils/core.js";
 import {
   PROJECT_MODES,
@@ -16,10 +16,12 @@ import { povOf, filsOf } from "../utils/arc-fields.js";
 import { openSnapshotComparison } from "./comparison-view.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { TagsModal } from "../ui/entity-modals.js";
-import { listSnapshotFiles } from "../services/project-files.js";
+import { listSnapshotFiles, type NewSheetOptions } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 import { buildBoardTimelineOptionsMenu, renderBoardTimeline } from "./board-timeline.js";
+import { resolveBoardFolderScope } from "./board-scope.js";
+import { renderBoardOutline, type OutlineRenderContext } from "./board-outline.js";
 
 type ProjectNode = TFile | TFolder;
 export type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
@@ -59,6 +61,8 @@ type BoardViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
   openMergeModal(files: TFile[]): Promise<void>;
   duplicateManyScenes(files: TFile[]): Promise<void>;
   openMoveManyModal(files: TFile[]): void;
+  newSheet(folder: TFolder, options?: NewSheetOptions): void;
+  getLinkedResearchFolder(binderNode: TAbstractFile): TFolder | null;
 };
 
 function differsFromDefaults(value: Record<string, unknown> | undefined, defaults: Record<string, unknown>): boolean {
@@ -155,6 +159,7 @@ type ModeOptionsCtx = {
   meta: ProjectMeta;
   pType: string;
   wholeManuscript: boolean;
+  timelineResearchFolders?: readonly TFolder[];
 };
 
 class TagFilterModal extends Modal {
@@ -241,6 +246,11 @@ export class BoardView extends BaseFeuilletsView {
      la précédente. Le cycle d'une colonne : asc → desc → ordre Binder. */
   outlineSortColumn: string | null = null;
   outlineSortDirection: "asc" | "desc" | null = null;
+  /** Viewport de session du Plan : `key` identifie le périmètre réellement
+   * affiché et `top` mémorise son scroll vertical. Il est restauré à chaque
+   * rendu du même scope, notamment après les rerenders multiples/différés du
+   * drag/drop ; un changement de scope remet `top` à zéro. */
+  private _outlineViewport: { key: string; top: number } = { key: "", top: 0 };
   /** Délai de détection simple/double-clic du titre du Plan : un clic ouvre
    * le feuillet après ce délai, un double-clic l'annule pour passer au
    * renommage inline. Variable d'instance pour que les tests puissent la
@@ -416,22 +426,23 @@ export class BoardView extends BaseFeuilletsView {
     container.style.fontSize = `${S.fontSize}px`;
     container.style.zoom = `${S.uiScale}%`;
 
-    const root = this.getProjectFolder();
-    if (!root) {
+    const manuscriptRoot = this.getProjectFolder();
+    if (!manuscriptRoot) {
       container.createDiv({ cls: "feuillets-empty", text: t("board.noProjectFolder") });
       return;
     }
 
-    let currentFolder = root;
+    let focusedFolder: TFolder | null = null;
     if (this.focusedFolderPath) {
       const folder = this.app.vault.getAbstractFileByPath(this.focusedFolderPath);
-      if (folder instanceof TFolder && folder.path.startsWith(root.path)) currentFolder = folder;
-      else this.focusedFolderPath = null;
+      if (folder instanceof TFolder) focusedFolder = folder;
     }
+    const scope = resolveBoardFolderScope(manuscriptRoot, focusedFolder);
+    if (this.focusedFolderPath && !scope.hasFocusedFolder) this.focusedFolderPath = null;
 
     if (!S.projectMeta) S.projectMeta = {};
-    if (!S.projectMeta[root.path]) S.projectMeta[root.path] = {};
-    const meta = S.projectMeta[root.path];
+    if (!S.projectMeta[scope.manuscriptRoot.path]) S.projectMeta[scope.manuscriptRoot.path] = {};
+    const meta = S.projectMeta[scope.manuscriptRoot.path];
     const projectType = resolveType(meta.type);
     this.lanesProjectType = projectType;
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
@@ -478,6 +489,7 @@ export class BoardView extends BaseFeuilletsView {
     this.outlineColumns = resolveBoardOutlineColumns(projectType, outlineColumns);
     if (initializedProjectPrefs && typeof this.plugin.saveSettings === "function") void this.plugin.saveSettings();
     const wholeManuscript = meta.boardWholeManuscript !== undefined ? !!meta.boardWholeManuscript : !!S.boardWholeManuscript;
+    const displayedFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
     if (mode === "research") mode = "board";
 
     /* LOT 5C §2 — l'architecture impose EXACTEMENT 4 modes (board, outline,
@@ -491,6 +503,22 @@ export class BoardView extends BaseFeuilletsView {
       mode = visibleModes[0];
     }
     const activeMode = mode as BoardModeKey;
+    const trameDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
+    const timelineDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
+    if (activeMode !== "outline") {
+      this._outlineViewport.key = "";
+      this._outlineViewport.top = 0;
+    } else {
+      const outlineScopeKey = [
+        scope.manuscriptRoot.path,
+        displayedFolder.path,
+        wholeManuscript ? "whole" : "focused",
+      ].join("::");
+      if (this._outlineViewport.key !== outlineScopeKey) {
+        this._outlineViewport.key = outlineScopeKey;
+        this._outlineViewport.top = 0;
+      }
+    }
 
     /* Même Set que le Binder/Plan (this.plugin._binderMultiSelect) — un
        seul mécanisme de sélection multiple dans tout le plugin, pas deux
@@ -646,7 +674,23 @@ export class BoardView extends BaseFeuilletsView {
         })
       );
       menu.addSeparator();
-      this.buildModeOptionsMenu(menu, activeMode, { S, meta, pType: projectType, wholeManuscript, outlineColumns });
+      let timelineResearchFolders: readonly TFolder[] = [];
+      if (activeMode === "timeline") {
+        if (wholeManuscript) {
+          const chronologyFolder = this.plugin.getChronoFolder();
+          timelineResearchFolders = chronologyFolder ? [chronologyFolder] : [];
+        } else if (typeof this.plugin.getLinkedResearchFolder === "function") {
+          timelineResearchFolders = this.collectLinkedResearchFolders(scope.currentFolder);
+        }
+      }
+      this.buildModeOptionsMenu(menu, activeMode, {
+        S,
+        meta,
+        pType: projectType,
+        wholeManuscript,
+        outlineColumns,
+        timelineResearchFolders,
+      });
       menu.showAtMouseEvent(e);
     });
 
@@ -661,10 +705,12 @@ export class BoardView extends BaseFeuilletsView {
     if (activeMode === "board" || activeMode === "outline") {
       this.barSep(bar);
       this.iconBtn(bar, "plus", t("shared.contextMenu.newMenu"), (e: MouseEvent) => {
-        const target = activeMode === "outline" || wholeManuscript ? root : currentFolder;
+        const target = displayedFolder;
         const menu = new Menu();
         menu.addItem((item) =>
-          item.setTitle(t("binder.newSheetHere")).setIcon("file-plus").onClick(() => this.plugin.newSheet(target))
+          item.setTitle(t("binder.newSheetHere")).setIcon("file-plus").onClick(() => {
+            this.plugin.newSheet(target, activeMode === "outline" ? { openCreatedFile: false } : undefined);
+          })
         );
         menu.addItem((item) =>
           item.setTitle(t("binder.newFolder")).setIcon("folder-plus").onClick(() => this.plugin.newFolder(target))
@@ -815,7 +861,7 @@ export class BoardView extends BaseFeuilletsView {
       });
     }
 
-    const flattened = this.plugin.flattenFiles(root);
+    const flattened = this.plugin.flattenFiles(scope.manuscriptRoot);
     const wcMapRaw = await this.plugin.getWordCounts(flattened);
     if (this._renderGen !== gen) return;
 
@@ -825,7 +871,7 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     const bumpTotal = (_n?: number) => {};
-    void this.plugin.wordCountOfFolder(root).then((wc: number) => {
+    void this.plugin.wordCountOfFolder(scope.manuscriptRoot).then((wc: number) => {
       void this.plugin.updateDailyStats(wc);
     });
 
@@ -833,7 +879,7 @@ export class BoardView extends BaseFeuilletsView {
       container.createDiv({ cls: "feuillets-filter-note", text: t("board.filterActiveNote") });
     }
 
-    const numbering = this.plugin.buildNumbering(root);
+    const numbering = this.plugin.buildNumbering(scope.manuscriptRoot);
 
     /* LOT 5C (micro-correctif structure) : Couloirs monte sa PROPRE
        architecture à deux niveaux — la barre d'axe vit HORS de la zone
@@ -843,48 +889,71 @@ export class BoardView extends BaseFeuilletsView {
        cette sous-vue, pour que la barre Label·Personnage·Fil·Pov·+ ne parte
        JAMAIS avec le canevas horizontal (§2/§5/§17). */
     if (activeMode === "arcs" && this.narrativeSubview === "lanes") {
-      this.renderCouloirs(container, root, currentFolder, wholeManuscript, numbering);
+      this.renderCouloirs(container, scope.manuscriptRoot, scope.currentFolder, wholeManuscript, numbering);
       return;
     }
 
     const scrollArea = container.createDiv({ cls: "feuillets-board-scroll" });
+    if (activeMode === "outline") {
+      scrollArea.addEventListener("scroll", () => {
+        this._outlineViewport.top = scrollArea.scrollTop;
+      });
+    }
 
     if (activeMode === "board" && wholeManuscript) {
-      this.renderBoardWholeManuscript(scrollArea, root, numbering, bumpTotal);
+      this.renderBoardWholeManuscript(scrollArea, scope.manuscriptRoot, numbering, bumpTotal);
     } else if (activeMode === "board") {
-      this.renderBreadcrumbs(scrollArea, root, currentFolder);
-      this.renderBoard(scrollArea, root, currentFolder, numbering, bumpTotal);
+      this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
+      this.renderBoard(scrollArea, scope.manuscriptRoot, scope.currentFolder, numbering, bumpTotal);
     } else if (activeMode === "outline") {
-      await this.renderOutline(scrollArea, root, numbering, bumpTotal, gen);
+      if (activeMode === "outline" && !wholeManuscript) this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
+      await this.renderOutline(scrollArea, displayedFolder, numbering, bumpTotal, gen);
+      scrollArea.scrollTop = this._outlineViewport.top;
     } else if (activeMode === "arcs") {
       /* §2/§4 : l'espace narratif (arcs) se subdivise en deux sous-vues —
          Trame (le Chemin de fer classique, gelé) et Couloirs (Scrivener).
          Couloirs n'arrive JAMAIS ici : la branche anticipée plus haut
          (renderCouloirs hors du scrollArea partagé) retourne avant ce point. */
-      this.renderCheminDeFer(scrollArea, root, numbering);
+      if (this.narrativeSubview === "trame" && !wholeManuscript) {
+        this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
+      }
+      this.renderCheminDeFer(scrollArea, trameDisplayFolder, numbering);
     } else if (activeMode === "timeline") {
-      for (const file of this.plugin.flattenFiles(root)) {
+      for (const file of this.plugin.flattenFiles(scope.manuscriptRoot)) {
         if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
       }
-      this.renderTimeline(scrollArea, root, numbering);
+      if (!wholeManuscript) this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
+      const timelineResearchFolders = wholeManuscript
+        ? (() => {
+          const chronologyFolder = this.plugin.getChronoFolder();
+          return chronologyFolder ? [chronologyFolder] : [];
+        })()
+        : typeof this.plugin.getLinkedResearchFolder === "function"
+          ? this.collectLinkedResearchFolders(scope.currentFolder)
+          : [];
+      await this.renderTimeline(scrollArea, timelineDisplayFolder, numbering, timelineResearchFolders);
     }
   }
 
   buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx & { outlineColumns: Record<string, boolean> }): void {
     const { S, meta, pType, wholeManuscript, outlineColumns } = ctx;
 
+    const addScopeOptions = (): void => {
+      for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]] as [boolean, string][]) {
+        menu.addItem((item) => item.setTitle(label).setChecked(wholeManuscript === val).onClick(async () => {
+          if (meta) meta.boardWholeManuscript = val;
+          S.boardWholeManuscript = val;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        }));
+      }
+    };
+
+    if (activeMode === "outline" || activeMode === "arcs" || activeMode === "timeline") addScopeOptions();
+
     if (activeMode === "board") {
       menu.addItem((item) => item.setTitle(t("board.options.cardsHeader")).setDisabled(true));
-      for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]] as [boolean, string][]) {
-        menu.addItem((item) =>
-          item.setTitle(label).setChecked(wholeManuscript === val).onClick(async () => {
-            if (meta) meta.boardWholeManuscript = val;
-            S.boardWholeManuscript = val;
-            await this.plugin.saveSettings();
-            void this.render(true);
-          })
-        );
-      }
+      addScopeOptions();
       menu.addSeparator();
       /* Grammaire finale des Cartes (§10) : plus aucun toggle Progression ni
          Tags — ces informations restent disponibles ailleurs (filtres,
@@ -1017,12 +1086,29 @@ export class BoardView extends BaseFeuilletsView {
     } else if (activeMode === "timeline") {
       buildBoardTimelineOptionsMenu(menu, {
         settings: S,
-        getChronoFolder: () => this.plugin.getChronoFolder(),
+        getChronoFolders: () => ctx.timelineResearchFolders || [],
         tagsOf: (file) => this.plugin.tagsOf(file),
         saveSettings: () => this.plugin.saveSettings(),
         rerender: () => { void this.render(); },
       });
     }
+  }
+
+  collectLinkedResearchFolders(currentFolder: TFolder): TFolder[] {
+    const folders: TFolder[] = [];
+    const seen = new Set<string>();
+    const visit = (node: TAbstractFile): void => {
+      const linked = this.plugin.getLinkedResearchFolder(node);
+      if (linked && !seen.has(linked.path)) {
+        seen.add(linked.path);
+        folders.push(linked);
+      }
+      if (node instanceof TFolder) {
+        for (const child of this.plugin.getOrderedChildren(node)) visit(child);
+      }
+    };
+    visit(currentFolder);
+    return folders;
   }
 
   makeGoalInput(parent: HTMLElement, file: TFile): HTMLInputElement {
@@ -1102,6 +1188,16 @@ export class BoardView extends BaseFeuilletsView {
           void this.render(true);
         });
     });
+  }
+
+  private async focusBoardFolder(folder: TFolder): Promise<void> {
+    this.focusedFolderPath = folder.path;
+    const projectRoot = this.getProjectFolder();
+    const projectMeta = projectRoot ? this.plugin.settings.projectMeta?.[projectRoot.path] : undefined;
+    if (projectMeta) projectMeta.boardWholeManuscript = false;
+    this.plugin.settings.boardWholeManuscript = false;
+    await this.plugin.saveSettings();
+    void this.render(true);
   }
 
   renderBoard(container: HTMLElement, root: TFolder, currentFolder: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void): void {
@@ -1673,6 +1769,11 @@ export class BoardView extends BaseFeuilletsView {
         const num = numbering ? numbering.get(item.folder.path) : "";
         if (num) title.createSpan({ cls: "feuillets-arcs-folder-num", text: num });
         title.createSpan({ text: item.folder.name });
+        title.addEventListener("dblclick", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void this.focusBoardFolder(item.folder);
+        });
         const spacerRight = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
         spacerRight.style.width = `${activeFils.length * 16}px`;
         continue;
@@ -1861,6 +1962,7 @@ export class BoardView extends BaseFeuilletsView {
        VUE (.feuillets-board-container) : la barre d'axe et la zone de couloirs
        y sont montées, la barre HORS du scroll (§2/§6). */
     const scope = wholeManuscript ? root : currentFolder;
+    if (!wholeManuscript) this.renderBreadcrumbs(container, root, currentFolder);
     /* §6 : clé du périmètre affiché pour le viewport de session — si le
        périmètre change (root, scope, manuscrit entier vs dossier focalisé),
        scrollLeft/scrollTop repartent de 0 ; sinon ils sont restaurés sur le
@@ -2199,19 +2301,22 @@ export class BoardView extends BaseFeuilletsView {
   }
 
 
-  renderTimeline(container: HTMLElement, folder: TFolder, numbering: Map<string, string>): void {
-    return this.renderTimelineInner(container, folder, numbering);
+  async renderTimeline(container: HTMLElement, folder: TFolder, numbering: Map<string, string>, researchFolders?: readonly TFolder[]): Promise<void> {
+    await this.renderTimelineInner(container, folder, numbering, researchFolders);
   }
 
-  renderTimelineInner(container: HTMLElement, folder: TFolder, _numbering: unknown): void {
-    renderBoardTimeline(container, folder, {
+  async renderTimelineInner(container: HTMLElement, folder: TFolder, _numbering: unknown, researchFolders?: readonly TFolder[]): Promise<void> {
+    const resolvedResearchFolders = researchFolders || [];
+    await renderBoardTimeline(container, folder, {
       settings: this.plugin.settings,
       flattenFiles: (currentFolder) => this.plugin.flattenFiles(currentFolder),
       passesFilter: (file) => this.passesFilter(file),
       isFrontMatter: (file) => this.plugin.isFrontMatter(file),
       fm: (file) => this.fm(file),
-      getChronoFolder: () => this.plugin.getChronoFolder(),
+      getChronoFolders: () => resolvedResearchFolders,
       tagsOf: (file) => this.plugin.tagsOf(file),
+      readFile: (file) => this.app.vault.cachedRead(file),
+      openFileRange: (file, start, end) => openFileAndSelectRange(this.app, this.leaf, file, start, end),
       shortTitleFor: (file) => this.plugin.shortTitleFor(file),
       setFm: (file, key, value) => this.setFm(file, key, value),
       rerenderAfterDateEdit: () => this.render(true),
@@ -2369,62 +2474,46 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   async renderOutline(container: HTMLElement, root: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void, gen: number): Promise<void> {
-    const outline = container.createDiv({
-      cls: "feuillets-outline" + (this.plugin.settings.outlineWrapLongText ? " feuillets-outline-wrap" : ""),
-    });
-    outline.style.setProperty("--feuillets-cols", this.colsTemplate());
-    const cols = this.visibleCols();
-    const head = outline.createDiv({ cls: "feuillets-row feuillets-row-head" });
-    head.createDiv({ cls: "feuillets-col-handle" });
-
-    for (const c of cols) {
-      const cell = head.createDiv({ cls: "feuillets-col-head-cell" });
-      /* En-tête = commande de tri (§9-10) : le nom de colonne lui-même est
-         cliquable, cycle asc → desc → ordre Binder. Un chevron discret dans
-         la colonne active (↑/↓), aucune flèche à l'ordre Binder. La poignée
-         de redimensionnement (.feuillets-col-resizer) reste hors de la
-         commande de tri — un glissement de largeur ne déclenche pas de tri. */
-      cell.addClass("feuillets-col-sortable");
-      cell.createSpan({ text: c.label });
-      const indicator = cell.createSpan({ cls: "feuillets-sort-indicator" });
-      if (this.outlineSortColumn === c.id && this.outlineSortDirection) {
-        indicator.setText(this.outlineSortDirection === "asc" ? "↑" : "↓");
-      }
-      cell.addEventListener("click", (e) => {
-        if ((e.target as HTMLElement)?.hasClass?.("feuillets-col-resizer")) return;
-        this.cycleOutlineSort(c.id);
-      });
-      const resizer = cell.createDiv({ cls: "feuillets-col-resizer" });
-      this.attachColumnResize(resizer, c.id, outline);
-    }
-
-    /* §8-13 : quand un tri session-only est actif, le Plan devient une liste
-       VISUELLE PLATE de tous les feuillets du périmètre, comparés ensemble
-       (tri GLOBAL, jamais intra-dossier) — aucun dossier rendu comme ligne
-       structurelle, aucune indentation héritée, drag désactivé. Chaque
-       feuillet conserve son contexte Binder réel (parent, indice, siblings)
-       pour le menu/multi-sélection/actions structurelles. À valeur égale,
-       l'ordre Binder global (binderFlatIndex) tranche. Au 3e clic (retour
-       Binder), la hiérarchie complète réapparaît exactement telle qu'elle
-       était — collapsed compris — sans aucune écriture d'ordre. */
-    if (this.outlineSortActive()) {
-      const colId = this.outlineSortColumn!;
-      const dir = this.outlineSortDirection!;
-      const sorted = this.collectOutlineFiles(root)
-        .filter((en) => this.passesFilter(en.file))
-        .sort((x, y) => {
-          const cmp = this.compareOutlineValues(x.file, y.file, colId, dir);
-          return cmp !== 0 ? cmp : x.binderFlatIndex - y.binderFlatIndex;
-        });
-      for (const en of sorted) {
-        if (this._renderGen !== gen) return;
-        this.renderOutlineFileRow(outline, en.file, en.parentFolder, en.binderIndex, en.siblings, 0, bumpTotal, cols);
-      }
-      return;
-    }
-
-    const progress = { count: 0 };
-    await this.renderOutlineLevel(outline, root, 0, numbering, bumpTotal, cols, progress, gen);
+    const ctx: OutlineRenderContext = {
+      settings: this.plugin.settings,
+      outlineColumns: this.outlineColumns || this.plugin.settings.outlineCols,
+      outlineSortColumn: this.outlineSortColumn,
+      outlineSortDirection: this.outlineSortDirection,
+      outlineDblClickDelayMs: this.outlineDblClickDelayMs,
+      numbering,
+      wcMap: this.wcMap || new Map<string, number>(),
+      projectType: this.lanesProjectType,
+      generation: gen,
+      isCurrentGeneration: (generation) => this._renderGen === generation,
+      getOrderedChildren: (folder) => this.plugin.getOrderedChildren(folder),
+      isFrontMatter: (node) => this.plugin.isFrontMatter(node),
+      passesFilter: (file) => this.passesFilter(file),
+      fm: (file) => this.fm(file),
+      shortTitleFor: (file) => this.plugin.shortTitleFor(file),
+      labelOf: (file) => String(this.plugin.labelOf?.(file) || ""),
+      tagsOf: (file) => this.plugin.tagsOf(file),
+      saveSettings: () => this.plugin.saveSettings(),
+      rerender: () => { void this.render(true); },
+      onFocusFolder: (folder) => this.focusBoardFolder(folder),
+      cycleSort: (column) => this.cycleOutlineSort(column),
+      attachColumnResize: (resizer, column, outline) => this.attachColumnResize(resizer, column, outline),
+      isMultiSelected: (file) => !!this.plugin._binderMultiSelect?.has(file.path),
+      isEditableContextTarget: (event) => this.isEditableContextTarget(event),
+      showFileContextMenu: (event, file, parent, index, siblings) => this.showFileContextMenu(event, file, parent, index, siblings),
+      showFolderContextMenu: (event, folder, parent, index, siblings) => this.showFolderContextMenu(event, folder, parent, index, siblings),
+      attachDragHandlers: (handle, row, parent, index, siblings, table) => this.attachDragHandlers(handle, row, parent, index, siblings, table),
+      handleMultiSelectClick: (event, file, parent, index, siblings, table) => this.handleMultiSelectClick(event, file, parent, index, siblings, table),
+      beginInlineShortTitleEdit: (cell, title, file) => this.beginInlineShortTitleEdit(cell, title, file),
+      openFile: (file) => openFileActivating(this.app, this.app.workspace.getLeaf(false), file),
+      makeClickToEditFmArea: (parent, file, key, placeholder, maxLines) => this.makeClickToEditFmArea(parent, file, key, placeholder, maxLines),
+      makeClickToEditFmList: (parent, file, key, values, rerender) => this.makeClickToEditFmList(parent, file, key, values, rerender),
+      makeTagsEditor: (parent, file) => this.makeTagsEditor(parent, file),
+      makeLabelSelect: (parent, file) => this.makeLabelSelect(parent, file),
+      makeStatusSelect: (parent, file) => this.makeStatusSelect(parent, file),
+      makeGoalInput: (parent, file) => this.makeGoalInput(parent, file),
+      fillRing: (parent, words, goal) => this.fillRing(parent, words, goal),
+    };
+    await renderBoardOutline(container, root, ctx, bumpTotal);
   }
 
   /** Glisser le bord droit d'un en-tête de colonne pour la redimensionner
