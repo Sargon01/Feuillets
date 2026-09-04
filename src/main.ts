@@ -3792,7 +3792,6 @@ class FeuilletsPlugin extends Plugin {
 
   unitLabel() { return t(getProjectType(this.app, this.settings) === "fiction" ? "unit.scene" : "unit.section"); }
   unitLabelPlural() { return t(getProjectType(this.app, this.settings) === "fiction" ? "unit.scenes" : "unit.sections"); }
-  hasSources() { return this.projectMode().hasSources; }
   // Nom personnalisé (S.projectMeta[path].name, réglable dans
   // ManageProjectsModal) en priorité, sinon déduit du dossier (voir
   // folder-structure.js — gère la convention <Projet>/Manuscrit/).
