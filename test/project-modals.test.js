@@ -246,6 +246,7 @@ test("OpenExistingFolderModal : active un dossier existant sans déplacer, renom
 
     assert.equal(settings.projectFolder, "MonRoman");
     assert.ok(settings.projects.includes("MonRoman"));
+    assert.equal(settings.projectMeta.MonRoman.type, "free");
     assert.equal(scene.path, originalPath);
     assert.equal(scene.content, originalContent);
     assert.equal(vault.getAbstractFileByPath("MonRoman/_Recherche"), null);

@@ -477,6 +477,8 @@ declare type FeuilletsSettings = {
      ancien ou tronqué. Les déclarer optionnels obligerait à écrire des
      gardes `?.` mensongers dans tout le code. */
   projectMeta: Record<string, ProjectMeta>;
+  /** Version de la migration one-shot des types legacy. */
+  projectTypeMigrationVersion: number;
   /** Palette globale, repli quand le projet n'a pas la sienne. */
   labels: Label[];
   /** Dossiers projet connus, en plus du projet actuellement actif. */

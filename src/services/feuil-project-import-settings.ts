@@ -1,4 +1,5 @@
 import type { FeuilProjectImportResult } from "./feuil-project-import.js";
+import { knownProjectType } from "../utils/project-modes.js";
 
 function isInside(path: string, root: string): boolean {
   return path === root || path.startsWith(`${root}/`);
@@ -21,6 +22,7 @@ export function applyFeuilProjectImportSettings(settings: FeuilletsSettings, res
   for (const [path, value] of Object.entries(result.settingsPatch.pathSettings.folderGoals)) settings.folderGoals[path] = value;
 
   const projectMeta = JSON.parse(JSON.stringify(result.settingsPatch.projectMeta)) as ProjectMeta;
+  if (knownProjectType(projectMeta.type) === null) projectMeta.type = "fiction";
   settings.projectMeta[manuscriptPath] = {
     ...projectMeta,
     researchFolderLinks: { ...(projectMeta.researchFolderLinks || {}) },

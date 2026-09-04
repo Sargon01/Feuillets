@@ -6,8 +6,8 @@ function settings() {
   return { projectFolder: "Ancien/Manuscrit", projects: [], projectMeta: {}, orders: { "Projet/old": ["x"], "Projet-ancien/x": ["keep"], "Autre/x": ["keep"] }, folderPositions: { "Projet/old": 1, "Projet-ancien/x": 2 }, folderGoals: { "Projet/old": 1, "Projet-ancien/x": 2 }, filPlaceholders: { legacy: "Ancien/a.md" }, filOrigins: { legacy: "Ancien/a.md" }, filResolved: ["legacy"], level1Role: "parties" };
 }
 
-function result(role = "chapitres") {
-  return { projectRootPath: "Projet", manuscriptRootPath: "Projet/Manuscrit", externalResearchPaths: {}, settingsPatch: { projectRootPath: "Projet", manuscriptRootPath: "Projet/Manuscrit", projectMeta: { title: "Import", researchFolderLinks: { "Projet/Manuscrit/A": "Projet/Recherche" } }, pathSettings: { orders: { Projet: ["Manuscrit"], "Projet/Chapitre": ["Scene"] }, folderPositions: { "Projet/Chapitre": 3 }, folderGoals: { "Projet/Chapitre": 500 } }, narrativeState: { placeholders: { fil: "Projet/Manuscrit/01.md" }, origins: { fil: "Projet/Manuscrit/01.md" }, resolved: ["fil"] }, structure: { level1Role: role } } };
+function result(role = "chapitres", type) {
+  return { projectRootPath: "Projet", manuscriptRootPath: "Projet/Manuscrit", externalResearchPaths: {}, settingsPatch: { projectRootPath: "Projet", manuscriptRootPath: "Projet/Manuscrit", projectMeta: { ...(type === undefined ? {} : { type }), title: "Import", researchFolderLinks: { "Projet/Manuscrit/A": "Projet/Recherche" } }, pathSettings: { orders: { Projet: ["Manuscrit"], "Projet/Chapitre": ["Scene"] }, folderPositions: { "Projet/Chapitre": 3 }, folderGoals: { "Projet/Chapitre": 500 } }, narrativeState: { placeholders: { fil: "Projet/Manuscrit/01.md" }, origins: { fil: "Projet/Manuscrit/01.md" }, resolved: ["fil"] }, structure: { level1Role: role } } };
 }
 
 test("ajoute le projet importé à projects", () => { const value = settings(); applyFeuilProjectImportSettings(value, result()); assert.ok(value.projects.includes("Projet/Manuscrit")); });
@@ -15,6 +15,8 @@ test("n’ajoute aucun doublon projects", () => { const value = settings(); valu
 test("conserve le projet actif précédent dans projects", () => { const value = settings(); applyFeuilProjectImportSettings(value, result()); assert.ok(value.projects.includes("Ancien/Manuscrit")); });
 test("ne modifie pas projectFolder", () => { const value = settings(); applyFeuilProjectImportSettings(value, result()); assert.equal(value.projectFolder, "Ancien/Manuscrit"); });
 test("stocke ProjectMeta sous manuscriptRootPath", () => { const value = settings(); applyFeuilProjectImportSettings(value, result()); assert.equal(value.projectMeta["Projet/Manuscrit"].title, "Import"); });
+test("importe un ProjectMeta legacy sans type comme Fiction", () => { const value = settings(); applyFeuilProjectImportSettings(value, result("chapitres")); assert.equal(value.projectMeta["Projet/Manuscrit"].type, "fiction"); });
+test("préserve les types importés reconnus", () => { for (const type of ["free", "nonfiction"]) { const value = settings(); applyFeuilProjectImportSettings(value, result("chapitres", type)); assert.equal(value.projectMeta["Projet/Manuscrit"].type, type); } });
 test("ne conserve pas de référence ProjectMeta du patch", () => { const value = settings(); const patch = result(); applyFeuilProjectImportSettings(value, patch); patch.settingsPatch.projectMeta.title = "Muté"; assert.equal(value.projectMeta["Projet/Manuscrit"].title, "Import"); });
 test("stocke level1Role parties", () => { const value = settings(); applyFeuilProjectImportSettings(value, result("parties")); assert.equal(value.projectMeta["Projet/Manuscrit"].level1Role, "parties"); });
 test("stocke level1Role chapitres", () => { const value = settings(); applyFeuilProjectImportSettings(value, result("chapitres")); assert.equal(value.projectMeta["Projet/Manuscrit"].level1Role, "chapitres"); });

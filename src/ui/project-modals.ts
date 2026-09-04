@@ -1,5 +1,5 @@
 import { App, Modal, Notice, normalizePath, setIcon, Setting, TAbstractFile, TFile, TFolder } from "obsidian";
-import { PROJECT_MODES, projectBoardDefaults } from "../utils/project-modes.js";
+import { PROJECT_MODES, knownProjectType, projectBoardDefaults } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 import { FeuilProjectImportModal } from "./feuil-project-import-modal.js";
@@ -225,6 +225,10 @@ export class OpenExistingFolderModal extends Modal {
       }
 
       const S = this.plugin.settings;
+      if (knownProjectType(S.projectMeta[path]?.type) === null) {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path].type = "free";
+      }
       if (S.projectFolder && S.projectFolder !== path && !S.projects.includes(S.projectFolder)) {
         S.projects.push(S.projectFolder);
       }
@@ -442,6 +446,10 @@ export class ManageProjectsModal extends Modal {
       if (!(folder instanceof TFolder)) {
         new Notice(t("modal.manageProjects.folderNotFound"));
         return;
+      }
+      if (knownProjectType(S.projectMeta[p]?.type) === null) {
+        if (!S.projectMeta[p]) S.projectMeta[p] = {};
+        S.projectMeta[p].type = "free";
       }
       if (!S.projectFolder) {
         S.projectFolder = p;

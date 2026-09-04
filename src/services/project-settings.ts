@@ -1,6 +1,24 @@
 import type { App } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
-import { resolveType } from "../utils/project-modes.js";
+import { knownProjectType, resolveType } from "../utils/project-modes.js";
+
+export function migrateLegacyProjectTypes(settings: FeuilletsSettings): number {
+  const paths = new Set<string>();
+  for (const path of Object.keys(settings.projectMeta)) paths.add(path);
+  for (const path of settings.projects) paths.add(path);
+  if (settings.projectFolder) paths.add(settings.projectFolder);
+
+  let migrated = 0;
+  for (const path of paths) {
+    if (!settings.projectMeta[path]) settings.projectMeta[path] = {};
+    const meta = settings.projectMeta[path];
+    if (knownProjectType(meta.type) === null) {
+      meta.type = "fiction";
+      migrated += 1;
+    }
+  }
+  return migrated;
+}
 
 export type ProjectPlanningField = "synopsis" | "summary";
 

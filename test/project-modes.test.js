@@ -4,6 +4,7 @@ import {
   PROJECT_MODES,
   RESEARCH_FOLDERS,
   projectCreationStyle,
+  knownProjectType,
   resolveType,
   applyModeDefaults,
   semanticPlanningField,
@@ -107,11 +108,11 @@ test("resolveType", async (t) => {
     assert.equal(resolveType("libre"), "free");
   });
 
-  await t.test("« structured » n'est plus reconnu comme mode canonique : retombe sur fiction", () => {
-    assert.equal(resolveType("structured"), "fiction");
-    assert.equal(resolveType("structure"), "fiction");
-    assert.equal(resolveType("document-structure"), "fiction");
-    assert.equal(resolveType("Document structuré"), "fiction");
+  await t.test("les valeurs inconnues retombent sur Libre", () => {
+    assert.equal(knownProjectType("structured"), null);
+    assert.equal(knownProjectType("structure"), null);
+    assert.equal(knownProjectType("document-structure"), null);
+    assert.equal(resolveType("Document structuré"), "free");
   });
 
   await t.test("ramène les anciennes valeurs de type sur la bonne famille", () => {
@@ -123,10 +124,11 @@ test("resolveType", async (t) => {
     assert.equal(resolveType("article"), "nonfiction");
   });
 
-  await t.test("retombe sur fiction pour une valeur inconnue, absente ou vide", () => {
-    assert.equal(resolveType("recueil"), "fiction");
-    assert.equal(resolveType(undefined), "fiction");
-    assert.equal(resolveType(""), "fiction");
+  await t.test("retombe sur Libre pour une valeur inconnue, absente ou vide", () => {
+    assert.equal(resolveType("recueil"), "free");
+    assert.equal(resolveType(undefined), "free");
+    assert.equal(resolveType(null), "free");
+    assert.equal(resolveType(""), "free");
   });
 });
 
@@ -145,11 +147,11 @@ test("applyModeDefaults", async (t) => {
     assert.equal(settings.mergeYamlPreset, "minimal");
   });
 
-  await t.test("retombe sur fiction pour un type inconnu", () => {
+  await t.test("retombe sur Libre pour un type inconnu", () => {
     const settings = {};
     applyModeDefaults(settings, "recueil");
-    assert.equal(settings.boardMode, "board");
-    assert.equal(settings.mergeYamlPreset, "roman");
+    assert.equal(settings.boardMode, "outline");
+    assert.equal(settings.mergeYamlPreset, "minimal");
   });
 });
 

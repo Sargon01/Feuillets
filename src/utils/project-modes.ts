@@ -1,5 +1,7 @@
 import { getLocale } from "../i18n/index.js";
 
+export type ProjectType = "fiction" | "nonfiction" | "free";
+
 /** Un mode = un type de document. Ne change ni la structure de dossiers
  * ni les champs de frontmatter lus — seulement le vocabulaire affiché et
  * les réglages de départ appliqués une fois à la création du projet.
@@ -220,10 +222,8 @@ export function projectBoardDefaults(type: string | null | undefined): BoardProj
   };
 }
 
-/** Ramène une valeur de type quelconque (absente, ou ancien texte libre
- * non reconnu) sur une clé valide de PROJECT_MODES — "fiction" par repli,
- * pour qu'aucun projet existant ne casse. */
-export function resolveType(type: string | null | undefined) {
+/** Reconnaît uniquement les types et alias de projet documentés. */
+export function knownProjectType(type: string | null | undefined): ProjectType | null {
   const rawType = (type || "").trim().toLowerCase();
   if (rawType === "fiction" || rawType === "roman" || rawType === "nouvelle") {
     return "fiction";
@@ -234,7 +234,14 @@ export function resolveType(type: string | null | undefined) {
   if (rawType === "free" || rawType === "libre") {
     return "free";
   }
-  return "fiction";
+  return null;
+}
+
+/** Résout un type pour les nouveaux chemins runtime : l'absence ou une valeur
+ * inconnue retombe sur Libre. Les projets legacy sont d'abord figés par la
+ * migration dédiée afin de conserver leur comportement historique Fiction. */
+export function resolveType(type: string | null | undefined) {
+  return knownProjectType(type) ?? "free";
 }
 
 /** Style de création physique : identique au mode résolu (les trois modes

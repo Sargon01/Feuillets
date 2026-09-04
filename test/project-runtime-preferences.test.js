@@ -28,14 +28,14 @@ test("les fallbacks runtime suivent les presets historiques", () => {
   assert.equal(planningFieldForProjectType("fiction"), "synopsis");
   assert.equal(planningFieldForProjectType("nonfiction"), "summary");
   assert.equal(planningFieldForProjectType("free"), "summary");
-  assert.equal(planningFieldForProjectType(undefined), "synopsis");
-  assert.equal(planningFieldForProjectType("unknown"), "synopsis");
+  assert.equal(planningFieldForProjectType(undefined), "summary");
+  assert.equal(planningFieldForProjectType("unknown"), "summary");
 
   assert.equal(newSheetIncludeSourcesForProjectType("fiction"), false);
   assert.equal(newSheetIncludeSourcesForProjectType("nonfiction"), true);
   assert.equal(newSheetIncludeSourcesForProjectType("free"), true);
-  assert.equal(newSheetIncludeSourcesForProjectType(undefined), false);
-  assert.equal(newSheetIncludeSourcesForProjectType("unknown"), false);
+  assert.equal(newSheetIncludeSourcesForProjectType(undefined), true);
+  assert.equal(newSheetIncludeSourcesForProjectType("unknown"), true);
 });
 
 test("les préférences persistées valides priment sur le type", () => {
@@ -63,7 +63,7 @@ test("les projets legacy retombent sur le type sans mutation", () => {
     ["fiction", "synopsis", false],
     ["nonfiction", "summary", true],
     ["free", "summary", true],
-    [undefined, "synopsis", false],
+    [undefined, "summary", true],
   ]) {
     const settings = settingsFor("Projet/Manuscrit", type === undefined ? {} : { type });
     const before = structuredClone(settings.projectMeta);
@@ -74,8 +74,8 @@ test("les projets legacy retombent sur le type sans mutation", () => {
 
   const absent = { projectFolder: "Projet/Manuscrit", projectMeta: {} };
   const before = structuredClone(absent);
-  assert.equal(projectPlanningField(app, absent), "synopsis");
-  assert.equal(projectNewSheetIncludeSources(app, absent), false);
+  assert.equal(projectPlanningField(app, absent), "summary");
+  assert.equal(projectNewSheetIncludeSources(app, absent), true);
   assert.deepEqual(absent, before);
 });
 

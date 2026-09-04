@@ -16,7 +16,7 @@ import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
-import { projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
+import { migrateLegacyProjectTypes, projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
@@ -3300,6 +3300,11 @@ class FeuilletsPlugin extends Plugin {
     // listPanePreviewField — voir default-settings.js/utils/project-modes.js)
     if (this.settings.cardContent === "resume") this.settings.cardContent = "summary";
     if (this.settings.listPanePreviewField === "resume") this.settings.listPanePreviewField = "summary";
+    if (this.settings.projectTypeMigrationVersion < 1) {
+      migrateLegacyProjectTypes(this.settings);
+      this.settings.projectTypeMigrationVersion = 1;
+      await this.saveData(this.settings);
+    }
   }
 
   async saveSettings() {
