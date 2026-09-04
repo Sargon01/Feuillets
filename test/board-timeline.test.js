@@ -67,9 +67,9 @@ function buildTimelineHarness({ children = [], milestones = [] } = {}) {
   return { view, root, chronoFolder, plugin, settings };
 }
 
-function render(harness) {
+async function render(harness) {
   const container = new FakeElement();
-  harness.view.renderTimelineInner(container, harness.root, new Map(), [harness.chronoFolder]);
+  await harness.view.renderTimelineInner(container, harness.root, new Map(), [harness.chronoFolder]);
   return container;
 }
 
@@ -83,9 +83,9 @@ function timelineTitles(container) {
 
 function dated(path, date, extra = {}) { const file = new TFile(path); file.__fm = { date, ...extra }; return file; }
 
-test("Timeline — rendu initial conserve item.display et les classes", () => {
+test("Timeline — rendu initial conserve item.display et les classes", async () => {
   const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14")] });
-  const container = render(harness);
+  const container = await render(harness);
   const date = findFirst(container, (element) => element.classes.has("feuillets-timeline-date-display"));
   assert.ok(date?.text);
   assert.ok(findFirst(container, (element) => element.classes.has("feuillets-timeline")));
@@ -101,7 +101,7 @@ test("Timeline — date utilise la valeur YAML brute et sauvegarde seulement si 
   const renders = [];
   harness.view.setFm = async (target, key, value) => calls.push({ target, key, value });
   harness.view.render = async (force) => renders.push(force);
-  const container = render(harness);
+  const container = await render(harness);
   const dateContainer = findFirst(container, (element) => element.classes.has("feuillets-timeline-date"));
   await findFirst(dateContainer, (element) => element.classes.has("feuillets-timeline-date-display")).trigger("click");
   const textarea = findFirst(dateContainer, (element) => element.tag === "textarea");
@@ -119,16 +119,16 @@ test("Timeline — date inchangée ne rerend pas", async () => {
   const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14")] });
   const renders = [];
   harness.view.render = async (force) => renders.push(force);
-  const container = render(harness);
+  const container = await render(harness);
   const dateContainer = findFirst(container, (element) => element.classes.has("feuillets-timeline-date"));
   await findFirst(dateContainer, (element) => element.classes.has("feuillets-timeline-date-display")).trigger("click");
   await findFirst(dateContainer, (element) => element.tag === "textarea").trigger("blur");
   assert.deepEqual(renders, []);
 });
 
-test("Timeline — synopsis vide et multilignes passent par le helper Board", () => {
+test("Timeline — synopsis vide et multilignes passent par le helper Board", async () => {
   const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14", { synopsis: "line 1\nline 2" })] });
-  const container = render(harness);
+  const container = await render(harness);
   const synopsisContainer = findFirst(container, (element) => element.classes.has("feuillets-timeline-syn"));
   assert.ok(synopsisContainer, "conteneur synopsis attendu");
   const cell = findFirst(synopsisContainer, (element) => element.classes.has("feuillets-flat-text-cell"));
@@ -138,9 +138,9 @@ test("Timeline — synopsis vide et multilignes passent par le helper Board", ()
   assert.equal(cell.style._props["--max-lines"], "6");
 });
 
-test("Timeline — synopsis vide affiche le tiret et reste éditable", () => {
+test("Timeline — synopsis vide affiche le tiret et reste éditable", async () => {
   const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14")] });
-  const container = render(harness);
+  const container = await render(harness);
   const synopsisContainer = findFirst(container, (element) => element.classes.has("feuillets-timeline-syn"));
   const cell = findFirst(synopsisContainer, (element) => element.classes.has("feuillets-flat-text-cell"));
   assert.equal(cell.text, "—");
@@ -148,9 +148,9 @@ test("Timeline — synopsis vide affiche le tiret et reste éditable", () => {
   assert.ok(cell.events.has("click"));
 });
 
-test("Timeline — titre possède toujours son ouverture", () => {
+test("Timeline — titre possède toujours son ouverture", async () => {
   const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14")] });
-  const title = findFirst(render(harness), (element) => element.classes.has("feuillets-timeline-title"));
+  const title = findFirst(await render(harness), (element) => element.classes.has("feuillets-timeline-title"));
   assert.ok(title.events.has("click"));
 });
 
@@ -188,29 +188,29 @@ test("Menu Chronologie — ordre, filtre récursif et échelle conservent leur c
   assert.equal(renders, 3);
 });
 
-test("Timeline — les jalons ignorent le filtre général et suivent seulement le tag Timeline", () => {
+test("Timeline — les jalons ignorent le filtre général et suivent seulement le tag Timeline", async () => {
   const milestone = dated("Projet/Chronologie/milestone.md", "1789-07-14");
   milestone.__tags = ["event"];
   const harness = buildTimelineHarness({ children: [], milestones: [milestone] });
   harness.settings.timelineTagFilter = "event";
   harness.view.passesFilter = () => false;
-  const container = render(harness);
+  const container = await render(harness);
   assert.equal(findAll(container, (element) => element.classes.has("feuillets-timeline-milestone")).length, 1);
 });
 
-test("Timeline — l'échelle année est la valeur par défaut", () => {
+test("Timeline — l'échelle année est la valeur par défaut", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/focus.md", "1789-01-01"),
     dated("Projet/Manuscrit/parent-a.md", "1789-07-14"),
     dated("Projet/Manuscrit/parent-b.md", "1790-01-01"),
   ] });
   harness.settings.timelineScale = "";
-  const container = render(harness);
+  const container = await render(harness);
   assert.deepEqual(timelineHeadings(container), ["1789", "1790"]);
   assert.equal(timelineTitles(container).length, 3);
 });
 
-test("Timeline — l'échelle mois ne crée pas de janvier pour une année seule", () => {
+test("Timeline — l'échelle mois ne crée pas de janvier pour une année seule", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/focus.md", "1789"),
     dated("Projet/Manuscrit/parent-a.md", "1789-07-01"),
@@ -218,10 +218,10 @@ test("Timeline — l'échelle mois ne crée pas de janvier pour une année seule
     dated("Projet/Manuscrit/child-a.md", "1789-08-01"),
   ] });
   harness.settings.timelineScale = "mois";
-  assert.deepEqual(timelineHeadings(render(harness)), ["1789", "1789-07", "1789-08"]);
+  assert.deepEqual(timelineHeadings(await render(harness)), ["1789", "1789-07", "1789-08"]);
 });
 
-test("Timeline — l'échelle jour utilise la précision existante et garde l'ordre des heures", () => {
+test("Timeline — l'échelle jour utilise la précision existante et garde l'ordre des heures", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/focus.md", "1789-07"),
     dated("Projet/Manuscrit/parent-a.md", "1789-07-14 09:00"),
@@ -229,12 +229,12 @@ test("Timeline — l'échelle jour utilise la précision existante et garde l'or
     dated("Projet/Manuscrit/child-a.md", "1789-07-15"),
   ] });
   harness.settings.timelineScale = "jour";
-  const container = render(harness);
+  const container = await render(harness);
   assert.deepEqual(timelineHeadings(container), ["1789-07", "1789-07-14", "1789-07-15"]);
   assert.deepEqual(timelineTitles(container), ["focus", "parent-a", "parent-b", "child-a"]);
 });
 
-test("Timeline — l'échelle siècle utilise les bornes historiques, sans année zéro", () => {
+test("Timeline — l'échelle siècle utilise les bornes historiques, sans année zéro", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/focus.md", "1701"),
     dated("Projet/Manuscrit/parent-a.md", "1789"),
@@ -243,18 +243,18 @@ test("Timeline — l'échelle siècle utilise les bornes historiques, sans anné
     dated("Projet/Manuscrit/child-b.md", "-44"),
   ] });
   harness.settings.timelineScale = "siecle";
-  assert.deepEqual(timelineHeadings(render(harness)), ["-100–-1", "1701–1800", "1801–1900"]);
+  assert.deepEqual(timelineHeadings(await render(harness)), ["-100–-1", "1701–1800", "1801–1900"]);
 });
 
-test("Timeline — sans en-têtes conserve uniquement les items", () => {
+test("Timeline — sans en-têtes conserve uniquement les items", async () => {
   const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14")] });
   harness.settings.timelineScale = "aucune";
-  const container = render(harness);
+  const container = await render(harness);
   assert.equal(timelineHeadings(container).length, 0);
   assert.equal(timelineTitles(container).length, 1);
 });
 
-test("Timeline — en ordre narratif, une période retrouvée recrée son en-tête", () => {
+test("Timeline — en ordre narratif, une période retrouvée recrée son en-tête", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/A.md", "2001"),
     dated("Projet/Manuscrit/B.md", "1998"),
@@ -262,12 +262,12 @@ test("Timeline — en ordre narratif, une période retrouvée recrée son en-tê
   ] });
   harness.settings.timelineOrder = "narratif";
   harness.settings.timelineScale = "annee";
-  const container = render(harness);
+  const container = await render(harness);
   assert.deepEqual(timelineHeadings(container), ["2001", "1998", "2001"]);
   assert.deepEqual(timelineTitles(container), ["A", "B", "C"]);
 });
 
-test("Timeline — jalon Recherche daté est ancré après le premier feuillet du jour", () => {
+test("Timeline — jalon Recherche daté est ancré après le premier feuillet du jour", async () => {
   const milestone = dated("Projet/Chronologie/milestone.md", "2001-01-01");
   const harness = buildTimelineHarness({
     children: [dated("Projet/Manuscrit/A.md", "2001-01-01"), dated("Projet/Manuscrit/B.md", "2002-01-01")],
@@ -275,11 +275,11 @@ test("Timeline — jalon Recherche daté est ancré après le premier feuillet d
   });
   harness.settings.timelineOrder = "narratif";
   harness.settings.timelineScale = "annee";
-  const container = render(harness);
+  const container = await render(harness);
   assert.deepEqual(timelineTitles(container), ["A", "milestone", "B"]);
 });
 
-test("Timeline — l'ordre Binder reste prioritaire pour l'ancrage narratif", () => {
+test("Timeline — l'ordre Binder reste prioritaire pour l'ancrage narratif", async () => {
   const harness = buildTimelineHarness({
     children: [
       dated("Projet/Manuscrit/A.md", "2005-01-01"),
@@ -289,10 +289,10 @@ test("Timeline — l'ordre Binder reste prioritaire pour l'ancrage narratif", ()
     milestones: [dated("Projet/Chronologie/J.md", "1990-01-01")],
   });
   harness.settings.timelineOrder = "narratif";
-  assert.deepEqual(timelineTitles(render(harness)), ["A", "B", "J", "C"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["A", "B", "J", "C"]);
 });
 
-test("Timeline — un jalon est attaché à la première occurrence narrative du jour", () => {
+test("Timeline — un jalon est attaché à la première occurrence narrative du jour", async () => {
   const harness = buildTimelineHarness({
     children: [
       dated("Projet/Manuscrit/A.md", "2001-01-01"),
@@ -302,10 +302,10 @@ test("Timeline — un jalon est attaché à la première occurrence narrative du
     milestones: [dated("Projet/Chronologie/J.md", "2001-01-01")],
   });
   harness.settings.timelineOrder = "narratif";
-  assert.deepEqual(timelineTitles(render(harness)), ["A", "J", "B", "C"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["A", "J", "B", "C"]);
 });
 
-test("Timeline — plusieurs jalons d'une même ancre gardent leur ordre de collecte", () => {
+test("Timeline — plusieurs jalons d'une même ancre gardent leur ordre de collecte", async () => {
   const harness = buildTimelineHarness({
     children: [dated("Projet/Manuscrit/A.md", "2001-01-01"), dated("Projet/Manuscrit/B.md", "2002-01-01")],
     milestones: [
@@ -314,10 +314,10 @@ test("Timeline — plusieurs jalons d'une même ancre gardent leur ordre de coll
     ],
   });
   harness.settings.timelineOrder = "narratif";
-  assert.deepEqual(timelineTitles(render(harness)), ["A", "J2", "J1", "B"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["A", "J2", "J1", "B"]);
 });
 
-test("Timeline — les jalons non ancrés restent après les feuillets dans leur ordre de collecte", () => {
+test("Timeline — les jalons non ancrés restent après les feuillets dans leur ordre de collecte", async () => {
   const harness = buildTimelineHarness({
     children: [dated("Projet/Manuscrit/A.md", "2001-01-01"), dated("Projet/Manuscrit/B.md", "2002-01-01")],
     milestones: [
@@ -326,19 +326,19 @@ test("Timeline — les jalons non ancrés restent après les feuillets dans leur
     ],
   });
   harness.settings.timelineOrder = "narratif";
-  assert.deepEqual(timelineTitles(render(harness)), ["A", "B", "J1", "J2"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["A", "B", "J1", "J2"]);
 });
 
-test("Timeline — l'heure ne modifie pas l'ancrage narratif", () => {
+test("Timeline — l'heure ne modifie pas l'ancrage narratif", async () => {
   const harness = buildTimelineHarness({
     children: [dated("Projet/Manuscrit/A.md", "2001-01-01 18:00"), dated("Projet/Manuscrit/B.md", "2002-01-01")],
     milestones: [dated("Projet/Chronologie/J.md", "2001-01-01 09:00")],
   });
   harness.settings.timelineOrder = "narratif";
-  assert.deepEqual(timelineTitles(render(harness)), ["A", "J", "B"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["A", "J", "B"]);
 });
 
-test("Timeline — une précision différente n'ancre pas un jalon", () => {
+test("Timeline — une précision différente n'ancre pas un jalon", async () => {
   const harness = buildTimelineHarness({
     children: [dated("Projet/Manuscrit/A.md", "1756"), dated("Projet/Manuscrit/B.md", "1757")],
     milestones: [
@@ -347,7 +347,7 @@ test("Timeline — une précision différente n'ancre pas un jalon", () => {
     ],
   });
   harness.settings.timelineOrder = "narratif";
-  assert.deepEqual(timelineTitles(render(harness)), ["A", "B", "K", "J"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["A", "B", "K", "J"]);
 });
 
 test("parseStoryDate — conserve le sort journalier et expose heure/minute sans inventer minuit", () => {
@@ -363,34 +363,34 @@ test("parseStoryDate — conserve le sort journalier et expose heure/minute sans
   assert.equal(dateOnly.hour, undefined);
 });
 
-test("Timeline — chrono trie les heures puis les minutes du même jour", () => {
+test("Timeline — chrono trie les heures puis les minutes du même jour", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/evening.md", "1789-07-14 18:00"),
     dated("Projet/Manuscrit/morning.md", "1789-07-14 09:00"),
     dated("Projet/Manuscrit/noon.md", "1789-07-14 12:30"),
   ] });
-  assert.deepEqual(timelineTitles(render(harness)), ["morning", "noon", "evening"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["morning", "noon", "evening"]);
 });
 
-test("Timeline — date seule avant minuit explicite puis heure horodatée", () => {
+test("Timeline — date seule avant minuit explicite puis heure horodatée", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/evening.md", "1789-07-14 09:00"),
     dated("Projet/Manuscrit/date-only.md", "1789-07-14"),
     dated("Projet/Manuscrit/midnight.md", "1789-07-14 00:00"),
   ] });
-  assert.deepEqual(timelineTitles(render(harness)), ["date-only", "midnight", "evening"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["date-only", "midnight", "evening"]);
 });
 
-test("Timeline — chrono trie les minutes", () => {
+test("Timeline — chrono trie les minutes", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/late.md", "1789-07-14 09:45"),
     dated("Projet/Manuscrit/early.md", "1789-07-14 09:05"),
     dated("Projet/Manuscrit/middle.md", "1789-07-14 09:30"),
   ] });
-  assert.deepEqual(timelineTitles(render(harness)), ["early", "middle", "late"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["early", "middle", "late"]);
 });
 
-test("Timeline — mêmes horodatages et dates seules conservent l'ordre stable", () => {
+test("Timeline — mêmes horodatages et dates seules conservent l'ordre stable", async () => {
   const timed = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/A.md", "1789-07-14 09:30"),
     dated("Projet/Manuscrit/B.md", "1789-07-14 09:30"),
@@ -401,51 +401,51 @@ test("Timeline — mêmes horodatages et dates seules conservent l'ordre stable"
     dated("Projet/Manuscrit/B.md", "1789-07-14"),
     dated("Projet/Manuscrit/C.md", "1789-07-14"),
   ] });
-  assert.deepEqual(timelineTitles(render(timed)), ["A", "B", "C"]);
-  assert.deepEqual(timelineTitles(render(undated)), ["A", "B", "C"]);
+  assert.deepEqual(timelineTitles(await render(timed)), ["A", "B", "C"]);
+  assert.deepEqual(timelineTitles(await render(undated)), ["A", "B", "C"]);
 });
 
-test("Timeline — le jour reste prioritaire sur l'heure", () => {
+test("Timeline — le jour reste prioritaire sur l'heure", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/A.md", "1789-07-15 00:01"),
     dated("Projet/Manuscrit/B.md", "1789-07-14 23:59"),
     dated("Projet/Manuscrit/C.md", "1789-07-13 18:00"),
   ] });
-  assert.deepEqual(timelineTitles(render(harness)), ["C", "B", "A"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["C", "B", "A"]);
 });
 
-test("Timeline — le mode narratif ignore l'heure", () => {
+test("Timeline — le mode narratif ignore l'heure", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/A.md", "1789-07-14 18:00"),
     dated("Projet/Manuscrit/B.md", "1789-07-14 09:00"),
     dated("Projet/Manuscrit/C.md", "1789-07-14 12:00"),
   ] });
   harness.settings.timelineOrder = "narratif";
-  assert.deepEqual(timelineTitles(render(harness)), ["A", "B", "C"]);
+  assert.deepEqual(timelineTitles(await render(harness)), ["A", "B", "C"]);
 });
 
-test("Timeline — l'échelle jour reste unique pour plusieurs heures du même jour", () => {
+test("Timeline — l'échelle jour reste unique pour plusieurs heures du même jour", async () => {
   const harness = buildTimelineHarness({ children: [
     dated("Projet/Manuscrit/evening.md", "1789-07-14 18:00"),
     dated("Projet/Manuscrit/morning.md", "1789-07-14 09:00"),
   ] });
   harness.settings.timelineScale = "jour";
-  const container = render(harness);
+  const container = await render(harness);
   assert.deepEqual(timelineTitles(container), ["morning", "evening"]);
   assert.deepEqual(timelineHeadings(container), ["1789-07-14"]);
 });
 
-test("Timeline — jalons Recherche horodatés sont triés en chrono", () => {
+test("Timeline — jalons Recherche horodatés sont triés en chrono", async () => {
   const evening = dated("Projet/Chronologie/evening.md", "1789-07-14 18:00");
   const morning = dated("Projet/Chronologie/morning.md", "1789-07-14 09:00");
   const harness = buildTimelineHarness({ milestones: [evening, morning] });
-  assert.deepEqual(timelineTitles(render(harness)), ["morning", "evening"]);
-  assert.equal(findAll(render(harness), (element) => element.classes.has("feuillets-timeline-milestone")).length, 2);
+  assert.deepEqual(timelineTitles(await render(harness)), ["morning", "evening"]);
+  assert.equal(findAll(await render(harness), (element) => element.classes.has("feuillets-timeline-milestone")).length, 2);
 });
 
-test("LOT4 Chronologie — Synopsis vide affiche exactement « — », cliquable", () => {
+test("LOT4 Chronologie — Synopsis vide affiche exactement « — », cliquable", async () => {
   const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14")] });
-  const container = render(harness);
+  const container = await render(harness);
   const synopsisContainer = findFirst(container, (element) => element.classes.has("feuillets-timeline-syn"));
   const cell = findFirst(synopsisContainer, (element) => element.classes.has("feuillets-flat-text-cell"));
   assert.equal(cell.text, "—");
@@ -458,7 +458,7 @@ test("LOT4 Chronologie — clic sur « — » → textarea vide, sauvegarde via 
   const harness = buildTimelineHarness({ children: [file] });
   const calls = [];
   harness.view.setFm = async (target, key, value) => calls.push({ target, key, value });
-  const container = render(harness);
+  const container = await render(harness);
   const synopsisContainer = findFirst(container, (element) => element.classes.has("feuillets-timeline-syn"));
   const cell = findFirst(synopsisContainer, (element) => element.classes.has("feuillets-flat-text-cell"));
   await cell.trigger("click");
@@ -470,9 +470,9 @@ test("LOT4 Chronologie — clic sur « — » → textarea vide, sauvegarde via 
   assert.equal(cell.text, "new synopsis");
 });
 
-test("LOT4 Chronologie — synopsis existant, date et titre restent éditables/ouvrables", () => {
+test("LOT4 Chronologie — synopsis existant, date et titre restent éditables/ouvrables", async () => {
   const harness = buildTimelineHarness({ children: [dated("Projet/Manuscrit/focus.md", "1789-07-14", { synopsis: "Résumé court." })] });
-  const container = render(harness);
+  const container = await render(harness);
   const synopsisContainer = findFirst(container, (element) => element.classes.has("feuillets-timeline-syn"));
   const cell = findFirst(synopsisContainer, (element) => element.classes.has("feuillets-flat-text-cell"));
   const date = findFirst(container, (element) => element.classes.has("feuillets-timeline-date-display"));

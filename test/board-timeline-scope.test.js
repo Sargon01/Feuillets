@@ -98,14 +98,14 @@ test("Timeline — global et local transmettent le dossier d'affichage", () => {
   assert.deepEqual(received, [root, partB]);
 });
 
-test("Timeline locale — les feuillets s'arrêtent au scope mais Research reste global", () => {
+test("Timeline locale — les feuillets s'arrêtent au scope mais Research reste global", async () => {
   const partA = folder("Projet/Manuscrit/Partie I", [datedFile("Projet/Manuscrit/Partie I/A.md", "1990-01-01")]);
   const partB = folder("Projet/Manuscrit/Partie II", [datedFile("Projet/Manuscrit/Partie II/B.md", "1991-01-01")]);
   const root = folder("Projet/Manuscrit", [partA, partB]);
   const research = folder("Projet/Recherche", [datedFile("Projet/Recherche/Milestone.md", "1992-01-01")]);
   const { view } = buildView(root, (scope) => scope === partB ? partB.children : [], research);
   const container = new FakeElement();
-  view.renderTimeline(container, partB, new Map());
+  await view.renderTimeline(container, partB, new Map(), [research]);
   const rendered = texts(container);
   assert.ok(rendered.includes("B"));
   assert.ok(rendered.includes("Milestone"));

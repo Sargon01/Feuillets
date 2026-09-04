@@ -92,31 +92,31 @@ test("Research local — ancêtre, branche sœur et fallback global exclus", () 
   assert.deepEqual(view.collectLinkedResearchFolders(partB), []);
 });
 
-test("Research Timeline — global utilise la source historique unique", () => {
+test("Research Timeline — global utilise la source historique unique", async () => {
   const root = folder("Projet/Manuscrit", [file("Projet/Manuscrit/Scene.md", "1990-01-01")]);
   const global = folder("Recherche/Global", [file("Recherche/Global/Milestone.md", "1991-01-01")]);
   const { view } = buildView(root, global);
   const container = new FakeElement();
-  view.renderTimelineInner(container, root, new Map(), [global]);
+  await view.renderTimelineInner(container, root, new Map(), [global]);
   assert.ok(texts(container).includes("Milestone"));
 });
 
-test("Research Timeline — plusieurs sources et fichier chevauché sans doublon", () => {
+test("Research Timeline — plusieurs sources et fichier chevauché sans doublon", async () => {
   const root = folder("Projet/Manuscrit");
   const nestedFile = file("Recherche/A/Sub/Milestone.md", "1991-01-01");
   const sub = folder("Recherche/A/Sub", [nestedFile]);
   const researchA = folder("Recherche/A", [sub]);
   const { view } = buildView(root, null);
   const container = new FakeElement();
-  view.renderTimelineInner(container, root, new Map(), [researchA, sub]);
+  await view.renderTimelineInner(container, root, new Map(), [researchA, sub]);
   assert.equal(texts(container).filter((value) => value === "Milestone").length, 1);
 });
 
-test("Research Timeline — source locale vide sans fallback global", () => {
+test("Research Timeline — source locale vide sans fallback global", async () => {
   const root = folder("Projet/Manuscrit");
   const global = folder("Recherche/Global", [file("Recherche/Global/GlobalMilestone.md", "1991-01-01")]);
   const { view } = buildView(root, global);
   const container = new FakeElement();
-  view.renderTimelineInner(container, root, new Map(), []);
+  await view.renderTimelineInner(container, root, new Map(), []);
   assert.equal(texts(container).includes("GlobalMilestone"), false);
 });

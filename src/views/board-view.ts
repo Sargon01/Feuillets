@@ -2,7 +2,7 @@ import { Menu, Modal, Setting, TAbstractFile, TFile, TFolder, setIcon, setToolti
 import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { projectWordGoalDefault } from "../services/project-settings.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
-import { openFileActivating } from "../utils/dom.js";
+import { openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
 import { parseStoryDate, stripMarkdown } from "../utils/core.js";
 import {
   PROJECT_MODES,
@@ -931,7 +931,7 @@ export class BoardView extends BaseFeuilletsView {
         : typeof this.plugin.getLinkedResearchFolder === "function"
           ? this.collectLinkedResearchFolders(scope.currentFolder)
           : [];
-      this.renderTimeline(scrollArea, timelineDisplayFolder, numbering, timelineResearchFolders);
+      await this.renderTimeline(scrollArea, timelineDisplayFolder, numbering, timelineResearchFolders);
     }
   }
 
@@ -2301,16 +2301,13 @@ export class BoardView extends BaseFeuilletsView {
   }
 
 
-  renderTimeline(container: HTMLElement, folder: TFolder, numbering: Map<string, string>, researchFolders?: readonly TFolder[]): void {
-    return this.renderTimelineInner(container, folder, numbering, researchFolders);
+  async renderTimeline(container: HTMLElement, folder: TFolder, numbering: Map<string, string>, researchFolders?: readonly TFolder[]): Promise<void> {
+    await this.renderTimelineInner(container, folder, numbering, researchFolders);
   }
 
-  renderTimelineInner(container: HTMLElement, folder: TFolder, _numbering: unknown, researchFolders?: readonly TFolder[]): void {
-    const resolvedResearchFolders = researchFolders ?? (() => {
-      const chronologyFolder = this.plugin.getChronoFolder();
-      return chronologyFolder ? [chronologyFolder] : [];
-    })();
-    renderBoardTimeline(container, folder, {
+  async renderTimelineInner(container: HTMLElement, folder: TFolder, _numbering: unknown, researchFolders?: readonly TFolder[]): Promise<void> {
+    const resolvedResearchFolders = researchFolders || [];
+    await renderBoardTimeline(container, folder, {
       settings: this.plugin.settings,
       flattenFiles: (currentFolder) => this.plugin.flattenFiles(currentFolder),
       passesFilter: (file) => this.passesFilter(file),
@@ -2318,6 +2315,8 @@ export class BoardView extends BaseFeuilletsView {
       fm: (file) => this.fm(file),
       getChronoFolders: () => resolvedResearchFolders,
       tagsOf: (file) => this.plugin.tagsOf(file),
+      readFile: (file) => this.app.vault.cachedRead(file),
+      openFileRange: (file, start, end) => openFileAndSelectRange(this.app, this.leaf, file, start, end),
       shortTitleFor: (file) => this.plugin.shortTitleFor(file),
       setFm: (file, key, value) => this.setFm(file, key, value),
       rerenderAfterDateEdit: () => this.render(true),

@@ -1,11 +1,18 @@
 import { Menu, TFile, TFolder } from "obsidian";
-import { parseStoryDate } from "../utils/core.js";
+import { parseStoryDate, stripMarkdown } from "../utils/core.js";
+import { parseChronologyProjection } from "../services/chronology-import.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 
 export type TimelineItem = NonNullable<ReturnType<typeof parseStoryDate>> & {
   file: TFile;
   milestone?: boolean;
+  virtualEntry?: Readonly<{
+    title: string;
+    text: string;
+    sourceStart: number;
+    sourceEnd: number;
+  }>;
 };
 
 export type TimelineRenderContext = {
@@ -16,6 +23,8 @@ export type TimelineRenderContext = {
   fm: (file: TFile) => SceneFrontmatter;
   getChronoFolders: () => readonly TFolder[];
   tagsOf: (file: TFile) => string[];
+  readFile: (file: TFile) => Promise<string>;
+  openFileRange: (file: TFile, start: number, end: number) => Promise<void>;
   shortTitleFor: (file: TFile) => string;
   setFm: (file: TFile, key: string, value: unknown) => Promise<void>;
   rerenderAfterDateEdit: () => Promise<void>;
@@ -31,7 +40,7 @@ export type TimelineOptionsContext = {
   rerender: () => void;
 };
 
-function collectTimelineItems(ctx: TimelineRenderContext, folder: TFolder): { files: TFile[]; items: TimelineItem[] } {
+async function collectTimelineItems(ctx: TimelineRenderContext, folder: TFolder): Promise<{ files: TFile[]; items: TimelineItem[] }> {
   const files = ctx.flattenFiles(folder).filter((file) => ctx.passesFilter(file) && !ctx.isFrontMatter(file));
   const items: TimelineItem[] = [];
   for (const file of files) {
@@ -41,21 +50,31 @@ function collectTimelineItems(ctx: TimelineRenderContext, folder: TFolder): { fi
 
   const seenResearchFilePaths = new Set<string>();
   for (const chronoFolder of ctx.getChronoFolders()) {
-    const collect = (current: TFolder): void => {
+    const collect = async (current: TFolder): Promise<void> => {
       for (const child of current.children) {
-        if (child instanceof TFolder) collect(child);
+        if (child instanceof TFolder) await collect(child);
         else if (child instanceof TFile && child.extension === "md") {
           if (seenResearchFilePaths.has(child.path)) continue;
-          const dateObj = parseStoryDate(ctx.fm(child).date, child);
-          if (!dateObj) continue;
+          seenResearchFilePaths.add(child.path);
           const filter = ctx.settings.timelineTagFilter;
           if (filter && !ctx.tagsOf(child).includes(filter)) continue;
-          seenResearchFilePaths.add(child.path);
-          items.push({ file: child, milestone: true, ...dateObj });
+          if (child.basename.toLowerCase() === "chronology" || child.basename.toLowerCase() === "chronologie") {
+            const source = await ctx.readFile(child);
+            const projection = parseChronologyProjection(source);
+            if (projection.ok) {
+              for (const block of projection.blocks) {
+                const dateObj = parseStoryDate(block.date, null);
+                if (dateObj) items.push({ file: child, milestone: true, virtualEntry: block, ...dateObj });
+              }
+              continue;
+            }
+          }
+          const dateObj = parseStoryDate(ctx.fm(child).date, child);
+          if (dateObj) items.push({ file: child, milestone: true, ...dateObj });
         }
       }
     };
-    collect(chronoFolder);
+    await collect(chronoFolder);
   }
   return { files, items };
 }
@@ -164,8 +183,8 @@ function timelineScalePeriod(item: TimelineItem, scaleValue: string | undefined)
   return { key: `century:${start}`, label };
 }
 
-export function renderBoardTimeline(container: HTMLElement, folder: TFolder, ctx: TimelineRenderContext): void {
-  const collected = collectTimelineItems(ctx, folder);
+export async function renderBoardTimeline(container: HTMLElement, folder: TFolder, ctx: TimelineRenderContext): Promise<void> {
+  const collected = await collectTimelineItems(ctx, folder);
   sortTimelineItems(collected.items, collected.files, ctx.settings.timelineOrder);
 
   if (collected.items.length === 0) {
@@ -184,37 +203,47 @@ export function renderBoardTimeline(container: HTMLElement, folder: TFolder, ctx
     const row = timeline.createDiv({ cls: item.milestone ? "feuillets-timeline-item feuillets-timeline-milestone" : "feuillets-timeline-item" });
     const dateContainer = row.createDiv({ cls: "feuillets-timeline-date" });
     const dateDisplay = dateContainer.createDiv({ cls: "feuillets-timeline-date-display", text: item.display });
-    dateDisplay.addEventListener("click", (event) => {
-      event.stopPropagation();
-      dateDisplay.hide();
-      const textarea = dateContainer.createEl("textarea", { cls: "feuillets-flat-textarea feuillets-autosize" });
-      textarea.value = toValue(ctx.fm(item.file).date);
-      textarea.focus();
-      textarea.style.removeProperty("height");
-      textarea.style.height = `${textarea.scrollHeight}px`;
-      const saveDateEdit = async (): Promise<void> => {
-        if (textarea.parentNode) {
-          const raw = textarea.value.trim();
-          if (raw !== toValue(ctx.fm(item.file).date)) {
-            await ctx.setFm(item.file, "date", raw);
-            await ctx.rerenderAfterDateEdit();
+    if (!item.virtualEntry) {
+      dateDisplay.addEventListener("click", (event) => {
+        event.stopPropagation();
+        dateDisplay.hide();
+        const textarea = dateContainer.createEl("textarea", { cls: "feuillets-flat-textarea feuillets-autosize" });
+        textarea.value = toValue(ctx.fm(item.file).date);
+        textarea.focus();
+        textarea.style.removeProperty("height");
+        textarea.style.height = `${textarea.scrollHeight}px`;
+        const saveDateEdit = async (): Promise<void> => {
+          if (textarea.parentNode) {
+            const raw = textarea.value.trim();
+            if (raw !== toValue(ctx.fm(item.file).date)) {
+              await ctx.setFm(item.file, "date", raw);
+              await ctx.rerenderAfterDateEdit();
+            }
+            textarea.remove();
+            dateDisplay.show();
           }
-          textarea.remove();
-          dateDisplay.show();
-        }
-      };
-      textarea.addEventListener("blur", () => { void saveDateEdit(); });
-      textarea.addEventListener("keydown", (evt) => {
-        if (evt.key === "Escape" || (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey))) textarea.blur();
+        };
+        textarea.addEventListener("blur", () => { void saveDateEdit(); });
+        textarea.addEventListener("keydown", (evt) => {
+          if (evt.key === "Escape" || (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey))) textarea.blur();
+        });
       });
-    });
+    }
 
     row.createDiv({ cls: "feuillets-timeline-dot" });
     const body = row.createDiv({ cls: "feuillets-timeline-body" });
     const head = body.createDiv({ cls: "feuillets-timeline-head" });
-    head.createSpan({ cls: "feuillets-timeline-title", text: ctx.shortTitleFor(item.file) }).addEventListener("click", () => ctx.openFile(item.file));
+    const title = head.createSpan({ cls: "feuillets-timeline-title", text: item.virtualEntry?.title || ctx.shortTitleFor(item.file) });
+    title.addEventListener("click", () => {
+      if (item.virtualEntry) void ctx.openFileRange(item.file, item.virtualEntry.sourceStart, item.virtualEntry.sourceEnd);
+      else ctx.openFile(item.file);
+    });
     const synopsisHost = body.createDiv({ cls: "feuillets-timeline-syn" });
-    ctx.makeClickToEditFmArea(synopsisHost, item.file, "synopsis", "—", 6);
+    if (item.virtualEntry) {
+      synopsisHost.createDiv({ cls: "feuillets-flat-text-cell", text: stripMarkdown(item.virtualEntry.text) || "—" });
+    } else {
+      ctx.makeClickToEditFmArea(synopsisHost, item.file, "synopsis", "—", 6);
+    }
   }
 }
 
@@ -234,25 +263,23 @@ export function buildBoardTimelineOptionsMenu(menu: Menu, ctx: TimelineOptionsCo
     await ctx.saveSettings();
     ctx.rerender();
   }));
-  for (const chronoFolder of ctx.getChronoFolders()) {
-    const tags = new Set<string>();
-    const collect = (folder: TFolder): void => {
-      for (const child of folder.children) {
-        if (child instanceof TFolder) collect(child);
-        else if (child instanceof TFile && child.extension === "md") {
-          for (const tag of ctx.tagsOf(child)) tags.add(tag);
-        }
+  const tags = new Set<string>();
+  const collect = (folder: TFolder): void => {
+    for (const child of folder.children) {
+      if (child instanceof TFolder) collect(child);
+      else if (child instanceof TFile && child.extension === "md") {
+        for (const tag of ctx.tagsOf(child)) tags.add(tag);
       }
-    };
-    collect(chronoFolder);
-    const collator = new Intl.Collator("fr");
-    for (const tag of [...tags].sort((a, b) => collator.compare(a, b))) {
-      menu.addItem((item) => item.setTitle(`#${tag}`).setChecked(settings.timelineTagFilter === tag).onClick(async () => {
-        settings.timelineTagFilter = tag;
-        await ctx.saveSettings();
-        ctx.rerender();
-      }));
     }
+  };
+  for (const chronoFolder of ctx.getChronoFolders()) collect(chronoFolder);
+  const collator = new Intl.Collator("fr");
+  for (const tag of [...tags].sort((a, b) => collator.compare(a, b))) {
+    menu.addItem((item) => item.setTitle(`#${tag}`).setChecked(settings.timelineTagFilter === tag).onClick(async () => {
+      settings.timelineTagFilter = tag;
+      await ctx.saveSettings();
+      ctx.rerender();
+    }));
   }
   menu.addSeparator();
   for (const [value, label] of [
