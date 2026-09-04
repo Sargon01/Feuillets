@@ -15,8 +15,7 @@ import {
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
-import { getProjectMode } from "./project-mode.js";
-import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType, projectWordGoalDefault } from "./project-settings.js";
+import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType, projectNewSheetIncludeSources, projectPlanningField, projectWordGoalDefault } from "./project-settings.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
 
@@ -831,21 +830,21 @@ export function newFolder(app: App, parent: TFolder, onDone?: () => void): void 
  * `position` est l'`order:` à inscrire ; l'appelant le calcule selon son
  * contexte (fin de dossier pour newSheet, position planifiée pour le Plan). */
 export function sheetFrontmatter(app: App, settings: FeuilletsSettings, title: string, position: number): string {
-  const preset = getProjectMode(app, settings).yamlPreset;
-  const isFiction = preset === "roman" || preset === "nouvelle";
+  const planningField = projectPlanningField(app, settings);
+  const includeSources = projectNewSheetIncludeSources(app, settings);
   return [
     "---",
     `title: ${title || ""}`,
     "short_title: ",
     `order: ${position}`,
-    ...(isFiction ? ["synopsis: "] : ["summary: "]),
+    `${planningField}: `,
     "status: ",
     "label: ",
     `goal: ${projectWordGoalDefault(app, settings)}`,
     "tags: ",
     "date: ",
     "notes: ",
-    ...(!isFiction ? ["sources: "] : []),
+    ...(includeSources ? ["sources: "] : []),
     "compile: true",
     "---",
     "",

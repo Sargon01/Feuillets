@@ -1,6 +1,6 @@
 import { Menu, Modal, Setting, TAbstractFile, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
 import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
-import { projectWordGoalDefault } from "../services/project-settings.js";
+import { projectPlanningField, projectWordGoalDefault, type ProjectPlanningField } from "../services/project-settings.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
 import { parseStoryDate, stripMarkdown } from "../utils/core.js";
@@ -9,7 +9,6 @@ import {
   resolveType,
   resolveBoardCardContent,
   resolveBoardOutlineColumns,
-  semanticPlanningField,
 } from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
 import { povOf, filsOf } from "../utils/arc-fields.js";
@@ -159,6 +158,7 @@ type ModeOptionsCtx = {
   meta: ProjectMeta;
   pType: string;
   wholeManuscript: boolean;
+  planningField: ProjectPlanningField;
   timelineResearchFolders?: readonly TFolder[];
 };
 
@@ -212,11 +212,10 @@ export class BoardView extends BaseFeuilletsView {
   ) => HTMLElement;
   focusedFolderPath: string | null;
   currentCardContent?: string;
-  /** Type de projet résolu au dernier render (Fiction/Non-fiction/Libre) —
-     capté localement dans _render et mémorisé pour que les cartes Couloirs
-     lisent la synopsis dans le BON champ sémantique (semanticPlanningField)
-     même quand la préférence d'affichage des cartes est « Extrait ». */
+  /** Type de projet résolu au dernier render, encore utilisé pour les gates
+     narratives de Couloirs. Le champ synopsis/summary est indépendant. */
   private lanesProjectType = "fiction";
+  private runtimePlanningField: ProjectPlanningField = "synopsis";
   /** Sous-vue de l'espace narratif (Trame/Couloirs) — état de SESSION
    * de l'instance (jamais persisté), survit aux render(true) et aux
    * aller-retours Chemin de fer → autre mode → Chemin de fer. */
@@ -444,10 +443,12 @@ export class BoardView extends BaseFeuilletsView {
     if (!S.projectMeta[scope.manuscriptRoot.path]) S.projectMeta[scope.manuscriptRoot.path] = {};
     const meta = S.projectMeta[scope.manuscriptRoot.path];
     const projectType = resolveType(meta.type);
+    const planningField = projectPlanningField(this.app, S);
     this.lanesProjectType = projectType;
+    this.runtimePlanningField = planningField;
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
     let mode: string = meta.boardMode || modeConfig.defaults.boardMode;
-    this.currentCardContent = resolveBoardCardContent(projectType, meta.cardContent);
+    this.currentCardContent = resolveBoardCardContent(projectType, meta.cardContent, planningField);
 
     /* LOT 5C §2.1 — migration locale défensive : un ancien boardMode "lanes"
        persisté par un lot précédent n'existe plus comme mode (§2 impose 4
@@ -486,7 +487,8 @@ export class BoardView extends BaseFeuilletsView {
        effectif (grammaire finale du Plan) à partir de la priorité
        meta/legacy/defaults ci-dessus — meta.outlineCols garde la donnée
        brute non migrée. */
-    this.outlineColumns = resolveBoardOutlineColumns(projectType, outlineColumns);
+    const effectiveOutlineColumns = resolveBoardOutlineColumns(projectType, outlineColumns, planningField);
+    this.outlineColumns = effectiveOutlineColumns;
     if (initializedProjectPrefs && typeof this.plugin.saveSettings === "function") void this.plugin.saveSettings();
     const wholeManuscript = meta.boardWholeManuscript !== undefined ? !!meta.boardWholeManuscript : !!S.boardWholeManuscript;
     const displayedFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
@@ -688,7 +690,8 @@ export class BoardView extends BaseFeuilletsView {
         meta,
         pType: projectType,
         wholeManuscript,
-        outlineColumns,
+        outlineColumns: effectiveOutlineColumns,
+        planningField,
         timelineResearchFolders,
       });
       menu.showAtMouseEvent(e);
@@ -936,7 +939,7 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx & { outlineColumns: Record<string, boolean> }): void {
-    const { S, meta, pType, wholeManuscript, outlineColumns } = ctx;
+    const { S, meta, pType, wholeManuscript, planningField, outlineColumns } = ctx;
 
     const addScopeOptions = (): void => {
       for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]] as [boolean, string][]) {
@@ -959,7 +962,7 @@ export class BoardView extends BaseFeuilletsView {
          Tags — ces informations restent disponibles ailleurs (filtres,
          Plan). Seules 3 options d'affichage subsistent : Portée, Contenu,
          Taille. */
-      const semanticField = semanticPlanningField(pType);
+      const semanticField = planningField;
       // Le libellé "Résumé long" réutilise EXACTEMENT la traduction déjà
       // établie pour ce même champ sémantique dans l'aperçu du Binder
       // (binder.preview.summary) — une seule source de vocabulaire.
@@ -1016,7 +1019,7 @@ export class BoardView extends BaseFeuilletsView {
       const outlineColumnDefs: [string, string][] =
         pType === "fiction"
           ? [
-              ["synopsis", t("board.col.synopsis")],
+              [planningField, planningField === "synopsis" ? t("board.col.synopsis") : t("binder.preview.summary")],
               ["pov", t("board.col.pov")],
               ["characters", t("board.col.characters")],
               ["thread", t("board.col.thread")],
@@ -1028,7 +1031,7 @@ export class BoardView extends BaseFeuilletsView {
               ["goal", t("board.col.goal")],
             ]
           : [
-              ["summary", t("binder.preview.summary")],
+              [planningField, planningField === "synopsis" ? t("board.col.synopsis") : t("binder.preview.summary")],
               ["label", t("board.col.label")],
               ["status", t("board.col.status")],
               ["tags", t("board.col.tags")],
@@ -1055,7 +1058,7 @@ export class BoardView extends BaseFeuilletsView {
       if (this.narrativeSubview === "trame") {
         menu.addItem((item) => item.setTitle(t("board.options.arcsHeader")).setDisabled(true));
         menu.addItem((item) =>
-          item.setTitle(t("board.options.arcsShowSynopsis")).setChecked(!!S.arcsShowSynopsis).onClick(async () => {
+          item.setTitle(planningField === "synopsis" ? t("board.options.arcsShowSynopsis") : t("binder.preview.summary")).setChecked(!!S.arcsShowSynopsis).onClick(async () => {
             S.arcsShowSynopsis = !S.arcsShowSynopsis;
             await this.plugin.saveSettings();
             void this.render(true);
@@ -1429,7 +1432,7 @@ export class BoardView extends BaseFeuilletsView {
 
     /* §15 : plus de nombre de mots, d'objectif affiché ni d'anneau de
        progression sur la carte dossier — grammaire finale Cartes. */
-    const fieldKey = this.currentCardContent === "synopsis" ? "synopsis" : "summary";
+    const fieldKey = this.runtimePlanningField;
     const summary = toValue(folderNote && this.plugin.fmOf(folderNote)[fieldKey]);
     const excerpt = card.createDiv({ cls: "feuillets-card-excerpt" });
     excerpt.addClass("feuillets-mt-sm");
@@ -1829,7 +1832,7 @@ export class BoardView extends BaseFeuilletsView {
          aucun espace réservé, aucune donnée touchée. */
       if (S.arcsShowSynopsis) {
         const synopsisHost = info.createDiv({ cls: "feuillets-arcs-file-synopsis" });
-        this.makeClickToEditFmArea(synopsisHost, file, "synopsis", "—", 6);
+        this.makeClickToEditFmArea(synopsisHost, file, this.runtimePlanningField, "—", 6);
       }
 
       /* §7-8 LOT 4 — pov : l'icône Lucide « eye » remplace tout libellé
@@ -2204,11 +2207,10 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
-  /** Champ sémantique planifié pour les cartes Couloirs — résolution IDENTIQUE
-     à celle de Trame (semanticPlanningField(resolveType)) : "synopsis" pour la
-     Fiction, "summary" sinon. */
-  private lanesPlanningField(): string {
-    return semanticPlanningField(this.lanesProjectType);
+  /** Champ sémantique planifié pour les cartes Couloirs, partagé avec les
+     autres surfaces Board via la préférence runtime du projet. */
+  private lanesPlanningField(): ProjectPlanningField {
+    return this.runtimePlanningField;
   }
 
   /** Récepteur de drop d'une ligne : déposer une carte ici ne fait QUE

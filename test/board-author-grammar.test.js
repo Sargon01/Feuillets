@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 import { fr } from "../src/i18n/fr.js";
 import { en } from "../src/i18n/en.js";
 import { BOARD_MODES } from "../src/constants.js";
-import { PROJECT_MODES, projectBoardDefaults, resolveBoardOutlineColumns } from "../src/utils/project-modes.js";
+import { PROJECT_MODES, projectBoardDefaults, resolveBoardCardContent, resolveBoardOutlineColumns } from "../src/utils/project-modes.js";
 
 /* Le Plan utilise window.setTimeout/window.clearTimeout (idiome Obsidian) :
    stubber le global pour les tests, comme les autres fichiers du dépôt. */
@@ -236,6 +236,7 @@ test("Options Cartes — Fiction : Portée / Synopsis+Contenu / Taille, aucun to
     meta: {},
     pType: "fiction",
     wholeManuscript: false,
+    planningField: "synopsis",
     outlineColumns: {},
   });
 
@@ -264,6 +265,7 @@ test("Options Cartes — Non-fiction/Libre : Portée / Résumé long+Contenu / T
       meta: {},
       pType,
       wholeManuscript: false,
+      planningField: "summary",
       outlineColumns: {},
     });
 
@@ -272,6 +274,58 @@ test("Options Cartes — Non-fiction/Libre : Portée / Résumé long+Contenu / T
     assert.ok(titles.includes("Contenu"), `${pType} : option Contenu attendue`);
     assert.equal(titles.includes("Corps : synopsis"), false, `${pType} : pas de Synopsis`);
   }
+});
+
+test("G2 — les resolvers Board acceptent un planningField explicite", () => {
+  assert.equal(resolveBoardCardContent("fiction", "synopsis", "summary"), "summary");
+  assert.equal(resolveBoardCardContent("free", "summary", "synopsis"), "synopsis");
+  assert.equal(resolveBoardCardContent("fiction", "extrait", "summary"), "extrait");
+  assert.equal(resolveBoardCardContent("fiction", "synopsis"), "synopsis");
+  assert.equal(resolveBoardCardContent("free", "summary"), "summary");
+
+  const fictionStored = { synopsis: true, summary: false, pov: true, characters: true, thread: true };
+  const fictionBefore = structuredClone(fictionStored);
+  const fiction = resolveBoardOutlineColumns("fiction", fictionStored, "summary");
+  assert.equal(fiction.synopsis, false);
+  assert.equal(fiction.summary, true);
+  assert.equal(fiction.pov, true);
+  assert.equal(fiction.characters, true);
+  assert.equal(fiction.thread, true);
+  assert.deepEqual(fictionStored, fictionBefore);
+
+  const free = resolveBoardOutlineColumns("free", { synopsis: false, summary: true, pov: true, characters: true, thread: true }, "synopsis");
+  assert.equal(free.synopsis, true);
+  assert.equal(free.summary, false);
+  assert.equal(free.pov, false);
+  assert.equal(free.characters, false);
+  assert.equal(free.thread, false);
+});
+
+test("G2 — les menus Cartes et Plan suivent le planningField, sans ouvrir les gates Fiction", () => {
+  const { view } = buildOptionsHarness();
+  view.currentCardContent = "summary";
+  const cards = new Menu();
+  view.buildModeOptionsMenu(cards, "board", { S: view.plugin.settings, meta: {}, pType: "fiction", wholeManuscript: false, planningField: "summary", outlineColumns: {} });
+  assert.ok(menuItemTitles(cards).includes("Résumé long"));
+  assert.ok(menuItemTitles(cards).includes("Contenu"));
+  assert.equal(menuItemTitles(cards).includes("Corps : synopsis"), false);
+
+  const plan = new Menu();
+  view.buildModeOptionsMenu(plan, "outline", { S: view.plugin.settings, meta: {}, pType: "fiction", wholeManuscript: false, planningField: "summary", outlineColumns: { summary: true } });
+  const planTitles = outlineColumnMenuTitles(plan);
+  assert.ok(planTitles.includes("Résumé long"));
+  assert.ok(planTitles.includes("Pov"));
+  assert.ok(planTitles.includes("Personnages"));
+  assert.ok(planTitles.includes("Fil"));
+  assert.equal(planTitles.includes("Synopsis"), false);
+
+  const freePlan = new Menu();
+  view.buildModeOptionsMenu(freePlan, "outline", { S: view.plugin.settings, meta: {}, pType: "free", wholeManuscript: false, planningField: "synopsis", outlineColumns: { synopsis: true } });
+  const freeTitles = outlineColumnMenuTitles(freePlan);
+  assert.ok(freeTitles.includes("Synopsis"));
+  assert.equal(freeTitles.includes("Pov"), false);
+  assert.equal(freeTitles.includes("Personnages"), false);
+  assert.equal(freeTitles.includes("Fil"), false);
 });
 
 /* ===================== PLAN — colonnes (visibleCols) ===================== */
@@ -321,6 +375,7 @@ test("Menu Plan Fiction — colonnes proposées : Synopsis, Pov, Personnages, Fi
     meta: {},
     pType: "fiction",
     wholeManuscript: false,
+    planningField: "synopsis",
     outlineColumns: {},
   });
 
@@ -339,6 +394,7 @@ test("Menu Plan Non-fiction/Libre — colonnes proposées : Résumé long, Label
     meta: {},
     pType: "nonfiction",
     wholeManuscript: false,
+    planningField: "summary",
     outlineColumns: {},
   });
 
@@ -734,6 +790,7 @@ test("Menu Plan — bascule « Retour à la ligne des textes longs » : coche l'
     meta: {},
     pType: "fiction",
     wholeManuscript: false,
+    planningField: "synopsis",
     outlineColumns: {},
   });
 
@@ -752,6 +809,7 @@ test("Menu Plan — bascule « Retour à la ligne des textes longs » : coche l'
     meta: {},
     pType: "fiction",
     wholeManuscript: false,
+    planningField: "synopsis",
     outlineColumns: {},
   });
   const item2 = menu2.items.find((i) => i.title === "Retour à la ligne des textes longs");
@@ -890,6 +948,17 @@ function arcPovIcon(container) {
 function arcPovValueCell(container) {
   return findFirst(arcPovHost(container), (el) => el.classes.has("feuillets-flat-text-cell"));
 }
+
+test("G2 — Trame lit le champ de planification runtime", () => {
+  const file = new TFile("Projet/Manuscrit/Scène.md");
+  file.__fm = { synopsis: "SYNOPSIS-G2", summary: "SUMMARY-G2" };
+  const { view, root } = buildArcHarness({ children: [file] });
+  view.lanesProjectType = "fiction";
+  view.runtimePlanningField = "summary";
+  const cell = findFirst(arcSynopsisHost(renderArc(view, root)), (el) => el.classes.has("feuillets-flat-text-cell"));
+  assert.equal(cell.text, "SUMMARY-G2");
+  assert.equal(cell.text.includes("SYNOPSIS-G2"), false);
+});
 
 /* LOT 5 — Personnages et Fil : mêmes helpers structurels que pov
    (host / iconHost / valueHost éditable). */
@@ -1499,6 +1568,7 @@ test("LOT4/LOT5 finition options Story Arc — le menu distingue Trame et Couloi
     meta: {},
     pType: "fiction",
     wholeManuscript: false,
+    planningField: "synopsis",
     outlineColumns: {},
   };
 
@@ -1550,6 +1620,7 @@ for (const [key, label] of [
       meta: {},
       pType: "fiction",
       wholeManuscript: false,
+      planningField: "synopsis",
       outlineColumns: {},
     });
 
@@ -2651,6 +2722,18 @@ function laneTrack(row) {
 function laneLine(row) {
   return findFirst(row, (el) => el.classes.has("feuillets-lane-line"));
 }
+
+test("G2 — Couloirs lit le champ de planification runtime", () => {
+  const files = [mkLaneFile("A", { label: "Ligne", synopsis: "SYNOPSIS-G2", summary: "SUMMARY-G2" })];
+  const { view, root } = buildLanesHarness({ files });
+  view.laneAxis = "label";
+  view.lanesProjectType = "fiction";
+  view.runtimePlanningField = "summary";
+  const container = renderCouloirs(view, root);
+  const synopsis = findFirst(container, (el) => el.classes.has("feuillets-lanes-card-synopsis"));
+  assert.equal(synopsis.text, "SUMMARY-G2");
+  assert.equal(synopsis.text.includes("SYNOPSIS-G2"), false);
+});
 
 function laneSlots(container, labelText) {
   const row = laneRow(container, labelText);
@@ -3758,6 +3841,7 @@ test("Menu Plan Non-fiction/Libre — jamais Personnages/Fil proposés", () => {
       meta: {},
       pType,
       wholeManuscript: false,
+      planningField: "summary",
       outlineColumns: {},
     });
     const titles = outlineColumnMenuTitles(menu);

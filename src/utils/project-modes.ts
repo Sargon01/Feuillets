@@ -291,10 +291,11 @@ export type BoardCardContent = "extrait" | "synopsis" | "summary";
 
 export function resolveBoardCardContent(
   type: string | null | undefined,
-  stored: unknown
+  stored: unknown,
+  planningField?: SemanticPlanningField
 ): BoardCardContent {
   if (stored === "extrait") return "extrait";
-  return semanticPlanningField(type);
+  return planningField || semanticPlanningField(type);
 }
 
 /** Colonnes autorisées du Plan par mode — jamais notes/nom du fichier/
@@ -309,7 +310,8 @@ const BOARD_OUTLINE_ALWAYS_HIDDEN = ["notes", "filename", "progress", "compile",
  * d'un rendu à l'autre. */
 export function resolveBoardOutlineColumns(
   type: string | null | undefined,
-  stored?: Record<string, boolean> | null
+  stored?: Record<string, boolean> | null,
+  planningField?: SemanticPlanningField
 ): Record<string, boolean> {
   const resolvedType = resolveType(type);
   const isFiction = resolvedType === "fiction";
@@ -319,12 +321,13 @@ export function resolveBoardOutlineColumns(
   const hasSemanticKey = s.synopsis !== undefined || s.summary !== undefined;
   const semanticEnabled = hasSemanticKey
     ? !!(s.synopsis || s.summary)
-    : !!(isFiction ? defaults.synopsis : defaults.summary);
+    : !!(defaults.synopsis || defaults.summary);
 
   const result: Record<string, boolean> = {};
 
-  result.synopsis = isFiction ? semanticEnabled : false;
-  result.summary = isFiction ? false : semanticEnabled;
+  const semanticField = planningField || semanticPlanningField(type);
+  result.synopsis = semanticField === "synopsis" ? semanticEnabled : false;
+  result.summary = semanticField === "summary" ? semanticEnabled : false;
 
   if (isFiction) {
     result.pov = s.pov !== undefined ? !!s.pov : !!defaults.pov;
