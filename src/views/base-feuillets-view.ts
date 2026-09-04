@@ -695,18 +695,52 @@ export abstract class BaseFeuilletsView extends ItemView {
        Recherche/ créé ici apparaît automatiquement comme sa propre
        section. Disponible en fiction comme en non-fiction. */
     const newFolderBtn = this.iconBtn(toolbar, "folder-plus", t("shared.research.newTopicTooltip"));
-    newFolderBtn.addEventListener("click", () => {
-      void (async () => {
-        let folder = baseResearchFolder;
-        if (!folder) {
-          const path = researchFolderPath(this.app, this.plugin.settings, root);
-          if (path) {
-            const created = await this.plugin.ensureFolder(path);
-            folder = created instanceof TFolder ? created : null;
-          }
-        }
-        if (folder) this.plugin.newFolder(folder);
-      })();
+    newFolderBtn.addEventListener("click", (event) => {
+      const menu = new Menu();
+      const standardKeys = [
+        "personnages",
+        "lieux",
+        "evenements",
+        "codex",
+        "glossaire",
+        "notes",
+        "sources",
+        "bibliographie",
+      ];
+      let hasStandardSection = false;
+      for (const key of standardKeys) {
+        if (this.findResearchCategoryFolder(baseResearch, rf, key)) continue;
+        hasStandardSection = true;
+        menu.addItem((item) =>
+          item
+            .setTitle(researchFolderLabel(rf, key))
+            .setIcon(getResearchSectionIcon(key))
+            .onClick(async () => {
+              await this.ensureResearchCategoryFolder(baseResearch, rf, key);
+              this.plugin.renderAllViews(true);
+            })
+        );
+      }
+      if (hasStandardSection) menu.addSeparator();
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.research.customSection"))
+          .setIcon("folder-plus")
+          .onClick(() => {
+            void (async () => {
+              let folder = baseResearchFolder;
+              if (!folder) {
+                const path = researchFolderPath(this.app, this.plugin.settings, root);
+                if (path) {
+                  const created = await this.plugin.ensureFolder(path);
+                  folder = created instanceof TFolder ? created : null;
+                }
+              }
+              if (folder) this.plugin.newFolder(folder);
+            })();
+          })
+      );
+      menu.showAtMouseEvent(event);
     });
 
     const sourcesFolder = this.findResearchCategoryFolder(baseResearch, rf, "sources");
