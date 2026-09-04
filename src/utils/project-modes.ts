@@ -314,7 +314,6 @@ export function resolveBoardOutlineColumns(
   planningField?: SemanticPlanningField
 ): Record<string, boolean> {
   const resolvedType = resolveType(type);
-  const isFiction = resolvedType === "fiction";
   const defaults = PROJECT_MODES[resolvedType].boardDefaults.outlineCols;
   const s = stored || {};
 
@@ -329,20 +328,11 @@ export function resolveBoardOutlineColumns(
   result.synopsis = semanticField === "synopsis" ? semanticEnabled : false;
   result.summary = semanticField === "summary" ? semanticEnabled : false;
 
-  if (isFiction) {
-    result.pov = s.pov !== undefined ? !!s.pov : !!defaults.pov;
-    /* Personnages + Fil : colonnes optionnelles du Plan réservées à la
-       Fiction (le mode narre des personnages et des fils narratifs), OFF
-       par défaut pour ne pas surcharger l'état initial — l'autrice les
-       active via « Colonnes visibles ». Jamais présentes en Non-fiction/
-       Libre, même stockées à true (même règle que pov). */
-    result.characters = s.characters !== undefined ? !!s.characters : !!defaults.characters;
-    result.thread = s.thread !== undefined ? !!s.thread : !!defaults.thread;
-  } else {
-    result.pov = false;
-    result.characters = false;
-    result.thread = false;
-  }
+  /* Les defaults narratifs proviennent du preset ; une valeur stockée dans
+     outlineCols prime ensuite, quel que soit le type du projet. */
+  result.pov = s.pov !== undefined ? !!s.pov : !!defaults.pov;
+  result.characters = s.characters !== undefined ? !!s.characters : !!defaults.characters;
+  result.thread = s.thread !== undefined ? !!s.thread : !!defaults.thread;
 
   for (const key of BOARD_OUTLINE_COMMON_COLS) {
     result[key] = s[key] !== undefined ? !!s[key] : !!defaults[key];

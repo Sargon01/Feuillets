@@ -156,7 +156,6 @@ function characterLaneColor(name: string): string {
 type ModeOptionsCtx = {
   S: FeuilletsSettings;
   meta: ProjectMeta;
-  pType: string;
   wholeManuscript: boolean;
   planningField: ProjectPlanningField;
   timelineResearchFolders?: readonly TFolder[];
@@ -212,9 +211,6 @@ export class BoardView extends BaseFeuilletsView {
   ) => HTMLElement;
   focusedFolderPath: string | null;
   currentCardContent?: string;
-  /** Type de projet résolu au dernier render, encore utilisé pour les gates
-     narratives de Couloirs. Le champ synopsis/summary est indépendant. */
-  private lanesProjectType = "fiction";
   private runtimePlanningField: ProjectPlanningField = "synopsis";
   /** Sous-vue de l'espace narratif (Trame/Couloirs) — état de SESSION
    * de l'instance (jamais persisté), survit aux render(true) et aux
@@ -444,7 +440,6 @@ export class BoardView extends BaseFeuilletsView {
     const meta = S.projectMeta[scope.manuscriptRoot.path];
     const projectType = resolveType(meta.type);
     const planningField = projectPlanningField(this.app, S);
-    this.lanesProjectType = projectType;
     this.runtimePlanningField = planningField;
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
     let mode: string = meta.boardMode || modeConfig.defaults.boardMode;
@@ -688,7 +683,6 @@ export class BoardView extends BaseFeuilletsView {
       this.buildModeOptionsMenu(menu, activeMode, {
         S,
         meta,
-        pType: projectType,
         wholeManuscript,
         outlineColumns: effectiveOutlineColumns,
         planningField,
@@ -939,7 +933,7 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx & { outlineColumns: Record<string, boolean> }): void {
-    const { S, meta, pType, wholeManuscript, planningField, outlineColumns } = ctx;
+    const { S, meta, wholeManuscript, planningField, outlineColumns } = ctx;
 
     const addScopeOptions = (): void => {
       for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]] as [boolean, string][]) {
@@ -1011,34 +1005,23 @@ export class BoardView extends BaseFeuilletsView {
       );
       menu.addSeparator();
       menu.addItem((item) => item.setTitle(t("board.options.visibleColumnsHeader")).setDisabled(true));
-      /* Grammaire finale du Plan (§17-18) : plus jamais Notes/Nom du
-         fichier/Progression/Compiler dans ce menu, même sur un vieux
-         projet où ces réglages sont encore à `true` en donnée — colonnes
-         allouées par mode (synopsis + POV en Fiction, résumé long en
-         Non-fiction/Libre). */
-      const outlineColumnDefs: [string, string][] =
-        pType === "fiction"
-          ? [
-              [planningField, planningField === "synopsis" ? t("board.col.synopsis") : t("binder.preview.summary")],
-              ["pov", t("board.col.pov")],
-              ["characters", t("board.col.characters")],
-              ["thread", t("board.col.thread")],
-              ["label", t("board.col.label")],
-              ["status", t("board.col.status")],
-              ["tags", t("board.col.tags")],
-              ["date", t("board.col.date")],
-              ["words", t("board.col.words")],
-              ["goal", t("board.col.goal")],
-            ]
-          : [
-              [planningField, planningField === "synopsis" ? t("board.col.synopsis") : t("binder.preview.summary")],
-              ["label", t("board.col.label")],
-              ["status", t("board.col.status")],
-              ["tags", t("board.col.tags")],
-              ["date", t("board.col.date")],
-              ["words", t("board.col.words")],
-              ["goal", t("board.col.goal")],
-            ];
+      /* Les defaults narratifs viennent du preset ; le menu expose toutes
+         les colonnes disponibles, et outlineColumns décide de leur état. */
+      const semanticColumn: [string, string] = planningField === "synopsis"
+        ? ["synopsis", t("board.col.synopsis")]
+        : ["summary", t("binder.preview.summary")];
+      const outlineColumnDefs: [string, string][] = [
+        semanticColumn,
+        ["pov", t("board.col.pov")],
+        ["characters", t("board.col.characters")],
+        ["thread", t("board.col.thread")],
+        ["label", t("board.col.label")],
+        ["status", t("board.col.status")],
+        ["tags", t("board.col.tags")],
+        ["date", t("board.col.date")],
+        ["words", t("board.col.words")],
+        ["goal", t("board.col.goal")],
+      ];
       for (const [colKey, label] of outlineColumnDefs) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(!!outlineColumns[colKey]).onClick(async () => {
@@ -2484,7 +2467,6 @@ export class BoardView extends BaseFeuilletsView {
       outlineDblClickDelayMs: this.outlineDblClickDelayMs,
       numbering,
       wcMap: this.wcMap || new Map<string, number>(),
-      projectType: this.lanesProjectType,
       generation: gen,
       isCurrentGeneration: (generation) => this._renderGen === generation,
       getOrderedChildren: (folder) => this.plugin.getOrderedChildren(folder),

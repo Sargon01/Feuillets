@@ -234,7 +234,6 @@ test("Options Cartes — Fiction : Portée / Synopsis+Contenu / Taille, aucun to
   view.buildModeOptionsMenu(menu, "board", {
     S: view.plugin.settings,
     meta: {},
-    pType: "fiction",
     wholeManuscript: false,
     planningField: "synopsis",
     outlineColumns: {},
@@ -296,22 +295,36 @@ test("G2 — les resolvers Board acceptent un planningField explicite", () => {
   const free = resolveBoardOutlineColumns("free", { synopsis: false, summary: true, pov: true, characters: true, thread: true }, "synopsis");
   assert.equal(free.synopsis, true);
   assert.equal(free.summary, false);
-  assert.equal(free.pov, false);
-  assert.equal(free.characters, false);
-  assert.equal(free.thread, false);
+  assert.equal(free.pov, true);
+  assert.equal(free.characters, true);
+  assert.equal(free.thread, true);
+
+  const nonfiction = resolveBoardOutlineColumns("nonfiction", {
+    summary: true, pov: true, characters: true, thread: true,
+  }, "summary");
+  assert.equal(nonfiction.pov, true);
+  assert.equal(nonfiction.characters, true);
+  assert.equal(nonfiction.thread, true);
+
+  const fictionDisabled = resolveBoardOutlineColumns("fiction", {
+    synopsis: true, pov: false, characters: false, thread: false,
+  }, "synopsis");
+  assert.equal(fictionDisabled.pov, false);
+  assert.equal(fictionDisabled.characters, false);
+  assert.equal(fictionDisabled.thread, false);
 });
 
 test("G2 — les menus Cartes et Plan suivent le planningField, sans ouvrir les gates Fiction", () => {
   const { view } = buildOptionsHarness();
   view.currentCardContent = "summary";
   const cards = new Menu();
-  view.buildModeOptionsMenu(cards, "board", { S: view.plugin.settings, meta: {}, pType: "fiction", wholeManuscript: false, planningField: "summary", outlineColumns: {} });
+  view.buildModeOptionsMenu(cards, "board", { S: view.plugin.settings, meta: {}, wholeManuscript: false, planningField: "summary", outlineColumns: {} });
   assert.ok(menuItemTitles(cards).includes("Résumé long"));
   assert.ok(menuItemTitles(cards).includes("Contenu"));
   assert.equal(menuItemTitles(cards).includes("Corps : synopsis"), false);
 
   const plan = new Menu();
-  view.buildModeOptionsMenu(plan, "outline", { S: view.plugin.settings, meta: {}, pType: "fiction", wholeManuscript: false, planningField: "summary", outlineColumns: { summary: true } });
+  view.buildModeOptionsMenu(plan, "outline", { S: view.plugin.settings, meta: {}, wholeManuscript: false, planningField: "summary", outlineColumns: { summary: true } });
   const planTitles = outlineColumnMenuTitles(plan);
   assert.ok(planTitles.includes("Résumé long"));
   assert.ok(planTitles.includes("Pov"));
@@ -320,12 +333,12 @@ test("G2 — les menus Cartes et Plan suivent le planningField, sans ouvrir les 
   assert.equal(planTitles.includes("Synopsis"), false);
 
   const freePlan = new Menu();
-  view.buildModeOptionsMenu(freePlan, "outline", { S: view.plugin.settings, meta: {}, pType: "free", wholeManuscript: false, planningField: "synopsis", outlineColumns: { synopsis: true } });
+  view.buildModeOptionsMenu(freePlan, "outline", { S: view.plugin.settings, meta: {}, wholeManuscript: false, planningField: "synopsis", outlineColumns: { synopsis: true } });
   const freeTitles = outlineColumnMenuTitles(freePlan);
   assert.ok(freeTitles.includes("Synopsis"));
-  assert.equal(freeTitles.includes("Pov"), false);
-  assert.equal(freeTitles.includes("Personnages"), false);
-  assert.equal(freeTitles.includes("Fil"), false);
+  assert.equal(freeTitles.includes("Pov"), true);
+  assert.equal(freeTitles.includes("Personnages"), true);
+  assert.equal(freeTitles.includes("Fil"), true);
 });
 
 /* ===================== PLAN — colonnes (visibleCols) ===================== */
@@ -373,7 +386,6 @@ test("Menu Plan Fiction — colonnes proposées : Synopsis, Pov, Personnages, Fi
   view.buildModeOptionsMenu(menu, "outline", {
     S: view.plugin.settings,
     meta: {},
-    pType: "fiction",
     wholeManuscript: false,
     planningField: "synopsis",
     outlineColumns: {},
@@ -386,13 +398,12 @@ test("Menu Plan Fiction — colonnes proposées : Synopsis, Pov, Personnages, Fi
   assert.equal(menuItemTitles(menu).includes("Barres de progression"), false);
 });
 
-test("Menu Plan Non-fiction/Libre — colonnes proposées : Résumé long, Label, Statut, Tags, Date, Mots, Objectif", () => {
+test("Menu Plan — les mêmes colonnes narratives sont proposées quel que soit le type", () => {
   const { view } = buildOptionsHarness();
   const menu = new Menu();
   view.buildModeOptionsMenu(menu, "outline", {
     S: view.plugin.settings,
     meta: {},
-    pType: "nonfiction",
     wholeManuscript: false,
     planningField: "summary",
     outlineColumns: {},
@@ -400,7 +411,7 @@ test("Menu Plan Non-fiction/Libre — colonnes proposées : Résumé long, Label
 
   assert.deepEqual(
     outlineColumnMenuTitles(menu),
-    ["Résumé long", "Label", "Statut", "Tags", "Date", "Mots", "Objectif"]
+    ["Résumé long", "Pov", "Personnages", "Fil", "Label", "Statut", "Tags", "Date", "Mots", "Objectif"]
   );
 });
 
@@ -788,7 +799,6 @@ test("Menu Plan — bascule « Retour à la ligne des textes longs » : coche l'
   view.buildModeOptionsMenu(menu, "outline", {
     S: view.plugin.settings,
     meta: {},
-    pType: "fiction",
     wholeManuscript: false,
     planningField: "synopsis",
     outlineColumns: {},
@@ -807,7 +817,6 @@ test("Menu Plan — bascule « Retour à la ligne des textes longs » : coche l'
   view.buildModeOptionsMenu(menu2, "outline", {
     S: view.plugin.settings,
     meta: {},
-    pType: "fiction",
     wholeManuscript: false,
     planningField: "synopsis",
     outlineColumns: {},
@@ -953,7 +962,6 @@ test("G2 — Trame lit le champ de planification runtime", () => {
   const file = new TFile("Projet/Manuscrit/Scène.md");
   file.__fm = { synopsis: "SYNOPSIS-G2", summary: "SUMMARY-G2" };
   const { view, root } = buildArcHarness({ children: [file] });
-  view.lanesProjectType = "fiction";
   view.runtimePlanningField = "summary";
   const cell = findFirst(arcSynopsisHost(renderArc(view, root)), (el) => el.classes.has("feuillets-flat-text-cell"));
   assert.equal(cell.text, "SUMMARY-G2");
@@ -1566,7 +1574,6 @@ test("LOT4/LOT5 finition options Story Arc — le menu distingue Trame et Couloi
   const context = {
     S: view.plugin.settings,
     meta: {},
-    pType: "fiction",
     wholeManuscript: false,
     planningField: "synopsis",
     outlineColumns: {},
@@ -1618,7 +1625,6 @@ for (const [key, label] of [
     view.buildModeOptionsMenu(menu, "arcs", {
       S: plugin.settings,
       meta: {},
-      pType: "fiction",
       wholeManuscript: false,
       planningField: "synopsis",
       outlineColumns: {},
@@ -2676,9 +2682,8 @@ function buildLanesHarness({ files = [], appOverride = {} } = {}) {
   view.passesFilter = () => true;
   view.render = async () => {};
   view.setFm = async () => {};
-  /* Couloirs = Fiction : le champ textuel des cartes est la synopsis (champ
-     sémantique du projet via lanesPlanningField — lanesProjectType par
-     défaut "fiction"). */
+  /* Le champ textuel des cartes vient du planningField runtime via
+     lanesPlanningField. */
   view.currentCardContent = "synopsis";
   return { view, root, files, app, leaf, plugin };
 }
@@ -2727,7 +2732,6 @@ test("G2 — Couloirs lit le champ de planification runtime", () => {
   const files = [mkLaneFile("A", { label: "Ligne", synopsis: "SYNOPSIS-G2", summary: "SUMMARY-G2" })];
   const { view, root } = buildLanesHarness({ files });
   view.laneAxis = "label";
-  view.lanesProjectType = "fiction";
   view.runtimePlanningField = "summary";
   const container = renderCouloirs(view, root);
   const synopsis = findFirst(container, (el) => el.classes.has("feuillets-lanes-card-synopsis"));
@@ -3805,7 +3809,7 @@ test("LOT5C CSS — positions vides invisibles (aucun cadre/fond) et VRAIE BANDE
 });
 
 
-/* ===================== PLAN — colonnes Personnages / Fil (Fiction uniquement, §5-6/§20) ===================== */
+/* ===================== PLAN — colonnes Personnages / Fil ===================== */
 
 test("Plan Fiction — Personnages et Fil disponibles, placés après Pov et avant Label", () => {
   const { view } = buildOptionsHarness();
@@ -3820,33 +3824,32 @@ test("Plan Fiction — Personnages et Fil disponibles, placés après Pov et ava
   );
 });
 
-test("Plan Non-fiction/Libre — jamais de Personnages/Fil, même stockés à true (intégration resolveBoardOutlineColumns → visibleCols)", () => {
+test("Plan Non-fiction/Libre — Personnages/Fil respectent les valeurs stockées", () => {
   for (const pType of ["nonfiction", "free"]) {
     const { view } = buildOptionsHarness();
     const stored = { characters: true, thread: true, summary: true, label: true, status: true, tags: true, date: true, words: true, goal: true };
     view.outlineColumns = resolveBoardOutlineColumns(pType, stored);
     const ids = view.visibleCols().map((c) => c.id);
     assert.ok(ids.includes("summary"), `${pType} : résumé présent`);
-    assert.ok(!ids.includes("characters"), `${pType} : pas de Personnages`);
-    assert.ok(!ids.includes("thread"), `${pType} : pas de Fil`);
+    assert.ok(ids.includes("characters"), `${pType} : Personnages présents`);
+    assert.ok(ids.includes("thread"), `${pType} : Fil présent`);
   }
 });
 
-test("Menu Plan Non-fiction/Libre — jamais Personnages/Fil proposés", () => {
+test("Menu Plan Non-fiction/Libre — Personnages/Fil proposés", () => {
   for (const pType of ["nonfiction", "free"]) {
     const { view } = buildOptionsHarness();
     const menu = new Menu();
     view.buildModeOptionsMenu(menu, "outline", {
       S: view.plugin.settings,
       meta: {},
-      pType,
       wholeManuscript: false,
       planningField: "summary",
       outlineColumns: {},
     });
     const titles = outlineColumnMenuTitles(menu);
-    assert.equal(titles.includes("Personnages"), false, pType);
-    assert.equal(titles.includes("Fil"), false, pType);
+    assert.equal(titles.includes("Personnages"), true, pType);
+    assert.equal(titles.includes("Fil"), true, pType);
   }
 });
 

@@ -219,9 +219,9 @@ test("resolveBoardOutlineColumns — LOT binder isolé/cartes/plan §6", async (
     assert.equal(cols.pov, false);
   });
 
-  await t.test("Non-fiction/Libre : POV toujours false, même stocké à true", () => {
-    assert.equal(resolveBoardOutlineColumns("nonfiction", { pov: true }).pov, false);
-    assert.equal(resolveBoardOutlineColumns("free", { pov: true }).pov, false);
+  await t.test("Non-fiction/Libre : POV stocké à true est respecté", () => {
+    assert.equal(resolveBoardOutlineColumns("nonfiction", { pov: true }).pov, true);
+    assert.equal(resolveBoardOutlineColumns("free", { pov: true }).pov, true);
   });
 
   await t.test("ancien synopsis stocké en Libre est relu comme summary (champ sémantique du mode)", () => {
@@ -265,11 +265,11 @@ test("resolveBoardOutlineColumns — LOT binder isolé/cartes/plan §6", async (
     assert.equal(cols.thread, false);
   });
 
-  await t.test("Non-fiction/Libre : jamais de Personnages/Fil, même stockés à true", () => {
+  await t.test("Non-fiction/Libre : Personnages/Fil stockés à true sont respectés", () => {
     for (const type of ["nonfiction", "free"]) {
       const cols = resolveBoardOutlineColumns(type, { characters: true, thread: true });
-      assert.equal(cols.characters, false, type);
-      assert.equal(cols.thread, false, type);
+      assert.equal(cols.characters, true, type);
+      assert.equal(cols.thread, true, type);
     }
   });
 });

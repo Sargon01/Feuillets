@@ -29,7 +29,6 @@ export type OutlineRenderContext = {
   outlineDblClickDelayMs: number;
   numbering: Map<string, string>;
   wcMap: Map<string, number>;
-  projectType: string;
   generation: number;
   isCurrentGeneration: (generation: number) => boolean;
   getOrderedChildren: (folder: TFolder) => OutlineNode[];

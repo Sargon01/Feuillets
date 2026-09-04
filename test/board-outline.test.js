@@ -41,7 +41,6 @@ function makeContext(root, settings = {}) {
     outlineSortDirection: null,
     numbering: new Map([["Projet/Manuscrit/Partie A/A1.md", "8"]]),
     wcMap: new Map(),
-    projectType: "fiction",
     generation: 1,
     isCurrentGeneration: () => true,
     getOrderedChildren: (folder) => folder.children,
