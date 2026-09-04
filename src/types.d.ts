@@ -150,6 +150,12 @@ declare type ProjectMeta = {
   /* Réglages globaux surchargés par projet. */
   boardMode?: string;
   boardWholeManuscript?: boolean;
+  /** Préférence runtime propre au projet ; absente sur les projets legacy,
+   * avec repli compatible ; une lecture simple ne l'écrit jamais. */
+  planningField?: "synopsis" | "summary";
+  /** Préférence runtime propre au projet ; absente sur les projets legacy,
+   * avec repli compatible ; une lecture simple ne l'écrit jamais. */
+  newSheetIncludeSources?: boolean;
   cardContent?: string;
   hiddenBoardModes?: string[];
   /** Colonnes du Plan propres au projet. Absentes sur les projets legacy. */

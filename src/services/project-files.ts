@@ -16,7 +16,7 @@ import {
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
 import { getProjectMode } from "./project-mode.js";
-import { projectWordGoalDefault } from "./project-settings.js";
+import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType, projectWordGoalDefault } from "./project-settings.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyModeDefaults, resolveType, PROJECT_MODES, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
 
@@ -515,6 +515,8 @@ export async function createMinimalProject(
   settings.projectFolder = manuscritPath;
   if (!settings.projectMeta[manuscritPath]) settings.projectMeta[manuscritPath] = {};
   settings.projectMeta[manuscritPath].type = projectType;
+  settings.projectMeta[manuscritPath].planningField = planningFieldForProjectType(projectType);
+  settings.projectMeta[manuscritPath].newSheetIncludeSources = newSheetIncludeSourcesForProjectType(projectType);
   /* Un projet créé ici est nécessairement neuf : ses préférences Board
      partent donc du type choisi, sans jamais hériter des réglages globaux
      legacy. Les projets existants restent initialisés paresseusement par

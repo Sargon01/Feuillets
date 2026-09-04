@@ -1,5 +1,16 @@
 import type { App } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
+import { resolveType } from "../utils/project-modes.js";
+
+export type ProjectPlanningField = "synopsis" | "summary";
+
+export function planningFieldForProjectType(type: string | null | undefined): ProjectPlanningField {
+  return resolveType(type) === "fiction" ? "synopsis" : "summary";
+}
+
+export function newSheetIncludeSourcesForProjectType(type: string | null | undefined): boolean {
+  return resolveType(type) !== "fiction";
+}
 
 /** Résolution centralisée des réglages « projet actif », voir chantier
  * « panneau Projet + métadonnées + mapping YAML ». Chaque champ suit le
@@ -20,6 +31,18 @@ export function activeProjectMeta(app: App, settings: FeuilletsSettings): Projec
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   return (settings.projectMeta && settings.projectMeta[root.path]) || null;
+}
+
+export function projectPlanningField(app: App, settings: FeuilletsSettings): ProjectPlanningField {
+  const meta = activeProjectMeta(app, settings);
+  if (meta?.planningField === "synopsis" || meta?.planningField === "summary") return meta.planningField;
+  return planningFieldForProjectType(meta?.type);
+}
+
+export function projectNewSheetIncludeSources(app: App, settings: FeuilletsSettings): boolean {
+  const meta = activeProjectMeta(app, settings);
+  if (typeof meta?.newSheetIncludeSources === "boolean") return meta.newSheetIncludeSources;
+  return newSheetIncludeSourcesForProjectType(meta?.type);
 }
 
 export function projectStatuses(app: App, settings: FeuilletsSettings): ProjectStatusEntry[] {

@@ -6,6 +6,7 @@ import { FeuilProjectImportModal } from "./feuil-project-import-modal.js";
 import type { FeuilProjectImportPlan } from "../services/feuil-project-import-plan.js";
 import { FolderSuggest } from "./folder-suggest.js";
 import { createMinimalProject, CreateProjectError, ensureCanonicalProjectBase, initResearchSubfolders } from "../services/project-files.js";
+import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType } from "../services/project-settings.js";
 import { openFileActivatingWithCursor } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 import { ProjectConfigContent, type ProjectConfigPage } from "./project-config-content.js";
@@ -298,6 +299,8 @@ export class TransformToProjectModal extends Modal {
       }
       if (!S.projectMeta[this.folderPath]) S.projectMeta[this.folderPath] = {};
       S.projectMeta[this.folderPath].type = chosenMode;
+      S.projectMeta[this.folderPath].planningField = planningFieldForProjectType(chosenMode);
+      S.projectMeta[this.folderPath].newSheetIncludeSources = newSheetIncludeSourcesForProjectType(chosenMode);
       const boardDefaults = projectBoardDefaults(chosenMode);
       S.projectMeta[this.folderPath].hiddenBoardModes = boardDefaults.hiddenBoardModes;
       S.projectMeta[this.folderPath].outlineCols = boardDefaults.outlineCols;
