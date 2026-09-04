@@ -124,7 +124,7 @@ import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
 import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
-import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot } from "./services/project-files.js";
+import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot, type NewSheetOptions } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
@@ -5095,7 +5095,15 @@ class FeuilletsPlugin extends Plugin {
   }
 
   newFolder(parent: TFolder): void { return newFolder(this.app, parent, () => this.renderAllViews(true)); }
-  newSheet(folder: TFolder): void { return newSheet(this.app, this.settings, folder); }
+  newSheet(folder: TFolder, options?: NewSheetOptions): void {
+    return newSheet(this.app, this.settings, folder, {
+      ...options,
+      onDone: () => {
+        options?.onDone?.();
+        this.renderAllViews(true);
+      },
+    });
+  }
 
   newSheetAt(folder: TFolder, insertIndex: number): void {
     new NewSheetModal(this.app, folder.name, async (fileName, chapTitle) => {
