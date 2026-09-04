@@ -19,6 +19,7 @@ import { TagsModal } from "../ui/entity-modals.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
+import { buildBoardTimelineOptionsMenu, renderBoardTimeline } from "./board-timeline.js";
 
 type ProjectNode = TFile | TFolder;
 export type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
@@ -1014,62 +1015,13 @@ export class BoardView extends BaseFeuilletsView {
         );
       }
     } else if (activeMode === "timeline") {
-      menu.addItem((item) => item.setTitle(t("board.options.timelineHeader")).setDisabled(true));
-      for (const [val, label] of [["chrono", t("board.options.chronoOrder")], ["narratif", t("board.options.narrativeOrder")]]) {
-        menu.addItem((item) =>
-          item.setTitle(label).setChecked(S.timelineOrder === val).onClick(async () => {
-            S.timelineOrder = val;
-            await this.plugin.saveSettings();
-            void this.render();
-          })
-        );
-      }
-      menu.addSeparator();
-      menu.addItem((item) =>
-        item.setTitle(t("board.options.allMilestones")).setChecked(!S.timelineTagFilter).onClick(async () => {
-          S.timelineTagFilter = "";
-          await this.plugin.saveSettings();
-          void this.render();
-        })
-      );
-      const chronoFolder = this.plugin.getChronoFolder();
-      if (chronoFolder instanceof TFolder) {
-        const tags = new Set<string>();
-        const collect = (f: TFolder) => {
-          for (const child of f.children) {
-            if (child instanceof TFolder) collect(child);
-            else if (child instanceof TFile && child.extension === "md") {
-              for (const tag of this.plugin.tagsOf(child)) tags.add(tag);
-            }
-          }
-        };
-        collect(chronoFolder);
-        for (const tag of [...tags].sort((a, b) => a.localeCompare(b, "fr"))) {
-          menu.addItem((item) =>
-            item.setTitle(`#${tag}`).setChecked(S.timelineTagFilter === tag).onClick(async () => {
-              S.timelineTagFilter = tag;
-              await this.plugin.saveSettings();
-              void this.render();
-            })
-          );
-        }
-      }
-      menu.addSeparator();
-      for (const [val, label] of [
-        ["siecle", t("board.options.scaleCentury")],
-        ["annee", t("board.options.scaleYear")],
-        ["mois", t("board.options.scaleMonth")],
-        ["jour", t("board.options.scaleDay")],
-        ["aucune", t("board.options.scaleNone")],
-      ]) {
-        menu.addItem((item) =>
-          item.setTitle(label).setChecked((S.timelineScale || "annee") === val).onClick(async () => {
-            S.timelineScale = val;
-            await this.plugin.saveSettings();
-            void this.render();
-          })
-        );
-      }
+      buildBoardTimelineOptionsMenu(menu, {
+        settings: S,
+        getChronoFolder: () => this.plugin.getChronoFolder(),
+        tagsOf: (file) => this.plugin.tagsOf(file),
+        saveSettings: () => this.plugin.saveSettings(),
+        rerender: () => { void this.render(); },
+      });
     }
   }
 
@@ -2252,90 +2204,20 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   renderTimelineInner(container: HTMLElement, folder: TFolder, _numbering: unknown): void {
-    const files = this.plugin.flattenFiles(folder).filter((f: TFile) => this.passesFilter(f) && !this.plugin.isFrontMatter(f));
-    type TimelineItem = { file: TFile; milestone?: boolean; sort: number; y: number; mo: number; d: number; display: string };
-    const items: TimelineItem[] = [];
-    for (const file of files) {
-      const dateObj = parseStoryDate(this.fm(file).date, file);
-      if (dateObj) items.push({ file, ...dateObj });
-    }
-
-    const chronoFolder = this.plugin.getChronoFolder();
-    if (chronoFolder instanceof TFolder) {
-      const collect = (f: TFolder) => {
-        for (const child of f.children) {
-          if (child instanceof TFolder) collect(child);
-          else if (child instanceof TFile && child.extension === "md") {
-            const dateObj = parseStoryDate(this.fm(child).date, child);
-            if (!dateObj) continue;
-            const filter = this.plugin.settings.timelineTagFilter;
-            if (filter && !this.plugin.tagsOf(child).includes(filter)) continue;
-            items.push({ file: child, milestone: true, ...dateObj });
-          }
-        }
-      };
-      collect(chronoFolder);
-    }
-
-    if (this.plugin.settings.timelineOrder === "narratif") {
-      const fileOrder = new Map(files.map((f: TFile, i: number) => [f.path, i]));
-      items.sort((a, b) => (fileOrder.get(a.file.path) ?? 999) - (fileOrder.get(b.file.path) ?? 999));
-    } else {
-      items.sort((a, b) => a.sort - b.sort);
-    }
-
-    if (items.length === 0) {
-      container.createDiv({ cls: "feuillets-empty", text: t("board.timeline.empty") });
-      return;
-    }
-
-    const timeline = container.createDiv({ cls: "feuillets-timeline" });
-    for (const item of items) {
-      const row = timeline.createDiv({ cls: item.milestone ? "feuillets-timeline-item feuillets-timeline-milestone" : "feuillets-timeline-item" });
-
-      // DATE ÉDITABLE
-      const dateContainer = row.createDiv({ cls: "feuillets-timeline-date" });
-      const dateDisplay = dateContainer.createDiv({ cls: "feuillets-timeline-date-display", text: item.display });
-      dateDisplay.addEventListener("click", (e) => {
-        e.stopPropagation();
-        dateDisplay.hide();
-        const textarea = dateContainer.createEl("textarea", { cls: "feuillets-flat-textarea feuillets-autosize" });
-        textarea.value = toValue(this.fm(item.file).date);
-        textarea.focus();
-        textarea.style.removeProperty("height");
-        textarea.style.height = `${textarea.scrollHeight}px`;
-        const saveDateEdit = async () => {
-          if (textarea.parentNode) {
-            const raw = textarea.value.trim();
-            if (raw !== toValue(this.fm(item.file).date)) {
-              await this.setFm(item.file, "date", raw);
-              await this.render(true);
-            }
-            textarea.remove();
-            dateDisplay.show();
-          }
-        };
-        textarea.addEventListener("blur", () => { void saveDateEdit(); });
-        textarea.addEventListener("keydown", (evt) => {
-          if (evt.key === "Escape" || (evt.key === "Enter" && (evt.metaKey || evt.ctrlKey))) textarea.blur();
-        });
-      });
-
-      row.createDiv({ cls: "feuillets-timeline-dot" });
-      const body = row.createDiv({ cls: "feuillets-timeline-body" });
-      const head = body.createDiv({ cls: "feuillets-timeline-head" });
-
-      head.createSpan({ cls: "feuillets-timeline-title", text: this.plugin.shortTitleFor(item.file) }).addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), item.file);
-      });
-
-      // SYNOPSIS ÉDITABLE
-      /* §5 LOT 4 : dans la Chronologie, un synopsis vide affiche « — »
-         (grammaire identique au Plan), pas un placeholder texte. Le « — »
-         reste cliquable et ouvre le vrai textarea vide (6 lignes max). */
-      const synopsisHost = body.createDiv({ cls: "feuillets-timeline-syn" });
-      this.makeClickToEditFmArea(synopsisHost, item.file, "synopsis", "—", 6);
-    }
+    renderBoardTimeline(container, folder, {
+      settings: this.plugin.settings,
+      flattenFiles: (currentFolder) => this.plugin.flattenFiles(currentFolder),
+      passesFilter: (file) => this.passesFilter(file),
+      isFrontMatter: (file) => this.plugin.isFrontMatter(file),
+      fm: (file) => this.fm(file),
+      getChronoFolder: () => this.plugin.getChronoFolder(),
+      tagsOf: (file) => this.plugin.tagsOf(file),
+      shortTitleFor: (file) => this.plugin.shortTitleFor(file),
+      setFm: (file, key, value) => this.setFm(file, key, value),
+      rerenderAfterDateEdit: () => this.render(true),
+      makeClickToEditFmArea: (parent, file, key, placeholder, maxLines) => this.makeClickToEditFmArea(parent, file, key, placeholder, maxLines),
+      openFile: (file) => openFileActivating(this.app, this.app.workspace.getLeaf(false), file),
+    });
   }
 
   visibleCols(): { id: string; label: string }[] {
