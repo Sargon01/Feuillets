@@ -502,6 +502,7 @@ export class BoardView extends BaseFeuilletsView {
     }
     const activeMode = mode as BoardModeKey;
     const trameDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
+    const timelineDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
     if (activeMode !== "outline") {
       this._outlineViewport.key = "";
       this._outlineViewport.top = 0;
@@ -903,7 +904,8 @@ export class BoardView extends BaseFeuilletsView {
       for (const file of this.plugin.flattenFiles(scope.manuscriptRoot)) {
         if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
       }
-      this.renderTimeline(scrollArea, scope.manuscriptRoot, numbering);
+      if (!wholeManuscript) this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
+      this.renderTimeline(scrollArea, timelineDisplayFolder, numbering);
     }
   }
 
@@ -921,7 +923,7 @@ export class BoardView extends BaseFeuilletsView {
       }
     };
 
-    if (activeMode === "outline" || activeMode === "arcs") addScopeOptions();
+    if (activeMode === "outline" || activeMode === "arcs" || activeMode === "timeline") addScopeOptions();
 
     if (activeMode === "board") {
       menu.addItem((item) => item.setTitle(t("board.options.cardsHeader")).setDisabled(true));
