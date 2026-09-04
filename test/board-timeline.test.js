@@ -267,16 +267,87 @@ test("Timeline — en ordre narratif, une période retrouvée recrée son en-tê
   assert.deepEqual(timelineTitles(container), ["A", "B", "C"]);
 });
 
-test("Timeline — jalon Recherche conserve le fallback narratif 999", () => {
-  const milestone = dated("Projet/Chronologie/milestone.md", "1700");
+test("Timeline — jalon Recherche daté est ancré après le premier feuillet du jour", () => {
+  const milestone = dated("Projet/Chronologie/milestone.md", "2001-01-01");
   const harness = buildTimelineHarness({
-    children: [dated("Projet/Manuscrit/A.md", "2001"), dated("Projet/Manuscrit/B.md", "1998")],
+    children: [dated("Projet/Manuscrit/A.md", "2001-01-01"), dated("Projet/Manuscrit/B.md", "2002-01-01")],
     milestones: [milestone],
   });
   harness.settings.timelineOrder = "narratif";
   harness.settings.timelineScale = "annee";
   const container = render(harness);
-  assert.deepEqual(timelineTitles(container), ["A", "B", "milestone"]);
+  assert.deepEqual(timelineTitles(container), ["A", "milestone", "B"]);
+});
+
+test("Timeline — l'ordre Binder reste prioritaire pour l'ancrage narratif", () => {
+  const harness = buildTimelineHarness({
+    children: [
+      dated("Projet/Manuscrit/A.md", "2005-01-01"),
+      dated("Projet/Manuscrit/B.md", "1990-01-01"),
+      dated("Projet/Manuscrit/C.md", "2010-01-01"),
+    ],
+    milestones: [dated("Projet/Chronologie/J.md", "1990-01-01")],
+  });
+  harness.settings.timelineOrder = "narratif";
+  assert.deepEqual(timelineTitles(render(harness)), ["A", "B", "J", "C"]);
+});
+
+test("Timeline — un jalon est attaché à la première occurrence narrative du jour", () => {
+  const harness = buildTimelineHarness({
+    children: [
+      dated("Projet/Manuscrit/A.md", "2001-01-01"),
+      dated("Projet/Manuscrit/B.md", "1998-01-01"),
+      dated("Projet/Manuscrit/C.md", "2001-01-01"),
+    ],
+    milestones: [dated("Projet/Chronologie/J.md", "2001-01-01")],
+  });
+  harness.settings.timelineOrder = "narratif";
+  assert.deepEqual(timelineTitles(render(harness)), ["A", "J", "B", "C"]);
+});
+
+test("Timeline — plusieurs jalons d'une même ancre gardent leur ordre de collecte", () => {
+  const harness = buildTimelineHarness({
+    children: [dated("Projet/Manuscrit/A.md", "2001-01-01"), dated("Projet/Manuscrit/B.md", "2002-01-01")],
+    milestones: [
+      dated("Projet/Chronologie/J2.md", "2001-01-01 18:00"),
+      dated("Projet/Chronologie/J1.md", "2001-01-01 09:00"),
+    ],
+  });
+  harness.settings.timelineOrder = "narratif";
+  assert.deepEqual(timelineTitles(render(harness)), ["A", "J2", "J1", "B"]);
+});
+
+test("Timeline — les jalons non ancrés restent après les feuillets dans leur ordre de collecte", () => {
+  const harness = buildTimelineHarness({
+    children: [dated("Projet/Manuscrit/A.md", "2001-01-01"), dated("Projet/Manuscrit/B.md", "2002-01-01")],
+    milestones: [
+      dated("Projet/Chronologie/J1.md", "1990-01-01"),
+      dated("Projet/Chronologie/J2.md", "2030-01-01"),
+    ],
+  });
+  harness.settings.timelineOrder = "narratif";
+  assert.deepEqual(timelineTitles(render(harness)), ["A", "B", "J1", "J2"]);
+});
+
+test("Timeline — l'heure ne modifie pas l'ancrage narratif", () => {
+  const harness = buildTimelineHarness({
+    children: [dated("Projet/Manuscrit/A.md", "2001-01-01 18:00"), dated("Projet/Manuscrit/B.md", "2002-01-01")],
+    milestones: [dated("Projet/Chronologie/J.md", "2001-01-01 09:00")],
+  });
+  harness.settings.timelineOrder = "narratif";
+  assert.deepEqual(timelineTitles(render(harness)), ["A", "J", "B"]);
+});
+
+test("Timeline — une précision différente n'ancre pas un jalon", () => {
+  const harness = buildTimelineHarness({
+    children: [dated("Projet/Manuscrit/A.md", "1756"), dated("Projet/Manuscrit/B.md", "1757")],
+    milestones: [
+      dated("Projet/Chronologie/J.md", "1756-01-05"),
+      dated("Projet/Chronologie/K.md", "1757"),
+    ],
+  });
+  harness.settings.timelineOrder = "narratif";
+  assert.deepEqual(timelineTitles(render(harness)), ["A", "B", "K", "J"]);
 });
 
 test("parseStoryDate — conserve le sort journalier et expose heure/minute sans inventer minuit", () => {

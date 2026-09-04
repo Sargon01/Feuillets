@@ -60,11 +60,52 @@ function collectTimelineItems(ctx: TimelineRenderContext, folder: TFolder): { fi
 
 function sortTimelineItems(items: TimelineItem[], files: TFile[], order: FeuilletsSettings["timelineOrder"]): void {
   if (order === "narratif") {
-    const fileOrder = new Map(files.map((file, index) => [file.path, index]));
-    items.sort((a, b) => (fileOrder.get(a.file.path) ?? 999) - (fileOrder.get(b.file.path) ?? 999));
+    const orderedItems = orderTimelineItemsNarratively(items, files);
+    items.splice(0, items.length, ...orderedItems);
   } else {
     items.sort(timelineChronologicalCompare);
   }
+}
+
+function orderTimelineItemsNarratively(items: TimelineItem[], files: TFile[]): TimelineItem[] {
+  const itemsByPath = new Map<string, TimelineItem>();
+  for (const item of items) {
+    if (!item.milestone) itemsByPath.set(item.file.path, item);
+  }
+
+  const manuscriptItems: TimelineItem[] = [];
+  for (const file of files) {
+    const item = itemsByPath.get(file.path);
+    if (item) manuscriptItems.push(item);
+  }
+
+  const manuscriptDays = new Set<number>();
+  for (const item of manuscriptItems) manuscriptDays.add(item.sort);
+
+  const anchoredMilestones = new Map<number, TimelineItem[]>();
+  const unanchoredMilestones: TimelineItem[] = [];
+  for (const item of items) {
+    if (!item.milestone) continue;
+    if (manuscriptDays.has(item.sort)) {
+      const milestones = anchoredMilestones.get(item.sort) ?? [];
+      milestones.push(item);
+      anchoredMilestones.set(item.sort, milestones);
+    } else {
+      unanchoredMilestones.push(item);
+    }
+  }
+
+  const result: TimelineItem[] = [];
+  const seenDays = new Set<number>();
+  for (const item of manuscriptItems) {
+    result.push(item);
+    if (!seenDays.has(item.sort)) {
+      result.push(...(anchoredMilestones.get(item.sort) ?? []));
+      seenDays.add(item.sort);
+    }
+  }
+  result.push(...unanchoredMilestones);
+  return result;
 }
 
 function timelineChronologicalCompare(a: TimelineItem, b: TimelineItem): number {
