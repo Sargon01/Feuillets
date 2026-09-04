@@ -141,10 +141,13 @@ test("NewProjectModal : crée la structure minimale, active le projet, ouvre la 
     const modal = createModal(NewProjectModal, app, plugin);
 
     modal.onOpen();
+    const newProjectSelect = findElements(modal.contentEl, (el) => el.tag === "select")[0];
+    assert.deepEqual(newProjectSelect.children.map((option) => option.value), ["free", "fiction", "nonfiction"]);
+    assert.equal(newProjectSelect.value, "free");
     const inputs = findElements(modal.contentEl, (el) => el.tag === "input");
     inputs[0].value = "Roman1";
     inputs[1].value = "Camille Autrice";
-    findElements(modal.contentEl, (el) => el.tag === "select")[0].value = "fiction";
+    newProjectSelect.value = "fiction";
     await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
 
     assert.ok(vault.getAbstractFileByPath("Roman1/Manuscrit/Chapitre 1") instanceof TFolder);
@@ -288,7 +291,10 @@ test("TransformToProjectModal : initialise après le choix explicite d'un type",
     const modal = createModal(TransformToProjectModal, app, plugin, folder.path);
 
     modal.onOpen();
-    findElements(modal.contentEl, (el) => el.tag === "select")[0].value = "fiction";
+    const transformSelect = findElements(modal.contentEl, (el) => el.tag === "select")[0];
+    assert.equal(transformSelect.children[0].text, "Choisir le type de projet…");
+    assert.deepEqual(transformSelect.children.slice(1).map((option) => option.value), ["free", "fiction", "nonfiction"]);
+    transformSelect.value = "fiction";
     await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
 
     assert.equal(settings.projectMeta[folder.path].type, "fiction");

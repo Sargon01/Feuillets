@@ -128,9 +128,16 @@ export class NewProjectModal extends Modal {
 
     const typeField = createField(t("modal.newProject.typeLabel"));
     const typeSelect = typeField.createEl("select");
-    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
-      typeSelect.createEl("option", { text: mode.label, value: key });
+    const presets = Object.entries(PROJECT_MODES);
+    for (const key of ["free", "fiction", "nonfiction"] as const) {
+      const mode = presets.find(([presetKey]) => presetKey === key)?.[1];
+      if (mode) typeSelect.createEl("option", { text: mode.label, value: key });
     }
+    typeSelect.value = "free";
+    form.createDiv({
+      cls: "setting-item-description",
+      text: t("modal.newProject.presetHelp"),
+    });
 
     const create = async () => {
       const S = this.plugin.settings;
@@ -283,8 +290,10 @@ export class TransformToProjectModal extends Modal {
     typeSelect.addClass("feuillets-input-full");
     typeSelect.addClass("feuillets-field-spacer");
     typeSelect.createEl("option", { text: t("modal.transformProject.typePlaceholder"), value: "" });
-    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
-      typeSelect.createEl("option", { text: mode.label, value: key });
+    const presets = Object.entries(PROJECT_MODES);
+    for (const key of ["free", "fiction", "nonfiction"] as const) {
+      const mode = presets.find(([presetKey]) => presetKey === key)?.[1];
+      if (mode) typeSelect.createEl("option", { text: mode.label, value: key });
     }
 
     const transform = async () => {
