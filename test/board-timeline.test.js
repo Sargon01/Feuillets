@@ -58,7 +58,7 @@ function buildTimelineHarness({ children = [], milestones = [] } = {}) {
     isFrontMatter: () => false,
     fmOf: (file) => file.__fm || {},
     shortTitleFor: (file) => file.basename,
-    getChronoFolder: () => chronoFolder,
+    getChronoFolders: () => [chronoFolder],
     tagsOf: (file) => file.__tags || [],
     saveSettings: async () => {},
   };
@@ -69,7 +69,7 @@ function buildTimelineHarness({ children = [], milestones = [] } = {}) {
 
 function render(harness) {
   const container = new FakeElement();
-  harness.view.renderTimelineInner(container, harness.root, new Map());
+  harness.view.renderTimelineInner(container, harness.root, new Map(), [harness.chronoFolder]);
   return container;
 }
 
@@ -164,7 +164,7 @@ test("Menu Chronologie — ordre, filtre récursif et échelle conservent leur c
   let saves = 0;
   let renders = 0;
   const menu = new Menu();
-  harness.view.buildModeOptionsMenu(menu, "timeline", { S: harness.settings, meta: {}, pType: "fiction", wholeManuscript: false, outlineColumns: {} });
+  harness.view.buildModeOptionsMenu(menu, "timeline", { S: harness.settings, meta: {}, pType: "fiction", wholeManuscript: false, outlineColumns: {}, timelineResearchFolders: [harness.chronoFolder] });
   const titles = menu.items.filter((item) => !item.separator).map((item) => item.title);
   assert.ok(titles.includes("Ordre chronologique"));
   assert.ok(titles.includes("Ordre narratif"));

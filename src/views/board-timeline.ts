@@ -14,7 +14,7 @@ export type TimelineRenderContext = {
   passesFilter: (file: TFile) => boolean;
   isFrontMatter: (file: TFile) => boolean;
   fm: (file: TFile) => SceneFrontmatter;
-  getChronoFolder: () => TFolder | null;
+  getChronoFolders: () => readonly TFolder[];
   tagsOf: (file: TFile) => string[];
   shortTitleFor: (file: TFile) => string;
   setFm: (file: TFile, key: string, value: unknown) => Promise<void>;
@@ -25,7 +25,7 @@ export type TimelineRenderContext = {
 
 export type TimelineOptionsContext = {
   settings: Pick<FeuilletsSettings, "timelineOrder" | "timelineTagFilter" | "timelineScale">;
-  getChronoFolder: () => TFolder | null;
+  getChronoFolders: () => readonly TFolder[];
   tagsOf: (file: TFile) => string[];
   saveSettings: () => Promise<void>;
   rerender: () => void;
@@ -39,16 +39,18 @@ function collectTimelineItems(ctx: TimelineRenderContext, folder: TFolder): { fi
     if (dateObj) items.push({ file, ...dateObj });
   }
 
-  const chronoFolder = ctx.getChronoFolder();
-  if (chronoFolder instanceof TFolder) {
+  const seenResearchFilePaths = new Set<string>();
+  for (const chronoFolder of ctx.getChronoFolders()) {
     const collect = (current: TFolder): void => {
       for (const child of current.children) {
         if (child instanceof TFolder) collect(child);
         else if (child instanceof TFile && child.extension === "md") {
+          if (seenResearchFilePaths.has(child.path)) continue;
           const dateObj = parseStoryDate(ctx.fm(child).date, child);
           if (!dateObj) continue;
           const filter = ctx.settings.timelineTagFilter;
           if (filter && !ctx.tagsOf(child).includes(filter)) continue;
+          seenResearchFilePaths.add(child.path);
           items.push({ file: child, milestone: true, ...dateObj });
         }
       }
@@ -232,8 +234,7 @@ export function buildBoardTimelineOptionsMenu(menu: Menu, ctx: TimelineOptionsCo
     await ctx.saveSettings();
     ctx.rerender();
   }));
-  const chronoFolder = ctx.getChronoFolder();
-  if (chronoFolder instanceof TFolder) {
+  for (const chronoFolder of ctx.getChronoFolders()) {
     const tags = new Set<string>();
     const collect = (folder: TFolder): void => {
       for (const child of folder.children) {

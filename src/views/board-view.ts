@@ -1,4 +1,4 @@
-import { Menu, Modal, Setting, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
+import { Menu, Modal, Setting, TAbstractFile, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
 import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
 import { projectWordGoalDefault } from "../services/project-settings.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -62,6 +62,7 @@ type BoardViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
   duplicateManyScenes(files: TFile[]): Promise<void>;
   openMoveManyModal(files: TFile[]): void;
   newSheet(folder: TFolder, options?: NewSheetOptions): void;
+  getLinkedResearchFolder(binderNode: TAbstractFile): TFolder | null;
 };
 
 function differsFromDefaults(value: Record<string, unknown> | undefined, defaults: Record<string, unknown>): boolean {
@@ -158,6 +159,7 @@ type ModeOptionsCtx = {
   meta: ProjectMeta;
   pType: string;
   wholeManuscript: boolean;
+  timelineResearchFolders?: readonly TFolder[];
 };
 
 class TagFilterModal extends Modal {
@@ -672,7 +674,23 @@ export class BoardView extends BaseFeuilletsView {
         })
       );
       menu.addSeparator();
-      this.buildModeOptionsMenu(menu, activeMode, { S, meta, pType: projectType, wholeManuscript, outlineColumns });
+      let timelineResearchFolders: readonly TFolder[] = [];
+      if (activeMode === "timeline") {
+        if (wholeManuscript) {
+          const chronologyFolder = this.plugin.getChronoFolder();
+          timelineResearchFolders = chronologyFolder ? [chronologyFolder] : [];
+        } else if (typeof this.plugin.getLinkedResearchFolder === "function") {
+          timelineResearchFolders = this.collectLinkedResearchFolders(scope.currentFolder);
+        }
+      }
+      this.buildModeOptionsMenu(menu, activeMode, {
+        S,
+        meta,
+        pType: projectType,
+        wholeManuscript,
+        outlineColumns,
+        timelineResearchFolders,
+      });
       menu.showAtMouseEvent(e);
     });
 
@@ -905,7 +923,15 @@ export class BoardView extends BaseFeuilletsView {
         if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
       }
       if (!wholeManuscript) this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
-      this.renderTimeline(scrollArea, timelineDisplayFolder, numbering);
+      const timelineResearchFolders = wholeManuscript
+        ? (() => {
+          const chronologyFolder = this.plugin.getChronoFolder();
+          return chronologyFolder ? [chronologyFolder] : [];
+        })()
+        : typeof this.plugin.getLinkedResearchFolder === "function"
+          ? this.collectLinkedResearchFolders(scope.currentFolder)
+          : [];
+      this.renderTimeline(scrollArea, timelineDisplayFolder, numbering, timelineResearchFolders);
     }
   }
 
@@ -1060,12 +1086,29 @@ export class BoardView extends BaseFeuilletsView {
     } else if (activeMode === "timeline") {
       buildBoardTimelineOptionsMenu(menu, {
         settings: S,
-        getChronoFolder: () => this.plugin.getChronoFolder(),
+        getChronoFolders: () => ctx.timelineResearchFolders || [],
         tagsOf: (file) => this.plugin.tagsOf(file),
         saveSettings: () => this.plugin.saveSettings(),
         rerender: () => { void this.render(); },
       });
     }
+  }
+
+  collectLinkedResearchFolders(currentFolder: TFolder): TFolder[] {
+    const folders: TFolder[] = [];
+    const seen = new Set<string>();
+    const visit = (node: TAbstractFile): void => {
+      const linked = this.plugin.getLinkedResearchFolder(node);
+      if (linked && !seen.has(linked.path)) {
+        seen.add(linked.path);
+        folders.push(linked);
+      }
+      if (node instanceof TFolder) {
+        for (const child of this.plugin.getOrderedChildren(node)) visit(child);
+      }
+    };
+    visit(currentFolder);
+    return folders;
   }
 
   makeGoalInput(parent: HTMLElement, file: TFile): HTMLInputElement {
@@ -2258,18 +2301,22 @@ export class BoardView extends BaseFeuilletsView {
   }
 
 
-  renderTimeline(container: HTMLElement, folder: TFolder, numbering: Map<string, string>): void {
-    return this.renderTimelineInner(container, folder, numbering);
+  renderTimeline(container: HTMLElement, folder: TFolder, numbering: Map<string, string>, researchFolders?: readonly TFolder[]): void {
+    return this.renderTimelineInner(container, folder, numbering, researchFolders);
   }
 
-  renderTimelineInner(container: HTMLElement, folder: TFolder, _numbering: unknown): void {
+  renderTimelineInner(container: HTMLElement, folder: TFolder, _numbering: unknown, researchFolders?: readonly TFolder[]): void {
+    const resolvedResearchFolders = researchFolders ?? (() => {
+      const chronologyFolder = this.plugin.getChronoFolder();
+      return chronologyFolder ? [chronologyFolder] : [];
+    })();
     renderBoardTimeline(container, folder, {
       settings: this.plugin.settings,
       flattenFiles: (currentFolder) => this.plugin.flattenFiles(currentFolder),
       passesFilter: (file) => this.passesFilter(file),
       isFrontMatter: (file) => this.plugin.isFrontMatter(file),
       fm: (file) => this.fm(file),
-      getChronoFolder: () => this.plugin.getChronoFolder(),
+      getChronoFolders: () => resolvedResearchFolders,
       tagsOf: (file) => this.plugin.tagsOf(file),
       shortTitleFor: (file) => this.plugin.shortTitleFor(file),
       setFm: (file, key, value) => this.setFm(file, key, value),
