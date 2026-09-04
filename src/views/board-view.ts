@@ -501,6 +501,7 @@ export class BoardView extends BaseFeuilletsView {
       mode = visibleModes[0];
     }
     const activeMode = mode as BoardModeKey;
+    const trameDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
     if (activeMode !== "outline") {
       this._outlineViewport.key = "";
       this._outlineViewport.top = 0;
@@ -894,7 +895,10 @@ export class BoardView extends BaseFeuilletsView {
          Trame (le Chemin de fer classique, gelé) et Couloirs (Scrivener).
          Couloirs n'arrive JAMAIS ici : la branche anticipée plus haut
          (renderCouloirs hors du scrollArea partagé) retourne avant ce point. */
-      this.renderCheminDeFer(scrollArea, scope.manuscriptRoot, numbering);
+      if (this.narrativeSubview === "trame" && !wholeManuscript) {
+        this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
+      }
+      this.renderCheminDeFer(scrollArea, trameDisplayFolder, numbering);
     } else if (activeMode === "timeline") {
       for (const file of this.plugin.flattenFiles(scope.manuscriptRoot)) {
         if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
@@ -917,7 +921,10 @@ export class BoardView extends BaseFeuilletsView {
       }
     };
 
-    if (activeMode === "outline") addScopeOptions();
+    if (
+      activeMode === "outline" ||
+      (activeMode === "arcs" && this.narrativeSubview === "trame")
+    ) addScopeOptions();
 
     if (activeMode === "board") {
       menu.addItem((item) => item.setTitle(t("board.options.cardsHeader")).setDisabled(true));
@@ -1139,6 +1146,16 @@ export class BoardView extends BaseFeuilletsView {
           void this.render(true);
         });
     });
+  }
+
+  private async focusBoardFolder(folder: TFolder): Promise<void> {
+    this.focusedFolderPath = folder.path;
+    const projectRoot = this.getProjectFolder();
+    const projectMeta = projectRoot ? this.plugin.settings.projectMeta?.[projectRoot.path] : undefined;
+    if (projectMeta) projectMeta.boardWholeManuscript = false;
+    this.plugin.settings.boardWholeManuscript = false;
+    await this.plugin.saveSettings();
+    void this.render(true);
   }
 
   renderBoard(container: HTMLElement, root: TFolder, currentFolder: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void): void {
@@ -1710,6 +1727,11 @@ export class BoardView extends BaseFeuilletsView {
         const num = numbering ? numbering.get(item.folder.path) : "";
         if (num) title.createSpan({ cls: "feuillets-arcs-folder-num", text: num });
         title.createSpan({ text: item.folder.name });
+        title.addEventListener("dblclick", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void this.focusBoardFolder(item.folder);
+        });
         const spacerRight = row.createDiv({ cls: "feuillets-arcs-row-rails-spacer" });
         spacerRight.style.width = `${activeFils.length * 16}px`;
         continue;
@@ -2426,15 +2448,7 @@ export class BoardView extends BaseFeuilletsView {
       tagsOf: (file) => this.plugin.tagsOf(file),
       saveSettings: () => this.plugin.saveSettings(),
       rerender: () => { void this.render(true); },
-      onFocusFolder: async (folder) => {
-        this.focusedFolderPath = folder.path;
-        const projectRoot = this.getProjectFolder();
-        const projectMeta = projectRoot ? this.plugin.settings.projectMeta?.[projectRoot.path] : undefined;
-        if (projectMeta) projectMeta.boardWholeManuscript = false;
-        this.plugin.settings.boardWholeManuscript = false;
-        await this.plugin.saveSettings();
-        void this.render(true);
-      },
+      onFocusFolder: (folder) => this.focusBoardFolder(folder),
       cycleSort: (column) => this.cycleOutlineSort(column),
       attachColumnResize: (resizer, column, outline) => this.attachColumnResize(resizer, column, outline),
       isMultiSelected: (file) => !!this.plugin._binderMultiSelect?.has(file.path),
