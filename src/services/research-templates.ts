@@ -2,17 +2,29 @@ import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, FEUILLETS_RESOURCE_FOLDERS } from "./folder-structure.js";
 
-type ResearchMode = {
-  yamlPreset?: string;
-};
-
+export function getResearchTemplate(
+  app: App,
+  settings: FeuilletsSettings,
+  sectionKey: string,
+  defaultName: string,
+): Promise<string>;
+/** Compatibility overload for callers from the pre-G5 test/runtime surface. */
+export function getResearchTemplate(
+  app: App,
+  settings: FeuilletsSettings,
+  _legacyPreset: unknown,
+  sectionKey: string,
+  defaultName: string,
+): Promise<string>;
 export async function getResearchTemplate(
   app: App,
   settings: FeuilletsSettings,
-  mode: ResearchMode,
-  sectionKey: string,
-  defaultName: string,
+  sectionKeyOrLegacy: unknown,
+  defaultNameOrSectionKey: string,
+  legacyDefaultName?: string,
 ): Promise<string> {
+  const sectionKey = typeof sectionKeyOrLegacy === "string" ? sectionKeyOrLegacy : defaultNameOrSectionKey;
+  const defaultName = typeof sectionKeyOrLegacy === "string" ? defaultNameOrSectionKey : legacyDefaultName || "";
   const root = getProjectFolder(app, settings);
   if (root) {
     const resPath = resourcesFolderPath(app, root);
@@ -25,17 +37,15 @@ export async function getResearchTemplate(
         "Template"
       );
 
-      const isFiction = mode.yamlPreset === "roman" || mode.yamlPreset === "nouvelle";
-
       /* Nom (anglais) du fichier modèle, avec repli sur l'ancien nom français
          si l'utilisateur a personnalisé ce fichier avant ce renommage — voir
          le même principe pour les champs frontmatter (LEGACY_FIELD_ALIASES). */
       const fileNames: Record<string, string[]> = {
         sources: ["Sources.md"],
         bibliographie: ["Bibliography.md", "Bibliographie.md"],
-        personnages: isFiction ? ["Characters.md", "Personnages.md"] : ["Acteurs.md"],
-        lieux: isFiction ? ["Places.md", "Lieux.md"] : ["Geographie.md"],
-        codex: isFiction ? ["Lore.md"] : ["Concepts.md"],
+        personnages: ["Characters.md", "Personnages.md", "Acteurs.md"],
+        lieux: ["Places.md", "Lieux.md", "Geographie.md"],
+        codex: ["Lore.md", "Concepts.md"],
         glossaire: ["Glossary.md", "Glossaire.md"],
         evenements: ["Events.md", "Evenements.md"],
       };
@@ -92,32 +102,19 @@ export async function getResearchTemplate(
     ].join("\n");
   }
   if (sectionKey === "personnages") {
-    if (mode.yamlPreset === "roman" || mode.yamlPreset === "nouvelle") {
-      return [
-        "---",
-        "last_name: ",
-        "first_name: ",
-        "birth: ",
-        "death: ",
-        "synopsis: ",
-        "tags:",
-        "  - personnage",
-        "---",
-        ""
-      ].join("\n");
-    } else {
-      return [
-        "---",
-        "last_name: ",
-        "first_name: ",
-        "role: ",
-        "synopsis: ",
-        "tags:",
-        "  - personnage",
-        "---",
-        ""
-      ].join("\n");
-    }
+    return [
+      "---",
+      "last_name: ",
+      "first_name: ",
+      "birth: ",
+      "death: ",
+      "role: ",
+      "synopsis: ",
+      "tags:",
+      "  - personnage",
+      "---",
+      ""
+    ].join("\n");
   }
   if (sectionKey === "lieux") {
     return [

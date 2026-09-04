@@ -10,7 +10,8 @@ test("ManageProjectsModal conserve le DOM pour les éditions simples", () => {
   assert.match(source, /private renderCurrentDetailContent\(\): void/);
   assert.match(source, /this\.detailContentEl = content;\s+this\.renderCurrentDetailContent\(\);/);
   assert.match(source, /S\.projectMeta\[path\]\.name = nameInput\.value\.trim\(\);[\s\S]*?this\.plugin\.renderAllViews\(true\);\s+name\.setText\(/);
-  assert.match(source, /S\.projectMeta\[path\]\.type = typeSelect\.value;[\s\S]*?await this\.plugin\.saveSettings\(\);/);
+  assert.doesNotMatch(source, /S\.projectMeta\[path\]\.type = typeSelect\.value;/);
+  assert.doesNotMatch(source, /modal\.manageProjects\.typeField/);
   assert.doesNotMatch(source, /this\.plugin\.renderAllViews\(true\);\s+this\.render\(\);/);
   assert.doesNotMatch(source, /await this\.plugin\.saveSettings\(\);\s+this\.render\(\);/);
 });

@@ -1,5 +1,5 @@
 import { App, Modal, Notice, normalizePath, setIcon, Setting, TAbstractFile, TFile, TFolder } from "obsidian";
-import { PROJECT_MODES, projectBoardDefaults, resolveType } from "../utils/project-modes.js";
+import { PROJECT_MODES, projectBoardDefaults } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 import { FeuilProjectImportModal } from "./feuil-project-import-modal.js";
@@ -653,20 +653,6 @@ export class ManageProjectsModal extends Modal {
       })();
     });
 
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.typeField"));
-    const typeSelect = detail.createEl("select");
-    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
-      typeSelect.createEl("option", { text: mode.label, value: key });
-    }
-    typeSelect.value = resolveType(meta.type);
-    typeSelect.addEventListener("change", () => {
-      void (async () => {
-        if (!S.projectMeta[path]) S.projectMeta[path] = {};
-        S.projectMeta[path].type = typeSelect.value;
-        await this.plugin.saveSettings();
-      })();
-    });
-
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.descriptionField"));
     const desc = detail.createEl("textarea", { attr: { rows: "2" } });
     desc.addClass("feuillets-grid-full-row");
@@ -699,19 +685,17 @@ export class ManageProjectsModal extends Modal {
       return S.projectMeta[path];
     };
 
-    if (resolveType(meta()?.type) === "nonfiction") {
-      new Setting(section)
-        .setName(t("settings.citationStyle.name"))
-        .addDropdown((d) => {
-          d.addOption("footnote", t("settings.citationStyle.footnote"));
-          d.addOption("parenthetical", t("settings.citationStyle.parenthetical"));
-          d.setValue(meta()?.citationStyle || "footnote");
-          d.onChange((value) => {
-            ensureMeta().citationStyle = value;
-            void this.plugin.saveSettings();
-          });
+    new Setting(section)
+      .setName(t("settings.citationStyle.name"))
+      .addDropdown((d) => {
+        d.addOption("footnote", t("settings.citationStyle.footnote"));
+        d.addOption("parenthetical", t("settings.citationStyle.parenthetical"));
+        d.setValue(meta()?.citationStyle || "footnote");
+        d.onChange((value) => {
+          ensureMeta().citationStyle = value;
+          void this.plugin.saveSettings();
         });
-    }
+      });
 
     section.createDiv({
       cls: "feuillets-settings-subhead",

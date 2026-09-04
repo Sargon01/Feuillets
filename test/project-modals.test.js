@@ -921,7 +921,7 @@ test("Correspondance YAML — nouvelle propriété refuse les noms vides", () =>
   assert.deepEqual(results, []);
 });
 
-test("ManageProjectsModal — Style citation : projet Fiction n'affiche pas le contrôle sur la page Citations", async () => {
+test("ManageProjectsModal — Style citation : projet Fiction affiche le contrôle sur la page Citations", async () => {
   const { vault } = createFakeVault([]);
   const app = fakeApp(vault);
   const settings = freshSettings();
@@ -940,7 +940,7 @@ test("ManageProjectsModal — Style citation : projet Fiction n'affiche pas le c
   modal.render();
 
   const citationSelects = findCitationSelects(modal.contentEl);
-  assert.equal(citationSelects.length, 0, "Fiction n'affiche pas le contrôle Style de citation");
+  assert.equal(citationSelects.length, 1, "Fiction affiche un contrôle Style de citation");
 });
 
 test("ManageProjectsModal — Style citation : projet Non-fiction affiche le contrôle sur la page Citations", async () => {
@@ -990,7 +990,7 @@ test("ManageProjectsModal — Style citation : modification écrit dans settings
   assert.equal(settings.projectMeta["Essay/Manuscrit"].citationStyle, "parenthetical", "modification écrit citationStyle");
 });
 
-test("ManageProjectsModal — Style citation : après Fiction → Non-fiction, la page Citations affiche le contrôle", async () => {
+test("ManageProjectsModal — Style citation : le type reste inchangé et la page Citations est universelle", async () => {
   const { vault } = createFakeVault([]);
   const app = fakeApp(vault);
   const settings = freshSettings();
@@ -1011,12 +1011,9 @@ test("ManageProjectsModal — Style citation : après Fiction → Non-fiction, l
   const allSelects1 = findElements(modal.contentEl, (el) => el.tag === "select");
   assert.equal(findCitationSelects(modal.contentEl).length, 0, "la fiche projet ne rend pas Citation en ligne");
 
-  // Trouver et modifier le type select
-  const typeSelect = allSelects1[0];
-  typeSelect.value = "nonfiction";
-  await typeSelect.trigger("change");
-
-  assert.equal(settings.projectMeta["Test/Manuscrit"].type, "nonfiction");
+  // Le gestionnaire ne propose plus de sélecteur de type runtime.
+  assert.equal(allSelects1.length, 0, "aucun sélecteur de type runtime n'est présent");
+  assert.equal(settings.projectMeta["Test/Manuscrit"].type, "fiction");
   modal.detailPage = { projectPath: "Test/Manuscrit", page: "citations" };
   modal.render();
   assert.equal(findCitationSelects(modal.contentEl).length, 1, "la page Citations affiche le contrôle");

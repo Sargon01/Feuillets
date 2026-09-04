@@ -124,7 +124,7 @@ import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
 import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
-import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot, type NewSheetOptions } from "./services/project-files.js";
+import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot, sheetFrontmatter, type NewSheetOptions } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
@@ -2472,7 +2472,6 @@ class FeuilletsPlugin extends Plugin {
     const researchRoot = this.getResearchRoot();
     if (!researchRoot) return;
     if (!file.path.startsWith(researchRoot.path + "/")) return;
-    const mode = this.projectMode();
     const rf = RESEARCH_FOLDERS;
     const parentName = file.parent ? file.parent.name : "";
     let sectionKey = "";
@@ -2484,7 +2483,7 @@ class FeuilletsPlugin extends Plugin {
     else if (matchesResearchLabel(rf, "glossaire", parentName)) sectionKey = "glossaire";
     else if (matchesResearchLabel(rf, "evenements", parentName)) sectionKey = "evenements";
     if (!sectionKey) return;
-    const template = await getResearchTemplate(this.app, this.settings, mode, sectionKey, file.basename);
+    const template = await getResearchTemplate(this.app, this.settings, sectionKey, file.basename);
     if (template) {
       try {
         await this.app.vault.modify(file, template);
@@ -5110,26 +5109,8 @@ class FeuilletsPlugin extends Plugin {
         new Notice(t("main.notice.sheetNameExists"));
         return;
       }
-      const isFiction = getProjectMode(this.app, this.settings).yamlPreset === "roman";
-      const lines = [
-        "---",
-        `title: ${chapTitle || ""}`,
-        "short_title: ",
-        "order: 0",
-        ...(isFiction ? ["synopsis: "] : ["summary: "]),
-        "status: ",
-        "label: ",
-        `goal: ${projectWordGoalDefault(this.app, this.settings)}`,
-        "tags: ",
-        "date: ",
-        "notes: ",
-        ...(!isFiction ? ["sources: "] : []),
-        "compile: true",
-        "---",
-        "",
-        "",
-      ];
-      const file = await this.app.vault.create(path, lines.join("\n"));
+      const content = sheetFrontmatter(this.app, this.settings, chapTitle || "", 0);
+      const file = await this.app.vault.create(path, content);
       const others = this.getOrderedChildren(folder).filter((c) => c.path !== file.path);
       const at = Math.max(0, Math.min(insertIndex, others.length));
       others.splice(at, 0, file);

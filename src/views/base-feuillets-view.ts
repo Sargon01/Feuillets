@@ -687,7 +687,6 @@ export abstract class BaseFeuilletsView extends ItemView {
     const baseResearchFolder = baseResearchFile instanceof TFolder ? baseResearchFile : null;
     if (this._renderGen !== gen) return;
 
-    const mode = this.plugin.projectMode();
     const rf = RESEARCH_FOLDERS;
 
     /* Rubriques personnalisées (voir plus bas, "customFolders") : au lieu
@@ -855,7 +854,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.promptCreateResearchFile(
           sourcesFolder,
           rf.sources.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "sources", rf.sources.newName)
+          await getResearchTemplate(this.app, this.plugin.settings, "sources", rf.sources.newName)
         ), "sources", citeRowAction
       );
 
@@ -874,7 +873,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.promptCreateResearchFile(
           bibliographieFolder,
           rf.bibliographie.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie.newName)
+          await getResearchTemplate(this.app, this.plugin.settings, "bibliographie", rf.bibliographie.newName)
         ), "bibliographie"
       );
     }
@@ -884,7 +883,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.promptCreateResearchFile(
           personnagesFolder,
           rf.personnages.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "personnages", rf.personnages.newName)
+          await getResearchTemplate(this.app, this.plugin.settings, "personnages", rf.personnages.newName)
         ), "personnages"
       );
     }
@@ -894,7 +893,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.promptCreateResearchFile(
           lieuxFolder,
           rf.lieux.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "lieux", rf.lieux.newName)
+          await getResearchTemplate(this.app, this.plugin.settings, "lieux", rf.lieux.newName)
         ), "lieux"
       );
     }
@@ -904,7 +903,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.promptCreateResearchFile(
           codexFolder,
           rf.codex.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "codex", rf.codex.newName)
+          await getResearchTemplate(this.app, this.plugin.settings, "codex", rf.codex.newName)
         ), "codex"
       );
     }
@@ -914,7 +913,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.promptCreateResearchFile(
           glossaireFolder,
           rf.glossaire.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "glossaire", rf.glossaire.newName)
+          await getResearchTemplate(this.app, this.plugin.settings, "glossaire", rf.glossaire.newName)
         ), "glossaire"
       );
     }
@@ -924,7 +923,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.promptCreateResearchFile(
           chronoFolder,
           rf.evenements.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "evenements", rf.evenements.newName)
+          await getResearchTemplate(this.app, this.plugin.settings, "evenements", rf.evenements.newName)
         ), "evenements"
       );
     }
