@@ -5,10 +5,10 @@ import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 import { newSheet } from "../src/services/project-files.js";
 import { NewSheetModal } from "../src/ui/basic-modals.js";
 
-function setup(entries = []) {
+function setup(entries = [], { projectType = "fiction", planningField, newSheetIncludeSources } = {}) {
   const folder = new TFolder("Projet/Manuscrit");
   folder.children = entries;
-  const files = new Map(entries.map((entry) => [entry.path, entry]));
+  const files = new Map([[folder.path, folder], ...entries.map((entry) => [entry.path, entry])]);
   const vault = {
     getAbstractFileByPath: (path) => files.get(path) || null,
     async create(path, content) {
@@ -28,9 +28,15 @@ function setup(entries = []) {
     },
   };
   const settings = structuredClone(DEFAULT_SETTINGS);
-  settings.projectFolder = "Projet";
-  settings.projectMeta = { [folder.path]: { type: "fiction" } };
+  settings.projectFolder = folder.path;
+  settings.projectMeta = { [folder.path]: { type: projectType } };
+  if (planningField !== undefined) settings.projectMeta[folder.path].planningField = planningField;
+  if (newSheetIncludeSources !== undefined) settings.projectMeta[folder.path].newSheetIncludeSources = newSheetIncludeSources;
   return { app, folder, settings, opened };
+}
+
+function createdContent(fixture) {
+  return fixture.folder.children.at(-1).content;
 }
 
 async function submitNewSheet(fixture, onDone) {
@@ -93,4 +99,40 @@ test("newSheet — openCreatedFile false conserve le callback sans ouvrir", asyn
   }
   assert.equal(refreshes, 1);
   assert.equal(fixture.opened.length, 0);
+});
+
+test("newSheet — Fiction reconfigurée utilise summary et sources", async () => {
+  const fixture = setup([], { projectType: "fiction", planningField: "summary", newSheetIncludeSources: true });
+  await submitNewSheet(fixture);
+  const content = createdContent(fixture);
+  assert.match(content, /^summary:\s*$/m);
+  assert.doesNotMatch(content, /^synopsis:\s*$/m);
+  assert.match(content, /^sources:\s*$/m);
+});
+
+test("newSheet — Libre reconfiguré utilise synopsis sans sources", async () => {
+  const fixture = setup([], { projectType: "free", planningField: "synopsis", newSheetIncludeSources: false });
+  await submitNewSheet(fixture);
+  const content = createdContent(fixture);
+  assert.match(content, /^synopsis:\s*$/m);
+  assert.doesNotMatch(content, /^summary:\s*$/m);
+  assert.doesNotMatch(content, /^sources:\s*$/m);
+});
+
+test("newSheet — Libre legacy conserve summary et sources", async () => {
+  const fixture = setup([], { projectType: "free" });
+  await submitNewSheet(fixture);
+  const content = createdContent(fixture);
+  assert.match(content, /^summary:\s*$/m);
+  assert.doesNotMatch(content, /^synopsis:\s*$/m);
+  assert.match(content, /^sources:\s*$/m);
+});
+
+test("newSheet — Fiction legacy conserve synopsis sans sources", async () => {
+  const fixture = setup([], { projectType: "fiction" });
+  await submitNewSheet(fixture);
+  const content = createdContent(fixture);
+  assert.match(content, /^synopsis:\s*$/m);
+  assert.doesNotMatch(content, /^summary:\s*$/m);
+  assert.doesNotMatch(content, /^sources:\s*$/m);
 });

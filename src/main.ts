@@ -16,7 +16,7 @@ import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
-import { projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
+import { migrateLegacyProjectTypes, projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
@@ -124,12 +124,12 @@ import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
 import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
-import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot, type NewSheetOptions } from "./services/project-files.js";
+import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot, sheetFrontmatter, type NewSheetOptions } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
-import { matchesResearchLabel } from "./utils/project-modes.js";
+import { RESEARCH_FOLDERS, matchesResearchLabel } from "./utils/project-modes.js";
 import { setLocale, detectLocale, t } from "./i18n/index.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
@@ -2472,8 +2472,7 @@ class FeuilletsPlugin extends Plugin {
     const researchRoot = this.getResearchRoot();
     if (!researchRoot) return;
     if (!file.path.startsWith(researchRoot.path + "/")) return;
-    const mode = this.projectMode();
-    const rf = mode.researchFolders;
+    const rf = RESEARCH_FOLDERS;
     const parentName = file.parent ? file.parent.name : "";
     let sectionKey = "";
     if (matchesResearchLabel(rf, "sources", parentName)) sectionKey = "sources";
@@ -2482,9 +2481,9 @@ class FeuilletsPlugin extends Plugin {
     else if (matchesResearchLabel(rf, "lieux", parentName)) sectionKey = "lieux";
     else if (matchesResearchLabel(rf, "codex", parentName)) sectionKey = "codex";
     else if (matchesResearchLabel(rf, "glossaire", parentName)) sectionKey = "glossaire";
-    else if (parentName === "Chronology" || parentName === "Chronologie") sectionKey = "evenements";
+    else if (matchesResearchLabel(rf, "evenements", parentName)) sectionKey = "evenements";
     if (!sectionKey) return;
-    const template = await getResearchTemplate(this.app, this.settings, mode, sectionKey, file.basename);
+    const template = await getResearchTemplate(this.app, this.settings, sectionKey, file.basename);
     if (template) {
       try {
         await this.app.vault.modify(file, template);
@@ -3301,6 +3300,11 @@ class FeuilletsPlugin extends Plugin {
     // listPanePreviewField — voir default-settings.js/utils/project-modes.js)
     if (this.settings.cardContent === "resume") this.settings.cardContent = "summary";
     if (this.settings.listPanePreviewField === "resume") this.settings.listPanePreviewField = "summary";
+    if (this.settings.projectTypeMigrationVersion < 1) {
+      migrateLegacyProjectTypes(this.settings);
+      this.settings.projectTypeMigrationVersion = 1;
+      await this.saveData(this.settings);
+    }
   }
 
   async saveSettings() {
@@ -3541,14 +3545,12 @@ class FeuilletsPlugin extends Plugin {
     ) ?? null;
   }
 
-  /** Dossier(s) proposés par « Insérer une citation » — réservé à la
-   * non-fiction (`rf.sources` défini). Réutilise `resolveBibliographySource`
+  /** Dossier(s) proposés par « Insérer une citation ». Réutilise
+   * `resolveBibliographySource`
    * (services/bibliography-generator.ts) : Sources canonique si présent,
    * sinon repli Bibliographie/Bibliography legacy, jamais les deux à la
    * fois — même règle que la bibliographie générée. */
   getCitationFolders(): TFolder[] {
-    const mode = this.projectMode();
-    if (!mode.researchFolders.sources) return [];
     const resolved = resolveBibliographySource(this.app, this.settings);
     return resolved ? [resolved.folder] : [];
   }
@@ -3790,7 +3792,6 @@ class FeuilletsPlugin extends Plugin {
 
   unitLabel() { return t(getProjectType(this.app, this.settings) === "fiction" ? "unit.scene" : "unit.section"); }
   unitLabelPlural() { return t(getProjectType(this.app, this.settings) === "fiction" ? "unit.scenes" : "unit.sections"); }
-  hasSources() { return this.projectMode().hasSources; }
   // Nom personnalisé (S.projectMeta[path].name, réglable dans
   // ManageProjectsModal) en priorité, sinon déduit du dossier (voir
   // folder-structure.js — gère la convention <Projet>/Manuscrit/).
@@ -5112,26 +5113,8 @@ class FeuilletsPlugin extends Plugin {
         new Notice(t("main.notice.sheetNameExists"));
         return;
       }
-      const isFiction = getProjectMode(this.app, this.settings).yamlPreset === "roman";
-      const lines = [
-        "---",
-        `title: ${chapTitle || ""}`,
-        "short_title: ",
-        "order: 0",
-        ...(isFiction ? ["synopsis: "] : ["summary: "]),
-        "status: ",
-        "label: ",
-        `goal: ${projectWordGoalDefault(this.app, this.settings)}`,
-        "tags: ",
-        "date: ",
-        "notes: ",
-        ...(!isFiction ? ["sources: "] : []),
-        "compile: true",
-        "---",
-        "",
-        "",
-      ];
-      const file = await this.app.vault.create(path, lines.join("\n"));
+      const content = sheetFrontmatter(this.app, this.settings, chapTitle || "", 0);
+      const file = await this.app.vault.create(path, content);
       const others = this.getOrderedChildren(folder).filter((c) => c.path !== file.path);
       const at = Math.max(0, Math.min(insertIndex, others.length));
       others.splice(at, 0, file);

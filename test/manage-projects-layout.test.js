@@ -4,11 +4,12 @@ import fs from "node:fs";
 
 const source = fs.readFileSync(`${process.cwd()}/src/ui/project-modals.ts`, "utf8");
 
-test("le formulaire principal ne contient plus les réglages de citation", () => {
+test("le formulaire principal ne contient plus les réglages de citation ni de type", () => {
   const row = source.slice(source.indexOf("renderProjectRow("), source.indexOf("private renderProjectCitationsPage"));
   const description = row.indexOf('t("modal.manageProjects.descriptionField")');
   const type = row.indexOf('t("modal.manageProjects.typeField")');
-  assert.ok(type >= 0 && description > type, "Description suit Type");
+  assert.equal(type, -1, "Le gestionnaire n'affiche plus de sélecteur de type");
+  assert.ok(description >= 0, "Description reste présente");
   assert.doesNotMatch(row, /pandocCitationPreview|citationStyle\.name/);
 });
 
@@ -26,7 +27,8 @@ test("la sous-page Citations conserve les propriétés métier existantes", () =
   assert.match(page, /citationStyle/);
   assert.match(page, /pandocCitationPreviewStyle/);
   assert.match(page, /pandocBibliographyPath/);
-  assert.match(page, /resolveType\(meta\(\)\?\.type\) === "nonfiction"/);
+  assert.doesNotMatch(page, /resolveType\(meta\(\)\?\.type\) === "nonfiction"/);
+  assert.match(page, /settings\.citationStyle\.name/);
   assert.doesNotMatch(page, /this\.render\(|this\.renderCurrentDetailContent\(|this\.requestRender\(/);
 });
 

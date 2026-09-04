@@ -28,7 +28,7 @@ import {
   type ContentCacheableFile,
   type ContentSourceKind,
 } from "../services/context-content-cache.js";
-import { getProjectType } from "../services/project-mode.js";
+import { projectPlanningField } from "../services/project-settings.js";
 import { addWorkNote, deleteWorkNote, loadWorkNotes } from "../services/work-notes.js";
 
 /** Délai de latence avant de recalculer la section « Contexte » après un
@@ -417,13 +417,14 @@ export class NotesView extends BaseFeuilletsView {
       }
     }
 
-    /* Fiction affiche Synopsis, Non-fiction/Libre affichent Résumé — jamais
-       les deux ensemble (voir getProjectType/PROJECT_MODES). Les réglages
-       notesShowSynopsis/notesShowResume restent respectés en plus, pour la
-       compatibilité avec un utilisateur qui aurait désactivé la section. */
-    const projectType = getProjectType(this.app, this.plugin.settings);
-    const showSynopsis = projectType === "fiction";
-    const showResume = !showSynopsis;
+    /* L'affichage suit la préférence ProjectMeta.planningField, avec son
+       fallback legacy déjà centralisé par projectPlanningField(). Les
+       réglages notesShowSynopsis/notesShowResume restent respectés en plus,
+       pour la compatibilité avec un utilisateur qui aurait désactivé la
+       section. */
+    const planningField = projectPlanningField(this.app, this.plugin.settings);
+    const showSynopsis = planningField === "synopsis";
+    const showResume = planningField === "summary";
 
     // Références du passage (renderCitedEntities, libellé UI « Contexte »)
     // rendu APRÈS toute la boucle Synopsis/Résumé/Notes — pour obtenir

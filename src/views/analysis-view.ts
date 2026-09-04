@@ -538,8 +538,6 @@ export class AnalysisView extends BaseFeuilletsView {
     const raw = await this.readStatsBody(file, scope.liveBodies);
     const a = analyzeProse(raw);
     const S = this.plugin.settings;
-    const projectRoot = this.plugin.getProjectFolder();
-    const isFiction = projectRoot ? S.projectMeta?.[projectRoot.path]?.type !== "nonfiction" && S.projectMeta?.[projectRoot.path]?.type !== "free" : true;
 
     this.tool(container, "metrics", "bar-chart-3", t("analysis.metrics.title"), (section) => {
       const list = section.createDiv({ cls: "feuillets-notes-metadata-list" });
@@ -623,8 +621,8 @@ export class AnalysisView extends BaseFeuilletsView {
       }
     });
 
-    // Rythme du feuillet (fiction uniquement).
-    if (isFiction) this.tool(container, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
+    // Rythme du feuillet.
+    this.tool(container, "rythme", "sliders-horizontal", t("analysis.pace.sheetTitle"), (section) => {
       section.createDiv({ cls: "feuillets-analysis-summary" }).setText(
         t("analysis.pace.instructions", { max: String(RYTHME_MAX) })
       );
@@ -796,8 +794,6 @@ export class AnalysisView extends BaseFeuilletsView {
    * feuillet (§10 du lot). */
   private async renderProjectPage(container: HTMLElement): Promise<void> {
     const S = this.plugin.settings;
-    const projectRoot = this.plugin.getProjectFolder();
-    const isFiction = projectRoot ? S.projectMeta?.[projectRoot.path]?.type !== "nonfiction" && S.projectMeta?.[projectRoot.path]?.type !== "free" : true;
 
     const gb = container;
 
@@ -882,7 +878,7 @@ export class AnalysisView extends BaseFeuilletsView {
     );
 
     // ---- Courbe narrative (déduite des tags de rythme) ----
-    if (isFiction) this.tool(gb, "curve", "activity", t("analysis.curve.title"), (section) => {
+    this.tool(gb, "curve", "activity", t("analysis.curve.title"), (section) => {
       const scenes = this.sceneFiles();
       const tagged = scenes.filter((f) => {
         const r = this.rythmeOf(f);

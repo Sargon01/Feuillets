@@ -150,6 +150,12 @@ declare type ProjectMeta = {
   /* Réglages globaux surchargés par projet. */
   boardMode?: string;
   boardWholeManuscript?: boolean;
+  /** Préférence runtime propre au projet ; absente sur les projets legacy,
+   * avec repli compatible ; une lecture simple ne l'écrit jamais. */
+  planningField?: "synopsis" | "summary";
+  /** Préférence runtime propre au projet ; absente sur les projets legacy,
+   * avec repli compatible ; une lecture simple ne l'écrit jamais. */
+  newSheetIncludeSources?: boolean;
   cardContent?: string;
   hiddenBoardModes?: string[];
   /** Colonnes du Plan propres au projet. Absentes sur les projets legacy. */
@@ -471,6 +477,8 @@ declare type FeuilletsSettings = {
      ancien ou tronqué. Les déclarer optionnels obligerait à écrire des
      gardes `?.` mensongers dans tout le code. */
   projectMeta: Record<string, ProjectMeta>;
+  /** Version de la migration one-shot des types legacy. */
+  projectTypeMigrationVersion: number;
   /** Palette globale, repli quand le projet n'a pas la sienne. */
   labels: Label[];
   /** Dossiers projet connus, en plus du projet actuellement actif. */

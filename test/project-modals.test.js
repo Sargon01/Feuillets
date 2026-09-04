@@ -141,10 +141,13 @@ test("NewProjectModal : crée la structure minimale, active le projet, ouvre la 
     const modal = createModal(NewProjectModal, app, plugin);
 
     modal.onOpen();
+    const newProjectSelect = findElements(modal.contentEl, (el) => el.tag === "select")[0];
+    assert.deepEqual(newProjectSelect.children.map((option) => option.value), ["free", "fiction", "nonfiction"]);
+    assert.equal(newProjectSelect.value, "free");
     const inputs = findElements(modal.contentEl, (el) => el.tag === "input");
     inputs[0].value = "Roman1";
     inputs[1].value = "Camille Autrice";
-    findElements(modal.contentEl, (el) => el.tag === "select")[0].value = "fiction";
+    newProjectSelect.value = "fiction";
     await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
 
     assert.ok(vault.getAbstractFileByPath("Roman1/Manuscrit/Chapitre 1") instanceof TFolder);
@@ -246,6 +249,7 @@ test("OpenExistingFolderModal : active un dossier existant sans déplacer, renom
 
     assert.equal(settings.projectFolder, "MonRoman");
     assert.ok(settings.projects.includes("MonRoman"));
+    assert.equal(settings.projectMeta.MonRoman.type, "free");
     assert.equal(scene.path, originalPath);
     assert.equal(scene.content, originalContent);
     assert.equal(vault.getAbstractFileByPath("MonRoman/_Recherche"), null);
@@ -287,7 +291,10 @@ test("TransformToProjectModal : initialise après le choix explicite d'un type",
     const modal = createModal(TransformToProjectModal, app, plugin, folder.path);
 
     modal.onOpen();
-    findElements(modal.contentEl, (el) => el.tag === "select")[0].value = "fiction";
+    const transformSelect = findElements(modal.contentEl, (el) => el.tag === "select")[0];
+    assert.equal(transformSelect.children[0].text, "Choisir le type de projet…");
+    assert.deepEqual(transformSelect.children.slice(1).map((option) => option.value), ["free", "fiction", "nonfiction"]);
+    transformSelect.value = "fiction";
     await findElements(modal.contentEl, (el) => el.tag === "button" && el.classes.has("mod-cta"))[0].trigger("click");
 
     assert.equal(settings.projectMeta[folder.path].type, "fiction");
@@ -921,7 +928,7 @@ test("Correspondance YAML — nouvelle propriété refuse les noms vides", () =>
   assert.deepEqual(results, []);
 });
 
-test("ManageProjectsModal — Style citation : projet Fiction n'affiche pas le contrôle sur la page Citations", async () => {
+test("ManageProjectsModal — Style citation : projet Fiction affiche le contrôle sur la page Citations", async () => {
   const { vault } = createFakeVault([]);
   const app = fakeApp(vault);
   const settings = freshSettings();
@@ -940,7 +947,7 @@ test("ManageProjectsModal — Style citation : projet Fiction n'affiche pas le c
   modal.render();
 
   const citationSelects = findCitationSelects(modal.contentEl);
-  assert.equal(citationSelects.length, 0, "Fiction n'affiche pas le contrôle Style de citation");
+  assert.equal(citationSelects.length, 1, "Fiction affiche un contrôle Style de citation");
 });
 
 test("ManageProjectsModal — Style citation : projet Non-fiction affiche le contrôle sur la page Citations", async () => {
@@ -990,7 +997,7 @@ test("ManageProjectsModal — Style citation : modification écrit dans settings
   assert.equal(settings.projectMeta["Essay/Manuscrit"].citationStyle, "parenthetical", "modification écrit citationStyle");
 });
 
-test("ManageProjectsModal — Style citation : après Fiction → Non-fiction, la page Citations affiche le contrôle", async () => {
+test("ManageProjectsModal — Style citation : le type reste inchangé et la page Citations est universelle", async () => {
   const { vault } = createFakeVault([]);
   const app = fakeApp(vault);
   const settings = freshSettings();
@@ -1011,12 +1018,9 @@ test("ManageProjectsModal — Style citation : après Fiction → Non-fiction, l
   const allSelects1 = findElements(modal.contentEl, (el) => el.tag === "select");
   assert.equal(findCitationSelects(modal.contentEl).length, 0, "la fiche projet ne rend pas Citation en ligne");
 
-  // Trouver et modifier le type select
-  const typeSelect = allSelects1[0];
-  typeSelect.value = "nonfiction";
-  await typeSelect.trigger("change");
-
-  assert.equal(settings.projectMeta["Test/Manuscrit"].type, "nonfiction");
+  // Le gestionnaire ne propose plus de sélecteur de type runtime.
+  assert.equal(allSelects1.length, 0, "aucun sélecteur de type runtime n'est présent");
+  assert.equal(settings.projectMeta["Test/Manuscrit"].type, "fiction");
   modal.detailPage = { projectPath: "Test/Manuscrit", page: "citations" };
   modal.render();
   assert.equal(findCitationSelects(modal.contentEl).length, 1, "la page Citations affiche le contrôle");

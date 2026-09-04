@@ -4,10 +4,10 @@ import { PROJECT_MODES, resolveType } from "../utils/project-modes.js";
 
 type ProjectMode = typeof PROJECT_MODES[keyof typeof PROJECT_MODES];
 
-/** Type du projet actif, ou "roman" par repli. */
+/** Type du projet actif, ou Libre sans projet actif. */
 export function getProjectType(app: App, settings: FeuilletsSettings) {
   const root = getProjectFolder(app, settings);
-  if (!root) return "fiction";
+  if (!root) return "free";
   return resolveType((settings.projectMeta[root.path] || {}).type);
 }
 

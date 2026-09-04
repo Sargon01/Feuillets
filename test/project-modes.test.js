@@ -2,7 +2,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   PROJECT_MODES,
+  RESEARCH_FOLDERS,
   projectCreationStyle,
+  knownProjectType,
   resolveType,
   applyModeDefaults,
   semanticPlanningField,
@@ -35,16 +37,11 @@ test("PROJECT_MODES", async (t) => {
       assert.ok(mode.defaults, `${key}.defaults`);
       assert.ok(mode.boardDefaults, `${key}.boardDefaults`);
       assert.ok(mode.researchFolders, `${key}.researchFolders`);
-      /* rf.bibliographie existe en fiction et non-fiction uniquement —
-         en libre, aucun dossier n'est imposé, l'utilisateur les crée
-         via le bouton "Nouvelle rubrique". */
-      if (key !== "free") {
-        const entry = mode.researchFolders.bibliographie;
-        assert.ok(entry, `${key}.researchFolders.bibliographie`);
-        assert.ok(entry.label, `${key}.researchFolders.bibliographie.label`);
-        assert.ok(entry.newName, `${key}.researchFolders.bibliographie.newName`);
-        assert.ok(entry.tag, `${key}.researchFolders.bibliographie.tag`);
-      }
+      const entry = mode.researchFolders.bibliographie;
+      assert.ok(entry, `${key}.researchFolders.bibliographie`);
+      assert.ok(entry.label, `${key}.researchFolders.bibliographie.label`);
+      assert.ok(entry.newName, `${key}.researchFolders.bibliographie.newName`);
+      assert.ok(entry.tag, `${key}.researchFolders.bibliographie.tag`);
     }
   });
 
@@ -77,32 +74,29 @@ test("PROJECT_MODES", async (t) => {
     );
   });
 
-  await t.test("fiction garde Personnages/Lieux/Lore/Glossaire/Événements, pas de dossier Sources dédié", () => {
-    const rf = PROJECT_MODES.fiction.researchFolders;
-    assert.equal(rf.personnages.label, "Characters");
-    assert.equal(rf.lieux.label, "Places");
-    assert.equal(rf.codex.label, "Lore");
-    assert.equal(rf.glossaire.label, "Glossary");
-    assert.equal(rf.evenements.label, "Events");
-    assert.equal(rf.sources, undefined);
+  await t.test("les trois modes connaissent le registre Research universel", () => {
+    assert.deepEqual(Object.keys(RESEARCH_FOLDERS).sort(), [
+      "bibliographie", "codex", "evenements", "glossaire",
+      "lieux", "notes", "personnages", "sources",
+    ]);
+    assert.equal(PROJECT_MODES.fiction.researchFolders, RESEARCH_FOLDERS);
+    assert.equal(PROJECT_MODES.nonfiction.researchFolders, RESEARCH_FOLDERS);
+    assert.equal(PROJECT_MODES.free.researchFolders, RESEARCH_FOLDERS);
   });
 
-  await t.test("non-fiction ne garde que Notes + Sources + Bibliographie, aucune rubrique imposée", () => {
-    const rf = PROJECT_MODES.nonfiction.researchFolders;
-    assert.equal(rf.notes.label, "Notes");
-    assert.equal(rf.sources.label, "Sources");
-    assert.equal(rf.bibliographie.label, "Bibliography");
-    assert.equal(rf.personnages, undefined);
-    assert.equal(rf.lieux, undefined);
-    assert.equal(rf.codex, undefined);
-    assert.equal(rf.glossaire, undefined);
-    assert.equal(rf.evenements, undefined);
+  await t.test("les définitions Research historiques restent inchangées", () => {
+    assert.deepEqual(RESEARCH_FOLDERS.personnages, { label: "Characters", newName: "Nouveau personnage", tag: "personnage" });
+    assert.deepEqual(RESEARCH_FOLDERS.lieux, { label: "Places", newName: "Nouveau lieu", tag: "lieu" });
+    assert.deepEqual(RESEARCH_FOLDERS.evenements, { label: "Events", newName: "Nouvel événement", tag: "evenement" });
+    assert.deepEqual(RESEARCH_FOLDERS.sources, { label: "Sources", newName: "Nouvelle source", tag: "source" });
+    assert.deepEqual(RESEARCH_FOLDERS.notes, { label: "Notes", newName: "Nouvelle note", tag: "notes" });
+    assert.deepEqual(RESEARCH_FOLDERS.bibliographie, { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" });
   });
 
-  await t.test("Bibliographie identique dans fiction et non-fiction (seul rôle partagé)", () => {
-    assert.equal(PROJECT_MODES.fiction.researchFolders.bibliographie?.label, "Bibliography");
-    assert.equal(PROJECT_MODES.nonfiction.researchFolders.bibliographie?.label, "Bibliography");
-    assert.equal(PROJECT_MODES.free.researchFolders.bibliographie, undefined, "pas de bibliographie en mode libre");
+  await t.test("les defaults de création Research restent propres aux presets", () => {
+    assert.deepEqual(PROJECT_MODES.fiction.defaultResearchFolders, ["personnages", "lieux", "evenements", "codex", "glossaire"]);
+    assert.deepEqual(PROJECT_MODES.nonfiction.defaultResearchFolders, ["notes", "sources"]);
+    assert.deepEqual(PROJECT_MODES.free.defaultResearchFolders, []);
   });
 });
 
@@ -114,11 +108,11 @@ test("resolveType", async (t) => {
     assert.equal(resolveType("libre"), "free");
   });
 
-  await t.test("« structured » n'est plus reconnu comme mode canonique : retombe sur fiction", () => {
-    assert.equal(resolveType("structured"), "fiction");
-    assert.equal(resolveType("structure"), "fiction");
-    assert.equal(resolveType("document-structure"), "fiction");
-    assert.equal(resolveType("Document structuré"), "fiction");
+  await t.test("les valeurs inconnues retombent sur Libre", () => {
+    assert.equal(knownProjectType("structured"), null);
+    assert.equal(knownProjectType("structure"), null);
+    assert.equal(knownProjectType("document-structure"), null);
+    assert.equal(resolveType("Document structuré"), "free");
   });
 
   await t.test("ramène les anciennes valeurs de type sur la bonne famille", () => {
@@ -130,10 +124,11 @@ test("resolveType", async (t) => {
     assert.equal(resolveType("article"), "nonfiction");
   });
 
-  await t.test("retombe sur fiction pour une valeur inconnue, absente ou vide", () => {
-    assert.equal(resolveType("recueil"), "fiction");
-    assert.equal(resolveType(undefined), "fiction");
-    assert.equal(resolveType(""), "fiction");
+  await t.test("retombe sur Libre pour une valeur inconnue, absente ou vide", () => {
+    assert.equal(resolveType("recueil"), "free");
+    assert.equal(resolveType(undefined), "free");
+    assert.equal(resolveType(null), "free");
+    assert.equal(resolveType(""), "free");
   });
 });
 
@@ -152,11 +147,11 @@ test("applyModeDefaults", async (t) => {
     assert.equal(settings.mergeYamlPreset, "minimal");
   });
 
-  await t.test("retombe sur fiction pour un type inconnu", () => {
+  await t.test("retombe sur Libre pour un type inconnu", () => {
     const settings = {};
     applyModeDefaults(settings, "recueil");
-    assert.equal(settings.boardMode, "board");
-    assert.equal(settings.mergeYamlPreset, "roman");
+    assert.equal(settings.boardMode, "outline");
+    assert.equal(settings.mergeYamlPreset, "minimal");
   });
 });
 
@@ -219,9 +214,9 @@ test("resolveBoardOutlineColumns — LOT binder isolé/cartes/plan §6", async (
     assert.equal(cols.pov, false);
   });
 
-  await t.test("Non-fiction/Libre : POV toujours false, même stocké à true", () => {
-    assert.equal(resolveBoardOutlineColumns("nonfiction", { pov: true }).pov, false);
-    assert.equal(resolveBoardOutlineColumns("free", { pov: true }).pov, false);
+  await t.test("Non-fiction/Libre : POV stocké à true est respecté", () => {
+    assert.equal(resolveBoardOutlineColumns("nonfiction", { pov: true }).pov, true);
+    assert.equal(resolveBoardOutlineColumns("free", { pov: true }).pov, true);
   });
 
   await t.test("ancien synopsis stocké en Libre est relu comme summary (champ sémantique du mode)", () => {
@@ -265,11 +260,11 @@ test("resolveBoardOutlineColumns — LOT binder isolé/cartes/plan §6", async (
     assert.equal(cols.thread, false);
   });
 
-  await t.test("Non-fiction/Libre : jamais de Personnages/Fil, même stockés à true", () => {
+  await t.test("Non-fiction/Libre : Personnages/Fil stockés à true sont respectés", () => {
     for (const type of ["nonfiction", "free"]) {
       const cols = resolveBoardOutlineColumns(type, { characters: true, thread: true });
-      assert.equal(cols.characters, false, type);
-      assert.equal(cols.thread, false, type);
+      assert.equal(cols.characters, true, type);
+      assert.equal(cols.thread, true, type);
     }
   });
 });

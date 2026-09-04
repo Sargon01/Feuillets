@@ -1,5 +1,7 @@
 import { getLocale } from "../i18n/index.js";
 
+export type ProjectType = "fiction" | "nonfiction" | "free";
+
 /** Un mode = un type de document. Ne change ni la structure de dossiers
  * ni les champs de frontmatter lus — seulement le vocabulaire affiché et
  * les réglages de départ appliqués une fois à la création du projet.
@@ -9,46 +11,30 @@ import { getLocale } from "../i18n/index.js";
  * dépendre de la locale de l'interface. Les variantes anglaises et historiques
  * restent reconnues indéfiniment sur les projets existants (voir LEGACY_RESEARCH_LABELS
  * et researchFolderNames plus bas). */
-const bibliographie = { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" };
+export type ResearchFolderKey =
+  | "bibliographie" | "notes" | "sources" | "personnages"
+  | "lieux" | "codex" | "glossaire" | "evenements";
 
-type ResearchFolderDef = { label: string; newName: string; tag: string };
-/** Union réelle des deux modes : chaque catégorie n'existe que dans SON
- * mode (fiction ou non-fiction), jamais dans les deux — d'où l'optionalité
- * de chaque champ ici plutôt qu'un jeu de clés figé. */
-type ResearchFolders = {
-  bibliographie?: ResearchFolderDef;
-  glossaire?: ResearchFolderDef;
-  evenements?: ResearchFolderDef;
-  personnages?: ResearchFolderDef;
-  lieux?: ResearchFolderDef;
-  codex?: ResearchFolderDef;
-  sources?: ResearchFolderDef;
-  notes?: ResearchFolderDef;
-};
+export type ResearchFolderDef = { label: string; newName: string; tag: string };
 
-/** Catégories Recherche par défaut selon le mode du projet :
+/** Catégories Recherche connues universellement. Les rubriques créées par
+ * défaut selon le mode du projet sont choisies par `defaultResearchFolders`.
  * - Fiction : Personnages, Lieux, Événements, Lore, Glossaire
  * - Non-fiction : Notes, Sources
  * - Libre : aucune rubrique créée par défaut
  *
  * Bibliographie est conservée pour la compatibilité historique (reconnaissance
  * et affichage des anciens dossiers), mais n'est créée automatiquement dans aucun mode. */
-const FICTION_RESEARCH: ResearchFolders = {
-  bibliographie,
+export const RESEARCH_FOLDERS: Readonly<Record<ResearchFolderKey, ResearchFolderDef>> = {
+  bibliographie: { label: "Bibliography", newName: "Nouvelle référence", tag: "bibliographie" },
   glossaire: { label: "Glossary", newName: "Nouveau terme", tag: "glossaire" },
   evenements: { label: "Events", newName: "Nouvel événement", tag: "evenement" },
   personnages: { label: "Characters", newName: "Nouveau personnage", tag: "personnage" },
   lieux: { label: "Places", newName: "Nouveau lieu", tag: "lieu" },
   codex: { label: "Lore", newName: "Nouvelle entrée", tag: "codex" },
-};
-
-const NONFICTION_RESEARCH: ResearchFolders = {
-  bibliographie,
   notes: { label: "Notes", newName: "Nouvelle note", tag: "notes" },
   sources: { label: "Sources", newName: "Nouvelle source", tag: "source" },
 };
-
-const FREE_RESEARCH: ResearchFolders = {};
 
 type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
 
@@ -127,7 +113,7 @@ const RESEARCH_FOLDER_VARIANTS: Record<string, string[]> = {
  * liste codée en dur), sinon le libellé anglais actuel. En anglais, le
  * libellé actuel est conservé tel quel. */
 export function researchFolderLabel(
-  researchFolders: Record<string, { label: string }>,
+  researchFolders: Readonly<Record<string, { label: string }>>,
   key: string
 ): string {
   const entry = researchFolders[key];
@@ -144,7 +130,7 @@ export function researchFolderLabel(
  * actuel (anglais) et les anciens noms — permet de réutiliser un dossier
  * existant créé sous une variante au lieu d'en créer un doublon. */
 export function researchFolderNames(
-  researchFolders: Record<string, { label: string }>,
+  researchFolders: Readonly<Record<string, { label: string }>>,
   key: string
 ): string[] {
   const entry = researchFolders[key];
@@ -166,7 +152,7 @@ export function researchFolderNames(
 
 /** `name` correspond-il à la catégorie `key` de `researchFolders`, sous
  * son nom canonique, son nom anglais OU son ancien nom ? */
-export function matchesResearchLabel(researchFolders: Record<string, { label: string }>, key: string, name: string) {
+export function matchesResearchLabel(researchFolders: Readonly<Record<string, { label: string }>>, key: string, name: string) {
   const names = researchFolderNames(researchFolders, key);
   return names.includes(name);
 }
@@ -178,7 +164,7 @@ export const PROJECT_MODES = {
     unit: "scène",
     unitPlural: "scènes",
     hasSources: false,
-    researchFolders: FICTION_RESEARCH,
+    researchFolders: RESEARCH_FOLDERS,
     defaultResearchFolders: ["personnages", "lieux", "evenements", "codex", "glossaire"],
     defaults: {
       level1Role: "parties",
@@ -195,7 +181,7 @@ export const PROJECT_MODES = {
     unit: "section",
     unitPlural: "sections",
     hasSources: true,
-    researchFolders: NONFICTION_RESEARCH,
+    researchFolders: RESEARCH_FOLDERS,
     defaultResearchFolders: ["notes", "sources"],
     defaults: {
       level1Role: "chapitres",
@@ -212,7 +198,7 @@ export const PROJECT_MODES = {
     unit: "section",
     unitPlural: "sections",
     hasSources: false,
-    researchFolders: FREE_RESEARCH,
+    researchFolders: RESEARCH_FOLDERS,
     defaultResearchFolders: [],
     defaults: {
       level1Role: "chapitres",
@@ -236,10 +222,8 @@ export function projectBoardDefaults(type: string | null | undefined): BoardProj
   };
 }
 
-/** Ramène une valeur de type quelconque (absente, ou ancien texte libre
- * non reconnu) sur une clé valide de PROJECT_MODES — "fiction" par repli,
- * pour qu'aucun projet existant ne casse. */
-export function resolveType(type: string | null | undefined) {
+/** Reconnaît uniquement les types et alias de projet documentés. */
+export function knownProjectType(type: string | null | undefined): ProjectType | null {
   const rawType = (type || "").trim().toLowerCase();
   if (rawType === "fiction" || rawType === "roman" || rawType === "nouvelle") {
     return "fiction";
@@ -250,7 +234,14 @@ export function resolveType(type: string | null | undefined) {
   if (rawType === "free" || rawType === "libre") {
     return "free";
   }
-  return "fiction";
+  return null;
+}
+
+/** Résout un type pour les nouveaux chemins runtime : l'absence ou une valeur
+ * inconnue retombe sur Libre. Les projets legacy sont d'abord figés par la
+ * migration dédiée afin de conserver leur comportement historique Fiction. */
+export function resolveType(type: string | null | undefined) {
+  return knownProjectType(type) ?? "free";
 }
 
 /** Style de création physique : identique au mode résolu (les trois modes
@@ -291,10 +282,11 @@ export type BoardCardContent = "extrait" | "synopsis" | "summary";
 
 export function resolveBoardCardContent(
   type: string | null | undefined,
-  stored: unknown
+  stored: unknown,
+  planningField?: SemanticPlanningField
 ): BoardCardContent {
   if (stored === "extrait") return "extrait";
-  return semanticPlanningField(type);
+  return planningField || semanticPlanningField(type);
 }
 
 /** Colonnes autorisées du Plan par mode — jamais notes/nom du fichier/
@@ -309,37 +301,29 @@ const BOARD_OUTLINE_ALWAYS_HIDDEN = ["notes", "filename", "progress", "compile",
  * d'un rendu à l'autre. */
 export function resolveBoardOutlineColumns(
   type: string | null | undefined,
-  stored?: Record<string, boolean> | null
+  stored?: Record<string, boolean> | null,
+  planningField?: SemanticPlanningField
 ): Record<string, boolean> {
   const resolvedType = resolveType(type);
-  const isFiction = resolvedType === "fiction";
   const defaults = PROJECT_MODES[resolvedType].boardDefaults.outlineCols;
   const s = stored || {};
 
   const hasSemanticKey = s.synopsis !== undefined || s.summary !== undefined;
   const semanticEnabled = hasSemanticKey
     ? !!(s.synopsis || s.summary)
-    : !!(isFiction ? defaults.synopsis : defaults.summary);
+    : !!(defaults.synopsis || defaults.summary);
 
   const result: Record<string, boolean> = {};
 
-  result.synopsis = isFiction ? semanticEnabled : false;
-  result.summary = isFiction ? false : semanticEnabled;
+  const semanticField = planningField || semanticPlanningField(type);
+  result.synopsis = semanticField === "synopsis" ? semanticEnabled : false;
+  result.summary = semanticField === "summary" ? semanticEnabled : false;
 
-  if (isFiction) {
-    result.pov = s.pov !== undefined ? !!s.pov : !!defaults.pov;
-    /* Personnages + Fil : colonnes optionnelles du Plan réservées à la
-       Fiction (le mode narre des personnages et des fils narratifs), OFF
-       par défaut pour ne pas surcharger l'état initial — l'autrice les
-       active via « Colonnes visibles ». Jamais présentes en Non-fiction/
-       Libre, même stockées à true (même règle que pov). */
-    result.characters = s.characters !== undefined ? !!s.characters : !!defaults.characters;
-    result.thread = s.thread !== undefined ? !!s.thread : !!defaults.thread;
-  } else {
-    result.pov = false;
-    result.characters = false;
-    result.thread = false;
-  }
+  /* Les defaults narratifs proviennent du preset ; une valeur stockée dans
+     outlineCols prime ensuite, quel que soit le type du projet. */
+  result.pov = s.pov !== undefined ? !!s.pov : !!defaults.pov;
+  result.characters = s.characters !== undefined ? !!s.characters : !!defaults.characters;
+  result.thread = s.thread !== undefined ? !!s.thread : !!defaults.thread;
 
   for (const key of BOARD_OUTLINE_COMMON_COLS) {
     result[key] = s[key] !== undefined ? !!s[key] : !!defaults[key];

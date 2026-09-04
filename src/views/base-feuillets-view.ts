@@ -18,7 +18,7 @@ import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-
 import { addOpenWithPreviewItem, openScopeWithPreviewBesideLeaf } from "./preview-view.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createFolderScope, createSelectionScope, compileScopesEqual, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
-import { researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
+import { RESEARCH_FOLDERS, researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
 import { t } from "../i18n/index.js";
 import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
@@ -687,27 +687,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const baseResearchFolder = baseResearchFile instanceof TFolder ? baseResearchFile : null;
     if (this._renderGen !== gen) return;
 
-    const mode = this.plugin.projectMode();
-    const rf = mode.researchFolders;
-
-    if (rf.sources) {
-      /* à côté de la barre de recherche : cherche dans Sources ET
-         Bibliographie à la fois (l'icône "+" de chaque fiche, plus bas,
-         cite directement CETTE entrée sans recherche). */
-      const citeSearchBtn = this.iconBtn(
-        toolbar,
-        "quote",
-        t("shared.research.insertCitationTooltip")
-      );
-      citeSearchBtn.addEventListener("click", () => this.plugin.openInsertCitation());
-
-      const renumberBtn = this.iconBtn(
-        toolbar,
-        "list-ordered",
-        t("shared.research.renumberFootnotesTooltip")
-      );
-      renumberBtn.addEventListener("click", () => this.plugin.renumberActiveFootnotes());
-    }
+    const rf = RESEARCH_FOLDERS;
 
     /* Rubriques personnalisées (voir plus bas, "customFolders") : au lieu
        d'imposer un jeu figé de dossiers, l'utilisateur crée exactement
@@ -715,58 +695,81 @@ export abstract class BaseFeuilletsView extends ItemView {
        Recherche/ créé ici apparaît automatiquement comme sa propre
        section. Disponible en fiction comme en non-fiction. */
     const newFolderBtn = this.iconBtn(toolbar, "folder-plus", t("shared.research.newTopicTooltip"));
-    newFolderBtn.addEventListener("click", () => {
-      void (async () => {
-        let folder = baseResearchFolder;
-        if (!folder) {
-          const path = researchFolderPath(this.app, this.plugin.settings, root);
-          if (path) {
-            const created = await this.plugin.ensureFolder(path);
-            folder = created instanceof TFolder ? created : null;
-          }
-        }
-        if (folder) this.plugin.newFolder(folder);
-      })();
+    newFolderBtn.addEventListener("click", (event) => {
+      const menu = new Menu();
+      const standardKeys = [
+        "personnages",
+        "lieux",
+        "evenements",
+        "codex",
+        "glossaire",
+        "notes",
+        "sources",
+        "bibliographie",
+      ];
+      let hasStandardSection = false;
+      for (const key of standardKeys) {
+        if (this.findResearchCategoryFolder(baseResearch, rf, key)) continue;
+        hasStandardSection = true;
+        menu.addItem((item) =>
+          item
+            .setTitle(researchFolderLabel(rf, key))
+            .setIcon(getResearchSectionIcon(key))
+            .onClick(async () => {
+              await this.ensureResearchCategoryFolder(baseResearch, rf, key);
+              this.plugin.renderAllViews(true);
+            })
+        );
+      }
+      if (hasStandardSection) menu.addSeparator();
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.research.customSection"))
+          .setIcon("folder-plus")
+          .onClick(() => {
+            void (async () => {
+              let folder = baseResearchFolder;
+              if (!folder) {
+                const path = researchFolderPath(this.app, this.plugin.settings, root);
+                if (path) {
+                  const created = await this.plugin.ensureFolder(path);
+                  folder = created instanceof TFolder ? created : null;
+                }
+              }
+              if (folder) this.plugin.newFolder(folder);
+            })();
+          })
+      );
+      menu.showAtMouseEvent(event);
     });
 
-    const sourcesFolder = rf.sources
-      ? this.findResearchCategoryFolder(baseResearch, rf, "sources")
-      : null;
+    const sourcesFolder = this.findResearchCategoryFolder(baseResearch, rf, "sources");
     const bibliographieFolder = this.findResearchCategoryFolder(
       baseResearch,
       rf,
       "bibliographie"
     );
-    /* Rationalisation : en non-fiction, Sources reste la SEULE
+    /* Rationalisation : Sources reste la SEULE
        bibliothèque de travail — Bibliographie devient la vue agrégée des
        sources citées (voir plus bas), plus un dossier de fiches
        manuelles. Aucune migration automatique des fichiers utilisateur
        (Phase 7) : Sources l'emporte simplement en lecture dès qu'il
        existe (services/bibliography-generator.ts, resolveBibliographySource)
        — les deux dossiers peuvent coexister sur le disque indéfiniment. */
-    /* rf.personnages/lieux/codex/glossaire/evenements n'existent plus en
-       non-fiction (voir utils/project-modes.js) — plus de dossier imposé
-       ni auto-créé pour ces catégories : à l'utilisateur de créer les
-       rubriques utiles à SON sujet via le bouton "Nouvelle rubrique". Un
-       dossier déjà existant sur le disque (ancien projet, avant ce
-       changement) continue de fonctionner : non reconnu ici, il tombe
-       simplement dans "customFolders" plus bas et reste visible avec son
-       contenu — rien n'est supprimé automatiquement. */
-    const personnagesFolder = rf.personnages
-      ? this.findResearchCategoryFolder(baseResearch, rf, "personnages")
-      : null;
-    const lieuxFolder = rf.lieux
-      ? this.findResearchCategoryFolder(baseResearch, rf, "lieux")
-      : null;
-    const codexFolder = rf.codex
-      ? this.findResearchCategoryFolder(baseResearch, rf, "codex")
-      : null;
-    const glossaireFolder = rf.glossaire
-      ? this.findResearchCategoryFolder(baseResearch, rf, "glossaire")
-      : null;
-    const chronoFolder = rf.evenements
-      ? this.plugin.getChronoFolder()
-      : null;
+    /* Chaque catégorie standard est reconnue si son dossier existe ; les
+       rubriques personnalisées restent gérées séparément ci-dessous. */
+    const personnagesFolder = this.findResearchCategoryFolder(baseResearch, rf, "personnages");
+    const lieuxFolder = this.findResearchCategoryFolder(baseResearch, rf, "lieux");
+    const codexFolder = this.findResearchCategoryFolder(baseResearch, rf, "codex");
+    const glossaireFolder = this.findResearchCategoryFolder(baseResearch, rf, "glossaire");
+    const chronoFolder = this.plugin.getChronoFolder();
+
+    if (sourcesFolder || bibliographieFolder) {
+      const citeSearchBtn = this.iconBtn(toolbar, "quote", t("shared.research.insertCitationTooltip"));
+      citeSearchBtn.addEventListener("click", () => this.plugin.openInsertCitation());
+      const renumberBtn = this.iconBtn(toolbar, "list-ordered", t("shared.research.renumberFootnotesTooltip"));
+      renumberBtn.addEventListener("click", () => this.plugin.renumberActiveFootnotes());
+    }
 
     const standardPaths = new Set([
       sourcesFolder ? sourcesFolder.path : "",
@@ -870,8 +873,8 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     this.renderAssociatedResearchFolders(body, baseResearchFolder);
 
-    if (rf.sources && sourcesFolder) {
-      /* Non-fiction : Sources est la SEULE bibliothèque de travail —
+    if (sourcesFolder) {
+      /* Sources est la SEULE bibliothèque de travail —
          icône "+" par fiche pour la citer directement (voir aussi le
          bouton "citation" de la barre d'outils, qui cherche dedans). */
       const citeRowAction = (header: HTMLElement, file: TFile) => {
@@ -884,8 +887,8 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, async () =>
         this.promptCreateResearchFile(
           sourcesFolder,
-          rf.sources!.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "sources", rf.sources!.newName)
+          rf.sources.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, "sources", rf.sources.newName)
         ), "sources", citeRowAction
       );
 
@@ -895,66 +898,66 @@ export abstract class BaseFeuilletsView extends ItemView {
          le fichier final (voir renderBibliographySection). Créer une
          nouvelle référence se fait dans Sources, jamais ici. */
       await this.renderBibliographySection(body, root, [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])]);
-    } else if (rf.bibliographie && bibliographieFolder) {
-      /* Fiction (pas de Sources, pas de système de citation) :
-         Bibliographie garde son sens d'origine — un dossier de fiches
+    } else if (bibliographieFolder) {
+      /* Sans dossier Sources, Bibliographie garde son sens d'origine —
+         un dossier de fiches
          manuelles pour des lectures complémentaires, sans lien avec le
          texte. */
       this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
         this.promptCreateResearchFile(
           bibliographieFolder,
-          rf.bibliographie!.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "bibliographie", rf.bibliographie!.newName)
+          rf.bibliographie.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, "bibliographie", rf.bibliographie.newName)
         ), "bibliographie"
       );
     }
 
-    if (rf.personnages && personnagesFolder) {
+    if (personnagesFolder) {
       this.renderSection(body, researchFolderLabel(rf, "personnages"), personnagesFolder, async () =>
         this.promptCreateResearchFile(
           personnagesFolder,
-          rf.personnages!.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "personnages", rf.personnages!.newName)
+          rf.personnages.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, "personnages", rf.personnages.newName)
         ), "personnages"
       );
     }
 
-    if (rf.lieux && lieuxFolder) {
+    if (lieuxFolder) {
       this.renderSection(body, researchFolderLabel(rf, "lieux"), lieuxFolder, async () =>
         this.promptCreateResearchFile(
           lieuxFolder,
-          rf.lieux!.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "lieux", rf.lieux!.newName)
+          rf.lieux.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, "lieux", rf.lieux.newName)
         ), "lieux"
       );
     }
 
-    if (rf.codex && codexFolder) {
+    if (codexFolder) {
       this.renderSection(body, researchFolderLabel(rf, "codex"), codexFolder, async () =>
         this.promptCreateResearchFile(
           codexFolder,
-          rf.codex!.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "codex", rf.codex!.newName)
+          rf.codex.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, "codex", rf.codex.newName)
         ), "codex"
       );
     }
 
-    if (rf.glossaire && glossaireFolder) {
+    if (glossaireFolder) {
       this.renderSection(body, researchFolderLabel(rf, "glossaire"), glossaireFolder, async () =>
         this.promptCreateResearchFile(
           glossaireFolder,
-          rf.glossaire!.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "glossaire", rf.glossaire!.newName)
+          rf.glossaire.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, "glossaire", rf.glossaire.newName)
         ), "glossaire"
       );
     }
 
-    if (rf.evenements && chronoFolder) {
+    if (chronoFolder) {
       this.renderSection(body, researchFolderLabel(rf, "evenements"), chronoFolder, async () =>
         this.promptCreateResearchFile(
           chronoFolder,
-          rf.evenements!.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, mode, "evenements", rf.evenements!.newName)
+          rf.evenements.newName,
+          await getResearchTemplate(this.app, this.plugin.settings, "evenements", rf.evenements.newName)
         ), "evenements"
       );
     }

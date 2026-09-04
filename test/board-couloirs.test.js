@@ -529,19 +529,19 @@ test("LOT5C-VISUEL — synopsis lue dans le champ SÉMANTIQUE du projet, pas dan
   /* Cas critique : l'utilisateur a choisi « Extrait » pour les cartes du Board
      (currentCardContent = "extrait") — la synopsis Fiction doit rester lue. */
   view.currentCardContent = "extrait";
-  view.lanesProjectType = "fiction";
+  view.runtimePlanningField = "synopsis";
   let container = renderCouloirs(view, root);
   const card = findFirst(container, (el) => el.classes.has("feuillets-lanes-card"));
   const synopsis = findFirst(card, (el) => el.classes.has("feuillets-lanes-card-synopsis"));
   assert.ok(synopsis, "synopsis rendue malgré currentCardContent = extrait");
   assert.equal(synopsis.text, "Synopsis de A.", "champ sémantique Fiction = synopsis");
   /* Non-fiction / Libre → résumé long. */
-  view.lanesProjectType = "nonfiction";
+  view.runtimePlanningField = "summary";
   container = renderCouloirs(view, root);
   const synopsis2 = findFirst(findFirst(container, (el) => el.classes.has("feuillets-lanes-card")), (el) => el.classes.has("feuillets-lanes-card-synopsis"));
   assert.equal(synopsis2.text, "Résumé long de A.", "champ sémantique Non-fiction = summary");
   /* Sans synopsis → aucun nœud ni espace réservé. */
-  view.lanesProjectType = "fiction";
+  view.runtimePlanningField = "synopsis";
   const files2 = [mkLaneFile("B", { pov: "Deli" })];
   const { view: v2, root: r2 } = buildLanesHarness({ files: files2 });
   v2.laneAxis = "pov";

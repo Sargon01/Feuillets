@@ -68,6 +68,7 @@ export type DefaultSettings = {
   arcsShowThreads: boolean;
   showCardTags: boolean;
   projects: string[];
+  projectTypeMigrationVersion: number;
   manuscriptTitle: string;
   manuscriptAuthor: string;
   epubLanguage: string;
@@ -284,6 +285,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   arcsShowThreads: true,
   showCardTags: false,
   projects: [],
+  projectTypeMigrationVersion: 0,
   manuscriptTitle: "",
   manuscriptAuthor: "",
   epubLanguage: "fr",

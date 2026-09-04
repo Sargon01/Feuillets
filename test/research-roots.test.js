@@ -158,7 +158,8 @@ test("split-chronology : résout sous _Feuillets pour un dossier direct et réut
   const direct = new TFolder("Articles");
   const { vault: directVault } = createFakeVault([direct]);
   const directSettings = { projectFolder: direct.path, projectMeta: { [direct.path]: { type: "free" } } };
-  assert.equal(chronologyFolderPath({ vault: directVault }, directSettings, direct), "Articles/_Feuillets/Recherche/Chronologie");
+  // La destination neuve utilise désormais la catégorie Events universelle.
+  assert.equal(chronologyFolderPath({ vault: directVault }, directSettings, direct), "Articles/_Feuillets/Recherche/Événements");
 
   for (const name of ["Chronologie", "Timeline", "Events"]) {
     const project = new TFolder("Projet");
@@ -182,14 +183,14 @@ test("split-chronology : réutilise la Recherche legacy mais privilégie la cano
   legacy.parent = root;
   const { vault } = createFakeVault([root, legacy]);
   const settings = { projectFolder: root.path, projectMeta: { [root.path]: { type: "free" } } };
-  assert.equal(chronologyFolderPath({ vault }, settings, root), "Projet/_Recherche/Chronologie");
+  assert.equal(chronologyFolderPath({ vault }, settings, root), "Projet/_Recherche/Événements");
 
   const auxiliary = new TFolder("Projet/_Feuillets");
   const canonical = new TFolder("Projet/_Feuillets/Recherche");
   auxiliary.parent = root;
   canonical.parent = auxiliary;
   const { vault: canonicalVault } = createFakeVault([root, legacy, auxiliary, canonical]);
-  assert.equal(chronologyFolderPath({ vault: canonicalVault }, settings, root), "Projet/_Feuillets/Recherche/Chronologie");
+  assert.equal(chronologyFolderPath({ vault: canonicalVault }, settings, root), "Projet/_Feuillets/Recherche/Événements");
 });
 
 test("research : normalise les identifiants d'une entité", () => {

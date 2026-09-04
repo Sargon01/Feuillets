@@ -1,11 +1,12 @@
 import { App, Modal, Notice, normalizePath, setIcon, Setting, TAbstractFile, TFile, TFolder } from "obsidian";
-import { PROJECT_MODES, projectBoardDefaults, resolveType } from "../utils/project-modes.js";
+import { PROJECT_MODES, knownProjectType, projectBoardDefaults } from "../utils/project-modes.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { ScrivenerImportModal } from "./scrivener-import-modal.js";
 import { FeuilProjectImportModal } from "./feuil-project-import-modal.js";
 import type { FeuilProjectImportPlan } from "../services/feuil-project-import-plan.js";
 import { FolderSuggest } from "./folder-suggest.js";
 import { createMinimalProject, CreateProjectError, ensureCanonicalProjectBase, initResearchSubfolders } from "../services/project-files.js";
+import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType } from "../services/project-settings.js";
 import { openFileActivatingWithCursor } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 import { ProjectConfigContent, type ProjectConfigPage } from "./project-config-content.js";
@@ -127,9 +128,16 @@ export class NewProjectModal extends Modal {
 
     const typeField = createField(t("modal.newProject.typeLabel"));
     const typeSelect = typeField.createEl("select");
-    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
-      typeSelect.createEl("option", { text: mode.label, value: key });
+    const presets = Object.entries(PROJECT_MODES);
+    for (const key of ["free", "fiction", "nonfiction"] as const) {
+      const mode = presets.find(([presetKey]) => presetKey === key)?.[1];
+      if (mode) typeSelect.createEl("option", { text: mode.label, value: key });
     }
+    typeSelect.value = "free";
+    form.createDiv({
+      cls: "setting-item-description",
+      text: t("modal.newProject.presetHelp"),
+    });
 
     const create = async () => {
       const S = this.plugin.settings;
@@ -224,6 +232,10 @@ export class OpenExistingFolderModal extends Modal {
       }
 
       const S = this.plugin.settings;
+      if (knownProjectType(S.projectMeta[path]?.type) === null) {
+        if (!S.projectMeta[path]) S.projectMeta[path] = {};
+        S.projectMeta[path].type = "free";
+      }
       if (S.projectFolder && S.projectFolder !== path && !S.projects.includes(S.projectFolder)) {
         S.projects.push(S.projectFolder);
       }
@@ -278,8 +290,10 @@ export class TransformToProjectModal extends Modal {
     typeSelect.addClass("feuillets-input-full");
     typeSelect.addClass("feuillets-field-spacer");
     typeSelect.createEl("option", { text: t("modal.transformProject.typePlaceholder"), value: "" });
-    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
-      typeSelect.createEl("option", { text: mode.label, value: key });
+    const presets = Object.entries(PROJECT_MODES);
+    for (const key of ["free", "fiction", "nonfiction"] as const) {
+      const mode = presets.find(([presetKey]) => presetKey === key)?.[1];
+      if (mode) typeSelect.createEl("option", { text: mode.label, value: key });
     }
 
     const transform = async () => {
@@ -298,6 +312,8 @@ export class TransformToProjectModal extends Modal {
       }
       if (!S.projectMeta[this.folderPath]) S.projectMeta[this.folderPath] = {};
       S.projectMeta[this.folderPath].type = chosenMode;
+      S.projectMeta[this.folderPath].planningField = planningFieldForProjectType(chosenMode);
+      S.projectMeta[this.folderPath].newSheetIncludeSources = newSheetIncludeSourcesForProjectType(chosenMode);
       const boardDefaults = projectBoardDefaults(chosenMode);
       S.projectMeta[this.folderPath].hiddenBoardModes = boardDefaults.hiddenBoardModes;
       S.projectMeta[this.folderPath].outlineCols = boardDefaults.outlineCols;
@@ -439,6 +455,10 @@ export class ManageProjectsModal extends Modal {
       if (!(folder instanceof TFolder)) {
         new Notice(t("modal.manageProjects.folderNotFound"));
         return;
+      }
+      if (knownProjectType(S.projectMeta[p]?.type) === null) {
+        if (!S.projectMeta[p]) S.projectMeta[p] = {};
+        S.projectMeta[p].type = "free";
       }
       if (!S.projectFolder) {
         S.projectFolder = p;
@@ -650,20 +670,6 @@ export class ManageProjectsModal extends Modal {
       })();
     });
 
-    detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.typeField"));
-    const typeSelect = detail.createEl("select");
-    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
-      typeSelect.createEl("option", { text: mode.label, value: key });
-    }
-    typeSelect.value = resolveType(meta.type);
-    typeSelect.addEventListener("change", () => {
-      void (async () => {
-        if (!S.projectMeta[path]) S.projectMeta[path] = {};
-        S.projectMeta[path].type = typeSelect.value;
-        await this.plugin.saveSettings();
-      })();
-    });
-
     detail.createDiv({ cls: "feuillets-notes-label" }).setText(t("modal.manageProjects.descriptionField"));
     const desc = detail.createEl("textarea", { attr: { rows: "2" } });
     desc.addClass("feuillets-grid-full-row");
@@ -696,19 +702,17 @@ export class ManageProjectsModal extends Modal {
       return S.projectMeta[path];
     };
 
-    if (resolveType(meta()?.type) === "nonfiction") {
-      new Setting(section)
-        .setName(t("settings.citationStyle.name"))
-        .addDropdown((d) => {
-          d.addOption("footnote", t("settings.citationStyle.footnote"));
-          d.addOption("parenthetical", t("settings.citationStyle.parenthetical"));
-          d.setValue(meta()?.citationStyle || "footnote");
-          d.onChange((value) => {
-            ensureMeta().citationStyle = value;
-            void this.plugin.saveSettings();
-          });
+    new Setting(section)
+      .setName(t("settings.citationStyle.name"))
+      .addDropdown((d) => {
+        d.addOption("footnote", t("settings.citationStyle.footnote"));
+        d.addOption("parenthetical", t("settings.citationStyle.parenthetical"));
+        d.setValue(meta()?.citationStyle || "footnote");
+        d.onChange((value) => {
+          ensureMeta().citationStyle = value;
+          void this.plugin.saveSettings();
         });
-    }
+      });
 
     section.createDiv({
       cls: "feuillets-settings-subhead",
