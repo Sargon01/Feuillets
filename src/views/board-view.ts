@@ -20,6 +20,7 @@ import { listSnapshotFiles } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 import { buildBoardTimelineOptionsMenu, renderBoardTimeline } from "./board-timeline.js";
+import { resolveBoardFolderScope } from "./board-scope.js";
 
 type ProjectNode = TFile | TFolder;
 export type BoardModeKey = "board" | "outline" | "arcs" | "timeline";
@@ -416,22 +417,23 @@ export class BoardView extends BaseFeuilletsView {
     container.style.fontSize = `${S.fontSize}px`;
     container.style.zoom = `${S.uiScale}%`;
 
-    const root = this.getProjectFolder();
-    if (!root) {
+    const manuscriptRoot = this.getProjectFolder();
+    if (!manuscriptRoot) {
       container.createDiv({ cls: "feuillets-empty", text: t("board.noProjectFolder") });
       return;
     }
 
-    let currentFolder = root;
+    let focusedFolder: TFolder | null = null;
     if (this.focusedFolderPath) {
       const folder = this.app.vault.getAbstractFileByPath(this.focusedFolderPath);
-      if (folder instanceof TFolder && folder.path.startsWith(root.path)) currentFolder = folder;
-      else this.focusedFolderPath = null;
+      if (folder instanceof TFolder) focusedFolder = folder;
     }
+    const scope = resolveBoardFolderScope(manuscriptRoot, focusedFolder);
+    if (this.focusedFolderPath && !scope.hasFocusedFolder) this.focusedFolderPath = null;
 
     if (!S.projectMeta) S.projectMeta = {};
-    if (!S.projectMeta[root.path]) S.projectMeta[root.path] = {};
-    const meta = S.projectMeta[root.path];
+    if (!S.projectMeta[scope.manuscriptRoot.path]) S.projectMeta[scope.manuscriptRoot.path] = {};
+    const meta = S.projectMeta[scope.manuscriptRoot.path];
     const projectType = resolveType(meta.type);
     this.lanesProjectType = projectType;
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
@@ -661,7 +663,7 @@ export class BoardView extends BaseFeuilletsView {
     if (activeMode === "board" || activeMode === "outline") {
       this.barSep(bar);
       this.iconBtn(bar, "plus", t("shared.contextMenu.newMenu"), (e: MouseEvent) => {
-        const target = activeMode === "outline" || wholeManuscript ? root : currentFolder;
+        const target = activeMode === "outline" || wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
         const menu = new Menu();
         menu.addItem((item) =>
           item.setTitle(t("binder.newSheetHere")).setIcon("file-plus").onClick(() => this.plugin.newSheet(target))
@@ -815,7 +817,7 @@ export class BoardView extends BaseFeuilletsView {
       });
     }
 
-    const flattened = this.plugin.flattenFiles(root);
+    const flattened = this.plugin.flattenFiles(scope.manuscriptRoot);
     const wcMapRaw = await this.plugin.getWordCounts(flattened);
     if (this._renderGen !== gen) return;
 
@@ -825,7 +827,7 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     const bumpTotal = (_n?: number) => {};
-    void this.plugin.wordCountOfFolder(root).then((wc: number) => {
+    void this.plugin.wordCountOfFolder(scope.manuscriptRoot).then((wc: number) => {
       void this.plugin.updateDailyStats(wc);
     });
 
@@ -833,7 +835,7 @@ export class BoardView extends BaseFeuilletsView {
       container.createDiv({ cls: "feuillets-filter-note", text: t("board.filterActiveNote") });
     }
 
-    const numbering = this.plugin.buildNumbering(root);
+    const numbering = this.plugin.buildNumbering(scope.manuscriptRoot);
 
     /* LOT 5C (micro-correctif structure) : Couloirs monte sa PROPRE
        architecture à deux niveaux — la barre d'axe vit HORS de la zone
@@ -843,30 +845,30 @@ export class BoardView extends BaseFeuilletsView {
        cette sous-vue, pour que la barre Label·Personnage·Fil·Pov·+ ne parte
        JAMAIS avec le canevas horizontal (§2/§5/§17). */
     if (activeMode === "arcs" && this.narrativeSubview === "lanes") {
-      this.renderCouloirs(container, root, currentFolder, wholeManuscript, numbering);
+      this.renderCouloirs(container, scope.manuscriptRoot, scope.currentFolder, wholeManuscript, numbering);
       return;
     }
 
     const scrollArea = container.createDiv({ cls: "feuillets-board-scroll" });
 
     if (activeMode === "board" && wholeManuscript) {
-      this.renderBoardWholeManuscript(scrollArea, root, numbering, bumpTotal);
+      this.renderBoardWholeManuscript(scrollArea, scope.manuscriptRoot, numbering, bumpTotal);
     } else if (activeMode === "board") {
-      this.renderBreadcrumbs(scrollArea, root, currentFolder);
-      this.renderBoard(scrollArea, root, currentFolder, numbering, bumpTotal);
+      this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
+      this.renderBoard(scrollArea, scope.manuscriptRoot, scope.currentFolder, numbering, bumpTotal);
     } else if (activeMode === "outline") {
-      await this.renderOutline(scrollArea, root, numbering, bumpTotal, gen);
+      await this.renderOutline(scrollArea, scope.manuscriptRoot, numbering, bumpTotal, gen);
     } else if (activeMode === "arcs") {
       /* §2/§4 : l'espace narratif (arcs) se subdivise en deux sous-vues —
          Trame (le Chemin de fer classique, gelé) et Couloirs (Scrivener).
          Couloirs n'arrive JAMAIS ici : la branche anticipée plus haut
          (renderCouloirs hors du scrollArea partagé) retourne avant ce point. */
-      this.renderCheminDeFer(scrollArea, root, numbering);
+      this.renderCheminDeFer(scrollArea, scope.manuscriptRoot, numbering);
     } else if (activeMode === "timeline") {
-      for (const file of this.plugin.flattenFiles(root)) {
+      for (const file of this.plugin.flattenFiles(scope.manuscriptRoot)) {
         if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
       }
-      this.renderTimeline(scrollArea, root, numbering);
+      this.renderTimeline(scrollArea, scope.manuscriptRoot, numbering);
     }
   }
 
