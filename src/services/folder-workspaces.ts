@@ -1,4 +1,17 @@
 import { folderPathToRelativeScope, relativeScopeToFolderPath } from "../carnet/core/folder-carnets.js";
+import type { App, TFolder } from "obsidian";
+import { getProjectFolder } from "./folder-structure.js";
+import {
+  activeProjectMeta,
+  projectDeadline,
+  projectFavoriteTags,
+  projectLabels,
+  projectSessionGoal,
+  projectStatuses,
+  projectTolerance,
+  projectTotalWordGoal,
+  projectWordGoalDefault,
+} from "./project-settings.js";
 
 export type FolderWorkspaceResolution<T> = {
   value: T | undefined;
@@ -47,4 +60,80 @@ export function resolveFolderWorkspaceValue<K extends keyof FolderWorkspaceConfi
 /** Vérifie qu'une clé relative désigne bien un dossier du projet. */
 export function workspaceScopeToFolderPath(projectRootPath: string, relativeScope: string): string | null {
   return relativeScopeToFolderPath(projectRootPath, relativeScope);
+}
+
+function workspaceValueContext(app: App, settings: FeuilletsSettings, folder: TFolder | null): {
+  root: TFolder;
+  meta: ProjectMeta | undefined;
+  folder: TFolder;
+} | null {
+  const root = getProjectFolder(app, settings);
+  if (!root || !folder) return null;
+  const relativeScope = folderPathToWorkspaceScope(root.path, folder.path);
+  if (!relativeScope) return null;
+  return { root, meta: activeProjectMeta(app, settings) || undefined, folder };
+}
+
+export function workspaceStatuses(app: App, settings: FeuilletsSettings, folder: TFolder | null): ProjectStatusEntry[] {
+  const fallback = projectStatuses(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "statuses", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceLabels(app: App, settings: FeuilletsSettings, folder: TFolder | null): Label[] {
+  const fallback = projectLabels(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "labels", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceFavoriteTags(app: App, settings: FeuilletsSettings, folder: TFolder | null): string[] {
+  const fallback = projectFavoriteTags(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "favoriteTags", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceWordGoalDefault(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const fallback = projectWordGoalDefault(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "wordGoal", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceTolerance(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const fallback = projectTolerance(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "tolerance", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceTotalWordGoal(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const fallback = projectTotalWordGoal(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "projectWordGoal", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceDeadline(app: App, settings: FeuilletsSettings, folder: TFolder | null): string {
+  const fallback = projectDeadline(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "deadlineDate", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceSessionGoal(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const fallback = projectSessionGoal(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "sessionGoal", fallback).value;
+  return value === undefined ? fallback : value;
 }
