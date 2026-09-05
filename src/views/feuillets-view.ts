@@ -4,6 +4,7 @@ import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
 import { NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal, ManageProjectsModal } from "../ui/project-modals.js";
+import { FolderWorkspaceModal } from "../ui/folder-workspace-modal.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -13,6 +14,7 @@ import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { Menu, MarkdownView, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
+import { folderPathToWorkspaceScope } from "../services/folder-workspaces.js";
 import {
   binderPreviewFieldChoices,
   binderPreviewSemanticField,
@@ -191,6 +193,22 @@ export class FeuilletsView extends BaseFeuilletsView {
           .setTitle(t("binder.isolateFolder"))
           .setIcon("focus")
           .onClick(() => this.isolateFolder(folder))
+      );
+    };
+  }
+
+  /** Configure uniquement un dossier Manuscrit descendant du projet. La
+   * racine du projet, les fichiers et Recherche ne passent pas par cette
+   * entrée : ils disposent de leurs propres menus. */
+  folderWorkspaceExtras(folder: TFolder): (menu: Menu) => void {
+    return (menu: Menu) => {
+      const projectRoot = this.plugin.getProjectFolder();
+      if (!projectRoot || !folderPathToWorkspaceScope(projectRoot.path, folder.path)) return;
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.configureWorkspace"))
+          .setIcon("sliders-horizontal")
+          .onClick(() => new FolderWorkspaceModal(this.app, this.plugin, folder).open())
       );
     };
   }
@@ -2736,6 +2754,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           this.showFolderContextMenu(e, child, parent, i, siblings, (menu) => {
             this.continuExtras(child)(menu);
             this.binderIsolateExtras(child)(menu);
+            this.folderWorkspaceExtras(child)(menu);
           });
         });
 
@@ -2910,6 +2929,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         this.showFolderContextMenu(e, treeRoot, workingParent ?? treeRoot, workingIndex, workingSiblings, (menu) => {
           this.continuExtras(treeRoot)(menu);
           this.binderIsolateExtras(treeRoot)(menu);
+          this.folderWorkspaceExtras(treeRoot)(menu);
         });
         return;
       }
