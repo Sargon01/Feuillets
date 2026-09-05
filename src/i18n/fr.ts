@@ -2324,6 +2324,13 @@ export const fr = {
   "modal.folderWorkspace.fiction": "Fiction",
   "modal.folderWorkspace.nonfiction": "Non-fiction",
   "modal.folderWorkspace.reset": "Revenir aux réglages hérités",
+  "modal.folderWorkspace.workflow": "Workflow",
+  "modal.folderWorkspace.goals": "Objectifs",
+  "modal.folderWorkspace.statuses": "Statuts",
+  "modal.folderWorkspace.labels": "Labels",
+  "modal.folderWorkspace.customize": "Personnaliser",
+  "modal.folderWorkspace.resetField": "Revenir au réglage hérité",
+  "modal.folderWorkspace.totalWordGoal": "Objectif total de l’espace",
 
   "modal.openFolder.title": "Utiliser un dossier existant tel quel",
   "modal.openFolder.desc": "Utilise ce dossier comme manuscrit sans créer, déplacer ni renommer aucun fichier.",

@@ -137,3 +137,16 @@ export function workspaceSessionGoal(app: App, settings: FeuilletsSettings, fold
   const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "sessionGoal", fallback).value;
   return value === undefined ? fallback : value;
 }
+
+/** Retourne la clé relative qui fournit un override effectif, ou null quand
+ * la valeur vient du projet/réglage global. Lecture pure, sans création. */
+export function workspaceFieldSource<K extends keyof FolderWorkspaceConfig>(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  key: K,
+): string | null {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return null;
+  return resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, key).source;
+}

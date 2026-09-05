@@ -26,6 +26,18 @@ test("workspace modal reads provenance without creating settings and applies onl
   assert.match(modalSource, /cardContent:/);
   assert.match(modalSource, /hiddenBoardModes:/);
   assert.match(modalSource, /outlineCols:/);
+  assert.match(modalSource, /modal\.folderWorkspace\.workflow/);
+  assert.match(modalSource, /modal\.folderWorkspace\.goals/);
+  assert.match(modalSource, /workspaceStatuses\(/);
+  assert.match(modalSource, /workspaceLabels\(/);
+  assert.match(modalSource, /workspaceFavoriteTags\(/);
+  assert.match(modalSource, /workspaceWordGoalDefault\(/);
+  assert.match(modalSource, /workspaceTotalWordGoal\(/);
+  assert.match(modalSource, /workspaceSessionGoal\(/);
+  assert.match(modalSource, /workspaceDeadline\(/);
+  assert.match(modalSource, /workspaceFieldSource\(/);
+  assert.match(modalSource, /saveLocalField/);
+  assert.match(modalSource, /resetLocalField/);
   assert.doesNotMatch(modalSource, /projectMeta\[projectRootPath\]\.type\s*=/);
 });
 

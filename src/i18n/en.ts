@@ -2322,6 +2322,13 @@ export const en = {
   "modal.folderWorkspace.fiction": "Fiction",
   "modal.folderWorkspace.nonfiction": "Non-fiction",
   "modal.folderWorkspace.reset": "Revert to inherited settings",
+  "modal.folderWorkspace.workflow": "Workflow",
+  "modal.folderWorkspace.goals": "Goals",
+  "modal.folderWorkspace.statuses": "Statuses",
+  "modal.folderWorkspace.labels": "Labels",
+  "modal.folderWorkspace.customize": "Customize",
+  "modal.folderWorkspace.resetField": "Revert to inherited setting",
+  "modal.folderWorkspace.totalWordGoal": "Total workspace goal",
 
   "modal.openFolder.title": "Use an existing folder as-is",
   "modal.openFolder.desc": "Uses this folder as a manuscript without creating, moving, or renaming any files.",
