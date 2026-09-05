@@ -463,6 +463,10 @@ class FeuilletsPlugin extends Plugin {
    * ce qui est normal — voir export-workflow.ts. */
   activeExportScope: CompileScope | null = null;
 
+  /** Scope de travail partagé entre le Binder et le Board, limité à la
+   * session courante et jamais persisté dans les réglages. */
+  workspaceFolderPath?: string;
+
   moveStack?: MoveHistoryEntry[];
   _ribbonDefs?: Array<{ key: string; icon: string; labelKey: string; action: () => void; hideable?: boolean }>;
   _ribbonEls?: Record<string, HTMLElement>;
@@ -3446,6 +3450,34 @@ class FeuilletsPlugin extends Plugin {
   getProjectFolder() { return getProjectFolder(this.app, this.settings); }
   projectMode() { return getProjectMode(this.app, this.settings); }
 
+  getWorkspaceFolder(): TFolder | null {
+    const projectRoot = this.getProjectFolder();
+    if (!projectRoot || !this.workspaceFolderPath) return null;
+    const folder = this.app.vault.getAbstractFileByPath(this.workspaceFolderPath);
+    const inProject =
+      folder instanceof TFolder &&
+      (folder.path === projectRoot.path || folder.path.startsWith(`${projectRoot.path}/`));
+    if (!inProject) {
+      this.workspaceFolderPath = undefined;
+      return null;
+    }
+    return folder;
+  }
+
+  setWorkspaceFolder(folder: TFolder): void {
+    const projectRoot = this.getProjectFolder();
+    const inProject =
+      projectRoot &&
+      (folder.path === projectRoot.path || folder.path.startsWith(`${projectRoot.path}/`));
+    this.workspaceFolderPath = inProject ? folder.path : undefined;
+    this.renderAllViews(true);
+  }
+
+  clearWorkspaceFolder(): void {
+    this.workspaceFolderPath = undefined;
+    this.renderAllViews(true);
+  }
+
   /**
    * Change de projet actif — UNIQUE point de passage, utilisé par la commande
    * `switch-project`, par le gestionnaire de projets du Binder et par le
@@ -3465,6 +3497,7 @@ class FeuilletsPlugin extends Plugin {
     if (!(target instanceof TFolder)) return false;
     if (path === S.projectFolder) return true;
     if (S.projectFolder && !S.projects.includes(S.projectFolder)) S.projects.push(S.projectFolder);
+    this.workspaceFolderPath = undefined;
     S.projectFolder = path;
     await this.saveSettings();
     this.renderAllViews(true);

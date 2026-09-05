@@ -209,7 +209,6 @@ export class BoardView extends BaseFeuilletsView {
     tooltip?: string,
     onClick?: (e: MouseEvent) => unknown
   ) => HTMLElement;
-  focusedFolderPath: string | null;
   currentCardContent?: string;
   private runtimePlanningField: ProjectPlanningField = "synopsis";
   /** Sous-vue de l'espace narratif (Trame/Couloirs) — état de SESSION
@@ -272,7 +271,6 @@ export class BoardView extends BaseFeuilletsView {
 
   constructor(leaf: import("obsidian").WorkspaceLeaf, plugin: BoardViewPlugin) {
     super(leaf, plugin);
-    this.focusedFolderPath = null;
   }
 
   getViewType(): string {
@@ -427,13 +425,14 @@ export class BoardView extends BaseFeuilletsView {
       return;
     }
 
-    let focusedFolder: TFolder | null = null;
-    if (this.focusedFolderPath) {
-      const folder = this.app.vault.getAbstractFileByPath(this.focusedFolderPath);
-      if (folder instanceof TFolder) focusedFolder = folder;
-    }
+    const focusedFolderCandidate =
+      typeof this.plugin.getWorkspaceFolder === "function"
+        ? this.plugin.getWorkspaceFolder()
+        : this.plugin.workspaceFolderPath
+          ? this.app.vault.getAbstractFileByPath(this.plugin.workspaceFolderPath)
+          : null;
+    const focusedFolder = focusedFolderCandidate instanceof TFolder ? focusedFolderCandidate : null;
     const scope = resolveBoardFolderScope(manuscriptRoot, focusedFolder);
-    if (this.focusedFolderPath && !scope.hasFocusedFolder) this.focusedFolderPath = null;
 
     if (!S.projectMeta) S.projectMeta = {};
     if (!S.projectMeta[scope.manuscriptRoot.path]) S.projectMeta[scope.manuscriptRoot.path] = {};
@@ -1170,20 +1169,29 @@ export class BoardView extends BaseFeuilletsView {
       breadcrumbs
         .createSpan({ cls: "feuillets-breadcrumb-link" + (isLast ? " is-active" : ""), text: f.path === root.path ? t("board.projectBreadcrumb") : f.name })
         .addEventListener("click", () => {
-          this.focusedFolderPath = f.path;
-          void this.render(true);
+          if (f.path === root.path) {
+            if (typeof this.plugin.clearWorkspaceFolder === "function") this.plugin.clearWorkspaceFolder();
+            else this.plugin.workspaceFolderPath = undefined;
+          } else if (typeof this.plugin.setWorkspaceFolder === "function") {
+            this.plugin.setWorkspaceFolder(f);
+          } else {
+            this.plugin.workspaceFolderPath = f.path;
+          }
         });
     });
   }
 
   private async focusBoardFolder(folder: TFolder): Promise<void> {
-    this.focusedFolderPath = folder.path;
+    if (typeof this.plugin.setWorkspaceFolder === "function") this.plugin.setWorkspaceFolder(folder);
+    else {
+      this.plugin.workspaceFolderPath = folder.path;
+      void this.render(true);
+    }
     const projectRoot = this.getProjectFolder();
     const projectMeta = projectRoot ? this.plugin.settings.projectMeta?.[projectRoot.path] : undefined;
     if (projectMeta) projectMeta.boardWholeManuscript = false;
     this.plugin.settings.boardWholeManuscript = false;
     await this.plugin.saveSettings();
-    void this.render(true);
   }
 
   renderBoard(container: HTMLElement, root: TFolder, currentFolder: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void): void {
@@ -1385,8 +1393,7 @@ export class BoardView extends BaseFeuilletsView {
       this.showFolderContextMenu(e, folder, parentFolder, index, siblings);
     });
     card.addEventListener("dblclick", () => {
-      this.focusedFolderPath = folder.path;
-      void this.render(true);
+      void this.focusBoardFolder(folder);
     });
 
     const folderNote = this.plugin.folderNoteFor(folder);
@@ -1409,8 +1416,7 @@ export class BoardView extends BaseFeuilletsView {
     num.setAttr("title", t("board.folderCard.clickToEnter"));
     num.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.focusedFolderPath = folder.path;
-      void this.render(true);
+      void this.focusBoardFolder(folder);
     });
 
     /* §15 : plus de nombre de mots, d'objectif affiché ni d'anneau de

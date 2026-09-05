@@ -4815,7 +4815,7 @@ test("Cartes — dossier courant navigué : la cible du « + » est ce dossier",
   const sub = new TFolder("Projet/Manuscrit/Chapitre 1");
   sub.parent = root;
   view.app.vault.getAbstractFileByPath = (p) => (p === sub.path ? sub : null);
-  view.focusedFolderPath = sub.path;
+  view.plugin.workspaceFolderPath = sub.path;
   await view.render(true);
   const plus = plusButton(contentEl);
   assert.ok(plus);

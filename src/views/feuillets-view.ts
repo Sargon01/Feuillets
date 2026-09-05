@@ -104,9 +104,9 @@ type SplitBodyCtx = {
   folderHasMatch: (f: TFolder) => boolean;
   renderFileRow: RenderFileRow;
   /** Vraie racine du projet, distincte de `root` (la racine de travail
-   * passée à renderHierarchyBody) dès qu'un dossier est isolé — voir
-   * FeuilletsView._binderWorkingRootPath. Sert à l'en-tête d'isolation et
-   * au menu contextuel de la ligne racine. */
+   * passée à renderHierarchyBody) dès qu'un dossier est isolé — voir le
+   * scope partagé. Sert à l'en-tête d'isolation et au menu contextuel de la
+   * ligne racine. */
   projectRoot: TFolder;
   /** Densité EFFECTIVE déjà résolue par render() (override de session du
    * dossier isolé, sinon settings.binderCompact) — voir
@@ -141,13 +141,6 @@ export class FeuilletsView extends BaseFeuilletsView {
   _renderGen?: number;
   _binderSearchOpen?: boolean;
   _suppressSearchBlurClose?: boolean;
-  /** Racine de travail isolée temporairement dans le Binder (chantier
-   * « isoler un dossier ») : état de SESSION uniquement — jamais enregistré
-   * dans settings, jamais lu/écrit ailleurs, ne touche jamais
-   * settings.projectFolder ni le vrai dossier projet. Disparaît au
-   * redémarrage d'Obsidian ou dès que ce chemin ne pointe plus vers un
-   * dossier du projet actif (voir getBinderWorkingRoot). */
-  _binderWorkingRootPath?: string;
   /** Densité (compact/standard) propre à une racine de travail isolée,
    * pour la durée de la SESSION uniquement — jamais dans settings, jamais
    * de nouvelle clé DEFAULT_SETTINGS, jamais de système de workspace par
@@ -155,28 +148,27 @@ export class FeuilletsView extends BaseFeuilletsView {
    * ici suit `settings.binderCompact` (voir getEffectiveBinderCompact). */
   _binderCompactOverrides?: Map<string, boolean>;
 
-  /** Racine à afficher dans le Binder : le dossier isolé s'il existe
-   * encore et appartient toujours au projet actif, sinon la racine réelle
-   * du projet. Ne modifie jamais `projectRoot` ni les réglages — se
-   * contente de réinitialiser l'isolation devenue invalide (dossier
-   * supprimé/déplacé hors projet, ou changement de projet actif). */
+  /** Racine à afficher dans le Binder : le scope partagé s'il existe encore
+   * et appartient toujours au projet actif, sinon la racine réelle du
+   * projet. */
   getBinderWorkingRoot(projectRoot: TFolder | null): TFolder | null {
     if (!projectRoot) return null;
-    if (!this._binderWorkingRootPath) return projectRoot;
-    const candidate = this.app.vault.getAbstractFileByPath(this._binderWorkingRootPath);
-    const inScope =
-      candidate instanceof TFolder &&
-      (candidate.path === projectRoot.path || candidate.path.startsWith(projectRoot.path + "/"));
-    if (!inScope) {
-      this._binderWorkingRootPath = undefined;
-      return projectRoot;
+    const sharedFolder =
+      typeof this.plugin.getWorkspaceFolder === "function"
+        ? this.plugin.getWorkspaceFolder()
+        : this.plugin.workspaceFolderPath
+          ? this.app.vault.getAbstractFileByPath(this.plugin.workspaceFolderPath)
+          : null;
+    const resolvedSharedFolder = sharedFolder instanceof TFolder ? sharedFolder : null;
+    if (!resolvedSharedFolder && typeof this.plugin.getWorkspaceFolder !== "function") {
+      this.plugin.workspaceFolderPath = undefined;
     }
-    return candidate;
+    return resolvedSharedFolder || projectRoot;
   }
 
   /** Mécanisme d'isolation UNIQUE (chantier "isoler un dossier" +
    * micro-chantier "double-clic pour isoler") : bascule
-   * _binderWorkingRootPath et redemande un rendu. Appelé aussi bien par le
+   * scope partagé et redemande un rendu. Appelé aussi bien par le
    * menu contextuel (binderIsolateExtras) que par le double-clic sur le nom
    * d'un dossier (renderTreeFolders) — jamais dupliqué. Ne déplace, ne
    * renomme, ne modifie aucun fichier. `resetScroll: true` : on entre dans
@@ -185,7 +177,8 @@ export class FeuilletsView extends BaseFeuilletsView {
    * que de conserver un décalage de pixels devenu arbitraire (voir render,
    * _resetScroll). */
   isolateFolder(folder: TFolder): void {
-    this._binderWorkingRootPath = folder.path;
+    if (typeof this.plugin.setWorkspaceFolder === "function") this.plugin.setWorkspaceFolder(folder);
+    else this.plugin.workspaceFolderPath = folder.path;
     void this.render(true, { resetScroll: true });
   }
 
@@ -800,10 +793,8 @@ export class FeuilletsView extends BaseFeuilletsView {
     const S = this.plugin.settings;
     const binderPreviewSemantic = this.getBinderPreviewSemanticField();
     /* Racine de travail (projet complet, ou dossier isolé — voir
-       _binderWorkingRootPath) calculée UNE SEULE FOIS ici et réutilisée
-       plus bas pour renderHierarchyBody : getBinderWorkingRoot a un effet
-       de bord (réinitialise l'isolation devenue invalide), la rappeler
-       plusieurs fois par rendu serait inutilement redondant. */
+       scope partagé) calculée UNE SEULE FOIS ici et réutilisée plus bas pour
+       renderHierarchyBody. */
     const workingRoot = folder ? (this.getBinderWorkingRoot(folder) || folder) : null;
     const binderCompactScope = folder && workingRoot && workingRoot.path !== folder.path ? workingRoot.path : null;
     const effectiveBinderCompact = this.getEffectiveBinderCompact(binderCompactScope);
@@ -2122,7 +2113,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     /* CORRECTIF FINAL — double vue = Library opérable + Binder 2.5 unique.
        §7 : `root` (passé par render()) EST la racine de travail
        (workingRoot) — le vrai projet si rien n'est isolé, ou le dossier
-       isolé sinon (voir _binderWorkingRootPath). `ctx.projectRoot` reste la
+       isolé sinon (voir le scope partagé). `ctx.projectRoot` reste la
        vraie racine du projet. Le critère d'isolation est TOUJOURS
        `workingRoot !== projectRoot`, jamais une comparaison avec le dossier
        choisi dans la Library (`displayRoot`, voir plus bas) — §7/§14. */
@@ -2180,8 +2171,8 @@ export class FeuilletsView extends BaseFeuilletsView {
       backIcon.setAttr("aria-label", t("binder.isolation.backToProject"));
       backIcon.addEventListener("click", (e) => {
         e.stopPropagation();
-        this._binderWorkingRootPath = undefined;
-        void this.render(true);
+        if (typeof this.plugin.clearWorkspaceFolder === "function") this.plugin.clearWorkspaceFolder();
+        else this.plugin.workspaceFolderPath = undefined;
       });
 
       // Remonte exactement d'un dossier (même sémantique que renderHierarchyBody).
@@ -2191,8 +2182,14 @@ export class FeuilletsView extends BaseFeuilletsView {
       upChevron.addEventListener("click", (e) => {
         e.stopPropagation();
         const parent = root.parent;
-        this._binderWorkingRootPath = (!parent || parent.path === projectRoot.path) ? undefined : parent.path;
-        void this.render(true);
+        if (!parent || parent.path === projectRoot.path) {
+          if (typeof this.plugin.clearWorkspaceFolder === "function") this.plugin.clearWorkspaceFolder();
+          else this.plugin.workspaceFolderPath = undefined;
+        } else if (typeof this.plugin.setWorkspaceFolder === "function") {
+          this.plugin.setWorkspaceFolder(parent);
+        } else {
+          this.plugin.workspaceFolderPath = parent.path;
+        }
       });
 
       const nameEl = rootRow.createSpan({ cls: "feuillets-folder-name feuillets-isolation-current" });
@@ -2381,7 +2378,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         /* Clic sur la ligne (plus de chevron séparé) : sélectionne TOUJOURS
            ce dossier comme displayRoot, ET bascule S.collapsed[child.path]
            s'il a de vrais sous-dossiers — jamais Continu, jamais
-           _binderWorkingRootPath (voir doc de méthode ci-dessus, §33/§34).
+           le scope partagé (voir doc de méthode ci-dessus, §33/§34).
            Un second clic replie donc sans changer la sélection puisque
            binderSelectedPath vaut déjà child.path. */
         row.addEventListener("click", () => {
@@ -2795,7 +2792,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     if (selectedFolder.path === treeRoot.path) rootRow.addClass("is-selected");
 
     /* En-tête d'isolation (chantier "isoler un dossier" —
-       _binderWorkingRootPath) : réutilise EXACTEMENT la même ligne "nom du
+       le scope partagé) : réutilise EXACTEMENT la même ligne "nom du
        projet", sans bandeau ni encadrement nouveau. Non isolé, comportement
        identique à avant (nom du projet seul). Isolé, une seule ligne
        compacte : [icône manuscrit] ‹ nom réel du dossier courant — jamais
@@ -2838,8 +2835,8 @@ export class FeuilletsView extends BaseFeuilletsView {
       backIcon.setAttr("aria-label", t("binder.isolation.backToProject"));
       backIcon.addEventListener("click", (e) => {
         e.stopPropagation();
-        this._binderWorkingRootPath = undefined;
-        void this.render(true);
+        if (typeof this.plugin.clearWorkspaceFolder === "function") this.plugin.clearWorkspaceFolder();
+        else this.plugin.workspaceFolderPath = undefined;
       });
 
       // Chevron : remonte exactement d'un dossier. Si le parent est la
@@ -2851,8 +2848,14 @@ export class FeuilletsView extends BaseFeuilletsView {
       upChevron.addEventListener("click", (e) => {
         e.stopPropagation();
         const parent = treeRoot.parent;
-        this._binderWorkingRootPath = (!parent || parent.path === projectRoot.path) ? undefined : parent.path;
-        void this.render(true);
+        if (!parent || parent.path === projectRoot.path) {
+          if (typeof this.plugin.clearWorkspaceFolder === "function") this.plugin.clearWorkspaceFolder();
+          else this.plugin.workspaceFolderPath = undefined;
+        } else if (typeof this.plugin.setWorkspaceFolder === "function") {
+          this.plugin.setWorkspaceFolder(parent);
+        } else {
+          this.plugin.workspaceFolderPath = parent.path;
+        }
       });
 
       // Nom réel du dossier isolé : casse conservée (pas d'uppercase — voir

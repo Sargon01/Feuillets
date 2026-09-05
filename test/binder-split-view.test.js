@@ -315,7 +315,7 @@ function createBlogFixture({ settingsOverrides = {}, binderWorkingRootPath } = {
   });
   view.attachDragHandlers = (...args) => calls.attachDragHandlers.push(args);
   view.updateActiveHighlight = () => {};
-  if (binderWorkingRootPath) view._binderWorkingRootPath = binderWorkingRootPath;
+  if (binderWorkingRootPath) view.plugin.workspaceFolderPath = binderWorkingRootPath;
 
   return { view, contentEl, settings, root, articles, blog, y2025, y2026, brouillons, newsletter, articleA, articleB, calls };
 }
@@ -561,7 +561,7 @@ test("clic dossier gauche (2026, sans sous-dossier) : sélection seule, aucun Co
   const row2026 = findAll(treePane, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root")).find(
     (r) => findAll(r, (el) => el.classes.has("feuillets-folder-name"))[0]?.text === "2026"
   );
-  const before = view._binderWorkingRootPath;
+  const before = view.plugin.workspaceFolderPath;
   view.render = async () => {};
   row2026.events.get("click")();
   await flush();
@@ -570,7 +570,7 @@ test("clic dossier gauche (2026, sans sous-dossier) : sélection seule, aucun Co
   assert.equal(settings.collapsed[y2026.path], undefined, "2026 n'a pas de sous-dossier : rien à replier");
   assert.equal(openFolderInContinuCalled, false);
   assert.equal(isolateFolderCalled, false);
-  assert.equal(view._binderWorkingRootPath, before, "_binderWorkingRootPath jamais modifié par un clic gauche");
+  assert.equal(view.plugin.workspaceFolderPath, before, "le scope partagé n'est jamais modifié par un clic gauche");
 });
 
 /* --- §37 : Library gauche sans icône folder/folder-open --- */
@@ -599,7 +599,7 @@ test("double-clic sur 2026 à droite isole réellement : workingRoot devient 202
   row2026.events.get("dblclick")({ preventDefault() {} });
   await flush();
 
-  assert.equal(view._binderWorkingRootPath, y2026.path);
+  assert.equal(view.plugin.workspaceFolderPath, y2026.path);
 
   await FeuilletsView.prototype.render.call(view, true);
   const rootRow = findAll(contentEl, (el) => el.classes.has("feuillets-tree-root"))[0];
