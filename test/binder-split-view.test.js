@@ -272,17 +272,7 @@ function createBlogFixture({ settingsOverrides = {}, binderWorkingRootPath } = {
   const calls = { newFolder: [], newSheet: [], attachDragHandlers: [], moveNode: [], renderAllViews: [], adjustSidebarWidth: 0 };
 
   const contentEl = new FakeElement();
-  const view = new FeuilletsView({
-    app: {
-      vault: makeVault(allFiles),
-      workspace: {
-        setActiveLeaf: () => {},
-        getLeaf: (kind, dir) => ({ id: `leaf-${kind || "default"}-${dir || ""}`, openFile: async () => {} }),
-        revealLeaf: async () => {},
-      },
-    },
-    contentEl,
-  }, {
+  const plugin = {
     settings,
     getProjectFolder: () => root,
     getResearchRoot: () => null,
@@ -312,12 +302,23 @@ function createBlogFixture({ settingsOverrides = {}, binderWorkingRootPath } = {
     setLinkedResearchFolder: async () => {},
     removeLinkedResearchFolder: async () => {},
     dragState: null,
-  });
+  };
+  const view = new FeuilletsView({
+    app: {
+      vault: makeVault(allFiles),
+      workspace: {
+        setActiveLeaf: () => {},
+        getLeaf: (kind, dir) => ({ id: `leaf-${kind || "default"}-${dir || ""}`, openFile: async () => {} }),
+        revealLeaf: async () => {},
+      },
+    },
+    contentEl,
+  }, plugin);
   view.attachDragHandlers = (...args) => calls.attachDragHandlers.push(args);
   view.updateActiveHighlight = () => {};
   if (binderWorkingRootPath) view.plugin.workspaceFolderPath = binderWorkingRootPath;
 
-  return { view, contentEl, settings, root, articles, blog, y2025, y2026, brouillons, newsletter, articleA, articleB, calls };
+  return { view, contentEl, plugin, settings, root, articles, blog, y2025, y2026, brouillons, newsletter, articleA, articleB, calls };
 }
 
 /* --- §38-39 : dispatch de mode + hiérarchie --- */
@@ -390,16 +391,17 @@ test("sélectionner un dossier gauche pilote le volet droit, sans Continu ni iso
 });
 
 test("volet droit liste le contenu du dossier sélectionné (renderFileRow 2.5)", async () => {
-  const { view, contentEl, settings, feuillet1, feuillet2 } = createSplitFixture({
-    settingsOverrides: { binderSelectedPath: "NEFES/El Hamdulillah", binderSplitRecursive: false },
+  const { view, contentEl, plugin, settings, feuillet1, feuillet2 } = createSplitFixture({
+    settingsOverrides: { binderSelectedPath: "NEFES", binderSplitRecursive: false },
   });
+  plugin.workspaceFolderPath = "NEFES/El Hamdulillah";
   await view.render(true);
   const listPane = findAll(contentEl, (el) => el.classes.has("feuillets-list-pane"))[0];
   const items = findAll(listPane, (el) => el.classes.has("feuillets-item"));
   const paths = items.map((el) => el.attrs["data-path"]);
   assert.ok(paths.includes(feuillet1.path));
   assert.ok(paths.includes(feuillet2.path));
-  assert.equal(settings.binderSelectedPath, "NEFES/El Hamdulillah");
+  assert.equal(settings.binderSelectedPath, "NEFES", "binderSelectedPath reste distinct du workspace actif");
 });
 
 /* --- §30 : un seul moteur Binder — plus de renderFilesOf --- */
@@ -413,7 +415,8 @@ test("renderFilesOf n'existe plus dans la vue (une seule source, feuillets-view.
 /* --- §31 : Blog — le dossier choisi n'est pas répété à droite, profondeur locale --- */
 
 test("Blog choisi à gauche : Blog n'est pas répété à droite, 2025/2026/Brouillons à profondeur locale 0", async () => {
-  const { view, contentEl } = createBlogFixture();
+  const { view, contentEl, plugin, blog } = createBlogFixture();
+  plugin.workspaceFolderPath = blog.path;
   await view.render(true);
 
   const listPane = findAll(contentEl, (el) => el.classes.has("feuillets-list-pane"))[0];
@@ -432,6 +435,22 @@ test("Blog choisi à gauche : Blog n'est pas répété à droite, 2025/2026/Brou
   assert.equal(depthOf("2025"), "0");
   assert.equal(depthOf("2026"), "0");
   assert.equal(depthOf("Brouillons"), "0");
+});
+
+test("workspace imbriqué : la Library reste globale et le volet droit reste local", async () => {
+  const { view, contentEl, plugin, y2026, articleA, articleB } = createBlogFixture();
+  plugin.workspaceFolderPath = y2026.path;
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const globalNames = findAll(treePane, (el) => el.classes.has("feuillets-folder-name")).map((el) => el.text);
+  assert.ok(globalNames.includes("Blog"));
+  assert.ok(globalNames.includes("2026"));
+
+  const listPane = findAll(contentEl, (el) => el.classes.has("feuillets-list-pane"))[0];
+  const rightItems = findAll(listPane, (el) => el.classes.has("feuillets-item")).map((el) => el.attrs["data-path"]);
+  assert.deepEqual(rightItems, [articleA.path, articleB.path]);
+  assert.equal(findAll(listPane, (el) => el.classes.has("feuillets-folder-row")).length, 0);
 });
 
 /* --- §32 : sous-dossier à droite = vraie ligne Binder 2.5 --- */
@@ -549,7 +568,7 @@ test("second clic Blog à gauche : replie sans changer la sélection", async () 
   assert.equal(settings.binderSelectedPath, blog.path, "la sélection ne bouge jamais au clic sur le même dossier");
 });
 
-test("clic dossier gauche (2026, sans sous-dossier) : sélection seule, aucun Continu, aucune isolation", async () => {
+test("clic dossier gauche (2026, sans sous-dossier) : active le workspace, sans Continu ni isolation", async () => {
   const { view, contentEl, settings, y2026 } = createBlogFixture();
   let openFolderInContinuCalled = false;
   let isolateFolderCalled = false;
@@ -561,7 +580,6 @@ test("clic dossier gauche (2026, sans sous-dossier) : sélection seule, aucun Co
   const row2026 = findAll(treePane, (el) => el.classes.has("feuillets-folder-row") && !el.classes.has("feuillets-tree-root")).find(
     (r) => findAll(r, (el) => el.classes.has("feuillets-folder-name"))[0]?.text === "2026"
   );
-  const before = view.plugin.workspaceFolderPath;
   view.render = async () => {};
   row2026.events.get("click")();
   await flush();
@@ -570,7 +588,7 @@ test("clic dossier gauche (2026, sans sous-dossier) : sélection seule, aucun Co
   assert.equal(settings.collapsed[y2026.path], undefined, "2026 n'a pas de sous-dossier : rien à replier");
   assert.equal(openFolderInContinuCalled, false);
   assert.equal(isolateFolderCalled, false);
-  assert.equal(view.plugin.workspaceFolderPath, before, "le scope partagé n'est jamais modifié par un clic gauche");
+  assert.equal(view.plugin.workspaceFolderPath, y2026.path, "le clic gauche active le scope partagé");
 });
 
 /* --- §37 : Library gauche sans icône folder/folder-open --- */
@@ -588,7 +606,7 @@ test("aucune icône folder/folder-open sur les dossiers enfants de la Library ga
 
 /* --- §38 : isolation réelle depuis le volet droit --- */
 
-test("double-clic sur 2026 à droite isole réellement : workingRoot devient 2026", async () => {
+test("double-clic sur 2026 à droite active le workspace sans réduire la Library globale", async () => {
   const { view, contentEl, settings, blog, y2026 } = createBlogFixture();
   await view.render(true);
   const listPane = findAll(contentEl, (el) => el.classes.has("feuillets-list-pane"))[0];
@@ -604,7 +622,7 @@ test("double-clic sur 2026 à droite isole réellement : workingRoot devient 202
   await FeuilletsView.prototype.render.call(view, true);
   const rootRow = findAll(contentEl, (el) => el.classes.has("feuillets-tree-root"))[0];
   const backIcon = findAll(rootRow, (el) => el.icon === "files")[0];
-  assert.ok(backIcon, "retour au projet disponible dans la Library en isolation");
+  assert.equal(backIcon, undefined, "la Library reste globale et n'affiche pas de retour d'isolation");
   assert.equal(settings.binderSelectedPath, blog.path, "binderSelectedPath reste inchangé par l'isolation elle-même");
 });
 
@@ -866,10 +884,11 @@ test("clic droit sur un dossier Vault non lié : Utiliser comme dossier Recherch
   const doc = new TFolder("Documentation");
   doc.children = [soufisme];
   const selectedPath = "NEFES/El Hamdulillah";
-  const { view, contentEl, calls } = createSplitFixture({
+  const { view, contentEl, calls, plugin } = createSplitFixture({
     vaultChildren: [doc],
     settingsOverrides: { binderSelectedPath: selectedPath, collapsed: {} },
   });
+  plugin.workspaceFolderPath = selectedPath;
   await view.render(true);
   const docRow = findAll(contentEl, (el) => el.classes.has("feuillets-binder-research-row")).find(
     (el) => findAll(el, (n) => n.classes.has("feuillets-folder-name"))[0]?.text === "Documentation"
@@ -912,6 +931,7 @@ test("clic droit sur un dossier Vault déjà lié : Retirer le dossier Recherche
     vaultChildren: [doc],
     settingsOverrides: { binderSelectedPath: selectedPath, collapsed: {} },
   });
+  plugin.workspaceFolderPath = selectedPath;
   plugin.getLinkedResearchFolder = (node) => (node.path === selectedPath ? soufisme : null);
   await view.render(true);
   const docRow = findAll(contentEl, (el) => el.classes.has("feuillets-binder-research-row")).find(

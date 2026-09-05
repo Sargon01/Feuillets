@@ -1498,7 +1498,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         binderCompact: effectiveBinderCompact,
       };
       if (S.binderLayout === "split") {
-        this.renderSplitBody(container, workingRoot, hierarchyCtx);
+        this.renderSplitBody(container, folder, hierarchyCtx);
       } else {
         this.renderHierarchyBody(container, workingRoot, hierarchyCtx);
       }
@@ -2110,14 +2110,18 @@ export class FeuilletsView extends BaseFeuilletsView {
 
   renderSplitBody(container: HTMLElement, root: TFolder, ctx: SplitBodyCtx): void {
     const { S, binderCompact, projectRoot } = ctx;
-    /* CORRECTIF FINAL — double vue = Library opérable + Binder 2.5 unique.
-       §7 : `root` (passé par render()) EST la racine de travail
-       (workingRoot) — le vrai projet si rien n'est isolé, ou le dossier
-       isolé sinon (voir le scope partagé). `ctx.projectRoot` reste la
-       vraie racine du projet. Le critère d'isolation est TOUJOURS
-       `workingRoot !== projectRoot`, jamais une comparaison avec le dossier
-       choisi dans la Library (`displayRoot`, voir plus bas) — §7/§14. */
-    const isIsolated = root.path !== projectRoot.path;
+    /* Double vue : la Library gauche reste toujours l'arborescence globale
+       du projet. Le contenu droit suit uniquement le scope partagé. */
+    const activeFolder = this.getBinderWorkingRoot(projectRoot) || projectRoot;
+    const isIsolated = false;
+
+    // Sélection structurelle conservée pour les flux historiques de
+    // Recherche ; elle ne pilote ni le workspace ni le contenu droit.
+    let selected = this.app.vault.getAbstractFileByPath(S.binderSelectedPath || "");
+    const selectedInProject = (f: unknown): f is TFolder =>
+      f instanceof TFolder && (f.path === projectRoot.path || f.path.startsWith(projectRoot.path + "/"));
+    if (!selectedInProject(selected)) selected = projectRoot;
+    const selectedFolder = asFolder(selected);
 
     const split = container.createDiv({ cls: "feuillets-split" });
     split.style.setProperty("--feuillets-tree-w", `${S.binderTreeWidth || 170}px`);
@@ -2145,24 +2149,25 @@ export class FeuilletsView extends BaseFeuilletsView {
       document.addEventListener("mouseup", onUp);
     });
 
-    // Dossier sélectionné : doit appartenir à `root`, sinon repli sur root.
-    let selected = this.app.vault.getAbstractFileByPath(S.binderSelectedPath || "");
-    const inScope = (f: unknown): f is TFolder =>
-      f instanceof TFolder && (f.path === root.path || f.path.startsWith(root.path + "/"));
-    if (!inScope(selected)) selected = root;
-    const selectedFolder = asFolder(selected);
-
     const selectFolder = async (folder: TFolder) => {
       S.binderSelectedPath = folder.path;
       await this.plugin.saveSettings();
-      void this.render(true);
+      if (folder.path === projectRoot.path) {
+        if (typeof this.plugin.clearWorkspaceFolder === "function") this.plugin.clearWorkspaceFolder();
+        else this.plugin.workspaceFolderPath = undefined;
+      } else if (typeof this.plugin.setWorkspaceFolder === "function") {
+        this.plugin.setWorkspaceFolder(folder);
+      } else {
+        this.plugin.workspaceFolderPath = folder.path;
+        void this.render(true);
+      }
     };
 
     // ---- Racine de la Library (racine du projet, ou racine de travail
     // isolée — §15 : mêmes contrôles/callbacks d'isolation que la vue
     // simple, réutilisés ici plutôt que dupliqués). ----
     const rootRow = treePane.createDiv({ cls: "feuillets-folder-row feuillets-tree-root" });
-    if (selectedFolder.path === root.path) rootRow.addClass("is-selected");
+    if (activeFolder.path === root.path) rootRow.addClass("is-selected");
 
     if (isIsolated) {
       // Retour immédiat au projet complet (même helper que la vue simple).
@@ -2339,7 +2344,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (depth === 0) row.addClass("is-depth-0");
         row.style.paddingLeft = `${6 + depth * 14}px`;
         row.setAttr("data-path", child.path);
-        if (selectedFolder.path === child.path) row.addClass("is-selected");
+        if (activeFolder.path === child.path) row.addClass("is-selected");
 
         const childFolders = this.plugin.getOrderedChildren(child).filter((c) => c instanceof TFolder);
         const childCollapsed = !!S.collapsed[child.path];
@@ -2375,21 +2380,15 @@ export class FeuilletsView extends BaseFeuilletsView {
           menu.showAtMouseEvent(e);
         });
 
-        /* Clic sur la ligne (plus de chevron séparé) : sélectionne TOUJOURS
-           ce dossier comme displayRoot, ET bascule S.collapsed[child.path]
-           s'il a de vrais sous-dossiers — jamais Continu, jamais
-           le scope partagé (voir doc de méthode ci-dessus, §33/§34).
-           Un second clic replie donc sans changer la sélection puisque
-           binderSelectedPath vaut déjà child.path. */
+        /* Clic sur la ligne : active ce dossier dans le workspace partagé et
+           conserve le comportement historique de repli/dépli. */
         row.addEventListener("click", () => {
           void (async () => {
-            S.binderSelectedPath = child.path;
             if (childFolders.length > 0) {
               if (S.collapsed[child.path]) delete S.collapsed[child.path];
               else S.collapsed[child.path] = true;
             }
-            await this.plugin.saveSettings();
-            void this.render(true);
+            await selectFolder(child);
           })();
         });
 
@@ -2444,7 +2443,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       };
 
       /* Clic droit sur un dossier Vault : associe/retire ce dossier comme
-         dossier Recherche de `selectedFolder` — DÉJÀ le dossier Binder
+         dossier Recherche du workspace actif
          choisi par renderSplitBody(), aucun modal de sélection nécessaire.
          N'altère jamais S.binderSelectedPath (voir plugin.setLinkedResearchFolder/
          removeLinkedResearchFolder, main.ts). */
@@ -2554,20 +2553,19 @@ export class FeuilletsView extends BaseFeuilletsView {
       renderVaultFolder(this.app.vault.getRoot(), 0);
     }
 
-    // ---- Volet droit : contenu de `selectedFolder` (le `displayRoot` choisi
-    // dans la Library, §7/§8) rendu par le moteur PARTAGÉ du Binder 2.5
-    // (§5/§9/§10) — jamais un second renderer. `selectedFolder` lui-même
+    // ---- Volet droit : contenu du workspace actif rendu par le moteur
+    // PARTAGÉ du Binder 2.5 — jamais un second renderer. Le dossier actif
     // n'est jamais répété comme ligne (§9, façon Ulysses) : on rend
     // directement SES enfants, à la profondeur locale 0 (§10) —
     // `collapseCheckRoot = null` (§12) : son éventuel état `collapsed` ne
     // doit jamais masquer silencieusement ses fichiers directs, faute de
     // chevron ici pour le rouvrir ; ses sous-dossiers gardent normalement
     // leur propre état `collapsed`. Aucune section globale (Versions…) —
-    // §13, ce volet ne représente QUE le contenu de `selectedFolder`. */
+    // §13, ce volet ne représente QUE le contenu du workspace actif. */
     const listBody = listPane.createDiv({ cls: "feuillets-list" });
 
-    const rightHierarchy = this.renderHierarchyContents(listBody, ctx, selectedFolder, null);
-    rightHierarchy.render(selectedFolder, 0);
+    const rightHierarchy = this.renderHierarchyContents(listBody, ctx, activeFolder, null);
+    rightHierarchy.render(activeFolder, 0);
     if (rightHierarchy.rowsRendered() === 0) {
       listBody
         .createDiv({ cls: "feuillets-empty" })
