@@ -1922,6 +1922,7 @@ export const en = {
   "modal.stats.readingTime": "Reading time",
   "modal.stats.minutes": "{count} min",
   "modal.stats.wholeProject": "Whole project",
+  "modal.stats.workspace": "Workspace — {name}",
   "modal.stats.deadline": "Deadline",
   "modal.stats.daysLeft": "Days left",
   "modal.stats.dailyQuota": "Daily quota",

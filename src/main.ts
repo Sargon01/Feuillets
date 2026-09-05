@@ -16,7 +16,7 @@ import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
-import { migrateLegacyProjectTypes, projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
+import { migrateLegacyProjectTypes } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
@@ -60,7 +60,7 @@ import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tags
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
-import { workspaceLabelColor, workspaceStatusColor } from "./services/folder-workspaces.js";
+import { workspaceLabelColor, workspaceStatusColor, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
 import { chronologyFolderPath, getChronoFolder, getResearchRoot, researchFolderPath, migrateLegacyResearchEntries, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
 import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
@@ -2647,9 +2647,9 @@ class FeuilletsPlugin extends Plugin {
     const wc = countWords(body);
     const fm = this.fmOf(file);
     const g = parseInt(String(fm.goal), 10);
-    const goal = isNaN(g) ? projectWordGoalDefault(this.app, this.settings) : g;
+    const goal = isNaN(g) ? workspaceWordGoalDefault(this.app, this.settings, file.parent) : g;
     this._concCounterEl.setText(goal > 0 ? `${wc} / ${goal}` : String(wc));
-    const tol = projectTolerance(this.app, this.settings);
+    const tol = workspaceTolerance(this.app, this.settings, file.parent);
     this._concCounterEl.removeClass("feuillets-status-hit");
     this._concCounterEl.removeClass("feuillets-status-over");
     if (goal > 0) {
@@ -3174,7 +3174,7 @@ class FeuilletsPlugin extends Plugin {
     const wc = countWords(content);
     const chars = stripWritingNoise(content).length;
     const g = parseInt(String(this.fmOf(file).goal), 10);
-    const goal = isNaN(g) ? projectWordGoalDefault(this.app, this.settings) : g;
+    const goal = isNaN(g) ? workspaceWordGoalDefault(this.app, this.settings, file.parent) : g;
     let txt = goal > 0 ? t("main.statusBar.wordsWithGoal", { wc: String(wc), goal: String(goal) }) : t("main.statusBar.words", { wc: String(wc) });
     txt += ` · ${t("main.statusBar.chars", { count: formatNumber(chars) })}`;
     const key = todayKey();
@@ -3187,7 +3187,7 @@ class FeuilletsPlugin extends Plugin {
     this.statusEl.setText(txt);
     this.statusEl.removeClass("feuillets-status-hit");
     this.statusEl.removeClass("feuillets-status-over");
-    const tol = projectTolerance(this.app, this.settings);
+    const tol = workspaceTolerance(this.app, this.settings, file.parent);
     if (goal > 0) {
       if (wc >= goal - tol && wc <= goal + tol) this.statusEl.addClass("feuillets-status-hit");
       else if (wc > goal + tol) this.statusEl.addClass("feuillets-status-over");
@@ -5153,7 +5153,7 @@ class FeuilletsPlugin extends Plugin {
         new Notice(t("main.notice.sheetNameExists"));
         return;
       }
-      const content = sheetFrontmatter(this.app, this.settings, chapTitle || "", 0);
+      const content = sheetFrontmatter(this.app, this.settings, chapTitle || "", 0, folder);
       const file = await this.app.vault.create(path, content);
       const others = this.getOrderedChildren(folder).filter((c) => c.path !== file.path);
       const at = Math.max(0, Math.min(insertIndex, others.length));

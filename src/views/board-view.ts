@@ -1,6 +1,7 @@
 import { Menu, Modal, Setting, TAbstractFile, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
 import { VIEW_BOARD, BOARD_MODES } from "../constants.js";
-import { projectPlanningField, projectWordGoalDefault, type ProjectPlanningField } from "../services/project-settings.js";
+import { projectPlanningField, type ProjectPlanningField } from "../services/project-settings.js";
+import { workspaceWordGoalDefault } from "../services/folder-workspaces.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
 import { parseStoryDate, stripMarkdown } from "../utils/core.js";
@@ -380,7 +381,7 @@ export class BoardView extends BaseFeuilletsView {
       const wc = this.wcMap.get(file.path);
       const goal = this.goalFor(file);
       if (wc !== undefined && goal > 0) {
-        const state = this.ringState(wc, goal);
+        const state = this.ringState(wc, goal, file.parent);
         if (progressFilter === "Atteint" && state !== "hit") return false;
         if (progressFilter === "En dessous" && state !== "under") return false;
         if (progressFilter === "Dépassé" && state !== "over") return false;
@@ -1107,7 +1108,7 @@ export class BoardView extends BaseFeuilletsView {
     const input = parent.createEl("input", {
       cls: "feuillets-goal-input",
       type: "number",
-      attr: { min: "0", placeholder: String(projectWordGoalDefault(this.app, this.plugin.settings)) },
+      attr: { min: "0", placeholder: String(workspaceWordGoalDefault(this.app, this.plugin.settings, file.parent)) },
     });
     if (fm.goal !== undefined) input.value = toValue(fm.goal);
     input.addEventListener("change", () => {
@@ -2403,7 +2404,7 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   /** Valeur de tri Objectif : le goal EXPLICITE du feuillet, jamais le défaut
-   * projet (projectWordGoalDefault). Absent, vide ou non numérique → vide,
+   * workspace (workspaceWordGoalDefault). Absent, vide ou non numérique → vide,
    * donc TOUJOURS trié en dernier, dans les deux directions. 0 explicitement
    * défini est une vraie valeur numérique (>= 0, jamais « vide »). */
   private outlineGoalSortValue(file: TFile): string | number {
@@ -2709,7 +2710,7 @@ export class BoardView extends BaseFeuilletsView {
       goal: (cell) => this.makeGoalInput(cell, file),
       progress: (cell) => {
         const ring = cell.createDiv({ cls: "feuillets-ring" });
-        this.fillRing(ring, wc, this.goalFor(file));
+        this.fillRing(ring, wc, this.goalFor(file), file.parent);
       }
     });
   }

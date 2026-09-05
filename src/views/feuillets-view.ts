@@ -1159,7 +1159,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         const entry = wcCache.get(file.path);
         const goal = this.goalFor(file);
         if (entry !== undefined && goal > 0) {
-          const state = this.ringState(entry.wc, goal);
+          const state = this.ringState(entry.wc, goal, file.parent);
           if (pf === "Atteint" && state !== "hit") return false;
           if (pf === "En dessous" && state !== "under") return false;
           if (pf === "Dépassé" && state !== "over") return false;

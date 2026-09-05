@@ -1924,6 +1924,7 @@ export const fr = {
   "modal.stats.readingTime": "Temps de lecture",
   "modal.stats.minutes": "{count} min",
   "modal.stats.wholeProject": "Projet entier",
+  "modal.stats.workspace": "Espace — {name}",
   "modal.stats.deadline": "Date limite",
   "modal.stats.daysLeft": "Jours restants",
   "modal.stats.dailyQuota": "Quota quotidien",

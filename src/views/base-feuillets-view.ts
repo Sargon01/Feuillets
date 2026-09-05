@@ -1,5 +1,5 @@
 import { VIEW_SCRIVENINGS } from "../constants.js";
-import { projectWordGoalDefault, projectTolerance } from "../services/project-settings.js";
+import { workspaceTolerance, workspaceWordGoalDefault } from "../services/folder-workspaces.js";
 import { writeLogicalFrontmatterField, isMappableField } from "../services/frontmatter.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
@@ -2873,23 +2873,23 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   goalFor(file: TFile): number {
     const g = parseInt(String(this.fm(file).goal), 10);
-    return isNaN(g) ? projectWordGoalDefault(this.app, this.plugin.settings) : g;
+    return isNaN(g) ? workspaceWordGoalDefault(this.app, this.plugin.settings, file.parent) : g;
   }
 
-  ringState(wc: number, goal: number): "none" | "hit" | "over" | "under" {
-    const tol = projectTolerance(this.app, this.plugin.settings);
+  ringState(wc: number, goal: number, folder: TFolder | null = null): "none" | "hit" | "over" | "under" {
+    const tol = workspaceTolerance(this.app, this.plugin.settings, folder);
     if (goal <= 0) return "none";
     if (wc >= goal - tol && wc <= goal + tol) return "hit";
     if (wc > goal + tol) return "over";
     return "under";
   }
 
-  fillRing(ring: HTMLElement, wc: number, goal: number): void {
+  fillRing(ring: HTMLElement, wc: number, goal: number, folder: TFolder | null = null): void {
     const pct = goal > 0 ? Math.min(100, Math.round((wc / goal) * 100)) : 0;
     ring.style.setProperty("--pct", `${pct}%`);
     ring.removeClass("feuillets-ring-hit");
     ring.removeClass("feuillets-ring-over");
-    const state = this.ringState(wc, goal);
+    const state = this.ringState(wc, goal, folder);
     if (state === "hit" || state === "over")
       ring.addClass(`feuillets-ring-${state}`);
   }

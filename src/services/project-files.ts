@@ -15,7 +15,8 @@ import {
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
-import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType, projectNewSheetIncludeSources, projectPlanningField, projectWordGoalDefault } from "./project-settings.js";
+import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType, projectNewSheetIncludeSources, projectPlanningField } from "./project-settings.js";
+import { workspaceWordGoalDefault } from "./folder-workspaces.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyModeDefaults, resolveType, PROJECT_MODES, RESEARCH_FOLDERS, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
 
@@ -829,7 +830,7 @@ export function newFolder(app: App, parent: TFolder, onDone?: () => void): void 
  * création programmatique (Plan → Binder, voir carnet/bridges/binder.ts).
  * `position` est l'`order:` à inscrire ; l'appelant le calcule selon son
  * contexte (fin de dossier pour newSheet, position planifiée pour le Plan). */
-export function sheetFrontmatter(app: App, settings: FeuilletsSettings, title: string, position: number): string {
+export function sheetFrontmatter(app: App, settings: FeuilletsSettings, title: string, position: number, folder: TFolder | null = null): string {
   const planningField = projectPlanningField(app, settings);
   const includeSources = projectNewSheetIncludeSources(app, settings);
   return [
@@ -840,7 +841,7 @@ export function sheetFrontmatter(app: App, settings: FeuilletsSettings, title: s
     `${planningField}: `,
     "status: ",
     "label: ",
-    `goal: ${projectWordGoalDefault(app, settings)}`,
+    `goal: ${workspaceWordGoalDefault(app, settings, folder)}`,
     "tags: ",
     "date: ",
     "notes: ",
@@ -868,7 +869,7 @@ export async function createSheetFile(
 ): Promise<TFile> {
   const path = normalizePath(`${folder.path}/${fileName}.md`);
   if (app.vault.getAbstractFileByPath(path)) throw new Error(`Sheet already exists: ${path}`);
-  return app.vault.create(path, sheetFrontmatter(app, settings, title, position));
+  return app.vault.create(path, sheetFrontmatter(app, settings, title, position, folder));
 }
 
 export type NewSheetOptions = Readonly<{
