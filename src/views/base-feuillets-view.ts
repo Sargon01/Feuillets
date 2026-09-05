@@ -1,4 +1,4 @@
-import { getProjectStatuses, VIEW_SCRIVENINGS } from "../constants.js";
+import { VIEW_SCRIVENINGS } from "../constants.js";
 import { projectWordGoalDefault, projectTolerance } from "../services/project-settings.js";
 import { writeLogicalFrontmatterField, isMappableField } from "../services/frontmatter.js";
 import { foldAccents } from "../utils/core.js";
@@ -20,6 +20,7 @@ import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view
 import { createFolderScope, createSelectionScope, compileScopesEqual, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { RESEARCH_FOLDERS, researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
+import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
 import { t } from "../i18n/index.js";
 import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
@@ -311,11 +312,9 @@ export abstract class BaseFeuilletsView extends ItemView {
       .onClick(() => void candidate.openFolderCarnet!(folder)));
   }
 
-  getProjectLabels(): Label[] {
-    const S = this.plugin.settings;
-    const root = this.plugin.getProjectFolder();
-    const meta = root ? S.projectMeta[root.path] : null;
-    return (meta && meta.labels) ? meta.labels : (S.labels || []);
+  getProjectLabels(folder: TFolder | null = null): Label[] {
+    const context = folder || this.plugin.getWorkspaceFolder?.() || this.plugin.getProjectFolder();
+    return workspaceLabels(this.app, this.plugin.settings, context);
   }
   async render(_force?: boolean): Promise<void> {}
 
@@ -540,13 +539,13 @@ export abstract class BaseFeuilletsView extends ItemView {
     const sel = parent.createEl("select", { cls: "feuillets-status" });
     const none = sel.createEl("option", { text: "—" });
     none.value = "";
-    for (const l of this.getProjectLabels()) {
+    for (const l of this.getProjectLabels(file.parent)) {
       const opt = sel.createEl("option", { text: l.name });
       opt.value = l.name;
     }
     sel.value = current;
     sel.setAttr("title", current || t("shared.label.none"));
-    const color = current ? this.plugin.labelColor(current) : null;
+    const color = current ? this.plugin.labelColor(current, file.parent) : null;
     if (color) sel.style.borderLeft = `4px solid ${color}`;
     sel.addEventListener("change", () => {
       void (async () => {
@@ -560,7 +559,9 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   makeStatusSelect(parent: HTMLElement, file: TFile): HTMLSelectElement {
     const fm = this.fm(file);
-    const statuses = getProjectStatuses(this.app, this.plugin ? this.plugin.settings : null);
+    const statuses = ["", ...workspaceStatuses(this.app, this.plugin.settings, file.parent)
+      .map((status) => status.name?.trim() || "")
+      .filter(Boolean)];
     const sel = parent.createEl("select", { cls: "feuillets-status" });
     for (const s of statuses) {
       const opt = sel.createEl("option", { text: s || "—" });
@@ -2459,7 +2460,9 @@ export abstract class BaseFeuilletsView extends ItemView {
     menu.addSeparator();
 
     const currentStatus = (this.fm(file).status as string) || "";
-    const allStatuses = getProjectStatuses(this.app, this.plugin ? this.plugin.settings : null);
+    const allStatuses = ["", ...workspaceStatuses(this.app, this.plugin.settings, file.parent)
+      .map((status) => status.name?.trim() || "")
+      .filter(Boolean)];
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
       choices.addItem((item) =>
@@ -2477,7 +2480,7 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     const currentLabel = plugin.labelOf(file);
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const l of this.getProjectLabels()) {
+    for (const l of this.getProjectLabels(file.parent)) {
       choices.addItem((item) =>
         item
           .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
@@ -2707,7 +2710,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const note = plugin.folderNoteFor(folder);
     const currentLabel = note ? plugin.labelOf(note) : "";
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const l of this.getProjectLabels()) {
+    for (const l of this.getProjectLabels(folder)) {
       choices.addItem((item) =>
         item
           .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
@@ -2723,7 +2726,9 @@ export abstract class BaseFeuilletsView extends ItemView {
     })));
     menu.addSeparator();
     const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
-    const allStatuses = getProjectStatuses(this.app, plugin ? plugin.settings : null);
+    const allStatuses = ["", ...workspaceStatuses(this.app, plugin.settings, folder)
+      .map((status) => status.name?.trim() || "")
+      .filter(Boolean)];
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
       choices.addItem((item) =>

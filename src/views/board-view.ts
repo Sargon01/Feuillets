@@ -1,5 +1,5 @@
 import { Menu, Modal, Setting, TAbstractFile, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
-import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
+import { VIEW_BOARD, BOARD_MODES } from "../constants.js";
 import { projectPlanningField, projectWordGoalDefault, type ProjectPlanningField } from "../services/project-settings.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
@@ -18,6 +18,7 @@ import { TagsModal } from "../ui/entity-modals.js";
 import { listSnapshotFiles, type NewSheetOptions } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
+import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
 import { buildBoardTimelineOptionsMenu, renderBoardTimeline } from "./board-timeline.js";
 import { resolveBoardFolderScope } from "./board-scope.js";
 import { renderBoardOutline, type OutlineRenderContext } from "./board-outline.js";
@@ -433,6 +434,7 @@ export class BoardView extends BaseFeuilletsView {
           : null;
     const focusedFolder = focusedFolderCandidate instanceof TFolder ? focusedFolderCandidate : null;
     const scope = resolveBoardFolderScope(manuscriptRoot, focusedFolder);
+    const workflowFolder = focusedFolder || manuscriptRoot;
 
     if (!S.projectMeta) S.projectMeta = {};
     if (!S.projectMeta[scope.manuscriptRoot.path]) S.projectMeta[scope.manuscriptRoot.path] = {};
@@ -528,7 +530,10 @@ export class BoardView extends BaseFeuilletsView {
     this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
-      for (const st of ["Tous", ...getProjectStatuses(this.app, S).filter(Boolean), "Sans statut"]) {
+      const effectiveStatuses = workspaceStatuses(this.app, S, workflowFolder)
+        .map((status) => status.name?.trim() || "")
+        .filter(Boolean);
+      for (const st of ["Tous", ...effectiveStatuses, "Sans statut"]) {
         menu.addItem((item) =>
           item.setTitle(this.filterSentinelLabel(st)).setChecked((S.statusFilter || "Tous") === st).onClick(async () => {
             S.statusFilter = st;
@@ -550,8 +555,7 @@ export class BoardView extends BaseFeuilletsView {
         };
         collect(projectRoot);
       }
-      const pMeta = projectRoot ? S.projectMeta[projectRoot.path] : null;
-      (pMeta && pMeta.labels ? pMeta.labels : S.labels || []).forEach((l) => { if (l.name) labels.add(l.name); });
+      workspaceLabels(this.app, S, workflowFolder).forEach((l) => { if (l.name) labels.add(l.name); });
       const sortedLabels = Array.from(labels).sort((a, b) => a.localeCompare(b, "fr"));
       menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
       for (const lb of ["Tous", ...sortedLabels, "Sans label"]) {
@@ -773,7 +777,9 @@ export class BoardView extends BaseFeuilletsView {
           );
           menu.addSeparator();
 
-          for (const st of getProjectStatuses(this.app, this.plugin.settings).filter(Boolean)) {
+          for (const st of workspaceStatuses(this.app, this.plugin.settings, workflowFolder)
+            .map((status) => status.name?.trim() || "")
+            .filter(Boolean)) {
             menu.addItem((item) =>
               item.setTitle(t("board.selection.statusCount", { status: st, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
@@ -784,7 +790,7 @@ export class BoardView extends BaseFeuilletsView {
           }
           menu.addSeparator();
 
-          for (const l of this.getProjectLabels()) {
+          for (const l of this.getProjectLabels(workflowFolder)) {
             menu.addItem((item) =>
               item.setTitle(t("board.selection.labelCount", { label: l.name, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
@@ -1398,7 +1404,7 @@ export class BoardView extends BaseFeuilletsView {
 
     const folderNote = this.plugin.folderNoteFor(folder);
     const label = folderNote ? this.plugin.labelOf(folderNote) : null;
-    const color = label ? this.plugin.labelColor(label) : null;
+    const color = label ? this.plugin.labelColor(label, folder) : null;
     if (color) card.style.borderTop = `3px solid ${color}`;
 
     const head = card.createDiv({ cls: "feuillets-card-head" });
@@ -1441,7 +1447,7 @@ export class BoardView extends BaseFeuilletsView {
     });
 
     const label = this.plugin.labelOf(file);
-    const color = label ? this.plugin.labelColor(label) : null;
+    const color = label ? this.plugin.labelColor(label, file.parent) : null;
     /* Liseré latéral plutôt que bande supérieure : sur la grille de
        fiches, une barre pleine largeur en haut de chaque carte dominait
        visuellement toute la grille (effet "tableau kanban coloré") avant
@@ -1505,7 +1511,9 @@ export class BoardView extends BaseFeuilletsView {
       const menu = new Menu();
       const currentSt = toValue(this.fm(file).status);
       const S = this.plugin.settings;
-      for (const st of getProjectStatuses(this.app, S).filter(Boolean)) {
+      for (const st of workspaceStatuses(this.app, S, file.parent)
+        .map((status) => status.name?.trim() || "")
+        .filter(Boolean)) {
         menu.addItem((item) =>
           item.setTitle(t("shared.contextMenu.statusLabel", { status: st })).setChecked(st === currentSt).onClick(async () => {
             await this.setFm(file, "status", st === currentSt ? "" : st);
@@ -1787,7 +1795,7 @@ export class BoardView extends BaseFeuilletsView {
         const col = rails.createDiv({ cls: "feuillets-arcs-col" });
         setTooltip(col, lb);
         col.setAttr("title", lb);
-        const color = this.plugin.labelColor(lb) || "";
+        const color = this.plugin.labelColor(lb, file.parent) || "";
         col.style.setProperty("--arc-color", color);
         const hasLabel = currentLabels.includes(lb);
         if (labelFirst[lb] !== -1 && idx >= labelFirst[lb] && idx <= labelLast[lb]) {
@@ -1806,7 +1814,7 @@ export class BoardView extends BaseFeuilletsView {
       if (numbering) titleRow.createSpan({ cls: "feuillets-row-num", text: numbering.get(file.path) || "" });
       if (fm.status) {
         const dot = titleRow.createSpan({ cls: "feuillets-status-dot" });
-        dot.style.background = this.plugin.getStatusColor(toValue(fm.status)) || "var(--text-faint)";
+        dot.style.background = this.plugin.getStatusColor(toValue(fm.status), file.parent) || "var(--text-faint)";
       }
       const fileTitle = titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
       fileTitle.addClass("feuillets-clickable");
@@ -2074,7 +2082,9 @@ export class BoardView extends BaseFeuilletsView {
      couleur neutre native. */
   private laneLineColor(value: string): string | null {
     if (!value) return null;
-    if (this.laneAxis === "label") return this.plugin.labelColor(value);
+    if (this.laneAxis === "label") {
+      return this.plugin.labelColor(value);
+    }
     if (this.laneAxis === "character") return characterLaneColor(value);
     if (this.laneAxis === "thread") return filColor(value);
     return povLaneColor(value);
@@ -2171,7 +2181,7 @@ export class BoardView extends BaseFeuilletsView {
        renvoyer une valeur fausse (label sans couleur configurée) → aucun
        liseré artificiel, bordure neutre conservée. */
     const labelName = this.plugin.labelOf(file);
-    const labelColor = labelName ? this.plugin.labelColor(labelName) : null;
+    const labelColor = labelName ? this.plugin.labelColor(labelName, file.parent) : null;
     if (labelColor) card.style.borderLeft = `3px solid ${labelColor}`;
 
     /* Ordre imposé : 1. numéro + titre sur la même ligne (numéro avant le

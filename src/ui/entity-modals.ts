@@ -2,6 +2,7 @@ import { Modal, TFile, TFolder, setIcon } from "obsidian";
 import type { App } from "obsidian";
 import { openFileActivating } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
+import { workspaceFavoriteTags } from "../services/folder-workspaces.js";
 
 type Appearance = {
   file: TFile;
@@ -18,7 +19,8 @@ type AppearancesPlugin = {
 };
 
 type TagsPlugin = {
-  settings: { favoriteTags?: string[] };
+  settings: FeuilletsSettings;
+  getProjectFolder(): TFolder | null;
   titleFor(file: TFile): string;
   tagsOf(file: TFile): string[];
 };
@@ -154,7 +156,7 @@ export class TagsModal extends Modal {
     input.addClass("feuillets-input-full");
     input.value = current.join(", ");
 
-    const favs = this.plugin.settings.favoriteTags || [];
+    const favs = workspaceFavoriteTags(this.app, this.plugin.settings, this.file.parent);
     if (favs.length > 0) {
       const favRow = contentEl.createDiv({ cls: "feuillets-tags" });
       favRow.addClass("feuillets-mt-sm");

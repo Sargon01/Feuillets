@@ -1,4 +1,4 @@
-import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, getProjectStatuses, BOARD_MODES } from "../constants.js";
+import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, BOARD_MODES } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
@@ -15,6 +15,7 @@ import { createProjectScope, createFileScope, createFolderScope, createSelection
 import { Menu, MarkdownView, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import { folderPathToWorkspaceScope } from "../services/folder-workspaces.js";
+import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
 import {
   binderPreviewFieldChoices,
   binderPreviewSemanticField,
@@ -957,7 +958,10 @@ export class FeuilletsView extends BaseFeuilletsView {
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
-      for (const s of ["Tous", ...getProjectStatuses(this.app, S).filter(Boolean), "Sans statut"]) {
+      const effectiveStatuses = workspaceStatuses(this.app, S, folder)
+        .map((status) => status.name?.trim() || "")
+        .filter(Boolean);
+      for (const s of ["Tous", ...effectiveStatuses, "Sans statut"]) {
         menu.addItem((item) =>
           item
             .setTitle(filterSentinelLabel(s))
@@ -982,8 +986,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       };
       if (folder) walkLabels(folder);
-      const meta = folder && S.projectMeta ? S.projectMeta[folder.path] : null;
-      const labelsList = (meta && meta.labels) ? meta.labels : (S.labels || []);
+      const labelsList = workspaceLabels(this.app, S, folder);
       labelsList.forEach((l) => {
         if (l.name) activeLabels.add(l.name);
       });
@@ -1242,7 +1245,8 @@ export class FeuilletsView extends BaseFeuilletsView {
       let labelColor: string | null = null;
       if (!hidden && S.binderShowLabels) {
         const labelName = this.plugin.labelOf(file);
-        labelColor = labelName ? this.plugin.labelColor(labelName) : null;
+        const labelFolder = parent instanceof TFolder ? parent : file.parent;
+        labelColor = labelName ? this.plugin.labelColor(labelName, labelFolder) : null;
       }
       /* Micro-lot "simplification définitive du Binder", §4 : le liseré de
          label appartient désormais au NŒUD (petit emplacement dédié juste

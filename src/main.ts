@@ -15,7 +15,7 @@
 import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
-import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
+import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
 import { migrateLegacyProjectTypes, projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -56,10 +56,11 @@ import { SidebarFeuilletsView, type EditionPage } from "./views/sidebar-feuillet
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
-import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, labelColor, folderGoal } from "./services/frontmatter.js";
+import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
+import { workspaceLabelColor, workspaceStatusColor } from "./services/folder-workspaces.js";
 import { chronologyFolderPath, getChronoFolder, getResearchRoot, researchFolderPath, migrateLegacyResearchEntries, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
 import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
@@ -3841,8 +3842,14 @@ class FeuilletsPlugin extends Plugin {
   tagsOf(file: TFile): string[] { return tagsOf(this.app, file); }
   labelOf(file: TFile): string { return labelOf(this.app, file); }
   labelsOf(file: TFile): string[] { return labelsOf(this.app, file); }
-  labelColor(name: string): string | null { return labelColor(this.settings, name); }
-  getStatusColor(name: string): string | null { return getStatusColor(this.app, this.settings, name); }
+  labelColor(name: string, folder?: TFolder | null): string | null {
+    const context = folder === undefined ? this.getWorkspaceFolder() || this.getProjectFolder() : folder;
+    return workspaceLabelColor(this.app, this.settings, context, name);
+  }
+  getStatusColor(name: string, folder?: TFolder | null): string | null {
+    const context = folder === undefined ? this.getWorkspaceFolder() || this.getProjectFolder() : folder;
+    return workspaceStatusColor(this.app, this.settings, context, name);
+  }
   folderGoal(folder: TFolder): number { return folderGoal(this.settings, folder); }
   depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node); }
   isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node); }

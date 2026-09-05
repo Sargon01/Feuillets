@@ -150,3 +150,23 @@ export function workspaceFieldSource<K extends keyof FolderWorkspaceConfig>(
   if (!context) return null;
   return resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, key).source;
 }
+
+export function workspaceStatusColor(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  name: string,
+): string | null {
+  const status = workspaceStatuses(app, settings, folder).find((entry) => entry.name === name);
+  return status ? status.color : null;
+}
+
+export function workspaceLabelColor(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  name: string,
+): string | null {
+  const label = workspaceLabels(app, settings, folder).find((entry) => entry.name === name);
+  return label ? label.color : null;
+}
