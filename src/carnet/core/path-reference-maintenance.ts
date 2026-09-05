@@ -34,6 +34,30 @@ function remapFolderCarnets(meta: ProjectMeta, oldProjectRoot: string, newProjec
   }
   if (changed) meta.folderCarnets = next; return changed;
 }
+function remapFolderWorkspaces(meta: ProjectMeta, oldProjectRoot: string, newProjectRoot: string, oldPath: string, newPath: string, conflicts: Conflict[]): boolean {
+  if (!meta.folderWorkspaces) return false;
+  const entries = Object.entries(meta.folderWorkspaces).map(([relative, config]) => {
+    const absolute = relativeScopeToFolderPath(oldProjectRoot, relative);
+    const remapped = absolute ? remapPath(absolute, oldPath, newPath) : null;
+    return { relative, config, target: remapped ? folderPathToRelativeScope(newProjectRoot, remapped) : null };
+  });
+  const unmoved = new Set(entries.filter((entry) => entry.target === entry.relative).map((entry) => entry.relative));
+  const next: Record<string, FolderWorkspaceConfig> = {};
+  let changed = false;
+  for (const entry of entries) {
+    const target = entry.target && entry.target !== entry.relative ? entry.target : entry.relative;
+    const collision = target !== entry.relative && (unmoved.has(target) || target in next);
+    if (collision) {
+      conflicts.push({ kind: "folderWorkspaces", from: entry.relative, to: target });
+      next[entry.relative] = entry.config;
+      continue;
+    }
+    next[target] = entry.config;
+    if (target !== entry.relative) changed = true;
+  }
+  if (changed) meta.folderWorkspaces = next;
+  return changed;
+}
 export function remapFeuilletsPathReferences(settings: FeuilletsSettings, oldPath: string, newPath: string): { changed: boolean; conflicts: Conflict[] } {
   const conflicts: Conflict[] = []; let changed = false;
   if (settings.projectFolder) { const next = remapPath(settings.projectFolder, oldPath, newPath); if (next !== settings.projectFolder) { settings.projectFolder = next; changed = true; } }
@@ -45,6 +69,7 @@ export function remapFeuilletsPathReferences(settings: FeuilletsSettings, oldPat
     const [links, linksChanged] = remapStringMap(meta.researchFolderLinks, oldPath, newPath, "researchFolderLinks", conflicts); if (linksChanged) { meta.researchFolderLinks = links; changed = true; }
     for (const keyName of ["placeholders", "origins"] as const) { const values = meta.narrativeState?.[keyName]; if (values) for (const valueKey of Object.keys(values)) { const value = values[valueKey]; const next = remapPath(value, oldPath, newPath); if (next !== value) { values[valueKey] = next; changed = true; } } }
     if (remapFolderCarnets(meta, key, target, oldPath, newPath)) changed = true;
+    if (remapFolderWorkspaces(meta, key, target, oldPath, newPath, conflicts)) changed = true;
   }
   if (changed) settings.projectMeta = nextMeta;
   for (const field of ["folderPositions", "folderGoals"] as const) { const [next, did] = rekey(settings[field], oldPath, newPath, field, conflicts); if (did && next) { settings[field] = next; changed = true; } }
