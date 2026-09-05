@@ -6,13 +6,20 @@ import {
   workspaceDeadline,
   workspaceFavoriteTags,
   workspaceFieldSource,
+  workspaceIndentParagraphs,
+  workspaceLineHeight,
+  workspaceLiveEmptyLines,
+  workspaceLiveHyphenation,
+  workspaceLiveJustify,
   workspaceLabels,
+  workspaceReadingFontSize,
   workspaceSessionGoal,
   folderWorkspaceScopeChain,
   getFolderWorkspaceConfig,
   workspaceStatuses,
   workspaceTolerance,
   workspaceTotalWordGoal,
+  workspaceTextWidth,
   workspaceWordGoalDefault,
   workspaceScopeToFolderPath,
 } from "../services/folder-workspaces.js";
@@ -127,6 +134,10 @@ export class FolderWorkspaceModal extends Modal {
     const goals = contentEl.createDiv({ cls: "feuillets-notes-section" });
     goals.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.goals") });
     this.renderGoals(goals, projectRoot.path, relativeScope);
+
+    const typography = contentEl.createDiv({ cls: "feuillets-notes-section" });
+    typography.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.typography") });
+    this.renderTypography(typography, projectRoot.path, relativeScope);
   }
 
   onClose(): void {
@@ -341,6 +352,76 @@ export class FolderWorkspaceModal extends Modal {
       .setIcon("rotate-ccw")
       .setTooltip(t("modal.folderWorkspace.resetField"))
       .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, "deadlineDate"); }));
+  }
+
+  private renderTypography(container: HTMLElement, projectRootPath: string, relativeScope: string): void {
+    this.renderTypographyToggle(container, projectRootPath, relativeScope, "indentParagraphs", t("settings.indentParagraphs.name"), workspaceIndentParagraphs(this.app, this.plugin.settings, this.folder));
+    this.renderTypographyToggle(container, projectRootPath, relativeScope, "liveJustify", t("settings.liveJustify.name"), workspaceLiveJustify(this.app, this.plugin.settings, this.folder));
+
+    const emptyLines = workspaceLiveEmptyLines(this.app, this.plugin.settings, this.folder);
+    const emptySetting = new Setting(container)
+      .setName(t("settings.liveEmptyLines.name"))
+      .setDesc(this.sourceDescription(projectRootPath, relativeScope, "liveEmptyLines"))
+      .addDropdown((dropdown) => dropdown
+        .addOption("normal", t("settings.liveEmptyLines.normal"))
+        .addOption("reduit", t("settings.liveEmptyLines.reduced"))
+        .addOption("invisible", t("settings.liveEmptyLines.invisible"))
+        .setValue(emptyLines)
+        .onChange((value) => {
+          if (value === "normal" || value === "reduit" || value === "invisible") void this.saveLocalField(projectRootPath, relativeScope, "liveEmptyLines", value);
+        }));
+    this.addResetButton(emptySetting, projectRootPath, relativeScope, "liveEmptyLines");
+
+    this.renderTypographyToggle(container, projectRootPath, relativeScope, "liveHyphenation", t("settings.liveHyphenation.name"), workspaceLiveHyphenation(this.app, this.plugin.settings, this.folder));
+    this.renderTypographyNumber(container, projectRootPath, relativeScope, "readingFontSize", t("settings.readingFontSize.name"), workspaceReadingFontSize(this.app, this.plugin.settings, this.folder));
+    this.renderTypographyNumber(container, projectRootPath, relativeScope, "lineHeight", t("settings.lineHeight.name"), workspaceLineHeight(this.app, this.plugin.settings, this.folder));
+    this.renderTypographyNumber(container, projectRootPath, relativeScope, "textWidth", t("settings.textWidth.name"), workspaceTextWidth(this.app, this.plugin.settings, this.folder));
+  }
+
+  private renderTypographyToggle(
+    container: HTMLElement,
+    projectRootPath: string,
+    relativeScope: string,
+    key: "indentParagraphs" | "liveJustify" | "liveHyphenation",
+    label: string,
+    value: boolean,
+  ): void {
+    const setting = new Setting(container)
+      .setName(label)
+      .setDesc(this.sourceDescription(projectRootPath, relativeScope, key))
+      .addToggle((toggle) => toggle.setValue(value).onChange((next) => { void this.saveLocalField(projectRootPath, relativeScope, key, next); }));
+    this.addResetButton(setting, projectRootPath, relativeScope, key);
+  }
+
+  private renderTypographyNumber(
+    container: HTMLElement,
+    projectRootPath: string,
+    relativeScope: string,
+    key: "readingFontSize" | "lineHeight" | "textWidth",
+    label: string,
+    value: number,
+  ): void {
+    const setting = new Setting(container)
+      .setName(label)
+      .setDesc(this.sourceDescription(projectRootPath, relativeScope, key))
+      .addText((text) => text.setValue(String(value)).onChange((raw) => {
+        const parsed = Number(raw);
+        void this.saveLocalField(projectRootPath, relativeScope, key, Number.isFinite(parsed) ? parsed : 0);
+      }));
+    this.addResetButton(setting, projectRootPath, relativeScope, key);
+  }
+
+  private addResetButton<K extends keyof FolderWorkspaceConfig>(
+    setting: Setting,
+    projectRootPath: string,
+    relativeScope: string,
+    key: K,
+  ): void {
+    const local = getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope);
+    if (this.hasLocalField(local, key)) setting.addExtraButton((button) => button
+      .setIcon("rotate-ccw")
+      .setTooltip(t("modal.folderWorkspace.resetField"))
+      .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, key); }));
   }
 
   private renderNumberGoal(

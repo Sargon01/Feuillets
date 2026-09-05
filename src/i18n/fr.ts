@@ -2327,6 +2327,7 @@ export const fr = {
   "modal.folderWorkspace.reset": "Revenir aux réglages hérités",
   "modal.folderWorkspace.workflow": "Workflow",
   "modal.folderWorkspace.goals": "Objectifs",
+  "modal.folderWorkspace.typography": "Typographie",
   "modal.folderWorkspace.statuses": "Statuts",
   "modal.folderWorkspace.labels": "Labels",
   "modal.folderWorkspace.customize": "Personnaliser",

@@ -2325,6 +2325,7 @@ export const en = {
   "modal.folderWorkspace.reset": "Revert to inherited settings",
   "modal.folderWorkspace.workflow": "Workflow",
   "modal.folderWorkspace.goals": "Goals",
+  "modal.folderWorkspace.typography": "Typography",
   "modal.folderWorkspace.statuses": "Statuses",
   "modal.folderWorkspace.labels": "Labels",
   "modal.folderWorkspace.customize": "Customize",

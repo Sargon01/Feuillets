@@ -60,7 +60,7 @@ import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tags
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
-import { workspaceLabelColor, workspaceStatusColor, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
+import { workspaceIndentParagraphs, workspaceLabelColor, workspaceLineHeight, workspaceLiveEmptyLines, workspaceLiveHyphenation, workspaceLiveJustify, workspaceReadingFontSize, workspaceStatusColor, workspaceTextWidth, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
 import { chronologyFolderPath, getChronoFolder, getResearchRoot, researchFolderPath, migrateLegacyResearchEntries, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
 import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
@@ -3050,29 +3050,37 @@ class FeuilletsPlugin extends Plugin {
   applyLiveTypoClasses(): void {
     const S = this.settings;
     const inProject = this.isActiveFileInProject();
-    document.body.toggleClass("feuillets-lignesvides-invisible", inProject && S.liveEmptyLines === "invisible");
-    document.body.toggleClass("feuillets-lignesvides-reduit", inProject && S.liveEmptyLines === "reduit");
-    document.body.toggleClass("feuillets-cesure", inProject && S.liveHyphenation);
-    document.body.toggleClass("feuillets-justify-live", inProject && !!S.liveJustify);
+    const activeFile = this.app.workspace.getActiveFile();
+    const inContinu = !!this.getCentralContinuView();
+    const folder = inContinu
+      ? this.getWorkspaceFolder() || this.getProjectFolder()
+      : activeFile?.parent || this.getWorkspaceFolder() || this.getProjectFolder();
+    const liveEmptyLines = workspaceLiveEmptyLines(this.app, S, folder);
+    const liveHyphenation = workspaceLiveHyphenation(this.app, S, folder);
+    const liveJustify = workspaceLiveJustify(this.app, S, folder);
+    document.body.toggleClass("feuillets-lignesvides-invisible", inProject && liveEmptyLines === "invisible");
+    document.body.toggleClass("feuillets-lignesvides-reduit", inProject && liveEmptyLines === "reduit");
+    document.body.toggleClass("feuillets-cesure", inProject && liveHyphenation);
+    document.body.toggleClass("feuillets-justify-live", inProject && liveJustify);
     document.body.toggleClass("feuillets-lecture-comme-live", inProject && S.readingMatchLive !== false);
-    if (inProject && S.liveHyphenation && !document.body.getAttr("lang")) {
+    if (inProject && liveHyphenation && !document.body.getAttr("lang")) {
       document.body.setAttr("lang", "fr");
     }
-    const rfs = inProject ? S.readingFontSize : 0;
+    const rfs = inProject ? workspaceReadingFontSize(this.app, S, folder) : 0;
     document.body.toggleClass("feuillets-reading-fs", rfs > 0);
     if (rfs > 0) {
       document.body.style.setProperty("--feuillets-reading-fs", `${rfs}px`);
     } else {
       document.body.style.removeProperty("--feuillets-reading-fs");
     }
-    const lh = inProject ? S.lineHeight : 0;
+    const lh = inProject ? workspaceLineHeight(this.app, S, folder) : 0;
     document.body.toggleClass("feuillets-line-height", lh > 0);
     if (lh > 0) {
       document.body.style.setProperty("--feuillets-line-height", `${lh}`);
     } else {
       document.body.style.removeProperty("--feuillets-line-height");
     }
-    const tw = inProject ? S.textWidth : 0;
+    const tw = inProject ? workspaceTextWidth(this.app, S, folder) : 0;
     document.body.toggleClass("feuillets-text-width", tw > 0);
     if (tw > 0) {
       document.body.style.setProperty("--feuillets-text-width", `${tw}px`);
@@ -3082,7 +3090,11 @@ class FeuilletsPlugin extends Plugin {
   }
 
   applyIndentClass() {
-    document.body.toggleClass("feuillets-indent", !!(this.isActiveFileInProject() && this.settings.indentParagraphs));
+    const file = this.app.workspace.getActiveFile();
+    const folder = this.getCentralContinuView()
+      ? this.getWorkspaceFolder() || this.getProjectFolder()
+      : file?.parent || this.getWorkspaceFolder() || this.getProjectFolder();
+    document.body.toggleClass("feuillets-indent", !!(this.isActiveFileInProject() && workspaceIndentParagraphs(this.app, this.settings, folder)));
   }
 
   applyLeanInterfaceClasses() {

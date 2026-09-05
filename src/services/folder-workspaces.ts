@@ -138,6 +138,55 @@ export function workspaceSessionGoal(app: App, settings: FeuilletsSettings, fold
   return value === undefined ? fallback : value;
 }
 
+export function workspaceIndentParagraphs(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.indentParagraphs;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "indentParagraphs", settings.indentParagraphs).value;
+  return value === undefined ? settings.indentParagraphs : value;
+}
+
+export function workspaceLiveJustify(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.liveJustify;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "liveJustify", settings.liveJustify).value;
+  return value === undefined ? settings.liveJustify : value;
+}
+
+export function workspaceLiveEmptyLines(app: App, settings: FeuilletsSettings, folder: TFolder | null): "normal" | "reduit" | "invisible" {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.liveEmptyLines;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "liveEmptyLines", settings.liveEmptyLines).value;
+  return value === undefined ? settings.liveEmptyLines : value;
+}
+
+export function workspaceLiveHyphenation(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.liveHyphenation;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "liveHyphenation", settings.liveHyphenation).value;
+  return value === undefined ? settings.liveHyphenation : value;
+}
+
+export function workspaceReadingFontSize(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.readingFontSize;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "readingFontSize", settings.readingFontSize).value;
+  return value === undefined ? settings.readingFontSize : value;
+}
+
+export function workspaceLineHeight(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.lineHeight;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "lineHeight", settings.lineHeight).value;
+  return value === undefined ? settings.lineHeight : value;
+}
+
+export function workspaceTextWidth(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.textWidth;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "textWidth", settings.textWidth).value;
+  return value === undefined ? settings.textWidth : value;
+}
+
 /** Retourne la clé relative qui fournit un override effectif, ou null quand
  * la valeur vient du projet/réglage global. Lecture pure, sans création. */
 export function workspaceFieldSource<K extends keyof FolderWorkspaceConfig>(
