@@ -26,6 +26,7 @@ import { listSnapshotFiles, type NewSheetOptions } from "../services/project-fil
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
+import { resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
 import { buildBoardTimelineOptionsMenu, renderBoardTimeline } from "./board-timeline.js";
 import { resolveBoardFolderScope } from "./board-scope.js";
 import { renderBoardOutline, type OutlineRenderContext } from "./board-outline.js";
@@ -518,6 +519,9 @@ export class BoardView extends BaseFeuilletsView {
     const activeMode = mode as BoardModeKey;
     const trameDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
     const timelineDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
+    const timelineResearchFolders = activeMode === "timeline"
+      ? this.resolveTimelineResearchFolders(wholeManuscript, scope.currentFolder, focusedFolder)
+      : [];
     if (activeMode !== "outline") {
       this._outlineViewport.key = "";
       this._outlineViewport.top = 0;
@@ -694,15 +698,6 @@ export class BoardView extends BaseFeuilletsView {
         })
       );
       menu.addSeparator();
-      let timelineResearchFolders: readonly TFolder[] = [];
-      if (activeMode === "timeline") {
-        if (wholeManuscript) {
-          const chronologyFolder = this.plugin.getChronoFolder();
-          timelineResearchFolders = chronologyFolder ? [chronologyFolder] : [];
-        } else if (typeof this.plugin.getLinkedResearchFolder === "function") {
-          timelineResearchFolders = this.collectLinkedResearchFolders(scope.currentFolder);
-        }
-      }
       this.buildModeOptionsMenu(menu, activeMode, {
         S,
         meta,
@@ -946,14 +941,6 @@ export class BoardView extends BaseFeuilletsView {
         if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
       }
       if (!wholeManuscript) this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
-      const timelineResearchFolders = wholeManuscript
-        ? (() => {
-          const chronologyFolder = this.plugin.getChronoFolder();
-          return chronologyFolder ? [chronologyFolder] : [];
-        })()
-        : typeof this.plugin.getLinkedResearchFolder === "function"
-          ? this.collectLinkedResearchFolders(scope.currentFolder)
-          : [];
       await this.renderTimeline(scrollArea, timelineDisplayFolder, numbering, timelineResearchFolders);
     }
   }
@@ -1114,6 +1101,52 @@ export class BoardView extends BaseFeuilletsView {
         rerender: () => { void this.render(); },
       });
     }
+  }
+
+  private resolveTimelineResearchFolders(
+    wholeManuscript: boolean,
+    currentFolder: TFolder,
+    workspaceFolder: TFolder | null,
+  ): TFolder[] {
+    if (wholeManuscript) {
+      const chronologyFolder = this.plugin.getChronoFolder();
+      return chronologyFolder ? [chronologyFolder] : [];
+    }
+
+    if (!workspaceFolder) {
+      return typeof this.plugin.getLinkedResearchFolder === "function"
+        ? this.collectLinkedResearchFolders(currentFolder)
+        : [];
+    }
+
+    const folders: TFolder[] = [];
+    const seen = new Set<string>();
+    const append = (folder: TFolder | null): void => {
+      if (!folder || seen.has(folder.path)) return;
+      if (folders.some((existing) => folder.path.startsWith(`${existing.path}/`))) return;
+      seen.add(folder.path);
+      folders.push(folder);
+    };
+
+    append(this.plugin.getChronoFolder());
+    const workspaceResearch = resolveWorkspaceResearchFolder(this.app, this.plugin.settings, workspaceFolder);
+    if (workspaceResearch.sourceKind === "exact" || workspaceResearch.sourceKind === "ancestor") {
+      append(workspaceResearch.folder);
+    }
+
+    if (typeof this.plugin.getLinkedResearchFolder !== "function") return folders;
+
+    const collectFileLinks = (folder: TFolder): void => {
+      for (const child of this.plugin.getOrderedChildren(folder)) {
+        if (child instanceof TFile) {
+          append(this.plugin.getLinkedResearchFolder(child));
+        } else if (child instanceof TFolder) {
+          collectFileLinks(child);
+        }
+      }
+    };
+    collectFileLinks(workspaceFolder);
+    return folders;
   }
 
   collectLinkedResearchFolders(currentFolder: TFolder): TFolder[] {
