@@ -2,7 +2,7 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
-## 2.9.0 — Unreleased
+## 2.9.0 — 2026-09-06
 
 ### Workspaces
 
