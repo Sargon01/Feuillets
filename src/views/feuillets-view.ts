@@ -2757,6 +2757,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           this.ensureSelectionForContextMenu(child.path, treePane);
           this.showFolderContextMenu(e, child, parent, i, siblings, (menu) => {
             this.continuExtras(child)(menu);
+            menu.addSeparator();
             this.binderIsolateExtras(child)(menu);
             this.folderWorkspaceExtras(child)(menu);
           }, true);
@@ -2932,6 +2933,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         this.ensureSelectionForContextMenu(treeRoot.path, treePane);
         this.showFolderContextMenu(e, treeRoot, workingParent ?? treeRoot, workingIndex, workingSiblings, (menu) => {
           this.continuExtras(treeRoot)(menu);
+          menu.addSeparator();
           this.binderIsolateExtras(treeRoot)(menu);
           this.folderWorkspaceExtras(treeRoot)(menu);
         }, true);

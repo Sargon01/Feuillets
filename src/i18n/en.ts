@@ -224,7 +224,7 @@ export const en = {
   "binder.onboarding.card.demo.title": "Discover with a demo project",
   "binder.onboarding.card.demo.desc": "An already-filled example project, to discover Feuillets without writing a line.",
   "binder.onboarding.card.demo.btn": "Discover",
-  "binder.compileFile": "Compile this file",
+  "binder.compileFile": "Compile this sheet…",
   "binder.compileFolder": "Compile this folder",
   "binder.compileSelection": "Compile the selection",
 
@@ -338,7 +338,7 @@ export const en = {
   "shared.contextMenu.editSummary": "Edit summary…",
   "shared.contextMenu.folderSummaryLabel": "Folder summary",
   "shared.contextMenu.setWordGoal": "Set the word goal…",
-  "shared.contextMenu.trashFolder": "Move to trash (Delete)",
+  "shared.contextMenu.trashFolder": "Move to trash",
   "shared.contextMenu.folderTrashed": "The “{name}” folder was moved to trash.",
   "shared.contextMenu.addToNotebook": "Add to Notebook",
   "shared.contextMenu.newSheetMenu": "New sheet…",

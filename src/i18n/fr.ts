@@ -223,7 +223,7 @@ export const fr = {
   "binder.onboarding.card.demo.title": "Découvrir avec un projet de démonstration",
   "binder.onboarding.card.demo.desc": "Un projet d'exemple déjà rempli, pour découvrir Feuillets sans écrire une ligne.",
   "binder.onboarding.card.demo.btn": "Découvrir",
-  "binder.compileFile": "Compiler ce fichier",
+  "binder.compileFile": "Compiler ce feuillet…",
   "binder.compileFolder": "Compiler ce dossier",
   "binder.compileSelection": "Compiler la sélection",
 
@@ -338,7 +338,7 @@ export const fr = {
   "shared.contextMenu.editSummary": "Modifier le résumé…",
   "shared.contextMenu.folderSummaryLabel": "Résumé du dossier",
   "shared.contextMenu.setWordGoal": "Définir l'objectif de mots…",
-  "shared.contextMenu.trashFolder": "Mettre à la corbeille (Supprimer)",
+  "shared.contextMenu.trashFolder": "Mettre à la corbeille",
   "shared.contextMenu.folderTrashed": "Le dossier « {name} » a été mis à la corbeille.",
   "shared.contextMenu.addToNotebook": "Ajouter au Carnet",
   "shared.contextMenu.newSheetMenu": "Nouveau feuillet…",
