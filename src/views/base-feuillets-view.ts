@@ -958,11 +958,10 @@ export abstract class BaseFeuilletsView extends ItemView {
     const linkedResearchPaths = new Set(
       this.plugin.getLinkedResearchFolders().map(({ folder }) => folder.path)
     );
-    const linkedFolderIsNaturallyVisible = options.workspaceActive && options.scopeMode === "workspace";
     if (baseResearchFolder) {
       for (const child of baseResearchFolder.children) {
         if (child instanceof TFolder && !standardPaths.has(child.path) &&
-          (!linkedResearchPaths.has(child.path) || linkedFolderIsNaturallyVisible)) {
+          !linkedResearchPaths.has(child.path)) {
           if (!child.name.startsWith("_") && !child.name.startsWith(".")) {
             customFolders.push(child);
           }
@@ -1189,12 +1188,18 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (options.workspaceActive && options.scopeMode === "workspace" && options.workspaceFolder) {
+      const naturallyLinkedWorkspaceFolders = baseResearchFolder
+        ? this.plugin.getLinkedResearchFolders().filter(({ folder }) =>
+          folder.path.startsWith(`${baseResearchFolder.path}/`)
+          && !standardPaths.has(folder.path)
+        )
+        : [];
       this.renderAssociatedResearchFolders(
         body,
         baseResearchFolder,
-        this.workspaceFileResearchFolders(options.workspaceFolder),
-        false,
-        false
+        [...naturallyLinkedWorkspaceFolders, ...this.workspaceFileResearchFolders(options.workspaceFolder)],
+        true,
+        true
       );
     }
 

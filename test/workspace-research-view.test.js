@@ -50,3 +50,10 @@ test("la portée Espace utilise ses Événements et masque les associations des 
     "la rubrique Espaces est rendue après les catégories globales"
   );
 });
+
+test("les recherches d'espaces héritées restent regroupées sous Espaces", () => {
+  assert.match(baseSource, /!linkedResearchPaths\.has\(child\.path\)/);
+  assert.doesNotMatch(baseSource, /linkedFolderIsNaturallyVisible/);
+  assert.match(baseSource, /naturallyLinkedWorkspaceFolders/);
+  assert.match(baseSource, /this\.renderAssociatedResearchFolders\(\s*body,\s*baseResearchFolder,\s*\[\.\.\.naturallyLinkedWorkspaceFolders, \.\.\.this\.workspaceFileResearchFolders\(options\.workspaceFolder\)\],\s*true,\s*true\s*\)/s);
+});
