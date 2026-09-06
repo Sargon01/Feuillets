@@ -3997,12 +3997,12 @@ body.feuillets-text-width
    associés depuis le Binder, rendus ensuite via .feuillets-research-section
    comme n'importe quelle autre rubrique (voir renderAssociatedResearchFolders). */
 .feuillets-research-linked-group {
-  padding: 0 var(--size-4-3);
+  margin-top: var(--size-4-3);
   margin-bottom: var(--size-4-1);
 }
 
-.feuillets-research-linked-group-title {
-  display: block;
+.feuillets-research-linked-list {
+  margin-left: var(--size-4-3);
 }
 
 .feuillets-research-linked-badge {
@@ -4015,6 +4015,18 @@ body.feuillets-text-width
   background: var(--background-secondary-alt);
   border-radius: 10px;
   border: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-research-linked-list .feuillets-research-section-head {
+  min-width: 0;
+}
+
+.feuillets-research-linked-list .feuillets-research-section-head > .feuillets-notes-section-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .feuillets-research-item {

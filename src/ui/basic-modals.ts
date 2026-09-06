@@ -1,4 +1,4 @@
-import { Modal, type App } from "obsidian";
+import { Modal, Setting, TFile, TFolder, setIcon, type App } from "obsidian";
 import { t } from "../i18n/index.js";
 
 type NewSheetHandler = (fileName: string, title: string) => void | Promise<void>;
@@ -7,6 +7,87 @@ type RenameFolderHandler = (name: string) => void | Promise<void>;
 type NewResearchFileHandler = (name: string) => void | Promise<void>;
 type RenameFileHandler = (name: string) => void | Promise<void>;
 type ConfirmHandler = () => void | Promise<void>;
+
+export type RenameBinderItemValues = {
+  title: string;
+  binderTitle: string;
+  fileName: string;
+};
+
+export class RenameBinderItemModal extends Modal {
+  private readonly item: TFile | TFolder;
+  private readonly initial: RenameBinderItemValues;
+  private readonly onSubmit: (values: RenameBinderItemValues) => void | Promise<void>;
+
+  constructor(
+    app: App,
+    item: TFile | TFolder,
+    initial: RenameBinderItemValues,
+    onSubmit: (values: RenameBinderItemValues) => void | Promise<void>,
+  ) {
+    super(app);
+    this.item = item;
+    this.initial = initial;
+    this.onSubmit = onSubmit;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.addClass("feuillets-project-modal");
+    const titleRow = contentEl.createDiv({ cls: "feuillets-modal-title-row" });
+    setIcon(titleRow.createDiv({ cls: "feuillets-cell-icon" }), "pencil");
+    titleRow.createEl("h3", { text: t("modal.renameBinder.title") });
+
+    const titleInput = this.addField(
+      contentEl,
+      this.item instanceof TFolder ? t("modal.renameBinder.folderNameLabel") : t("modal.renameBinder.titleLabel"),
+      this.initial.title
+    );
+    const binderTitleInput = this.item instanceof TFile
+      ? this.addField(contentEl, t("modal.renameBinder.binderTitleLabel"), this.initial.binderTitle)
+      : null;
+    const fileNameInput = this.item instanceof TFile
+      ? this.addField(contentEl, t("modal.renameBinder.fileNameLabel"), this.initial.fileName)
+      : titleInput;
+
+    const submit = () => {
+      const values: RenameBinderItemValues = {
+        title: titleInput.value,
+        binderTitle: binderTitleInput?.value || this.initial.binderTitle,
+        fileName: fileNameInput.value,
+      };
+      this.close();
+      void this.onSubmit(values);
+    };
+
+    fileNameInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") submit();
+    });
+    contentEl.createDiv({ cls: "feuillets-modal-buttons" })
+      .createEl("button", { text: t("modal.save"), cls: "mod-cta" })
+      .addEventListener("click", submit);
+  }
+
+  private addField(parent: HTMLElement, label: string, value: string): HTMLInputElement {
+    const setting = new Setting(parent).setName(label);
+    let input: HTMLInputElement | undefined;
+    setting.addText((text) => {
+      text.setValue(value);
+      input = text.inputEl;
+    });
+    if (!input) throw new Error("RenameBinderItemModal input was not created");
+    input.addClass("feuillets-input-full");
+    if (parent.querySelectorAll("input").length === 1) {
+      input.focus();
+      input.select();
+    }
+    return input;
+  }
+
+  onClose(): void {
+    this.contentEl.empty();
+  }
+}
 
 export class NewSheetModal extends Modal {
   folderName: string;

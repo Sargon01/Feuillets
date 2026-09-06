@@ -1504,7 +1504,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         item.addEventListener("contextmenu", (e) => {
           e.preventDefault();
           this.ensureSelectionForContextMenu(file.path, dragScopeEl);
-          this.showFileContextMenu(e, file, parent, i, siblings);
+          this.showFileContextMenu(e, file, parent, i, siblings, true);
         });
       }
       return true;
@@ -2759,7 +2759,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             this.continuExtras(child)(menu);
             this.binderIsolateExtras(child)(menu);
             this.folderWorkspaceExtras(child)(menu);
-          });
+          }, true);
         });
 
         this.attachDragHandlers(row, row, parent, i, siblings, treePane);
@@ -2934,7 +2934,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           this.continuExtras(treeRoot)(menu);
           this.binderIsolateExtras(treeRoot)(menu);
           this.folderWorkspaceExtras(treeRoot)(menu);
-        });
+        }, true);
         return;
       }
       this.showProjectRootContextMenu(e, treeRoot);
