@@ -418,13 +418,6 @@
   border-bottom: none;
 }
 
-/* §7 : hiérarchie titre / aperçu — le titre doit se lire immédiatement,
-   l'aperçu reste clairement secondaire. Purement visuel : ni le clamp
-   1-3 lignes existant (feuillets-view.ts), ni la donnée, ne changent. */
-.feuillets-binder-isolated .feuillets-item-name {
-  font-weight: 600;
-  color: var(--text-normal);
-}
 /* .feuillets-binder-isolated .feuillets-item-preview (marge titre/aperçu) :
    posée juste après la règle .feuillets-item-preview d'origine (plus bas
    dans ce fichier) — test/binder-label-icon-and-native-selection.test.js
@@ -987,7 +980,7 @@
 
 .feuillets-list-pane .feuillets-item .feuillets-item-name {
   white-space: normal;
-  font-weight: var(--font-semibold, 600);
+  font-weight: var(--font-normal, 400);
   color: var(--text-normal);
 }
 
@@ -1027,7 +1020,6 @@
    à ce span flex de rétrécir sous sa largeur de contenu pour que l'ellipsis
    agisse plutôt que de faire déborder la ligne. */
 .feuillets-list > .feuillets-tree-root .feuillets-folder-name.feuillets-isolation-current {
-  text-transform: none;
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -3747,7 +3739,15 @@ body.feuillets-text-width
 }
 
 .feuillets-item.is-active .feuillets-item-name {
+  font-weight: var(--font-normal, 400);
+}
+
+/* Grammaire commune : seule une ligne explicitement rendue avec aperçu est
+   semi-grasse. Le mode actif, isolé ou en volet droit n'ajoute plus de
+   graisse par lui-même. */
+.feuillets-item.feuillets-item-has-preview .feuillets-item-name {
   font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
 }
 
 /* poignée de déplacement : visible au survol de la ligne entière, pas

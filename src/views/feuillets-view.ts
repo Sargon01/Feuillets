@@ -1291,7 +1291,13 @@ export class FeuilletsView extends BaseFeuilletsView {
          résolue au rendu vers la grammaire actuelle — jamais migrée sur
          disque (voir resolveBinderPreviewField, utils/binder-preview.ts). */
       const effectiveField = resolveBinderPreviewField(S.listPanePreviewField, binderPreviewSemantic);
-      if (!hidden && !effectiveBinderCompact && opts.showPreview && effectiveField !== "none") {
+      const previewExpanded =
+        !hidden
+        && !effectiveBinderCompact
+        && opts.showPreview === true
+        && effectiveField !== "none";
+      item.toggleClass("feuillets-item-has-preview", previewExpanded);
+      if (previewExpanded) {
         /* §5 : le Binder ne doit jamais devenir une fiche — l'aperçu est
            borné à 3 lignes maximum, quelle que soit une ancienne valeur
            enregistrée (`listPanePreviewLines` peut encore dépasser 3,
@@ -1865,13 +1871,15 @@ export class FeuilletsView extends BaseFeuilletsView {
     researchRoot: TFolder,
     rootIcon = "search",
     labelForFile?: (f: TFile) => string,
-    linkedFolders: TFolder[] = []
+    linkedFolders: TFolder[] = [],
+    excludedRootPaths: ReadonlySet<string> = new Set(),
+    workspaceResearchPaths: ReadonlySet<string> = new Set()
   ): void {
     const fileLabel = labelForFile || ((f: TFile) => this.plugin.titleFor(f));
     const S = this.plugin.settings;
 
-    const renderRow = (label: string, depth: number, isFolder: boolean, iconName?: string) => {
-      const row = container.createDiv({
+    const renderRow = (host: HTMLElement, label: string, depth: number, isFolder: boolean, iconName?: string) => {
+      const row = host.createDiv({
         cls: isFolder ? "feuillets-folder-row feuillets-binder-research-row" : "feuillets-item feuillets-binder-research-row",
       });
       row.style.paddingLeft = `${6 + depth * 14}px`;
@@ -1973,7 +1981,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     };
 
     const researchLabel = researchRoot.name.replace(/^_/, "");
-    const rootRow = renderRow(researchLabel, 0, true);
+    const rootRow = renderRow(container, researchLabel, 0, true);
     // Séparateur visuel avec l'arborescence du manuscrit juste au-dessus —
     // trop proche sinon, on pouvait croire que "Recherche" faisait partie
     // du manuscrit plutôt que d'un accès à part (voir styles.css).
@@ -1988,12 +1996,12 @@ export class FeuilletsView extends BaseFeuilletsView {
       })();
     });
     rootRow.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, researchRoot));
-    if (rootCollapsed) return;
 
-    const renderChildren = (folder: TFolder, depth: number) => {
+    const renderChildren = (folder: TFolder, depth: number, host: HTMLElement) => {
       for (const child of this.plugin.getOrderedChildren(folder)) {
         if (child instanceof TFolder) {
-          const row = renderRow(child.name, depth, true);
+          if (excludedRootPaths.has(child.path)) continue;
+          const row = renderRow(host, child.name, depth, true);
           const isCollapsed = !!S.collapsed[child.path];
           row.addEventListener("click", () => {
             void (async () => {
@@ -2004,9 +2012,9 @@ export class FeuilletsView extends BaseFeuilletsView {
             })();
           });
           row.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, child));
-          if (!isCollapsed) renderChildren(child, depth + 1);
+          if (!isCollapsed) renderChildren(child, depth + 1, host);
         } else if (child instanceof TFile) {
-          const row = renderRow(fileLabel(child), depth, false);
+          const row = renderRow(host, fileLabel(child), depth, false);
           // Toujours dans un nouvel onglet : consulter une fiche de
           // recherche ne doit jamais remplacer la scène en cours d'écriture.
           row.addEventListener("click", () => {
@@ -2016,21 +2024,10 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       }
     };
-    renderChildren(researchRoot, 1);
+    if (!rootCollapsed) renderChildren(researchRoot, 1, container);
 
-    /* Dossiers Recherche associés depuis le Binder (plugin.getLinkedResearchFolders,
-       main.ts) projétés dans la double vue comme enfants supplémentaires de la
-       section Recherche — même grammaire que les dossiers de recherche internes
-       (repli/dépli, ouverture de fichiers, sous-dossiers, menu contextuel), seule
-       distinction : l'icône `link` sur leur propre ligne. Règle anti-doublon
-       identique à renderAssociatedResearchFolders : on saute tout dossier déjà
-       contenu dans la racine Recherche (ou égal à elle), sur les CHEMINS RÉELS
-       des TFolder — jamais de matching par nom. Le dossier reste physiquement à
-       sa place dans le Vault : aucun déplacement, aucune copie, aucun élément
-       Binder créé. */
-    for (const folder of linkedFolders) {
-      if (folder.path === researchRoot.path || folder.path.startsWith(`${researchRoot.path}/`)) continue;
-      const row = renderRow(folder.name, 1, true, "link");
+    const renderLinkedFolder = (folder: TFolder, host: HTMLElement, depth: number) => {
+      const row = renderRow(host, folder.name, depth, true, "link");
       const isCollapsed = !!S.collapsed[folder.path];
       row.addEventListener("click", () => {
         void (async () => {
@@ -2041,7 +2038,46 @@ export class FeuilletsView extends BaseFeuilletsView {
         })();
       });
       row.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, folder));
-      if (!isCollapsed) renderChildren(folder, 2);
+      if (!isCollapsed) renderChildren(folder, depth + 1, host);
+    };
+
+    /* Les associations qui ne proviennent pas d'un TFolder Binder restent
+       sur leur projection historique. Elles ne sont pas requalifiées en
+       espaces de travail par ce rendu. */
+    for (const folder of linkedFolders) {
+      if (workspaceResearchPaths.has(folder.path)) continue;
+      if (folder.path === researchRoot.path || folder.path.startsWith(`${researchRoot.path}/`)) continue;
+      renderLinkedFolder(folder, container, 1);
+    }
+
+    const linkedPaths = new Set<string>();
+    const admissibleLinkedFolders = linkedFolders.filter((folder) => {
+      if (!workspaceResearchPaths.has(folder.path) || folder.path === researchRoot.path) return false;
+      if (linkedPaths.has(folder.path)) return false;
+      linkedPaths.add(folder.path);
+      return true;
+    });
+    if (admissibleLinkedFolders.length > 0) {
+      const spacesCollapsed = S.collapsed["binder:research-spaces"] === true;
+      const spacesRow = renderRow(container, t("shared.research.workspaces"), 0, true, "layers-3");
+      spacesRow.addClass("feuillets-binder-research-root");
+      spacesRow.addClass("feuillets-binder-research-spaces");
+      spacesRow.setAttr("data-collapse-key", "binder:research-spaces");
+      spacesRow.setAttr("aria-expanded", String(!spacesCollapsed));
+      spacesRow.addEventListener("click", () => {
+        void (async () => {
+          if (S.collapsed["binder:research-spaces"]) delete S.collapsed["binder:research-spaces"];
+          else S.collapsed["binder:research-spaces"] = true;
+          await this.plugin.saveSettings();
+          void this.render(true);
+        })();
+      });
+      if (!spacesCollapsed) {
+        const spacesBody = container.createDiv({ cls: "feuillets-binder-research-spaces-body" });
+        for (const folder of admissibleLinkedFolders) {
+          renderLinkedFolder(folder, spacesBody, 1);
+        }
+      }
     }
   }
 
@@ -2422,14 +2458,29 @@ export class FeuilletsView extends BaseFeuilletsView {
     renderTreeFolders(root, 0);
 
     /* ---- Recherche : section historique restaurée dans la double vue
-       (e2570de) — réutilise exactement renderResearchSection. On y projette
-       aussi les dossiers Recherche associés depuis le Binder
-       (getLinkedResearchFolders), projetés en enfants de la section par
-       renderResearchSection (icône link) — stockage existant inchangé. ---- */
+       (e2570de) — renderResearchSection garde la Recherche Projet et place
+       les associations Binder dans le groupe virtuel Espaces — stockage
+       existant inchangé. ---- */
     const researchRoot = this.plugin.getResearchRoot();
     if (researchRoot instanceof TFolder) {
-      const linkedResearch = this.plugin.getLinkedResearchFolders().map(({ folder }) => folder);
-      this.renderResearchSection(treePane, researchRoot, "search", undefined, linkedResearch);
+      const linkedEntries = this.plugin.getLinkedResearchFolders();
+      const linkedResearch = linkedEntries.map(({ folder }) => folder);
+      const workspaceResearchPaths = new Set(
+        linkedEntries
+          .filter(({ binderNodes }) => binderNodes.some(
+            (node) => node instanceof TFolder && node.path.startsWith(`${projectRoot.path}/`)
+          ))
+          .map(({ folder }) => folder.path)
+      );
+      this.renderResearchSection(
+        treePane,
+        researchRoot,
+        "search",
+        undefined,
+        linkedResearch,
+        workspaceResearchPaths,
+        workspaceResearchPaths
+      );
     }
 
     /* ---- Versions : section historique restaurée dans la double vue
