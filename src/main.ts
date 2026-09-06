@@ -47,7 +47,8 @@ import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
-import { bibliographyEntries, generateBibliography, resolveBibliographySource } from "./services/bibliography-generator.js";
+import { bibliographyEntries, generateBibliography, resolveBibliographySource, resolveBibliographySourceInResearchRoot } from "./services/bibliography-generator.js";
+import { resolveWorkspaceResearchContext } from "./services/workspace-research-context.js";
 import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
@@ -3597,8 +3598,20 @@ class FeuilletsPlugin extends Plugin {
    * sinon repli Bibliographie/Bibliography legacy, jamais les deux à la
    * fois — même règle que la bibliographie générée. */
   getCitationFolders(): TFolder[] {
-    const resolved = resolveBibliographySource(this.app, this.settings);
-    return resolved ? [resolved.folder] : [];
+    const workspace = this.getWorkspaceFolder();
+    if (!workspace) {
+      const resolved = resolveBibliographySource(this.app, this.settings);
+      return resolved ? [resolved.folder] : [];
+    }
+    const folders: TFolder[] = [];
+    const seen = new Set<string>();
+    for (const root of resolveWorkspaceResearchContext(this.app, this.settings, workspace)) {
+      const resolved = resolveBibliographySourceInResearchRoot(this.app, root.folder);
+      if (!resolved || seen.has(resolved.folder.path)) continue;
+      seen.add(resolved.folder.path);
+      folders.push(resolved.folder);
+    }
+    return folders;
   }
 
   openInsertCitation(editor?: Editor | null): void {

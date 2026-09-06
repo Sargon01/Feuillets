@@ -42,15 +42,30 @@ const SOURCES_FOLDER_NAME = "Sources";
 const BIBLIOGRAPHY_FOLDER_NAMES = ["Bibliographie", "Bibliography"];
 
 function sourcesFolder(app: App, researchRoot: TFolder): TFolder | null {
+  if (researchRoot.name === SOURCES_FOLDER_NAME) return researchRoot;
   const f = app.vault.getAbstractFileByPath(normalizePath(`${researchRoot.path}/${SOURCES_FOLDER_NAME}`));
   return f instanceof TFolder ? f : null;
 }
 
 function bibliographyFolder(app: App, researchRoot: TFolder): TFolder | null {
+  if (BIBLIOGRAPHY_FOLDER_NAMES.includes(researchRoot.name)) return researchRoot;
   for (const name of BIBLIOGRAPHY_FOLDER_NAMES) {
     const f = app.vault.getAbstractFileByPath(normalizePath(`${researchRoot.path}/${name}`));
     if (f instanceof TFolder) return f;
   }
+  return null;
+}
+
+/** Résout la bibliothèque d'une seule racine Recherche. Sources canonique
+ * prioritaire, Bibliographie/Bibliography comme repli legacy. */
+export function resolveBibliographySourceInResearchRoot(
+  app: App,
+  researchRoot: TFolder
+): { folder: TFolder; canonical: boolean } | null {
+  const sources = sourcesFolder(app, researchRoot);
+  if (sources) return { folder: sources, canonical: true };
+  const legacy = bibliographyFolder(app, researchRoot);
+  if (legacy) return { folder: legacy, canonical: false };
   return null;
 }
 
@@ -65,11 +80,7 @@ export function resolveBibliographySource(
 ): { folder: TFolder; canonical: boolean } | null {
   const researchRoot = getResearchRoot(app, settings);
   if (!researchRoot) return null;
-  const sources = sourcesFolder(app, researchRoot);
-  if (sources) return { folder: sources, canonical: true };
-  const legacy = bibliographyFolder(app, researchRoot);
-  if (legacy) return { folder: legacy, canonical: false };
-  return null;
+  return resolveBibliographySourceInResearchRoot(app, researchRoot);
 }
 
 function fieldOf(fm: Record<string, unknown>, key: string): string | undefined {
