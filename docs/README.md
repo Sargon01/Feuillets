@@ -1,8 +1,26 @@
 # Documentation Feuillets
 
-Cette page indexe la documentation correspondant à **Feuillets 2.7**.
+Cette page indexe la documentation utilisateur et technique de Feuillets.
 
 > **Français** · English documentation is linked beside each user-facing French guide.
+
+## Comprendre Feuillets
+
+Le manuscrit reste constitué de fichiers Markdown ordinaires dans le coffre Obsidian. Feuillets propose plusieurs représentations et environnements de travail pour ces mêmes fichiers, sans créer une version parallèle du livre.
+
+Le projet assure la continuité ; les espaces de travail fournissent un contexte local lorsqu’un dossier est isolé. La documentation couvre ainsi le cycle qui va de l’organisation et de la Recherche jusqu’à l’écriture, la relecture, l’édition et l’export.
+
+### Parcours conseillé
+
+1. [Classeur et navigation](CLASSEUR-ET-NAVIGATION.md)
+2. [Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md)
+3. [Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md)
+4. [Utiliser le contexte intelligent local](How-to-Contexte-Feuillets.md)
+5. [Mode Continu](MODE-CONTINU.md)
+6. [Aperçu](COMPOSITION-ET-EXPORT.md)
+7. [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md)
+8. [Annotations de travail](ANNOTATIONS-DE-TRAVAIL.md)
+9. [Composition et export](COMPOSITION-ET-EXPORT.md)
 
 ## Pour découvrir
 
@@ -15,6 +33,7 @@ Cette page indexe la documentation correspondant à **Feuillets 2.7**.
 ## Écrire et organiser
 
 - **[Classeur et navigation](CLASSEUR-ET-NAVIGATION.md)** · [English](BINDER-AND-NAVIGATION.md)
+- **[Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md)** · [English](WORKSPACES.md)
 - **[Mode Continu](MODE-CONTINU.md)** · [English](CONTINUOUS-MODE.md)
 - **[Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md)** · [English](RESEARCH-AND-LINKED-FOLDERS.md)
 - **[Annotations de travail](ANNOTATIONS-DE-TRAVAIL.md)** · [English](WORKING-ANNOTATIONS.md)
@@ -30,7 +49,7 @@ Cette page indexe la documentation correspondant à **Feuillets 2.7**.
 - **[Réviser un manuscrit Word avec Feuillets](HOW-TO-REVISION-DOCX.md)** · [English](HOW-TO-DOCX-REVISION.md)
 - **[Validation du flux de révision DOCX](DOCX-REVIEW-VALIDATION.md)** — document de maintenance.
 
-Dans l’interface 2.7, **Relecture** est le point d’entrée pour l’analyse de texte, la relecture collaborative, Révision DOCX et la comparaison avec un instantané.
+**Relecture** est le point d’entrée pour l’analyse de texte, la relecture collaborative, Révision DOCX et la comparaison avec un instantané.
 
 ## Composition, publication et présentation
 
@@ -48,7 +67,7 @@ L’espace central **Édition** contient **Composition** et **Mise en page**. La
 - **[Remplacer Ulysses par Feuillets](Remplacer-Ulysses-par-Feuillets.md)** · [English](REPLACE-ULYSSES-WITH-FEUILLETS.md)
 - **[Remplacer Aeon Timeline par Feuillets](Remplacer-Aeon-Timeline-par-Feuillets.md)** · [English](REPLACE-AEON-TIMELINE-WITH-FEUILLETS.md)
 
-Ces guides décrivent les équivalences de workflow sans prétendre reproduire les applications d’origine à l’identique. Ils intègrent désormais Continu, le remappage YAML, les dossiers Recherche associés, les annotations, la relecture collaborative et l’espace Édition 2.7.
+Ces guides décrivent les équivalences de workflow sans prétendre reproduire les applications d’origine à l’identique. Ils intègrent notamment Continu, le remappage YAML, les dossiers Recherche associés, les annotations, la relecture collaborative et l’espace Édition.
 
 ## Pour les mainteneurs
 

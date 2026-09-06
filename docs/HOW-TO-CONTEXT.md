@@ -23,13 +23,17 @@ A note can be found from its title, aliases, tags or content. A linked folder ma
 
 See [Research and linked folders](RESEARCH-AND-LINKED-FOLDERS.md).
 
+Research notes are not limited to imposed categories such as Character, Place or Event. Any relevant documentary file can participate in Context through its title, aliases, tags, content or structured information that Feuillets knows how to recognize. Recognition remains local, lexical and deterministic: Feuillets does not automatically understand arbitrary text or every semantic relationship.
+
 ## 2. Associate documentation with the manuscript
 
 Feuillets can use several levels:
 
 - Research linked directly to the sheet;
-- Research linked to its folder/chapter;
-- general project Research.
+- effective Research for its folder or workspace;
+- general project Research when relevant to the documentary scope.
+
+Folder inheritance follows ancestors and never crosses to a sibling folder. See [One project, multiple workspaces](WORKSPACES.md).
 
 Closer results have priority. **Full-content matching** is deliberately scoped to associated Research folders instead of continuously searching the entire documentary project for every paragraph.
 

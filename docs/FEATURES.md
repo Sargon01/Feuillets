@@ -2,9 +2,11 @@
 
 > [Français](FONCTIONNALITES.md) · **English** · [Documentation index](README.md)
 
-## Projects and existing-vault compatibility
+## Manuscript and structure
 
-- Fiction, Non-fiction and Free projects;
+### Projects and existing-vault compatibility
+
+- Fiction, Non-fiction and Free initialization presets; they provide starting values without blocking runtime capabilities;
 - use or initialize an existing folder;
 - `_Feuillets` auxiliary space with non-destructive legacy compatibility;
 - project-scoped goals, statuses, labels and favorite tags;
@@ -14,7 +16,7 @@
 
 See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 
-## Binder
+### Binder
 
 - create/rename/move;
 - drag back to root;
@@ -25,9 +27,9 @@ See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 - isolate a folder and navigate back upward/project-wide;
 - open in Preview or Continuous;
 - link an existing Research folder;
-- single or **split view**: Manuscript folder tree + lightweight Vault navigation on the left, unchanged 2.5 Binder on the right.
+- single or **split view**: **Manuscript**, **Research**, **Workspaces** and **Vault** navigation on the left; the right pane remains the working Binder and reflects the active workspace.
 
-## Continuous
+### Continuous
 
 - one continuous editor for several sheets;
 - source Markdown files remain separate;
@@ -41,7 +43,7 @@ See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 - reordering paragraphs or fragments contained within one paragraph, without crossing a sheet boundary;
 - native Undo/Redo for the Continuous document.
 
-## Reorder text
+### Reorder text
 
 - available in the native Markdown editor and in Continuous;
 - local editor mode: hover a paragraph, then drag and drop it;
@@ -51,7 +53,7 @@ See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 
 In the native Markdown editor, the context menu can offer **Footnote >**, **Annotation…**, **Capture an idea**, **Reorder text**, followed by **Feuillets: Split**, **Feuillets: Duplicate** and **Feuillets: Move…**, depending on context.
 
-## Notebook
+### Notebook
 
 - project Notebook and **Notebooks attached to folders**;
 - real Obsidian Canvas, without a proprietary visual format;
@@ -67,15 +69,30 @@ In the native Markdown editor, the context menu can offer **Footnote >**, **Anno
 
 See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
-## Cards, Outline, Storyline and Timeline
+### Cards, Outline, Story arcs and Timeline
 
 - simplified Cards/Outline roles;
 - hierarchical Outline with configurable columns and optional wrapping for long text;
 - natural sorting only as fallback when no explicit order exists;
-- Storyline for narrative threads;
+- Story arcs for narrative threads; the first and last occurrence of one thread can naturally serve as its opening or setup and resolution or payoff, while intermediate occurrences show its development. Feuillets does not automatically assign those roles or require separate narrative objects;
+- when a thread appears for the first time, a pending resolution marker may be maintained toward the end of the project, then removed when a new real occurrence of the same thread appears; no named narrative role is assigned automatically;
 - narrative/chronological Timeline.
 
-## Sheet, notes and annotations
+The Binder remains the working structure; the Board offers several readings of the same files. Threads can follow an object, promise, conflict or motif across several sheets without imposing one interpretation of the lanes.
+
+## Workspaces and scopes
+
+- folder isolation as a working scope without moving or copying files;
+- sheet, folder, selection or project scope depending on the action;
+- supported local settings inherited from the parent, project or global settings;
+- Research, Board, goals, workflow and typography can follow the working context;
+- Project and Workspace remain distinct layers.
+
+See [One project, multiple workspaces](WORKSPACES.md).
+
+## Research and Context
+
+### Sheet, notes and annotations
 
 - project-type-aware synopsis/summary;
 - working notes in Sheet panel;
@@ -83,7 +100,7 @@ See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 - local Context;
 - working annotations outside Markdown, highlighted, editable and removable through **Annotation…**.
 
-## Research
+### Research
 
 - project-type categories;
 - rationalized Sources/Bibliography;
@@ -91,13 +108,31 @@ See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 - any existing vault folder can be linked to a Binder node;
 - external linked folders visible in Research;
 - linked files can open in a new tab or side by side;
-- no automatic move/copy/rename from the Research entry point.
+- no automatic move/copy/rename from the Research entry point;
+- free-form Markdown Research notes, with no required Character, Place or Event form;
+- optional structured properties when useful.
 
-## Proofreading
+### Context
+
+- passage around the cursor brought closer to relevant Research;
+- local, lexical and deterministic clues: titles, aliases, tags, documentary content and recognized chronological information;
+- Character, Place, Object, Institution, Source or any other relevant documentation;
+- a note’s chronology can help contextualize its state at a relevant date, without claiming general semantic understanding.
+
+## Writing
+
+- native Markdown editor kept as the working source;
+- text width, typography, line spacing, indents, Focus Mode and writing aids;
+- Continuous lets the author work across several sheets as one text while keeping the source files separate;
+- real Markdown files remain the source despite visual settings.
+
+## Revision and collaboration
+
+### Proofreading
 
 Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare a version.
 
-## Comparison
+### Comparison
 
 - additions, deletions, replacements;
 - move/cut-paste detection;
@@ -108,7 +143,7 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - Changes / Versions modes;
 - optional linked scrolling.
 
-## Collaborative review
+### Collaborative review
 
 - sheet/folder/project scope;
 - portable `.feuillets` package;
@@ -120,9 +155,11 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - note threads and further rounds;
 - local archive.
 
-## Edition and composition
+## Edition and publication
 
-- central workspace rather than sidebar tab;
+### Edition and composition
+
+- tab in the Feuillets panel;
 - Composition and Layout modes;
 - one First page entry in Composition;
 - front matter;
@@ -133,7 +170,7 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - create/duplicate/rename custom templates;
 - Ulysses and Word template import.
 
-## Semantic roles and derived publishing
+### Semantic roles and derived publishing
 
 - 18 optional canonical roles; ordinary text does not require annotation;
 - variants: same document with selected roles excluded;
@@ -143,7 +180,7 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - project-scoped configuration under **Composition → Manuscript**;
 - no duplication of the source manuscript.
 
-## Presentation
+### Presentation
 
 - 16:9 rendering of the same Markdown;
 - `---` as slide separator;
@@ -154,14 +191,14 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - `classic`, `course`, `ivory`, `slate`, `dark` themes;
 - optional Auto / flow / columns / image-left / image-right override stored outside Markdown.
 
-## Layout
+### Layout
 
 - Page: format, orientation, margins, mirror, columns, gutter, header/footer;
 - Body: font, size, spacing, indent, hyphenation, profile;
 - Headings: styles and page breaks;
 - Blockquote: margins, color, italic, scene separator.
 
-## Preview
+### Preview
 
 - genuinely paginated document for a sheet, folder, selection or project;
 - footnotes placed at the bottom of the page containing their first call, with space reserved during pagination;
@@ -172,7 +209,9 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - source Markdown and native exports unchanged; unresolved citekeys remain raw;
 - no full CSL engine: final bibliography styling can remain in an external Pandoc workflow.
 
-## Export
+Citations connect Research sources to the manuscript. During compilation, Feuillets can limit the bibliography to sources actually cited within the compiled scope.
+
+### Export
 
 - compiled Markdown, DOCX, EPUB, ODT;
 - desktop PDF through system printing;
@@ -181,7 +220,9 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - automatically resolved output name with legacy compatibility;
 - safe replacement across macOS case-only filename differences.
 
-## Scrivener import
+## Import / export
+
+### Scrivener import
 
 - Binder/Draft structure;
 - RTF → Markdown text;
@@ -189,7 +230,9 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - Research/resources;
 - **persisted Scrivener Binder order**, independent of vault alphabetical sorting.
 
-## Security and privacy
+## Local, privacy and open formats
+
+### Security and privacy
 
 - no telemetry;
 - no required remote service;

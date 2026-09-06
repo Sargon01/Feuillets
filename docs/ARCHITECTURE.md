@@ -1,6 +1,6 @@
-# Architecture technique — Feuillets 2.7
+# Architecture technique — Feuillets
 
-> Document de maintenance. Cette page décrit l’architecture fonctionnelle à la fin du chantier 2.6 ; les noms de fichiers sont ceux du code.
+> Document de maintenance. Cette page décrit l’architecture fonctionnelle actuelle ; les noms de fichiers sont ceux du code.
 
 ## Principe général
 
@@ -16,17 +16,16 @@ L’usage optionnel de `MenuItem.setSubmenu()` est protégé par détection de c
 
 Le Classeur gère la navigation du manuscrit : ordre, dossiers, feuillets, sélection multiple, recherche, filtres, drag/drop, isolation et intégration avec Continu.
 
-La 2.5 conserve un mode simple et restaure la double vue historique sans remplacer le rendu principal :
+Le Classeur propose un mode simple et une double vue :
 
-- à gauche, une navigation **Manuscrit** fondée sur les dossiers du projet ;
-- sous celle-ci, un accès **Coffre** limité à la navigation/ouverture des documents ;
-- à droite, le même Classeur 2.5 que dans la vue simple.
+- à gauche, une navigation **Manuscrit**, **Recherche**, **Espaces** et **Coffre** ;
+- à droite, le Classeur de travail qui reflète l’espace actif.
 
 Les réglages historiques `binderLayout`, `binderSelectedPath`, `binderTreeWidth`, `binderTreeCollapsed`, `binderListCollapsed` et `binderSplitRecursive` restent la base de compatibilité du layout. Le volet Coffre ne modifie ni la portée du projet, ni l’isolation, ni la sélection, ni Continu.
 
 ### Tableau — `views/board-view.ts`
 
-Le Tableau projette les mêmes fichiers sous plusieurs modes : **Cartes**, **Plan**, **Chemin de fer** et **Chronologie**. Il accueille également les surfaces centrales telles qu’Édition et Documents éditoriaux ; ces contenus sont montés comme composants DOM, pas comme `ItemView` imbriquées.
+Le Tableau est l’un des environnements de structure du plugin et projette les mêmes fichiers sous quatre modes : **Cartes**, **Plan**, **Chemin de fer** et **Chronologie**. Les modules de portée, de plan et de chronologie sont notamment séparés dans `views/board-scope.ts`, `views/board-outline.ts` et `views/board-timeline.ts`.
 
 Le **Plan** est la représentation structurelle tabulaire du manuscrit. Il ne doit pas être confondu avec `Composition → Structure`, qui configure des règles de numérotation/compilation.
 
@@ -68,15 +67,16 @@ Aperçu rend le document composé/paginé, peut suivre la portée de travail et 
 
 Pour les grandes portées, une première passe partielle peut précéder une seconde passe complète. La pagination complète est coopérative côté Aperçu ; la portée officielle n’est jamais remplacée par la portée provisoire. Une génération ou la fermeture annule le travail en cours. `MarkdownRenderer` reste monolithique pour le rendu complet : aucun rendu Markdown n’est batché feuillet par feuillet. Le pipeline de pagination de l’export PDF historique reste synchrone.
 
-### Panneau droit — `views/sidebar-feuillets-view.ts`
+### Panneau Feuillets — `views/sidebar-feuillets-view.ts`
 
-Les cinq onglets publics sont :
+Les six onglets publics sont :
 
 ```text
 notes       → Feuillet
 research    → Recherche
 journal     → Journal
-project     → Projet
+project     → Édition
+stats       → Statistiques
 relecture   → Relecture
 ```
 
@@ -85,12 +85,27 @@ Les anciens identifiants persistés sont migrés/redirigés pour compatibilité 
 - **Feuillet** : synopsis/résumé, notes, propriétés, notes de bas de page, Contexte, annotations ;
 - **Recherche** : catégories documentaires, Sources/Bibliographie et dossiers associés ;
 - **Journal** : journal d’écriture ;
-- **Projet** : administration et réglages propres au projet ;
+- **Édition** : Composition, Mise en page et documents éditoriaux ;
+- **Statistiques** : statistiques du feuillet, de la sélection et du projet ;
 - **Relecture** : analyse de texte, relecture collaborative, Révision DOCX et comparaison.
 
-## Édition centralisée
+Le nom interne `project` est conservé pour la compatibilité des identifiants persistés et des commandes ; il ne correspond pas à un onglet public nommé Projet.
 
-`ui/edition-workspace-content.ts` monte l’espace central **Édition** avec deux modes visibles :
+## Espaces de travail — `src/services/folder-workspaces.ts`
+
+Les espaces de travail ajoutent une portée locale à un dossier du Binder sans déplacer ni dupliquer le manuscrit. La configuration locale ne stocke que les overrides nécessaires. La résolution suit l’ordre dossier exact → ancêtre → projet → réglages globaux.
+
+La portée active est volatile et liée à la session ; `workspaceFolderPath` est la référence interne du dossier actif lorsqu’elle est disponible. Les familles actuellement prises en charge localement comprennent notamment le workflow, les objectifs, la typographie, certaines options du Tableau et les réglages de planning. Les valeurs absentes continuent d’être héritées ; les fichiers Markdown et les dossiers du coffre restent la source de vérité.
+
+## Presets de projet
+
+Fiction, Non-fiction et Libre sont des presets d’initialisation. Ils proposent des valeurs de départ et peuvent migrer certains anciens types, mais ils ne constituent pas des barrières de capacités à l’exécution : les fonctions du plugin restent disponibles indépendamment du preset.
+
+## Édition dans le panneau Feuillets
+
+L’onglet public **Édition** possède une page d’accueil avec trois entrées : **Composition**, **Mise en page** et **Dossier éditorial**.
+
+`ui/edition-workspace-content.ts` porte les deux modes `composition` et `layout`. Le Dossier éditorial est monté séparément via `ui/edition-docs-content.ts` sur la page interne `documents`.
 
 - `composition`
 - `layout`
@@ -162,7 +177,7 @@ Les imports de plan et Scrivener persistent explicitement l’ordre de la source
 
 ## Frontmatter et mapping YAML
 
-`services/frontmatter.ts` centralise lecture logique et écriture des champs. Le panneau Projet peut définir un mapping par projet pour :
+`services/frontmatter.ts` centralise lecture logique et écriture des champs. La gestion des projets peut définir un mapping par projet pour :
 
 ```text
 synopsis
@@ -187,6 +202,24 @@ La résolution privilégie le mapping explicite, puis les formes canoniques/lega
 `researchFolderLinks` permet d’associer un nœud du Classeur à un dossier existant n’importe où dans le coffre. Le panneau Recherche projette ces dossiers liés sans les déplacer. Les dossiers externes restent navigation-only : leurs fichiers peuvent être ouverts, y compris côte à côte, mais Feuillets n’y expose pas les opérations d’administration du dossier Recherche interne.
 
 La double vue du Classeur comporte aussi un mini-navigateur Coffre ; il est indépendant de `researchFolderLinks` et ne crée aucune association automatiquement.
+
+## Recherche contextuelle des espaces
+
+`services/workspace-research.ts` résout une Recherche effective selon l’ordre exact → ancêtre → projet → none. Les associations de dossiers peuvent être héritées par les descendants ; les associations directes portées par un feuillet restent locales à ce feuillet. `services/workspace-research-context.ts` construit ensuite les racines contextuelles avec leur provenance Projet, Espace ou fichier, sans agréger les branches sœurs.
+
+Dans le Binder, le groupe virtuel **Espaces** est une vue dérivée des associations Recherche. Il ne correspond pas à un dossier physique et ne déplace aucune donnée.
+
+## Chronologie contextuelle
+
+`views/board-timeline.ts` reçoit une sélection de sources correspondant à la portée de la Timeline. Elle peut combiner la Chronologie globale du projet, la Recherche exacte ou héritée de l’espace et les associations directes pertinentes des feuillets de cet espace. Les sources des espaces frères ne sont pas ajoutées.
+
+## Citations et registre de provenance
+
+`services/citation-registry.ts` conserve les citations dans le sidecar interne `citations.json`, sous les Ressources internes. Une occurrence relie un feuillet relatif au Manuscrit à la fiche Source physique et à une ancre textuelle. Les ancres sont résolues prudemment dans le contenu courant ; les chemins sont remappés lors des renommages centraux. Un registre absent est vide en mémoire ; un registre invalide ou corrompu est signalé et n’est pas écrasé silencieusement.
+
+## Bibliographie contextuelle
+
+Lors d’une compilation, les fichiers de la `CompileScope` fournissent les feuillets à examiner. Les occurrences modernes applicables sont résolues par leur ancre, les Sources physiques valides sont dédupliquées par chemin, puis le moteur bibliographique existant les formate. Lorsqu’au moins un enregistrement moderne est applicable à la portée, il fait autorité, même si certaines occurrences ne sont plus résolubles. Le repli historique fondé sur `cite_count` n’est utilisé que lorsqu’aucune occurrence moderne applicable n’existe.
 
 ## Contexte
 

@@ -36,6 +36,26 @@ Les dossiers réellement gérés dans l’espace Recherche du projet conservent 
 
 Cette distinction évite qu’une simple association transforme un dossier documentaire existant en dossier administré par Feuillets.
 
+## Projet et Espace
+
+Sans espace isolé, la Recherche conserve son comportement de **Projet** : elle montre la documentation commune du projet.
+
+Lorsqu’un dossier est isolé, la portée **Espace** peut être consultée séparément de la portée Projet. Elle utilise la Recherche effective du dossier actif :
+
+- association directe au dossier ;
+- sinon association héritée d’un ancêtre ;
+- si aucun dossier Recherche local ou hérité valide n’existe, la Recherche du projet sert de repli à la vue Espace.
+
+Une Recherche de dossier frère n’est jamais fournie à l’espace courant. L’héritage suit les ancêtres et ne traverse pas les branches. Projet et Espace restent des couches distinctes : deux catégories portant le même nom ne sont pas fusionnées physiquement.
+
+Voir [Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md).
+
+## Espaces dans la double vue
+
+Dans la double vue du Classeur, **Recherche** représente la couche commune du projet et **Espaces** regroupe les racines Recherche explicitement associées à des dossiers du Binder.
+
+**Espaces** est un groupe virtuel de navigation. Il ne crée pas de dossier physique, ne déplace ni ne copie les dossiers Recherche et ne fusionne pas leur contenu avec la Recherche du projet. Un dossier associé peut donc rester physiquement sous la racine Recherche tout en apparaissant dans ce groupe.
+
 ## Recherche associée et Contexte
 
 L’association sert aussi au **Contexte** du panneau Feuillet. Les dossiers proches du feuillet ou de son chapitre peuvent fournir des références explicites et des correspondances de contenu sans obliger à déplacer la documentation vers `_Feuillets/Recherche`.

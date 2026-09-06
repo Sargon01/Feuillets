@@ -36,6 +36,26 @@ Folders actually managed inside the project’s Research space keep their normal
 
 This distinction prevents a simple link from turning an existing documentary folder into a Feuillets-managed folder.
 
+## Project and Workspace
+
+Without an isolated workspace, Research keeps its **Project** behavior and shows the project’s shared documentation.
+
+When a folder is isolated, the **Workspace** scope can be consulted separately from the Project scope. It uses the active folder’s effective Research:
+
+- a direct folder association;
+- otherwise an association inherited from an ancestor;
+- if no valid local or inherited Research folder exists, Project Research is the fallback for the Workspace view.
+
+Research from a sibling folder is never supplied to the current workspace. Inheritance follows ancestors and does not cross branches. Project and Workspace remain separate layers: two categories with the same name are not physically merged.
+
+See [One project, multiple workspaces](WORKSPACES.md).
+
+## Workspaces in split view
+
+In Binder split view, **Research** represents the project’s shared layer and **Workspaces** groups Research roots explicitly linked to Binder folders.
+
+**Workspaces** is a virtual navigation group. It does not create a physical folder, move or copy Research folders, or merge their contents with Project Research. A linked folder can therefore remain physically under the Research root while appearing in this group.
+
 ## Linked Research and Context
 
 Links also feed **Context** in the Sheet panel. Documentation associated closely with a sheet or chapter can provide explicit references and content matches without forcing the material into `_Feuillets/Recherche`.

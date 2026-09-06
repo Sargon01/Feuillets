@@ -2,6 +2,56 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 2.9.0 — Unreleased
+
+### Workspaces
+
+- Espaces de travail attachés aux dossiers, réglages locaux hérités, objectifs, workflow et typographie, avec continuité du projet partagé.
+
+### Binder
+
+- Binder conscient de l’espace, double vue, séparation Recherche / Espaces et grammaire harmonisée des menus.
+
+### Board
+
+- Portée par dossier dans les modes du Tableau, avec extraction du Plan et de la Chronologie hors du module principal et adaptation du Chemin de fer à la portée active.
+
+### Research
+
+- Couches Projet / Espace, héritage, associations directes de feuillets et exclusion des branches sœurs.
+
+### Timeline
+
+- Recherche contextualisée par espace, intégration de la chronologie, restauration du tri temporel et de l’ordre narratif des jalons.
+
+### Project presets
+
+- Presets de création Fiction, Non-fiction et Libre, indépendants des capacités disponibles à l’exécution.
+
+### Citations
+
+- Registre de provenance des citations et maintenance lors des renommages.
+
+### Bibliography
+
+- Bibliographie limitée aux Sources réellement citées dans la portée compilée, avec autorité du registre moderne et repli historique.
+
+### Documentation
+
+- Guides dédiés aux espaces de travail et réécriture des documents de découverte, du parcours auteur, des fonctionnalités et de l’architecture.
+
+## 2.8.3
+
+- Raffinements de l’interface, des workflows projet et des modales, avec ajustements de l’interface des citations.
+
+## 2.8.2
+
+- Publication corrective ; aucun changement fonctionnel distinct n’est documenté dans les commits de cette version.
+
+## 2.8.1
+
+- Améliorations de découverte et de présentation visuelle, avec documentation de la version 2.8.0.
+
 ## 2.8.0
 
 ### Notes de bas de page paginées
@@ -640,7 +690,7 @@ Toutes les évolutions notables du plugin sont consignées ici.
   d'action des onglets et les onglets latéraux non actifs. Un bouton
   « Valeurs suggérées » pré-remplit ces réglages sans rien masquer ni
   verrouiller. La plupart de ce qui nécessitait un thème/des plugins tiers
-  (voir [`SETUP-INTERFACE.md`](./SETUP-INTERFACE.md)) est donc désormais
+  (voir [`SETUP-INTERFACE.md`](./docs/SETUP-INTERFACE.md)) est donc désormais
   natif.
 - Onglets de réglages réorganisés : Numérotation en position 2 dans Projet
   (juste après Dossier & Gestion des projets), Tags favoris déplacés vers

@@ -2,11 +2,13 @@
 
 > [Français](PROJET-ET-PROPRIETES-YAML.md) · **English** · [Documentation index](README.md)
 
-Feuillets 2.5 moves genuinely editorial settings to the active **Project** and can adapt its logical fields to YAML properties already used in an existing vault.
+**Manage projects…** configures the active project and can adapt its logical fields to YAML properties already used in an existing vault.
 
 ## Project-scoped settings
 
-The **Project** panel includes goals, statuses, labels, favorite tags, project information and YAML property mapping.
+**Manage projects…** includes goals, statuses, labels, favorite tags, project information and YAML property mapping.
+
+These settings belong to project management, not to a public **Project** tab in the Feuillets panel. Fiction, Non-fiction and Free are creation presets: they provide initial values but do not block runtime capabilities.
 
 If a project does not define an override, Feuillets falls back to the historical global setting. Simply reading a project does not copy global defaults into project metadata.
 

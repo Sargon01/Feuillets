@@ -6,9 +6,9 @@
 
 Feuillets sépare l’apparence confortable de l’éditeur de la composition du document destiné à être lu, imprimé ou envoyé.
 
-## L’espace central Édition
+## Onglet Édition
 
-En 2.5, **Édition** n’est plus un onglet du panneau droit. C’est une surface centrale qui travaille à côté du vrai **Aperçu**.
+L’onglet **Édition** contient les surfaces liées à la production du document, notamment **Composition** et **Mise en page**. Il travaille avec le vrai **Aperçu** et la barre d’export.
 
 Deux modes seulement :
 

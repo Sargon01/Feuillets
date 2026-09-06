@@ -22,26 +22,28 @@ Le mode **Concentration** réduit temporairement l’environnement autour du tex
 
 ## Le Classeur
 
-Le Classeur 2.5 peut rester très sobre. Sa vue simple donne toute la largeur à la navigation du manuscrit. La **double vue** ajoute uniquement un navigateur à gauche :
+Le Classeur peut rester très sobre. Sa vue simple donne toute la largeur à la navigation du manuscrit. La **double vue** ajoute à gauche la navigation **Manuscrit**, **Recherche**, **Espaces** et **Coffre** :
 
 - **Manuscrit** pour voir les dossiers et la hiérarchie d’un coup d’œil ;
+- **Recherche** et **Espaces** pour distinguer la documentation du projet et les racines associées aux espaces ;
 - **Coffre** pour consulter d’autres documents du vault sans quitter Feuillets.
 
-Le volet droit reste le même Classeur. La zone Coffre est volontairement en lecture/navigation seule et ne remplace pas l’Explorateur de fichiers d’Obsidian.
+Le volet droit reste le Classeur de travail et reflète l’espace actif. La zone Coffre est volontairement en lecture/navigation seule et ne remplace pas l’Explorateur de fichiers d’Obsidian.
 
 Voir [Classeur et navigation](CLASSEUR-ET-NAVIGATION.md).
 
 ## Le panneau droit
 
-Le panneau Feuillets réunit cinq onglets publics :
+Le panneau Feuillets réunit six onglets publics :
 
 - **Feuillet** — synopsis/résumé, notes, propriétés, annotations, notes de bas de page et Contexte ;
 - **Recherche** — documentation, Sources/Bibliographie et dossiers associés ;
 - **Journal** — journal d’écriture et suivi ;
-- **Projet** — informations et réglages propres au projet ;
+- **Édition** — Composition, Mise en page et documents éditoriaux ;
+- **Statistiques** — statistiques du feuillet, de la sélection et du projet ;
 - **Relecture** — analyse de texte, relecture collaborative, Révision DOCX et comparaison.
 
-**Édition** n’est plus un onglet latéral. C’est une surface centrale pour **Composition** et **Mise en page**.
+La configuration du projet s’ouvre depuis **Gérer les projets…**. L’onglet **Édition** contient **Composition**, **Mise en page** et les documents éditoriaux.
 
 ## Écrire plusieurs feuillets
 

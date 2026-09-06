@@ -4,11 +4,11 @@
 
 > Document de recette et de maintenance, pas une présentation marketing.
 
-## Point d’entrée 2.5
+## Point d’entrée
 
 Le flux DOCX appartient désormais à **Relecture → Révision DOCX**.
 
-Il ne doit plus être documenté comme une fonction de l’ancien onglet Édition du panneau droit. L’espace central **Édition** est réservé à Composition et Mise en page.
+Il ne doit pas être documenté comme une fonction de l’onglet **Édition**. Celui-ci reste dédié à Composition, Mise en page et aux documents éditoriaux.
 
 ## Flux
 
@@ -31,7 +31,7 @@ Une révision extérieure est une **proposition**, jamais une autorisation de r�
 
 Lorsqu’un changement ne peut pas être associé avec une confiance suffisante à un feuillet ou à un passage source, il doit rester à vérifier ou ambigu plutôt qu’être appliqué arbitrairement.
 
-## Grammaire de comparaison 2.5
+## Grammaire de comparaison
 
 Lorsque le flux présente un avant/après, il doit rester cohérent avec la grammaire commune du comparateur Feuillets :
 

@@ -10,16 +10,20 @@ Feuillets propose deux présentations du même Classeur.
 
 ### Vue simple
 
-La vue simple est le Classeur 2.5 pleine largeur. Toutes les interactions habituelles y restent disponibles : dossiers, feuillets, sélection multiple, recherche, filtres, isolation, glisser-déposer et ouverture en Continu.
+La vue simple affiche le Classeur sur toute la largeur. Toutes les interactions habituelles y restent disponibles : dossiers, feuillets, sélection multiple, recherche, filtres, isolation, glisser-déposer et ouverture en Continu.
 
 ### Double vue
 
-La **double vue** ajoute un volet de navigation à gauche. Le Classeur de droite ne change ni d’apparence ni de comportement.
+La **double vue** ajoute un volet de navigation à gauche ; le volet de droite reste le Classeur de travail et reflète l’espace actif.
 
-Le volet gauche contient deux zones :
+Le volet gauche contient les couches de navigation du projet :
 
 - **Manuscrit** — uniquement les dossiers du projet, dans l’ordre réel du Classeur ;
+- **Recherche** — la Recherche physique commune du projet ;
+- **Espaces** — les racines Recherche associées aux dossiers du Binder, regroupées virtuellement ;
 - **Coffre** — un accès léger aux autres dossiers et fichiers du vault.
+
+**Recherche** et **Espaces** ne fusionnent aucun dossier. Un dossier Recherche peut être physiquement sous la Recherche du projet tout en étant présenté sous **Espaces** lorsqu’il est associé à un dossier du Binder. Le groupe **Espaces** ne crée aucun dossier dans le vault.
 
 Le séparateur peut être redimensionné. Revenir à la vue simple rend toute la largeur au Classeur.
 
@@ -52,9 +56,11 @@ Cette zone ne sert pas à administrer le coffre : pas de création, renommage, s
 
 ## Isoler un dossier
 
-**Isoler ce dossier** réduit temporairement le contexte du Classeur à une branche du manuscrit. L’isolation est un état de travail de session : elle ne change pas le dossier projet et ne déplace aucun fichier.
+**Isoler ce dossier** réduit temporairement le contexte du Classeur à une branche du manuscrit et définit l’espace de travail actif. Plusieurs surfaces Feuillets peuvent suivre cette même portée : le Classeur, le Tableau dans ses modes Cartes, Plan, Chemin de fer et Chronologie, la Recherche et le Carnet du dossier lorsqu’il existe.
 
-Vous pouvez ensuite revenir au parent ou au projet complet. La double vue ne change pas ce mécanisme : le volet gauche sert à naviguer, l’isolation reste une action explicite du Classeur.
+L’isolation est une portée interne au projet : elle ne change pas le dossier projet, ne crée pas de sous-projet et ne déplace aucun fichier. Vous pouvez ensuite revenir au parent ou au projet complet.
+
+La double vue ne change pas ce mécanisme : le volet gauche sert à naviguer, l’isolation reste une action explicite du Classeur. Voir [Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md).
 
 ## Ouvrir en Continu
 

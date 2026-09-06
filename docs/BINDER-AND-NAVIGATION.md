@@ -10,16 +10,20 @@ Feuillets provides two presentations of the same Binder.
 
 ### Single view
 
-Single view is the full-width 2.5 Binder. Its normal interactions remain available: folders, sheets, multi-selection, search, filters, isolation, drag and drop, and Continuous opening.
+Single view displays the Binder across the full width. Its normal interactions remain available: folders, sheets, multi-selection, search, filters, isolation, drag and drop, and Continuous opening.
 
 ### Split view
 
-**Split view** adds a navigation pane on the left. The Binder on the right does not change in appearance or behavior.
+**Split view** adds a navigation pane on the left; the pane on the right remains the working Binder and reflects the active workspace.
 
-The left pane contains two areas:
+The left pane contains the project’s navigation layers:
 
 - **Manuscript** — project folders only, following real Binder order;
+- **Research** — the project’s physical shared Research layer;
+- **Workspaces** — Research roots linked to Binder folders, grouped virtually;
 - **Vault** — lightweight access to other vault folders and files.
+
+**Research** and **Workspaces** do not merge any folders. A Research folder can be physically under Project Research and still be shown under **Workspaces** when it is linked to a Binder folder. The **Workspaces** group does not create a folder in the vault.
 
 The separator is resizable. Returning to single view gives the full width back to the Binder.
 
@@ -52,9 +56,11 @@ This area is not a second vault administration interface: there is no create, re
 
 ## Isolating a folder
 
-**Isolate this folder** temporarily narrows the Binder to one manuscript branch. Isolation is session working state: it does not change the project folder or move any file.
+**Isolate this folder** temporarily narrows the Binder to one manuscript branch and defines the active workspace. Several Feuillets surfaces can follow this same scope: Binder, Board in its Cards, Outline, Arcs and Timeline modes, Research and the folder’s Notebook when one exists.
 
-You can then return to the parent or full project. Split view does not change this mechanism: the left pane is for navigation, while isolation remains an explicit Binder action.
+Isolation is a scope inside the project: it does not change the project folder, create a sub-project or move any file. You can then return to the parent or full project.
+
+Split view does not change this mechanism: the left pane is for navigation, while isolation remains an explicit Binder action. See [One project, multiple workspaces](WORKSPACES.md).
 
 ## Opening in Continuous
 

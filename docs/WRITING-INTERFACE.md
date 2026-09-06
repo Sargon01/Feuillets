@@ -22,26 +22,28 @@ Around the text, Feuillets adds specialized surfaces: **Binder**, **Cards/Outlin
 
 ## The Binder
 
-The 2.5 Binder can stay very quiet. Single view gives the manuscript navigation the full width. **Split view** only adds a navigator on the left:
+The Binder can stay very quiet. Single view gives manuscript navigation the full width. **Split view** adds **Manuscript**, **Research**, **Workspaces** and **Vault** navigation on the left:
 
 - **Manuscript** for reading folder hierarchy at a glance;
+- **Research** and **Workspaces** for distinguishing project documentation from workspace-linked roots;
 - **Vault** for consulting other vault documents without leaving Feuillets.
 
-The right pane remains the same Binder. Vault navigation is deliberately read-only and does not replace Obsidian’s full File Explorer.
+The right pane remains the working Binder and reflects the active workspace. Vault navigation is deliberately read-only and does not replace Obsidian’s full File Explorer.
 
 See [Binder and navigation](BINDER-AND-NAVIGATION.md).
 
 ## The right panel
 
-Feuillets has five public right-panel tabs:
+Feuillets has six public right-panel tabs:
 
 - **Sheet** — synopsis/summary, working notes, properties, annotations, footnotes and Context;
 - **Research** — documentation, Sources/Bibliography and linked folders;
 - **Journal** — writing journal and tracking;
-- **Project** — project-specific information and settings;
+- **Edition** — Composition, Layout and editorial documents;
+- **Statistics** — sheet, selection and project statistics;
 - **Proofreading** — text analysis, collaborative review, DOCX Review and comparison.
 
-**Edition** is no longer a sidebar tab. It is a central workspace for **Composition** and **Layout**.
+Project configuration opens from **Manage projects…**. The **Edition** tab contains **Composition**, **Layout** and editorial documents.
 
 ## Write across several sheets
 

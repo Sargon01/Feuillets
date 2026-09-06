@@ -2,98 +2,73 @@
 
 > **Français** · [English](AUTHOR-WORKFLOW.md) · [Index](README.md)
 
-Ce guide suit le travail dans son ordre naturel.
+Ce guide suit un projet dans son ordre naturel. Chaque étape reste facultative : Feuillets propose un environnement autour des mêmes fichiers Markdown, pas une méthode obligatoire.
 
-## 1. Commencer
+## Penser
 
-Créez un projet Fiction, Non-fiction ou Libre, utilisez un dossier existant tel quel, initialisez un dossier existant, ou importez un projet Scrivener.
+Avant d’écrire, un auteur peut garder les idées à l’échelle du projet ou d’un dossier avec le **Carnet**. Le Canvas reste libre ; il peut accueillir un **Plan du Binder**, des fichiers, des liens ou des **mindmaps**. Une idée peut ensuite devenir un feuillet ou une note Recherche lorsque cela est utile.
 
-Feuillets ne restructure pas automatiquement un coffre existant. Les espaces spécialisés apparaissent lorsqu’ils deviennent utiles.
+Un Carnet global convient à la vue d’ensemble ; un Carnet attaché à un dossier concentre la réflexion sur une partie du manuscrit. Un dossier Recherche associé peut partager le même Carnet logique. Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
 
-## 2. Naviguer dans le Classeur
+## Organiser
 
-Créez, renommez, déplacez et sélectionnez vos feuillets. Recherchez, filtrez, isolez un dossier lorsque vous voulez travailler sur une partie du manuscrit, puis revenez au projet complet.
+Le **Classeur** donne une structure de travail au manuscrit : créer, renommer, déplacer, rechercher, filtrer et sélectionner les feuillets. Un dossier peut être isolé pour travailler localement, puis l’auteur peut revenir au parent ou au projet complet ; cela ne déplace ni ne copie les fichiers.
 
-Un dossier peut aussi être associé à une documentation externe déjà présente dans le coffre.
+Le **Tableau** relit cette même structure selon plusieurs modes : **Cartes**, **Plan**, **Chemin de fer** et **Chronologie**. Le Chemin de fer peut suivre des fils narratifs, des personnages ou POV, des arcs, des statuts et des labels selon les propriétés prises en charge. Un fil peut relier plusieurs feuillets pour suivre un objet, une promesse, un conflit ou un motif sans créer un système documentaire séparé. Sa première et sa dernière occurrence peuvent naturellement servir d’ouverture et de résolution, tandis que les occurrences intermédiaires en montrent le développement ; Feuillets n’attribue pas automatiquement ces rôles.
 
-## 3. Penser avec le Carnet
+Dans **Projet**, les objectifs, statuts, labels, tags favoris et le remappage des propriétés YAML peuvent être adaptés au coffre existant. La double vue ajoute une navigation à gauche sans remplacer le Classeur de travail.
 
-Utilisez le **Carnet global** lorsque vous réfléchissez à l’ensemble du projet, ou créez un **Carnet attaché à un dossier** lorsque vous voulez concentrer les idées, fichiers et liens autour d’une partie précise du manuscrit. Un dossier Recherche associé peut partager le même Carnet logique.
+## Documenter
 
-Le Canvas reste libre. Ajoutez un **Plan du Binder** lorsque vous voulez préparer une réorganisation avant de l’appliquer explicitement au Classeur, ou créez une **mindmap** pour développer une idée par branches.
+La **Recherche** accepte des notes Markdown libres : personnage, lieu, événement, objet, institution, notion, source ou toute autre documentation utile. Les propriétés structurées sont facultatives. Un dossier existant peut être associé depuis le Classeur sans être déplacé.
 
-Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
+Le **Contexte** examine le passage autour du curseur et rapproche les fiches Recherche pertinentes à partir d’indices locaux, lexicaux et déterministes : titres, alias, tags, contenu documentaire et informations chronologiques reconnues. Il ne se limite pas aux personnages. Une fiche Personnage peut par exemple contenir des événements datés ; dans un passage daté qui le mentionne, sa chronologie peut aider à vérifier une présence, un décès ou un événement déjà survenu.
 
-## 4. Écrire
+Les espaces de travail permettent de conserver cette documentation à l’échelle pertinente d’une partie du projet sans créer de sous-projet. Voir [Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md).
 
-Écrivez dans l’éditeur Markdown natif. Utilisez Concentration, typographie, alinéas, recherche/remplacement, notes de bas de page et citations selon vos besoins.
+Les **citations** relient les sources Recherche au manuscrit. Selon la configuration, l’Aperçu Pandoc/Zotero peut afficher les citekeys ou une forme auteur-date, et la bibliographie reprend les sources utiles. Lors d’une compilation, Feuillets peut limiter la bibliographie aux sources réellement citées dans la portée compilée.
 
-Depuis le menu contextuel, **Réorganiser le texte** permet de déplacer par glisser-déposer un paragraphe, ou une sélection contenue dans un seul paragraphe. Le point d’insertion est visible, **Échap** quitte ce mode local, et chaque déplacement est une étape Annuler qui conserve le Markdown exact.
+## Écrire
 
-## 5. Écrire plusieurs feuillets ensemble
+Écrivez dans l’éditeur Markdown natif : les fichiers restent de vrais fichiers Markdown. La largeur de texte, la typographie, l’interligne, les alinéas, la Concentration, la recherche/remplacement, les notes de bas de page et les citations adaptent la surface de travail sans retirer la souplesse du format.
 
-Ouvrez un chapitre, dossier ou sélection en **Continu** pour travailler comme dans un long manuscrit unique tout en conservant les fichiers Markdown séparés.
+**Réorganiser le texte** permet de déplacer par glisser-déposer un paragraphe, ou une sélection contenue dans un seul paragraphe. Le point d’insertion est visible, **Échap** quitte ce mode local et chaque déplacement reste une étape Annuler qui conserve le Markdown exact.
 
-Continu conserve cette réorganisation à l’intérieur de chaque feuillet, sans passage d’un feuillet à l’autre. Son menu contextuel réunit Couper, Copier, Coller, notes de bas de page, **Annotation…**, **Noter une idée** et **Réorganiser le texte**.
+Lorsque le découpage en fichiers devient gênant pour l’écriture, ouvrez un fichier, un dossier ou une sélection en **Continu**. Les feuillets restent séparés, leurs frontières sont protégées et les modifications repartent vers les fichiers correspondants : aucun fichier composite permanent n’est créé sur disque. Voir [Mode Continu](MODE-CONTINU.md).
 
-Voir [Mode Continu](MODE-CONTINU.md).
+## Relire
 
-## 6. Garder le travail autour du texte
+L’**Aperçu** lit une portée — feuillet, dossier, sélection ou projet — comme un document composé et paginé. Il permet de contrôler les titres, images, tableaux, typographie, modèles et notes de bas de page placées dans la composition. L’éditeur sert à travailler le texte, Continu à travailler plusieurs feuillets comme un texte, et l’Aperçu à lire le résultat ; aucune de ces étapes ne remplace les fichiers sources.
 
-Le panneau **Feuillet** contient synopsis/résumé, notes de travail, propriétés, notes de bas de page, Contexte et **annotations de travail**. Les annotations restent hors du Markdown.
+Le **Carnet**, le panneau **Feuillet** et le panneau **Recherche** restent disponibles autour du texte lorsque l’auteur doit revenir à ses notes, propriétés, annotations ou sources.
 
-## 7. Construire la Recherche
+## Réviser
 
-Le panneau Recherche peut utiliser les catégories Feuillets mais aussi des dossiers existants liés depuis le Classeur. Les dossiers externes associés apparaissent dans la liste sans être déplacés.
+La révision peut suivre plusieurs niveaux :
 
-## 8. Adapter Feuillets au coffre
+1. annoter un passage ou garder une note de travail ;
+2. prendre un **instantané** avant une réécriture importante ;
+3. utiliser **Comparer une version** pour distinguer ajouts, suppressions, remplacements et déplacements ;
+4. recevoir des retours avec la **Relecture collaborative** ;
+5. traiter un document Word avec **Révision DOCX** et ses commentaires ou modifications suivies ;
+6. décider, puis restaurer un passage précis ou appliquer les changements.
 
-Dans **Projet**, définissez objectifs, statuts, labels, tags favoris et, si nécessaire, mappez les champs Feuillets vers les propriétés YAML déjà utilisées dans le coffre.
+Les annotations de travail restent hors du Markdown. Ces outils ont des formats et des usages distincts, même s’ils participent au même travail de révision. Voir [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md).
 
-## 9. Prendre du recul
+**Comparer une version** possède les modes **Changements** et **Versions** : les ajouts, suppressions, remplacements et déplacements sont distingués, le défilement synchronisé est optionnel et un passage précis peut être restauré sans restaurer tout le fichier.
 
-Cartes, Plan, Chemin de fer et Chronologie montrent les mêmes fichiers sous d’autres angles. Le Plan peut maintenant renvoyer à la ligne les colonnes de texte long. Le tri naturel sert de repli lorsque l’ordre explicite n’existe pas.
+**Relecture** comprend également l’**Analyse de texte**. La **Relecture collaborative** compare le texte envoyé, le retour du relecteur et le manuscrit actuel avant décision ; **Révision DOCX** permet de traiter les commentaires et modifications suivies de Word tout en gardant Markdown comme source.
 
-## 10. Réécrire et comparer
+## Mettre en forme
 
-Avant une réécriture importante, prenez un **instantané** du feuillet ou du projet. Réécrivez ensuite normalement : l’instantané reste un point de référence indépendant.
+Dans **Édition**, **Composition** choisit le contenu, la Première page, les pages liminaires, les éléments générés, la bibliographie, les annexes et la structure. **Mise en page** règle Page, Corps de texte, Titres et Citation. Les rôles sémantiques facultatifs peuvent produire variantes, extractions et collections sans dupliquer le manuscrit.
 
-Dans **Relecture**, **Comparer une version** permet de confronter le texte actuel à cet état antérieur. Le mode **Changements** distingue ajouts, suppressions, remplacements et déplacements ; le mode **Versions** permet de lire les deux états côte à côte sans décorations. Le défilement synchronisé est optionnel et un passage peut être restauré depuis l’instantané sans restaurer tout le fichier.
+L’Édition travaille à côté du vrai Aperçu et partage ses gabarits avec les exports. La **Présentation 16:9** peut également réutiliser le même Markdown lorsque ce format est pertinent.
 
-Selon le besoin, Relecture réunit aussi :
+## Publier
 
-- Analyse de texte ;
-- Relecture collaborative ;
-- Révision DOCX.
+L’export produit les formats pris en charge — Markdown compilé, DOCX, EPUB, ODT et PDF desktop — depuis la portée choisie. L’Aperçu aide à contrôler le document mais n’est pas obligatoire pour exporter.
 
-Voir [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md).
+Un projet peut commencer par un dossier existant, un nouveau projet Fiction, Non-fiction ou Libre, ou un import Scrivener. Il reste un ensemble de fichiers Markdown et de dossiers ordinaires ; les sauvegardes ZIP, instantanés, comparaison et versions se complètent sans remplacer une sauvegarde globale du coffre.
 
-## 11. Collaborer
-
-Pour un relecteur utilisant Feuillets, créez un paquet `.feuillets`, envoyez-le, puis importez le retour. Feuillets compare le texte envoyé, le texte du relecteur et votre manuscrit actuel avant toute décision.
-
-Voir [Relecture collaborative](RELECTURE-COLLABORATIVE.md).
-
-## 12. Travailler avec Word
-
-Pour un éditeur/correcteur travaillant dans Word, exportez un DOCX puis ouvrez **Relecture → Révision DOCX** au retour. Acceptez/refusez les modifications et traitez les commentaires sans abandonner Markdown comme source.
-
-## 13. Composer
-
-Ouvrez l’espace central **Édition**. Dans **Composition**, choisissez le contenu, Première page, pages liminaires, éléments générés, bibliographie, annexes et structure.
-
-## 14. Mettre en page
-
-Dans **Mise en page**, ajustez Page, Corps de texte, Titres et Citation. Travaillez à côté du vrai Aperçu et utilisez les mêmes gabarits que les exports.
-
-## 15. Exporter
-
-Exportez depuis la barre d’Édition. Le moteur prend en charge Markdown compilé, DOCX, EPUB, ODT et PDF desktop.
-
-## 16. Se protéger
-
-Utilisez sauvegardes ZIP, instantanés, comparaison et versions selon le besoin. Les mécanismes restent distincts et aucun ne remplace une vraie sauvegarde globale du coffre.
-
-## 17. Continuer sans verrouillage
-
-À tout moment, le projet reste un ensemble de fichiers Markdown et de dossiers ordinaires.
+Un projet peut aussi être exporté ou importé comme archive portable `.feuil` sans convertir le manuscrit hors Markdown.

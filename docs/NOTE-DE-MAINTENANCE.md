@@ -1,21 +1,21 @@
-# Note de maintenance documentaire — Feuillets 2.7
+# Note de maintenance documentaire — Feuillets
 
-Cette page évite que les prochains correctifs réintroduisent dans la documentation des concepts supprimés ou déplacés pendant les chantiers ayant conduit à Feuillets 2.7.
+Cette page évite que les prochains correctifs réintroduisent dans la documentation des concepts supprimés ou déplacés pendant les chantiers récents.
 
 ## Terminologie publique actuelle
 
 - **Classeur** : navigation/manipulation du manuscrit.
-- **Double vue** : volet gauche Manuscrit + Coffre, Classeur inchangé à droite.
+- **Double vue** : navigation gauche Manuscrit + Recherche + Espaces + Coffre, Classeur de travail à droite reflétant l’espace actif.
 - **Plan** : vue tabulaire de la structure et des métadonnées.
 - **Continu** : manuscrit composite éditable en mémoire, fichiers sources séparés.
 - **Aperçu** : document paginé/composé.
-- **Feuillet / Recherche / Journal / Projet / Relecture** : cinq onglets du panneau droit.
-- **Édition** : surface centrale, seulement Composition et Mise en page.
+- **Feuillet / Recherche / Journal / Édition / Statistiques / Relecture** : six onglets publics du panneau Feuillets.
+- **Édition** : onglet du panneau contenant Composition, Mise en page et documents éditoriaux.
 - **Exporter** : action de la barre d’Édition, pas troisième mode.
 
-## Stabilisation de l’interface à partir de 2.6
+## Stabilisation de l’interface
 
-À partir de Feuillets 2.6, la géographie principale décrite ci-dessus constitue un **contrat d’interface**.
+La géographie principale décrite ci-dessus constitue un **contrat d’interface**.
 
 - Les correctifs et améliorations locales ne doivent plus déplacer une fonction majeure vers une autre zone de l’application.
 - Les prochaines évolutions privilégient la lisibilité, la découvrabilité, l’ergonomie locale, les performances et la fiabilité.
@@ -24,10 +24,10 @@ Cette page évite que les prochains correctifs réintroduisent dans la documenta
 
 ## Concepts à ne plus documenter comme actuels
 
-- Édition comme onglet de l’Inspecteur ;
+- Projet comme onglet public de configuration ; la gestion du projet se fait depuis **Gérer les projets…** ;
 - onglet public Analyse séparé ;
 - onglet public Notes : le libellé est **Feuillet** ;
-- Révision DOCX sous Édition ;
+- Révision DOCX dans l’onglet Relecture ;
 - Composition/Mise en page/Export comme trois onglets centraux ;
 - Première page à la fois dans Composition et Mise en page ;
 - export rapide depuis le Classeur (retiré au profit de Double vue) ;

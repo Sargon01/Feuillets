@@ -23,13 +23,17 @@ Une fiche peut être retrouvée grâce à son titre, ses alias, ses tags ou son 
 
 Voir [Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md).
 
+Les fiches Recherche ne sont pas limitées à des catégories imposées comme Personnage, Lieu ou Événement. Tout fichier documentaire pertinent peut participer au Contexte grâce à son titre, ses alias, ses tags, son contenu ou les informations structurées que Feuillets sait reconnaître. La reconnaissance reste locale, lexicale et déterministe : Feuillets ne comprend pas automatiquement n’importe quel texte ni toutes les relations sémantiques.
+
 ## 2. Associer de la documentation au manuscrit
 
 Feuillets peut utiliser plusieurs niveaux :
 
 - Recherche associée directement au feuillet ;
-- Recherche associée à son dossier/chapitre ;
-- Recherche générale du projet.
+- Recherche effective de son dossier ou espace ;
+- Recherche générale du projet lorsque la portée documentaire le rend pertinente.
+
+L’héritage d’un dossier suit ses ancêtres et ne traverse jamais vers un dossier frère. Voir [Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md).
 
 Les résultats proches du texte sont prioritaires. La recherche dans le **contenu intégral** des fiches reste volontairement limitée aux dossiers associés au feuillet ou à son contexte structurel afin d’éviter que tout le projet documentaire remonte à chaque paragraphe.
 

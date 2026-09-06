@@ -2,90 +2,73 @@
 
 > [Français](PARCOURS-AUTEUR.md) · **English** · [Documentation index](README.md)
 
-This guide follows the work in its natural order.
+This guide follows a project in its natural order. Every step remains optional: Feuillets provides an environment around the same Markdown files, not a required method.
 
-## 1. Start
+## Think
 
-Create a Fiction, Non-fiction or Free project, use an existing folder as-is, initialize an existing folder, or import a Scrivener project. Feuillets does not automatically restructure an existing vault.
+Before writing, an author can keep ideas at project or folder level with the **Notebook**. The Canvas remains free-form; it can host a **Binder Plan**, files, links or **mindmaps**. An idea can later become a sheet or Research note when useful.
 
-## 2. Navigate in the Binder
+A project Notebook suits the overview; a Notebook attached to a folder focuses on one part of the manuscript. A linked Research folder can share the same logical Notebook. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
-Create, rename, move and multi-select sheets. Search, filter, isolate a folder when you want to work on one part of the manuscript, then return to the full project. A Binder item can also link to existing Research elsewhere in the vault.
+## Organize
 
-## 3. Think in the Notebook
+The **Binder** gives the manuscript a working structure: create, rename, move, search, filter and select sheets. A folder can be isolated for local work, then the author can return to its parent or the whole project; files are neither moved nor copied.
 
-Use the **project Notebook** when thinking about the whole project, or create a **Notebook attached to a folder** when you want ideas, files and links focused around one part of the manuscript. A linked Research folder can share the same logical Notebook.
+The **Board** reads the same structure through several modes: **Cards**, **Outline**, **Story arcs** and **Timeline**. Story arcs can follow narrative threads, characters or POV, arcs, statuses and labels according to supported properties. One thread can connect several sheets to follow an object, promise, conflict or motif without creating a separate documentation system. Its first and last occurrence can naturally serve as an opening or setup and its resolution or payoff, while intermediate occurrences show development; Feuillets does not automatically assign those roles.
 
-Canvas remains free-form. Add a **Binder Plan** when you want to prepare a structural reorganization before explicitly applying it to the Binder, or create a **mindmap** to develop an idea in branches.
+In **Project**, goals, statuses, labels, favorite tags and YAML property mapping can be adapted to the existing vault. Split view adds navigation on the left without replacing the working Binder.
 
-See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
+## Document
 
-## 4. Write
+**Research** accepts free-form Markdown notes: a character, place, event, object, institution, concept, source or any other useful documentation. Structured properties remain optional. An existing folder can be linked from the Binder without being moved.
 
-Write in Obsidian's native Markdown editor. Use Focus Mode, typography, indents, find/replace, footnotes and citations as needed.
+**Context** examines the passage around the cursor and brings relevant Research notes closer using local, lexical and deterministic clues: titles, aliases, tags, documentary content and recognized chronological information. It is not limited to characters. A Character note can contain dated events; in a dated passage that mentions the character, its chronology can help check a presence, death or event that has already happened.
 
-From the context menu, **Reorder text** lets you drag and drop a paragraph, or a selection contained within one paragraph. The insertion point is visible, **Escape** leaves this local mode, and each move is one Undo step that preserves the exact Markdown.
+Workspaces keep this documentation at the relevant scale of a project part without creating a sub-project. See [One project, multiple workspaces](WORKSPACES.md).
 
-## 5. Write several sheets together
+**Citations** connect Research sources to the manuscript. Depending on configuration, Pandoc/Zotero Preview can display citekeys or an author-date form, and the bibliography can include the relevant sources. During compilation, Feuillets can limit the bibliography to sources actually cited within the compiled scope.
 
-Open a chapter, folder or selection in **Continuous** mode to work like one long manuscript while keeping separate Markdown files.
+## Write
 
-Continuous keeps this reordering within each sheet, never from one sheet to another. Its context menu brings together Cut, Copy, Paste, footnotes, **Annotation…**, **Capture an idea** and **Reorder text**.
+Write in the native Markdown editor: the files remain real Markdown files. Text width, typography, line spacing, indents, Focus Mode, find/replace, footnotes and citations adapt the working surface without taking away the flexibility of the format.
 
-See [Continuous mode](CONTINUOUS-MODE.md).
+**Reorder text** lets you drag and drop a paragraph, or a selection contained within one paragraph. The insertion point is visible, **Escape** leaves this local mode and each move remains one Undo step that preserves exact Markdown.
 
-## 6. Keep working material beside the text
+When splitting the manuscript into files becomes awkward for writing, open a file, folder or selection in **Continuous**. Sheets remain separate, boundaries are protected and edits are written back to the corresponding files: no permanent composite file is created on disk. See [Continuous mode](CONTINUOUS-MODE.md).
 
-The **Sheet** panel contains synopsis/summary, working notes, properties, footnotes, Context and **working annotations**. Annotations stay outside Markdown.
+## Reread
 
-## 7. Build Research
+**Preview** reads a scope — sheet, folder, selection or project — as a composed, paginated document. It lets you check headings, images, tables, typography, templates and footnotes placed in the composition. The editor is for working on text, Continuous for working across several sheets as one text, and Preview for reading the result; none replaces the source files.
 
-Research can use Feuillets categories and existing linked folders. External linked folders appear in Research without being moved.
+The **Notebook**, **Sheet** panel and **Research** panel remain available around the text when the author needs to return to notes, properties, annotations or sources.
 
-## 8. Adapt Feuillets to the vault
+## Revise
 
-In **Project**, configure goals, statuses, labels, favorite tags and, when needed, map Feuillets fields to YAML properties already used in the vault.
+Revision can follow several levels:
 
-## 9. Step back
+1. annotate a passage or keep a working note;
+2. take a **snapshot** before a major rewrite;
+3. use **Compare a version** to distinguish additions, deletions, replacements and moves;
+4. receive feedback through **Collaborative Review**;
+5. handle a Word document with **DOCX Review**, comments and tracked changes;
+6. decide, then restore one passage or apply changes.
 
-Cards, Outline, Storyline and Timeline show the same files from different angles. Outline can wrap long-text columns. Natural sorting is used only as a fallback when no explicit order exists.
+Working annotations remain outside Markdown. These tools have distinct formats and purposes, even though they take part in the same revision work. See [Rewriting, backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md).
 
-## 10. Rewrite and compare
+**Compare a version** has **Changes** and **Versions** modes: additions, deletions, replacements and moves are distinguished, linked scrolling is optional and one passage can be restored without restoring the whole file.
 
-Before a major rewrite, take a **snapshot** of the sheet or project. Then rewrite normally: the snapshot remains an independent reference point.
+**Proofreading** also includes **Text analysis**. **Collaborative Review** compares the sent text, the reviewer’s return and the current manuscript before a decision; **DOCX Review** handles Word comments and tracked changes while Markdown remains the source.
 
-In **Proofreading**, **Compare a version** confronts the current text with that earlier state. **Changes** mode distinguishes additions, deletions, replacements and moves; **Versions** mode lets you read both states side by side without diff decorations. Linked scrolling is optional, and a passage can be restored from the snapshot without restoring the whole file.
+## Format
 
-Proofreading also provides Text analysis, Collaborative review and DOCX Review.
+In **Edition**, **Composition** chooses content, First page, front matter, generated elements, bibliography, appendices and structure. **Layout** controls Page, Body text, Headings and Blockquote. Optional semantic roles can produce variants, extractions and collections without duplicating the manuscript.
 
-See [Rewriting, backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md).
+Edition works beside the real Preview and shares its templates with exports. **16:9 Presentation** can also reuse the same Markdown when that format is relevant.
 
-## 11. Collaborate
+## Publish
 
-For a reviewer using Feuillets, create a `.feuillets` package, send it, then import the return. Feuillets compares the sent text, reviewer text and your current manuscript before decisions are applied.
+Export produces the supported formats — compiled Markdown, DOCX, EPUB, ODT and desktop PDF — from the selected scope. Preview helps check the document but is not required for export.
 
-See [Collaborative review](COLLABORATIVE-REVIEW.md).
+A project can start from an existing folder, a new Fiction, Non-fiction or Free project, or a Scrivener import. It remains a set of ordinary Markdown files and folders; ZIP backups, snapshots, comparison and versions complement one another without replacing a complete vault backup.
 
-## 12. Work with Word
-
-For an editor/proofreader using Word, export DOCX then open **Proofreading → DOCX Review** when it returns. Accept/reject tracked changes and handle comments while Markdown remains the source.
-
-## 13. Compose
-
-Open central **Edition**. In **Composition**, choose manuscript content, First page, front matter, generated elements, bibliography, appendices and structure.
-
-## 14. Lay out
-
-In **Layout**, adjust Page, Body text, Headings and Blockquote beside the real Preview, using the same templates as export.
-
-## 15. Export
-
-Export from the Edition toolbar. Native outputs include compiled Markdown, DOCX, EPUB, ODT and desktop PDF.
-
-## 16. Protect the work
-
-Use ZIP backups, snapshots, comparison and versions for their separate purposes. None replaces a complete vault backup strategy.
-
-## 17. Keep going without lock-in
-
-The project remains ordinary Markdown files and folders throughout.
+A project can also be exported or imported as a portable `.feuil` archive without converting the manuscript away from Markdown.

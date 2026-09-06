@@ -22,12 +22,62 @@ Organize separate files as a manuscript, write several of them as one continuous
 
 ![Organize a manuscript with the Feuillets Binder](docs/feuillets-classeur.gif)
 
+## A manuscript remains Markdown
+
+Feuillets keeps Markdown as the manuscript and builds the author’s working environment around it.
+
+The manuscript remains a collection of ordinary Markdown files and folders in your Obsidian vault. Feuillets does not convert the project into a proprietary format, and it does not maintain another version of the book in a parallel database.
+
+An existing folder can become a Feuillets project without moving, renaming or converting its personal files. The same Markdown files are used by the Binder, Board, Continuous mode, Preview, proofreading and Edition. Each view provides a different way to work with the same source.
+
+## One manuscript, several ways to work
+
+Feuillets is an environment around the manuscript rather than a collection of unrelated views:
+
+- the **Binder** helps structure and navigate;
+- the **Board** offers Cards, Outline, Story arcs and Timeline;
+- **Continuous** mode lets you write or reread several sheets as one text;
+- **Preview** lets you read the manuscript as a composed document;
+- **Proofreading** helps compare, review and restore work;
+- **Edition** prepares the final document.
+
+These are different working environments around the same files, not different copies of the book.
+
+## Work locally without splitting the project
+
+A Binder folder can become the active workspace. This creates neither a sub-project nor a copy: the author keeps the continuity of the project while some tools can adopt a local context, including Research, Notebook, Board, goals, workflow and writing typography. When a local setting is absent, supported inheritance continues through the parent, the project and global defaults.
+
+**The project provides continuity; the workspace provides context.** See [One project, multiple workspaces](docs/WORKSPACES.md).
+
+## One author workflow
+
+Feuillets can accompany a long-form project through a continuous workflow:
+
+```text
+Think → organize → document → write → reread → revise → format → publish
+```
+
+- **Think** with Notebook, plans and mindmaps.
+- **Organize** with Binder, Cards, Outline, Story arcs, Timeline and narrative threads.
+- **Document** with Research, linked folders, citations, bibliography and Context.
+- **Write** with the native Markdown editor, writing typography, Continuous mode, goals and Focus Mode.
+- **Reread and revise** with Preview, annotations, snapshots, comparison, restoration, collaborative review and DOCX Review.
+- **Format and publish** with Edition, Composition, Layout, templates, footnotes, bibliography and the existing Markdown, DOCX, EPUB, ODT and PDF exports, with 16:9 Presentation when relevant.
+
+Not every project needs every step. Feuillets keeps the whole chain available while letting each author choose the parts that fit the work.
+
+## No imposed writing method
+
+Feuillets provides tools without imposing a narrative model. You can use only the Binder and the editor, build a fiction project with narrative threads and Timeline, develop documentary work with Research and citations, prepare a course or essay, work toward Edition, or keep a folder of independent texts.
+
+Properties and metadata remain optional and adaptable to the project. Fiction, Non-fiction and Free are creation presets, not requirements for how a manuscript must be written.
+
 ## From one sheet to a manuscript
 
 A sheet may remain an article, short story, column or standalone chapter. Several sheets may become a collection. A long project can progressively add:
 
 - a hierarchical **Binder**;
-- **Cards**, **Outline**, **Storyline** and **Timeline**;
+- **Cards**, **Outline**, **Story arcs** and **Timeline**;
 - a visual project or folder **Notebook**, with a **Binder Plan** and **mindmaps**;
 - project **Research**;
 - **working annotations**;
@@ -35,7 +85,7 @@ A sheet may remain an article, short story, column or standalone chapter. Severa
 - snapshots, versions, backups and comparisons;
 - native **collaborative review**;
 - **DOCX Review** for Word feedback;
-- a central **Edition** workspace for Composition and Layout;
+- the **Edition** tab for Composition and Layout;
 - optional **semantic roles** for variants, extractions and collections without duplicating the manuscript;
 - a 16:9 **Presentation** rendering from the same Markdown;
 - Markdown, DOCX, EPUB, ODT and PDF export.
@@ -69,7 +119,7 @@ The **Binder** is primarily for finding and moving text. It can:
 - link an existing Research folder from anywhere in the vault;
 - switch between the **single Binder** and **split view**.
 
-In split view, a left pane adds two navigation areas without changing the Binder on the right: **Manuscript** shows folders only for an at-a-glance structural view; **Vault** provides lightweight read-only navigation to open other vault documents. The right pane keeps exactly the same rows, menus, selections and interactions as single view.
+In split view, the left pane reflects the current navigation layers: **Manuscript**, **Research**, **Workspaces** and **Vault**. The right pane remains the working Binder and reflects the active workspace; it keeps the same rows, menus, selections and interactions as single view.
 
 See [Binder and navigation](docs/BINDER-AND-NAVIGATION.md).
 
@@ -92,7 +142,7 @@ See [Continuous mode](docs/CONTINUOUS-MODE.md).
 | Navigate | Binder |
 | Reorganize visually | Cards |
 | Inspect information | Outline |
-| Follow narrative threads | Storyline |
+| Follow narrative threads | Story arcs |
 | Check event order | Timeline |
 | Write several sheets together | Continuous |
 | Read the composed document | Preview |
@@ -102,21 +152,22 @@ These views do not create parallel databases: they show the same files from diff
 
 See [Notebook — from ideas to manuscript](docs/HOW-TO-NOTEBOOK.md).
 
-![Multiple views: Storyline, Outline, Timeline and Cards](docs/feuillets-mosaique-narrative.png)
+![Multiple views: Story arcs, Outline, Timeline and Cards](docs/feuillets-mosaique-narrative.png)
 
 ## Right-hand panel
 
-Feuillets now groups five areas in the right panel:
+Feuillets now groups six public tabs in the right panel:
 
 | Tab | Purpose |
 |---|---|
 | **Sheet** | Synopsis, summary, working notes, properties, annotations, footnotes and Context |
 | **Research** | Documentation, characters, places, events, sources, bibliography and linked folders |
 | **Journal** | Writing journal and tracking |
-| **Project** | Project information, goals, statuses, labels, tags and YAML property mapping |
+| **Edition** | Composition, Layout and editorial documents |
+| **Statistics** | Sheet, selection and project statistics |
 | **Proofreading** | Text analysis, collaborative review, DOCX Review and snapshot comparison |
 
-**Edition** is no longer an Inspector tab: it is a central workspace dedicated to Composition and Layout.
+Project configuration is opened from **Manage projects…**, where project information, goals, citations and bibliography, YAML properties, statuses, labels and tags are configured.
 
 ## Research that adapts to an existing vault
 
@@ -126,7 +177,7 @@ See [Research and linked folders](docs/RESEARCH-AND-LINKED-FOLDERS.md).
 
 ## Project YAML property mapping
 
-In **Project → YAML properties**, Feuillets can map its logical fields to properties already used in your vault: synopsis, summary, status, POV, label, goal, narrative thread, characters and date.
+In **Manage projects… → YAML properties**, Feuillets can map its logical fields to properties already used in your vault: synopsis, summary, status, POV, label, goal, narrative thread, characters and date.
 
 Mapping performs no destructive migration. Feuillets adapts to existing properties instead of requiring them to be renamed.
 
@@ -167,7 +218,7 @@ See [Collaborative review](docs/COLLABORATIVE-REVIEW.md).
 
 ## Edition: Composition and Layout
 
-The central **Edition** workspace contains two modes:
+The **Edition** tab contains the document-production surfaces:
 
 - **Composition**: manuscript content, First page, front matter, contents/table of contents, tables, bibliography, appendices and structure;
 - **Layout**: Page, Body text, Headings and Blockquote.

@@ -2,11 +2,11 @@
 
 > **Français** · [English](PROJECT-AND-YAML-PROPERTIES.md) · [Index](README.md)
 
-Feuillets 2.5 déplace les réglages réellement éditoriaux vers le **Projet** actif et permet d’adapter ses champs aux propriétés YAML déjà utilisées dans un coffre.
+La **gestion des projets** permet de configurer le projet actif et d’adapter ses champs aux propriétés YAML déjà utilisées dans un coffre.
 
 ## Réglages propres au projet
 
-Le panneau **Projet** regroupe notamment :
+Dans **Gérer les projets…**, la configuration du projet regroupe notamment :
 
 - objectifs ;
 - statuts ;
@@ -14,6 +14,8 @@ Le panneau **Projet** regroupe notamment :
 - tags favoris ;
 - informations du projet ;
 - propriétés YAML.
+
+Ces réglages appartiennent à la gestion du projet, pas à un onglet public **Projet** du panneau Feuillets. Fiction, Non-fiction et Libre sont des presets de création : ils proposent des valeurs initiales, mais ne bloquent pas les capacités runtime.
 
 Lorsqu’un projet ne définit pas une valeur, Feuillets conserve un repli vers le réglage global historique. Lire un projet ne copie pas automatiquement ces valeurs dans ses métadonnées.
 

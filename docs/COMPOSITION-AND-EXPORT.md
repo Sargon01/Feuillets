@@ -6,9 +6,9 @@
 
 Feuillets separates the comfortable editor appearance from the composition of the document meant to be read, printed or sent.
 
-## Central Edition workspace
+## Edition tab
 
-In 2.5, **Edition** is no longer a right-panel tab. It is a central surface working beside the real **Preview**.
+The **Edition** tab contains the document-production surfaces, including **Composition** and **Layout**. It works with the real **Preview** and the export bar.
 
 There are only two modes:
 

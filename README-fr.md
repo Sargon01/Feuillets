@@ -6,6 +6,8 @@
 
 ## Écrivez tout votre livre dans Obsidian.
 
+**Feuillets garde Markdown comme manuscrit et construit autour de lui l’environnement de travail de l’auteur.**
+
 **Feuillets transforme de simples fichiers Markdown en un environnement complet d’écriture longue dans Obsidian.**
 
 Organisez des fichiers séparés comme un manuscrit, écrivez-en plusieurs comme un seul document continu réellement éditable, révisez votre texte, prévisualisez le livre composé et exportez-le — sans quitter votre coffre ni enfermer vos textes dans un format de projet propriétaire.
@@ -22,6 +24,28 @@ Organisez des fichiers séparés comme un manuscrit, écrivez-en plusieurs comme
 
 ![Organiser un manuscrit avec le Classeur Feuillets](docs/feuillets-classeur.gif)
 
+## Le manuscrit reste du Markdown
+
+Les fichiers Markdown ordinaires restent le manuscrit et la source de vérité. Feuillets ne convertit pas le projet dans un format propriétaire : les mêmes fichiers sont utilisés par les différentes représentations et il n’existe pas de base parallèle contenant une autre version du livre. Un dossier existant peut devenir un projet Feuillets sans migration destructive.
+
+## Un même manuscrit, plusieurs façons de travailler
+
+Le Classeur sert à structurer, le Tableau à regarder autrement la structure, Continu à écrire ou relire plusieurs feuillets comme un seul texte, l’Aperçu à lire le manuscrit comme un document, la Révision à comparer et restaurer, et l’Édition à préparer le document final. Ces vues travaillent autour des mêmes fichiers Markdown.
+
+## Travailler localement sans diviser le projet
+
+Un dossier du Classeur peut devenir l’espace actif sans créer de sous-projet ni de copie. L’auteur garde la continuité du projet tandis que Recherche, Carnet, Tableau et certains réglages pris en charge peuvent suivre une portée locale. Lorsqu’un réglage local est absent, l’héritage pris en charge remonte vers le parent, le projet puis les valeurs globales. **Le projet fournit la continuité ; l’espace fournit le contexte.** Voir [Espaces de travail](docs/ESPACES-DE-TRAVAIL.md).
+
+## Une chaîne de travail d’auteur
+
+**Penser** avec le Carnet et les plans → **organiser** avec le Classeur, les Cartes, le Plan, le Chemin de fer et la Chronologie → **documenter** avec Recherche, citations et Contexte → **écrire** dans l’éditeur Markdown, Continu et le mode Concentration → **relire** avec l’Aperçu → **réviser** avec annotations, versions et comparaison → **mettre en forme** avec Édition → **publier** par les exports disponibles.
+
+Chaque étape reste facultative : Feuillets s’adapte au projet et à la méthode de l’auteur.
+
+## Aucune méthode d’écriture imposée
+
+Feuillets peut servir à un projet de fiction, un essai, un cours, un travail documentaire, un recueil ou des textes indépendants. L’auteur peut utiliser seulement le Classeur et l’éditeur, ou ajouter Recherche, Chronologie, fils narratifs, citations, édition et export. Les propriétés et métadonnées restent facultatives et adaptables au projet.
+
 ## Du feuillet au manuscrit
 
 Un feuillet peut rester un article, une nouvelle, une chronique ou un chapitre autonome. Plusieurs feuillets peuvent devenir un recueil. Un projet long peut ajouter progressivement :
@@ -35,7 +59,7 @@ Un feuillet peut rester un article, une nouvelle, une chronique ou un chapitre a
 - des instantanés, versions, sauvegardes et comparaisons ;
 - une **relecture collaborative** native ;
 - la révision des retours **DOCX** ;
-- un espace **Édition** pour la Composition et la Mise en page ;
+- l’onglet **Édition** pour la Composition et la Mise en page ;
 - des **rôles sémantiques** facultatifs pour produire variantes, extractions et collections sans dupliquer le manuscrit ;
 - un rendu **Présentation** 16:9 à partir du même Markdown ;
 - des exports Markdown, DOCX, EPUB, ODT et PDF.
@@ -69,7 +93,7 @@ Le **Classeur** sert d’abord à trouver et déplacer les textes. Il permet not
 - associer un dossier Recherche existant, même ailleurs dans le coffre ;
 - basculer entre le **Classeur simple** et la **double vue**.
 
-En double vue, un volet gauche ajoute deux accès sans modifier le Classeur de droite : **Manuscrit** affiche uniquement l’arborescence des dossiers pour lire la structure d’un coup d’œil ; **Coffre** permet de parcourir et d’ouvrir des documents du vault en lecture/navigation seule. Le volet droit conserve exactement les mêmes lignes, menus, sélections et interactions qu’en vue simple.
+En double vue, le volet gauche reflète les couches de navigation actuelles : **Manuscrit**, **Recherche**, **Espaces** et **Coffre**. Le volet droit reste le Classeur de travail et reflète l’espace actif ; il conserve la même grammaire de lignes, menus, sélections et interactions que la vue simple.
 
 Voir [Classeur et navigation](docs/CLASSEUR-ET-NAVIGATION.md).
 
@@ -106,17 +130,18 @@ Voir [Le Carnet — des idées au manuscrit](docs/HOW-TO-CARNET.md).
 
 ## Le panneau droit
 
-Le panneau Feuillets réunit désormais cinq espaces :
+Le panneau Feuillets réunit désormais six onglets publics :
 
 | Onglet | Rôle |
 |---|---|
 | **Feuillet** | Synopsis, résumé, notes de travail, propriétés, annotations, notes de bas de page et Contexte |
 | **Recherche** | Documentation, personnages, lieux, événements, sources, bibliographie et dossiers associés |
 | **Journal** | Journal d’écriture et suivi |
-| **Projet** | Informations, objectifs, statuts, labels, tags et remappage YAML propres au projet |
+| **Édition** | Composition, Mise en page et documents éditoriaux |
+| **Statistiques** | Statistiques du feuillet, de la sélection et du projet |
 | **Relecture** | Analyse de texte, relecture collaborative, Révision DOCX et comparaison avec un instantané |
 
-**Édition** n’est plus un onglet de l’Inspecteur : c’est un espace central dédié à la Composition et à la Mise en page.
+La configuration du projet s’ouvre depuis **Gérer les projets…** : informations du projet, objectifs, citations et bibliographie, propriétés YAML, statuts, labels et tags.
 
 ## Recherche adaptée au coffre existant
 
@@ -126,7 +151,7 @@ Voir [Recherche et dossiers associés](docs/RECHERCHE-ET-DOSSIERS-ASSOCIES.md).
 
 ## Propriétés YAML adaptées au projet
 
-Dans **Projet → Propriétés YAML**, Feuillets peut mapper ses champs logiques vers des propriétés déjà présentes dans votre coffre : synopsis, résumé, statut, POV, label, objectif, fil narratif, personnages et date.
+Dans **Gérer les projets… → Propriétés YAML**, Feuillets peut mapper ses champs logiques vers des propriétés déjà présentes dans votre coffre : synopsis, résumé, statut, POV, label, objectif, fil narratif, personnages et date.
 
 Le mapping n’effectue aucune migration destructive. Feuillets s’adapte aux propriétés existantes plutôt que d’exiger leur renommage.
 
@@ -167,7 +192,7 @@ Voir [Relecture collaborative](docs/RELECTURE-COLLABORATIVE.md).
 
 ## Édition : Composition et Mise en page
 
-L’espace central **Édition** contient deux modes :
+L’onglet **Édition** contient les surfaces liées à la production du document :
 
 - **Composition** : contenu du manuscrit, Première page, pages liminaires, sommaire/table des matières, tables, bibliographie, annexes et structure ;
 - **Mise en page** : Page, Corps de texte, Titres et Citation.

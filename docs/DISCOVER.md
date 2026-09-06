@@ -6,6 +6,16 @@ Feuillets is a writing studio built **inside** Obsidian. Your manuscript remains
 
 You do not need to learn all of Feuillets before you start.
 
+## One manuscript, several ways to work
+
+The text remains the center. The **Binder** provides a working structure, the **Board** offers several readings — **Cards**, **Outline**, **Story arcs** and **Timeline** — and **Continuous** lets you write across several sheets without losing the original files.
+
+Research can remain free-form: a Research note is an ordinary Markdown note about a character, place, event, source, concept or any other subject useful to the project. Structured properties are available when they help, but they are not a required form.
+
+**Context** brings the passage around the cursor closer to relevant Research using clues such as titles, aliases, tags, documentary content and recognized chronological information. It is not limited to characters: a Research note can also clarify a place, object, institution or concept. Workspaces let you work at the scale of one part of the project without creating a copy; see [One project, multiple workspaces](WORKSPACES.md).
+
+This lets the author structure, document, write, reread, revise, compose and publish at different scales. **Preview** reads a scope as a composed, paginated document, while **Proofreading**, **Edition** and export support the later steps. The tools remain optional and work around the same files.
+
 ## Discover Feuillets in five minutes with Candide
 
 Feuillets already includes a complete demo project based on Voltaire’s **Candide**. It lets you explore the application without preparing a manuscript or touching your own files.
@@ -19,7 +29,11 @@ Feuillets already includes a complete demo project based on Voltaire’s **Candi
 
 > **Binder → Continuous → Preview → Edition → export**
 
-You have now seen the core of Feuillets. Other tools — Research, Cards, Outline, Storyline, Timeline, Notebook, annotations, versions or review — can be discovered only when they become useful.
+You have now seen the core of Feuillets. Other tools — Research, Cards, Outline, Story arcs, Timeline, Notebook, annotations, versions or review — can be discovered only when they become useful.
+
+## Why go beyond a simple editor
+
+Feuillets connects these uses without imposing a novel-writing method. A novel, trilogy, essay, documentary book, thesis, course, collection or set of independent texts can use the same principle: Markdown files, an organization chosen by the author and representations adapted to the working scope.
 
 ## Start with your own writing
 
@@ -55,6 +69,8 @@ For the complete workflow in its natural order, see [The author's workflow](AUTH
 
 - **I want to leave myself a note on a sentence.** Select the passage and choose **Annotation…**. The annotation stays attached to the text, also works in Continuous and is never written into the Markdown; use a working note instead when the remark concerns the whole sheet. See [Working annotations](WORKING-ANNOTATIONS.md).
 
+- **I want to write without losing Markdown's flexibility.** The native editor keeps the real Markdown files; width, typography, line spacing, indents, Focus Mode and writing aids adapt the working surface without turning the text into a proprietary format.
+
 - **My research already lives elsewhere in the vault.** Do not move it: an existing folder can be **linked as Research** while remaining physically where it is. See [Research and linked folders](RESEARCH-AND-LINKED-FOLDERS.md).
 
 - **I want a visual workspace around one folder.** Use **Create Notebook** from the folder menu, then reopen it with **Open Notebook**. This Canvas can remain entirely free-form or host a **Binder Plan** and **mindmaps**. A linked Research folder can share the same logical Notebook. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
@@ -70,6 +86,8 @@ For the complete workflow in its natural order, see [The author's workflow](AUTH
 - **I want to export only a few chapters.** Select the sheets or folders you want and use that selection as the scope. There is no need to create a separate project or duplicate the manuscript.
 
 - **I want to export without opening Preview.** You can. Preview is for visually checking the composed document, but it is not required for export; if Continuous still has pending edits, Feuillets saves them to the source files first.
+
+- **I want to understand information in context.** Open the **Context** panel: it examines the passage around the cursor and can bring relevant Research notes closer, including recognized chronology. A Character note can contain dated events; when the character is mentioned in a dated passage, Feuillets can help check the character's state at that date, such as a presence, death or event that has already happened.
 
 - **I want the same Markdown as a presentation.** Separate slides with `---`. Feuillets composes them in 16:9, can use semantic roles without requiring them, and keeps `[!speaker-notes]` out of projection. See [Presentation](PRESENTATION-EN.md).
 
@@ -96,25 +114,36 @@ The **Binder** is the working structure of the manuscript. It is used to navigat
 
 ### Continuous
 
-**Continuous** lets you write across several sheets in one editor without merging them. File boundaries remain protected and edits are written back to the corresponding Markdown files.
+**Continuous** temporarily assembles a file, folder, selection or project according to the chosen scope. It lets you write across several sheets in one editor without merging them: file boundaries remain protected and edits are written back to the real Markdown files. No permanent composite file is created on disk.
 
 ### Structural views
 
-**Cards**, **Outline**, **Storyline** and **Timeline** show the same files from different angles: visual organization, metadata, narrative threads or event order. **Notebook** is the visual thinking Canvas: it can be project-wide or attached to a folder, remain entirely free-form, or host a **Binder Plan** and **mindmaps**. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
+**Cards**, **Outline**, **Story arcs** and **Timeline** show the same files from different angles: visual organization, metadata, narrative threads or event order. **Notebook** is the visual thinking Canvas: it can be project-wide or attached to a folder, remain entirely free-form, or host a **Binder Plan** and **mindmaps**. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
-### Right panel
+**Story arcs** can follow several dimensions of the same manuscript: narrative threads, characters or POV, arcs, statuses and labels according to the supported properties. One thread can connect several sheets to show where an object, promise, conflict or motif appears, returns or resolves. The first and last occurrence of one thread can naturally serve as its opening or setup and resolution or payoff, while intermediate occurrences show its development. Feuillets does not impose one interpretation of the lanes or automatically assign those roles.
 
-Five tabs accompany the text without replacing the manuscript:
+### Feuillets panel
+
+Six public tabs accompany the text without replacing the manuscript:
 
 - **Sheet** — synopsis, summary, notes, properties, annotations, footnotes and Context;
 - **Research** — documentation, characters, places, events, sources, bibliography and linked folders;
 - **Journal** — writing journal and tracking;
-- **Project** — goals, statuses, labels, tags and YAML property mapping;
+- **Edition** — Composition, Layout and editorial documents;
+- **Statistics** — sheet, selection and project statistics;
 - **Proofreading** — text analysis, Collaborative Review, DOCX Review and comparison.
 
 ### Edition
 
-**Edition** is a central workspace separate from the right panel. **Composition** decides what belongs in the document and can define variants, extractions and collections; **Layout** controls its presentation. The compact toolbar follows **Scope → Content → Format → Export**. **Preview** lets you inspect the result, while export remains available without opening it first.
+The **Edition** tab contains **Composition**, **Layout** and editorial documents. **Composition** decides what belongs in the document and can define variants, extractions and collections; **Layout** controls its presentation. The compact toolbar follows **Scope → Content → Format → Export**. **Preview** lets you inspect the result, while export remains available without opening it first.
+
+The editor is for working on text, Continuous for working across several sheets as one text, Preview for reading a scope as a document, Edition for preparing its composition and export for producing the final file. These steps can be used in whatever order fits the project.
+
+## Revise and prepare for publication
+
+Revision forms a chain: annotate, take a snapshot, compare, receive feedback, decide, then restore or apply. **Working annotations** stay outside Markdown; snapshots, comparison, restoration, **Collaborative Review** and **DOCX Review** retain their distinct purposes.
+
+Citations connect Research to the manuscript. Sources can be cited, their citations previewed through the optional Pandoc/Zotero Preview, then included in a bibliography. During compilation, Feuillets can limit the bibliography to sources actually cited within the compiled scope.
 
 ## Philosophy
 
