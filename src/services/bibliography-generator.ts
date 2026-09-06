@@ -42,15 +42,30 @@ const SOURCES_FOLDER_NAME = "Sources";
 const BIBLIOGRAPHY_FOLDER_NAMES = ["Bibliographie", "Bibliography"];
 
 function sourcesFolder(app: App, researchRoot: TFolder): TFolder | null {
+  if (researchRoot.name === SOURCES_FOLDER_NAME) return researchRoot;
   const f = app.vault.getAbstractFileByPath(normalizePath(`${researchRoot.path}/${SOURCES_FOLDER_NAME}`));
   return f instanceof TFolder ? f : null;
 }
 
 function bibliographyFolder(app: App, researchRoot: TFolder): TFolder | null {
+  if (BIBLIOGRAPHY_FOLDER_NAMES.includes(researchRoot.name)) return researchRoot;
   for (const name of BIBLIOGRAPHY_FOLDER_NAMES) {
     const f = app.vault.getAbstractFileByPath(normalizePath(`${researchRoot.path}/${name}`));
     if (f instanceof TFolder) return f;
   }
+  return null;
+}
+
+/** Résout la bibliothèque d'une seule racine Recherche. Sources canonique
+ * prioritaire, Bibliographie/Bibliography comme repli legacy. */
+export function resolveBibliographySourceInResearchRoot(
+  app: App,
+  researchRoot: TFolder
+): { folder: TFolder; canonical: boolean } | null {
+  const sources = sourcesFolder(app, researchRoot);
+  if (sources) return { folder: sources, canonical: true };
+  const legacy = bibliographyFolder(app, researchRoot);
+  if (legacy) return { folder: legacy, canonical: false };
   return null;
 }
 
@@ -65,16 +80,31 @@ export function resolveBibliographySource(
 ): { folder: TFolder; canonical: boolean } | null {
   const researchRoot = getResearchRoot(app, settings);
   if (!researchRoot) return null;
-  const sources = sourcesFolder(app, researchRoot);
-  if (sources) return { folder: sources, canonical: true };
-  const legacy = bibliographyFolder(app, researchRoot);
-  if (legacy) return { folder: legacy, canonical: false };
-  return null;
+  return resolveBibliographySourceInResearchRoot(app, researchRoot);
 }
 
 function fieldOf(fm: Record<string, unknown>, key: string): string | undefined {
   const value = toValue(fm[key]).trim();
   return value || undefined;
+}
+
+function bibliographyEntryForFile(app: App, file: TFile): BibliographyEntry {
+  const fm = app.metadataCache.getFileCache(file)?.frontmatter || {};
+  return {
+    author: fieldOf(fm, "author"),
+    title: fieldOf(fm, "title"),
+    publisher: fieldOf(fm, "publisher"),
+    date: fieldOf(fm, "date"),
+    url: fieldOf(fm, "url"),
+  };
+}
+
+/** Convertit une liste explicite de fiches Source avec le même mapping que
+ * la bibliographie historique, sans appliquer cite_count. */
+export function bibliographyEntriesForFiles(app: App, files: TFile[]): BibliographyEntry[] {
+  return files
+    .filter((file) => file instanceof TFile && file.extension === "md")
+    .map((file) => bibliographyEntryForFile(app, file));
 }
 
 /** Fiches de la bibliothèque résolue (`resolveBibliographySource`), dans
@@ -86,20 +116,12 @@ function fieldOf(fm: Record<string, unknown>, key: string): string | undefined {
 export function bibliographyEntries(app: App, settings: FeuilletsSettings): BibliographyEntry[] {
   const resolved = resolveBibliographySource(app, settings);
   if (!resolved) return [];
-  const out: BibliographyEntry[] = [];
-  for (const child of resolved.folder.children || []) {
-    if (!(child instanceof TFile) || child.extension !== "md") continue;
-    const fm = app.metadataCache.getFileCache(child)?.frontmatter || {};
-    if (resolved.canonical && !(Number(fm.cite_count) > 0)) continue;
-    out.push({
-      author: fieldOf(fm, "author"),
-      title: fieldOf(fm, "title"),
-      publisher: fieldOf(fm, "publisher"),
-      date: fieldOf(fm, "date"),
-      url: fieldOf(fm, "url"),
-    });
-  }
-  return out;
+  const files = (resolved.folder.children || []).filter(
+    (child): child is TFile => child instanceof TFile
+      && child.extension === "md"
+      && (!resolved.canonical || Number(app.metadataCache.getFileCache(child)?.frontmatter?.cite_count) > 0)
+  );
+  return bibliographyEntriesForFiles(app, files);
 }
 
 /** Une référence formatée : `Auteur. *Titre*. Éditeur, Date.` — chaque

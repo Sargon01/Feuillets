@@ -235,7 +235,7 @@ test("Binder normal : pas de classe isolée, profondeur posée, icône fichier t
 test("Binder isolé : classe feuillets-binder-isolated présente sur le conteneur commun", async () => {
   const fixture = buildFixture();
   const { view, contentEl } = buildView(fixture);
-  view._binderWorkingRootPath = fixture.sub.path;
+  view.plugin.workspaceFolderPath = fixture.sub.path;
   await view.render(true);
 
   const list = listEl(contentEl);
@@ -246,7 +246,7 @@ test("Binder isolé : classe feuillets-binder-isolated présente sur le conteneu
 test("Binder isolé : la ligne fichier réserve toujours la profondeur/icône en TypeScript (neutralisation purement CSS)", async () => {
   const fixture = buildFixture();
   const { view, contentEl } = buildView(fixture);
-  view._binderWorkingRootPath = fixture.sub.path;
+  view.plugin.workspaceFolderPath = fixture.sub.path;
   await view.render(true);
 
   const itemC = itemFor(contentEl, fixture.c.path);
@@ -262,7 +262,7 @@ test("Binder isolé : la ligne fichier réserve toujours la profondeur/icône en
 test("Binder isolé : l'aperçu 1/2/3 lignes reste inchangé", async () => {
   const fixture = buildFixture();
   const { view, contentEl } = buildView(fixture, { listPanePreviewField: "synopsis", listPanePreviewLines: 3 });
-  view._binderWorkingRootPath = fixture.sub.path;
+  view.plugin.workspaceFolderPath = fixture.sub.path;
   await view.render(true);
 
   const itemC = itemFor(contentEl, fixture.c.path);
@@ -370,7 +370,7 @@ function buildViewWithGrandparent(fixture, settingsOverrides = {}) {
 test("Binder isolé : un sous-dossier réel conserve chevron, icône dossier et indentation", async () => {
   const fixture = buildFixtureWithGrandparent();
   const { view, contentEl } = buildViewWithGrandparent(fixture);
-  view._binderWorkingRootPath = fixture.part.path;
+  view.plugin.workspaceFolderPath = fixture.part.path;
   await view.render(true);
 
   const list = listEl(contentEl);
@@ -389,11 +389,11 @@ test("Binder : retour au projet complet retire la classe isolée et restaure le 
   const fixture = buildFixture();
   const { view, contentEl } = buildView(fixture);
 
-  view._binderWorkingRootPath = fixture.sub.path;
+  view.plugin.workspaceFolderPath = fixture.sub.path;
   await view.render(true);
   assert.equal(listEl(contentEl).classes.has("feuillets-binder-isolated"), true);
 
-  view._binderWorkingRootPath = undefined;
+  view.plugin.workspaceFolderPath = undefined;
   await view.render(true);
 
   const list = listEl(contentEl);

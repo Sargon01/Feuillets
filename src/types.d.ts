@@ -90,6 +90,33 @@ declare type ProjectStatusEntry = {
   color: string;
 };
 
+declare type FolderWorkspacePreset = "free" | "fiction" | "nonfiction";
+
+declare type FolderWorkspaceConfig = {
+  version: 1;
+  preset?: FolderWorkspacePreset;
+  statuses?: ProjectStatusEntry[];
+  labels?: Label[];
+  favoriteTags?: string[];
+  wordGoal?: number;
+  tolerance?: number;
+  projectWordGoal?: number;
+  deadlineDate?: string;
+  sessionGoal?: number;
+  planningField?: "synopsis" | "summary";
+  newSheetIncludeSources?: boolean;
+  cardContent?: string;
+  hiddenBoardModes?: string[];
+  outlineCols?: Record<string, boolean>;
+  indentParagraphs?: boolean;
+  liveJustify?: boolean;
+  liveEmptyLines?: "normal" | "reduit" | "invisible";
+  liveHyphenation?: boolean;
+  readingFontSize?: number;
+  lineHeight?: number;
+  textWidth?: number;
+};
+
 /** Champs frontmatter dont la clé YAML réelle peut être remappée par projet
  * — voir ProjectMeta.propertyMap et services/frontmatter.ts. Liste fermée
  * volontairement (chantier « mapping des propriétés » V1) : `title`, `tags`,
@@ -116,6 +143,8 @@ declare type PandocCitationPreviewStyle = "off" | "author-date";
  * `{}` est un état normal (voir `S.projectMeta[path] = {}`). */
 declare type ProjectMeta = {
   folderCarnets?: Record<string, import("./carnet/core/folder-carnets.js").FolderCarnetRegistration>;
+  /** Préférences locales par dossier, indexées par chemin relatif au manuscrit. */
+  folderWorkspaces?: Record<string, FolderWorkspaceConfig>;
   /** Nom d'affichage personnalisé ; sinon le nom du dossier. */
   name?: string;
   /** Emoji ou nom d'icône Lucide. */

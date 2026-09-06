@@ -1,12 +1,12 @@
-import { getProjectStatuses, VIEW_SCRIVENINGS } from "../constants.js";
-import { projectWordGoalDefault, projectTolerance } from "../services/project-settings.js";
+import { VIEW_SCRIVENINGS } from "../constants.js";
+import { workspaceTolerance, workspaceWordGoalDefault } from "../services/folder-workspaces.js";
 import { writeLogicalFrontmatterField, isMappableField } from "../services/frontmatter.js";
 import { foldAccents } from "../utils/core.js";
 import { refreshSearchIndex } from "../utils/search-index.js";
 import { AppearancesModal, FolderGoalModal, TagsModal, SaveResearchFilterModal, ManageSavedFiltersModal } from "../ui/entity-modals.js";
 import { TextInputModal } from "../scenes-editor.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
-import { NewFolderModal, RenameFolderModal, NewResearchFileModal, RenameFileModal } from "../ui/basic-modals.js";
+import { NewFolderModal, RenameBinderItemModal, RenameFolderModal, NewResearchFileModal, RenameFileModal } from "../ui/basic-modals.js";
 import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getResearchTemplate } from "../services/research-templates.js";
 import { promptForPage } from "../ui/citation-modal.js";
@@ -20,9 +20,21 @@ import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view
 import { createFolderScope, createSelectionScope, compileScopesEqual, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { RESEARCH_FOLDERS, researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
+import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
 import { t } from "../i18n/index.js";
 import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
+
+export type ResearchScopeMode = "workspace" | "project";
+
+export type ResearchRenderOptions = {
+  scopeMode?: ResearchScopeMode;
+  workspaceActive?: boolean;
+  workspaceFolder?: TFolder | null;
+  researchRoot?: TFolder | null;
+  associatedResearchFolder?: TFolder | null;
+  onScopeModeChange?: (mode: ResearchScopeMode) => void;
+};
 
 function getResearchSectionIcon(key: string): string {
   return (
@@ -35,7 +47,7 @@ function getResearchSectionIcon(key: string): string {
       glossaire: "spell-check",
       evenements: "calendar",
       coffre: "archive",
-      linked: "link",
+      linked: "folder",
     } as Record<string, string>
   )[key] || "info";
 }
@@ -311,11 +323,9 @@ export abstract class BaseFeuilletsView extends ItemView {
       .onClick(() => void candidate.openFolderCarnet!(folder)));
   }
 
-  getProjectLabels(): Label[] {
-    const S = this.plugin.settings;
-    const root = this.plugin.getProjectFolder();
-    const meta = root ? S.projectMeta[root.path] : null;
-    return (meta && meta.labels) ? meta.labels : (S.labels || []);
+  getProjectLabels(folder: TFolder | null = null): Label[] {
+    const context = folder || this.plugin.getWorkspaceFolder?.() || this.plugin.getProjectFolder();
+    return workspaceLabels(this.app, this.plugin.settings, context);
   }
   async render(_force?: boolean): Promise<void> {}
 
@@ -364,6 +374,128 @@ export abstract class BaseFeuilletsView extends ItemView {
       const file = await this.app.vault.create(destPath, content);
       openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       void this.render(true);
+    }).open();
+  }
+
+  private promptCreateResearchFileInFolder(folder: TFolder): void {
+    const knownKey = (Object.keys(RESEARCH_FOLDERS) as Array<keyof typeof RESEARCH_FOLDERS>)
+      .find((key) => researchFolderNames(RESEARCH_FOLDERS, key).includes(folder.name));
+    const defaultName = knownKey
+      ? RESEARCH_FOLDERS[knownKey].newName
+      : `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`;
+    const folderTag = foldAccents(folder.name.toLowerCase().replace(/\s+/g, "-"));
+    void (async () => {
+      const template = knownKey
+        ? await getResearchTemplate(this.app, this.plugin.settings, knownKey, defaultName)
+        : [
+          "---",
+          `title: "${defaultName}"`,
+          "synopsis: ",
+          "tags:",
+          `  - ${folderTag}`,
+          "---",
+          "",
+        ].join("\n");
+      this.promptCreateResearchFile(folder, defaultName, template);
+    })();
+  }
+
+  private promptRenameResearchFolder(folder: TFolder): void {
+    new RenameFolderModal(this.app, folder.name, async (rawName) => {
+      const newName = rawName.trim();
+      if (!newName || newName.includes("/") || newName.includes("\\")) {
+        new Notice(t("binder.research.invalidName"));
+        return;
+      }
+      if (newName === folder.name) return;
+      const parent = folder.parent;
+      if (!parent) return;
+      const newPath = normalizePath(`${parent.path}/${newName}`);
+      if (this.app.vault.getAbstractFileByPath(newPath)) {
+        new Notice(t("shared.contextMenu.folderNameExists"));
+        return;
+      }
+      try {
+        await this.app.fileManager.renameFile(folder, newPath);
+        this.plugin.renderAllViews(true);
+      } catch {
+        new Notice(t("shared.contextMenu.renameFolderFailed"));
+      }
+    }).open();
+  }
+
+  private promptRenameBinderFile(file: TFile): void {
+    const initial = {
+      title: this.plugin.titleFor(file),
+      binderTitle: this.plugin.shortTitleFor(file),
+      fileName: file.basename,
+    };
+    new RenameBinderItemModal(this.app, file, initial, async (values) => {
+      const nextFileName = values.fileName.trim().replace(/\.md$/i, "");
+      if (!nextFileName || nextFileName.includes("/") || nextFileName.includes("\\")) {
+        new Notice(t("binder.research.invalidName"));
+        return;
+      }
+      const parent = file.parent;
+      if (!parent) return;
+      const nextPath = normalizePath(`${parent.path}/${nextFileName}.md`);
+      if (nextPath !== file.path && this.app.vault.getAbstractFileByPath(nextPath)) {
+        new Notice(t("shared.contextMenu.folderNameExists"));
+        return;
+      }
+      const titleChanged = values.title.trim() !== initial.title;
+      const binderTitleChanged = values.binderTitle.trim() !== initial.binderTitle;
+      const fileRenamed = nextPath !== file.path;
+      if (fileRenamed) {
+        await this.app.fileManager.renameFile(file, nextPath);
+      }
+      if (titleChanged || binderTitleChanged) {
+        await this.app.fileManager.processFrontMatter(file, (fm: Record<string, unknown>) => {
+          if (titleChanged) {
+            delete fm.title;
+            delete fm.titre;
+            if (values.title.trim()) fm.title = values.title.trim();
+          }
+          if (binderTitleChanged) {
+            delete fm.short_title;
+            delete fm.titre_binder;
+            delete fm.titre_court;
+            if (values.binderTitle.trim()) fm.short_title = values.binderTitle.trim();
+          }
+        });
+      }
+      if (fileRenamed || titleChanged || binderTitleChanged) {
+        this.plugin.renderAllViews(true);
+      }
+    }).open();
+  }
+
+  private promptRenameBinderFolder(folder: TFolder): void {
+    new RenameBinderItemModal(this.app, folder, {
+      title: folder.name,
+      binderTitle: "",
+      fileName: folder.name,
+    }, async (values) => {
+      const newName = values.title.trim();
+      if (!newName || newName.includes("/") || newName.includes("\\")) {
+        new Notice(t("binder.research.invalidName"));
+        return;
+      }
+      if (newName === folder.name) return;
+      const root = this.plugin.getProjectFolder();
+      if (root && folder.path === root.path) {
+        new Notice(t("shared.contextMenu.cannotRenameProjectRoot"));
+        return;
+      }
+      const parent = folder.parent;
+      if (!parent) return;
+      const newPath = normalizePath(`${parent.path}/${newName}`);
+      if (this.app.vault.getAbstractFileByPath(newPath)) {
+        new Notice(t("shared.contextMenu.folderNameExists"));
+        return;
+      }
+      await this.app.fileManager.renameFile(folder, newPath);
+      this.plugin.renderAllViews(true);
     }).open();
   }
 
@@ -540,13 +672,13 @@ export abstract class BaseFeuilletsView extends ItemView {
     const sel = parent.createEl("select", { cls: "feuillets-status" });
     const none = sel.createEl("option", { text: "—" });
     none.value = "";
-    for (const l of this.getProjectLabels()) {
+    for (const l of this.getProjectLabels(file.parent)) {
       const opt = sel.createEl("option", { text: l.name });
       opt.value = l.name;
     }
     sel.value = current;
     sel.setAttr("title", current || t("shared.label.none"));
-    const color = current ? this.plugin.labelColor(current) : null;
+    const color = current ? this.plugin.labelColor(current, file.parent) : null;
     if (color) sel.style.borderLeft = `4px solid ${color}`;
     sel.addEventListener("change", () => {
       void (async () => {
@@ -560,7 +692,9 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   makeStatusSelect(parent: HTMLElement, file: TFile): HTMLSelectElement {
     const fm = this.fm(file);
-    const statuses = getProjectStatuses(this.app, this.plugin ? this.plugin.settings : null);
+    const statuses = ["", ...workspaceStatuses(this.app, this.plugin.settings, file.parent)
+      .map((status) => status.name?.trim() || "")
+      .filter(Boolean)];
     const sel = parent.createEl("select", { cls: "feuillets-status" });
     for (const s of statuses) {
       const opt = sel.createEl("option", { text: s || "—" });
@@ -654,7 +788,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     return asFolder(await this.plugin.ensureFolder(`${baseResearch}/${names[0]}`));
   }
 
-  async renderResearchBody(container: HTMLElement, root: TFolder, gen: number): Promise<void> {
+  async renderResearchBody(
+    container: HTMLElement,
+    root: TFolder,
+    gen: number,
+    options: ResearchRenderOptions = {},
+  ): Promise<void> {
     const S = this.plugin.settings;
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
     const searchInput = toolbar.createEl("input", {
@@ -679,11 +818,36 @@ export abstract class BaseFeuilletsView extends ItemView {
       }, 250);
     });
 
-    const researchRoot = this.plugin.getResearchRoot();
+    if (options.workspaceActive) {
+      const scopeName = options.scopeMode === "project"
+        ? t("shared.research.scopeProject")
+        : t("shared.research.scopeWorkspace");
+      const scopeTooltip = `${t("shared.research.scopeLabel")}: ${scopeName}`;
+      const scopeButton = this.iconBtn(toolbar, "layers-3", scopeTooltip);
+      scopeButton.setAttr("aria-label", scopeTooltip);
+      scopeButton.addEventListener("click", (event) => {
+        const menu = new Menu();
+        menu.addItem((item) => item
+          .setTitle(t("shared.research.scopeWorkspace"))
+          .setChecked(options.scopeMode !== "project")
+          .onClick(() => options.onScopeModeChange?.("workspace")));
+        menu.addItem((item) => item
+          .setTitle(t("shared.research.scopeProject"))
+          .setChecked(options.scopeMode === "project")
+          .onClick(() => options.onScopeModeChange?.("project")));
+        menu.showAtMouseEvent(event);
+      });
+    }
+
+    const researchRoot = options.researchRoot !== undefined
+      ? options.researchRoot
+      : this.plugin.getResearchRoot();
     const baseResearch = researchRoot
       ? researchRoot.path
       : researchFolderPath(this.app, this.plugin.settings, root) || root.path;
-    const baseResearchFile = this.app.vault.getAbstractFileByPath(baseResearch);
+    const associatedWorkspaceFolder = options.associatedResearchFolder || null;
+    const displayedResearchPath = associatedWorkspaceFolder?.path || baseResearch;
+    const baseResearchFile = associatedWorkspaceFolder || this.app.vault.getAbstractFileByPath(baseResearch);
     const baseResearchFolder = baseResearchFile instanceof TFolder ? baseResearchFile : null;
     if (this._renderGen !== gen) return;
 
@@ -709,14 +873,21 @@ export abstract class BaseFeuilletsView extends ItemView {
       ];
       let hasStandardSection = false;
       for (const key of standardKeys) {
-        if (this.findResearchCategoryFolder(baseResearch, rf, key)) continue;
+        const categoryFolder = associatedWorkspaceFolder
+          ? this.findResearchCategoryFolder(displayedResearchPath, rf, key)
+          : this.findResearchCategoryFolder(baseResearch, rf, key);
+        if (categoryFolder) continue;
         hasStandardSection = true;
         menu.addItem((item) =>
           item
             .setTitle(researchFolderLabel(rf, key))
             .setIcon(getResearchSectionIcon(key))
             .onClick(async () => {
-              await this.ensureResearchCategoryFolder(baseResearch, rf, key);
+              if (associatedWorkspaceFolder) {
+                await this.ensureResearchCategoryFolder(displayedResearchPath, rf, key);
+              } else {
+                await this.ensureResearchCategoryFolder(baseResearch, rf, key);
+              }
               this.plugin.renderAllViews(true);
             })
         );
@@ -743,12 +914,10 @@ export abstract class BaseFeuilletsView extends ItemView {
       menu.showAtMouseEvent(event);
     });
 
-    const sourcesFolder = this.findResearchCategoryFolder(baseResearch, rf, "sources");
-    const bibliographieFolder = this.findResearchCategoryFolder(
-      baseResearch,
-      rf,
-      "bibliographie"
-    );
+    const sourcesFolder = associatedWorkspaceFolder ? null : this.findResearchCategoryFolder(baseResearch, rf, "sources");
+    const bibliographieFolder = associatedWorkspaceFolder
+      ? null
+      : this.findResearchCategoryFolder(baseResearch, rf, "bibliographie");
     /* Rationalisation : Sources reste la SEULE
        bibliothèque de travail — Bibliographie devient la vue agrégée des
        sources citées (voir plus bas), plus un dossier de fiches
@@ -758,11 +927,15 @@ export abstract class BaseFeuilletsView extends ItemView {
        — les deux dossiers peuvent coexister sur le disque indéfiniment. */
     /* Chaque catégorie standard est reconnue si son dossier existe ; les
        rubriques personnalisées restent gérées séparément ci-dessous. */
-    const personnagesFolder = this.findResearchCategoryFolder(baseResearch, rf, "personnages");
-    const lieuxFolder = this.findResearchCategoryFolder(baseResearch, rf, "lieux");
-    const codexFolder = this.findResearchCategoryFolder(baseResearch, rf, "codex");
-    const glossaireFolder = this.findResearchCategoryFolder(baseResearch, rf, "glossaire");
-    const chronoFolder = this.plugin.getChronoFolder();
+    const personnagesFolder = associatedWorkspaceFolder ? null : this.findResearchCategoryFolder(baseResearch, rf, "personnages");
+    const lieuxFolder = associatedWorkspaceFolder ? null : this.findResearchCategoryFolder(baseResearch, rf, "lieux");
+    const codexFolder = associatedWorkspaceFolder ? null : this.findResearchCategoryFolder(baseResearch, rf, "codex");
+    const glossaireFolder = associatedWorkspaceFolder ? null : this.findResearchCategoryFolder(baseResearch, rf, "glossaire");
+    const chronoFolder = associatedWorkspaceFolder
+      ? null
+      : options.workspaceActive && options.scopeMode === "workspace"
+      ? this.findResearchCategoryFolder(baseResearch, rf, "evenements")
+      : this.plugin.getChronoFolder();
 
     if (sourcesFolder || bibliographieFolder) {
       const citeSearchBtn = this.iconBtn(toolbar, "quote", t("shared.research.insertCitationTooltip"));
@@ -782,9 +955,13 @@ export abstract class BaseFeuilletsView extends ItemView {
     ]);
 
     const customFolders: TFolder[] = [];
+    const linkedResearchPaths = new Set(
+      this.plugin.getLinkedResearchFolders().map(({ folder }) => folder.path)
+    );
     if (baseResearchFolder) {
       for (const child of baseResearchFolder.children) {
-        if (child instanceof TFolder && !standardPaths.has(child.path)) {
+        if (child instanceof TFolder && !standardPaths.has(child.path) &&
+          !linkedResearchPaths.has(child.path)) {
           if (!child.name.startsWith("_") && !child.name.startsWith(".")) {
             customFolders.push(child);
           }
@@ -871,7 +1048,29 @@ export abstract class BaseFeuilletsView extends ItemView {
     this.researchFilterActive =
       !!(S.researchSearch || "").trim() || !!S.researchTagFilter;
 
-    this.renderAssociatedResearchFolders(body, baseResearchFolder);
+    const showProjectAssociations = !options.workspaceActive
+      || options.scopeMode !== "workspace";
+
+    if (associatedWorkspaceFolder) {
+      this.renderSection(body, associatedWorkspaceFolder.name, associatedWorkspaceFolder, async () =>
+        this.promptCreateResearchFile(
+          associatedWorkspaceFolder,
+          t("binder.research.newFileDefaultName"),
+          "---\ntitle: \"\"\ntags:\n---\n"
+        )
+      );
+      if (options.workspaceFolder) {
+        this.renderAssociatedResearchFolders(
+          body,
+          associatedWorkspaceFolder,
+          this.workspaceFileResearchFolders(options.workspaceFolder),
+          false,
+          false
+        );
+      }
+      this.filterEntities();
+      return;
+    }
 
     if (sourcesFolder) {
       /* Sources est la SEULE bibliothèque de travail —
@@ -984,6 +1183,26 @@ export abstract class BaseFeuilletsView extends ItemView {
       );
     }
 
+    if (showProjectAssociations) {
+      this.renderAssociatedResearchFolders(body, baseResearchFolder);
+    }
+
+    if (options.workspaceActive && options.scopeMode === "workspace" && options.workspaceFolder) {
+      const naturallyLinkedWorkspaceFolders = baseResearchFolder
+        ? this.plugin.getLinkedResearchFolders().filter(({ folder }) =>
+          folder.path.startsWith(`${baseResearchFolder.path}/`)
+          && !standardPaths.has(folder.path)
+        )
+        : [];
+      this.renderAssociatedResearchFolders(
+        body,
+        baseResearchFolder,
+        [...naturallyLinkedWorkspaceFolders, ...this.workspaceFileResearchFolders(options.workspaceFolder)],
+        true,
+        true
+      );
+    }
+
     this.filterEntities();
   }
 
@@ -991,55 +1210,114 @@ export abstract class BaseFeuilletsView extends ItemView {
    * Binder (`researchFolderLinks`, voir plugin.getLinkedResearchFolders())
    * qui ne sont pas déjà visibles naturellement sous la racine Recherche du
    * projet — typiquement un dossier hors projet. Aucun nouveau modèle : on
-   * ne fait que RENDRE, en lecture seule (voir le paramètre `external` de
-   * renderSection), une association qui existe déjà. Un même dossier associé
+   * ne fait que RENDRE une association qui existe déjà. Un même dossier associé
    * à plusieurs nœuds du Binder n'apparaît qu'une fois, avec ses
    * associations listées de façon compacte. */
+  private workspaceFileResearchFolders(workspaceFolder: TFolder): { folder: TFolder; binderNodes: TAbstractFile[] }[] {
+    const files = this.plugin.flattenFiles(workspaceFolder);
+    const inScope = new Set(files.map((file) => file.path));
+    const order = new Map(files.map((file, index) => [file.path, index]));
+    return this.plugin
+      .getLinkedResearchFolders()
+      .map((entry) => ({
+        folder: entry.folder,
+        binderNodes: entry.binderNodes.filter((node) => node instanceof TFile && inScope.has(node.path)),
+      }))
+      .filter(({ binderNodes }) => binderNodes.length > 0)
+      .sort((a, b) => {
+        const aIndex = Math.min(...a.binderNodes.map((node) => order.get(node.path) ?? Number.MAX_SAFE_INTEGER));
+        const bIndex = Math.min(...b.binderNodes.map((node) => order.get(node.path) ?? Number.MAX_SAFE_INTEGER));
+        return aIndex - bIndex;
+      });
+  }
+
   private renderAssociatedResearchFolders(
     container: HTMLElement,
-    baseResearchFolder: TFolder | null
+    baseResearchFolder: TFolder | null,
+    linkedFolders = this.plugin.getLinkedResearchFolders(),
+    grouped = true,
+    includeNestedUnderBase = true
   ): void {
-    const associated = this.plugin
-      .getLinkedResearchFolders()
+    const associatedByPath = new Map<string, { folder: TFolder; binderNodes: TAbstractFile[] }>();
+    const standardResearchPaths = new Set(
+      ["personnages", "lieux", "evenements", "codex", "glossaire", "sources", "bibliographie"]
+        .map((key) => this.findResearchCategoryFolder(baseResearchFolder?.path || "", RESEARCH_FOLDERS, key)?.path)
+        .filter((path): path is string => typeof path === "string")
+    );
+    for (const entry of linkedFolders
       .filter(({ folder }) => {
         if (!baseResearchFolder) return true;
-        return (
-          folder.path !== baseResearchFolder.path &&
-          !folder.path.startsWith(`${baseResearchFolder.path}/`)
-        );
-      })
+        if (folder.path === baseResearchFolder.path) return false;
+        if (!folder.path.startsWith(`${baseResearchFolder.path}/`)) return true;
+        return includeNestedUnderBase && !standardResearchPaths.has(folder.path);
+      })) {
+      const current = associatedByPath.get(entry.folder.path);
+      if (current) current.binderNodes.push(...entry.binderNodes);
+      else associatedByPath.set(entry.folder.path, {
+        folder: entry.folder,
+        binderNodes: [...entry.binderNodes],
+      });
+    }
+    const associated = [...associatedByPath.values()]
       .sort((a, b) => a.folder.name.localeCompare(b.folder.name, "fr"));
     if (associated.length === 0) return;
 
-    const groupHead = container.createDiv({
-      cls: "feuillets-research-linked-group",
-    });
-    groupHead
-      .createSpan({
-        cls: "feuillets-notes-section-title feuillets-research-linked-group-title",
-      })
-      .setText(t("shared.research.linkedFolders"));
+    let groupBody = container;
+    if (grouped) {
+      const S = this.plugin.settings;
+      const collapseKey = "research:spaces";
+      const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
+      const { section, head } = renderCollapsibleHead(container, {
+        classes: {
+          section: "feuillets-notes-section feuillets-research-linked-group",
+          head: "feuillets-notes-section-head",
+          title: "feuillets-notes-section-title",
+          icon: "feuillets-notes-section-icon",
+        },
+        title: t("shared.research.workspaces"),
+        icon: "layers-3",
+        collapsed,
+        collapseKey,
+        settings: S,
+        onToggle: async () => {
+          await this.plugin.saveSettings();
+          void this.render();
+        },
+      });
+      head.setAttr("data-research-group", "spaces");
+      if (collapsed) return;
+      groupBody = section.createDiv({ cls: "feuillets-research-linked-list" });
+    }
 
-    for (const { folder, binderNodes } of associated) {
+    const roots = associated.filter(({ folder }, index) =>
+      !associated.some((candidate, candidateIndex) =>
+        candidateIndex !== index && folder.path.startsWith(`${candidate.folder.path}/`)
+      )
+    );
+    for (const { folder, binderNodes } of roots) {
       const labels = binderNodes
         .map((n) => (n instanceof TFile ? this.plugin.titleFor(n) : n.name))
         .sort((a, b) => a.localeCompare(b, "fr"));
+      const associationNames = labels.join(" · ");
       this.renderSection(
-        container,
+        groupBody,
         folder.name,
         folder,
-        undefined,
+        async () => {
+          this.promptCreateResearchFileInFolder(folder);
+        },
         "linked",
         undefined,
         (head) => {
-          head.setAttr("title", folder.path);
-          if (labels.length > 0) {
+          head.setAttr("title", labels.length > 0
+            ? t("shared.research.associatedWith", { names: associationNames })
+            : folder.path);
+          if (labels.length > 1) {
             head
               .createSpan({ cls: "feuillets-research-linked-badge" })
-              .setText(labels.join(" · "));
+              .setText(t("shared.research.linkedCount", { count: String(labels.length) }));
           }
-        },
-        true
+        }
       );
     }
   }
@@ -1214,10 +1492,9 @@ export abstract class BaseFeuilletsView extends ItemView {
        donc accessibles les mêmes opérations d'arborescence que dans le
        Binder, y compris les sous-dossiers utiles à une future association
        entre une partie du Binder et sa documentation.
-       `external` (dossier associé depuis le Binder mais hors de la racine
-       Recherche du projet — voir renderAssociatedResearchFolders) reste en
-       lecture/navigation seule : ni menu d'actions d'écriture, ni cible de
-       dépôt — on ne modifie jamais un dossier documentaire externe. */
+       `external` reste réservé aux rubriques documentaires explicitement
+       rendues en lecture seule. Les associations Binder affichées sous
+       ESPACES conservent leurs actions et leurs cibles physiques. */
     if (folderOrFiles instanceof TFolder && !external) {
       const actions = this.iconBtn(head, "more-horizontal", t("shared.research.folderActions"));
       actions.addEventListener("click", (e) => {
@@ -1420,6 +1697,12 @@ export abstract class BaseFeuilletsView extends ItemView {
     const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
     nameEl.setText(folder.name);
 
+    const createButton = this.iconBtn(header, "plus", t("binder.research.newFile"));
+    createButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.promptCreateResearchFileInFolder(folder);
+    });
+
     header.addEventListener("click", () => {
       void (async () => {
         if (collapsed) delete S.collapsed[collapseKey];
@@ -1453,6 +1736,22 @@ export abstract class BaseFeuilletsView extends ItemView {
       actions.addEventListener("click", (e) => {
         e.stopPropagation();
         this.showResearchFolderContextMenu(e, folder);
+      });
+    } else {
+      const actions = this.iconBtn(
+        header,
+        "more-horizontal",
+        t("shared.research.folderActions")
+      );
+      actions.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const menu = new Menu();
+        menu.addItem((item) => item
+          .setTitle(t("shared.contextMenu.rename"))
+          .setIcon("pencil")
+          .onClick(() => this.promptRenameResearchFolder(folder))
+        );
+        menu.showAtMouseEvent(e);
       });
     }
 
@@ -1552,6 +1851,11 @@ export abstract class BaseFeuilletsView extends ItemView {
       if (!this.researchFolderClipboardPath) item.setDisabled(true);
       else item.onClick(() => void this.pasteResearchFolder(folder));
     });
+    menu.addItem((item) => item
+      .setTitle(t("shared.contextMenu.rename"))
+      .setIcon("pencil")
+      .onClick(() => this.promptRenameResearchFolder(folder))
+    );
     menu.addSeparator();
     menu.addItem((item) =>
       item
@@ -2293,7 +2597,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     this.app.workspace.setActiveLeaf(workLeaf, { focus: true });
   }
 
-  showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[]): void {
+  showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[], binderRename = false): void {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -2310,51 +2614,6 @@ export abstract class BaseFeuilletsView extends ItemView {
     const groupFiles = isGroup
       ? [...groupSel].map((p) => this.app.vault.getAbstractFileByPath(p)).filter((f): f is TFile => f instanceof TFile)
       : [file];
-
-    /* Lot 7 — « Ajouter la sélection au Carnet » REMPLACE, dans ce cas
-       précis, le simple « Ajouter au Carnet » : jamais les deux à la fois,
-       jamais un repli silencieux sur le seul fichier cliqué si la
-       sélection contient un élément non admissible (dossier, Recherche,
-       note de dossier, .md hors manuscrit…) — voir `isSceneFile`, le même
-       prédicat métier que la commande palette du Lot 6. Le comportement
-       simple à un seul feuillet reste exactement celui d'avant ce Lot. */
-    if (isGroup) {
-      const selectedPaths = [...groupSel];
-      const allAdmissible = selectedPaths.every((p) => {
-        const f = this.app.vault.getAbstractFileByPath(p);
-        return f instanceof TFile && this.plugin.isSceneFile(f);
-      });
-      if (allAdmissible) {
-        // ORDRE = ORDRE DU BINDER : jamais l'ordre du Set de sélection
-        // (qui reflète l'ordre des Cmd-clics) — le parcours canonique
-        // `flattenFiles` donne l'ordre réel du manuscrit, filtré ensuite
-        // sur les chemins sélectionnés.
-        const root = this.plugin.getProjectFolder();
-        const orderedSelected = root
-          ? this.plugin.flattenFiles(root).filter((f) => groupSel.has(f.path))
-          : [];
-        menu.addItem((item) =>
-          item
-            .setTitle(t("shared.contextMenu.addSelectionToNotebook"))
-            .setIcon("notebook")
-            .onClick(() => { void this.plugin.addFilesToNotebook(orderedSelected); })
-        );
-        menu.addSeparator();
-      }
-    } else if (file.extension === "md" && file.path.startsWith(`${this.plugin.getProjectFolder()?.path || "\0"}/`)) {
-      menu.addItem((item) =>
-        item
-          .setTitle(t("shared.contextMenu.addToNotebook"))
-          .setIcon("notebook")
-          .onClick(() => { void this.plugin.addFileToNotebook(file); })
-      );
-      menu.addSeparator();
-    }
-
-    if (isGroup) {
-      menu.addItem((item) => item.setTitle(t("shared.contextMenu.groupSelected", { count: String(groupFiles.length) })).setDisabled(true));
-      menu.addSeparator();
-    }
 
     menu.addItem((item) =>
       item
@@ -2448,7 +2707,38 @@ export abstract class BaseFeuilletsView extends ItemView {
           }).open();
         })
     );
+    if (isGroup) {
+      menu.addItem((item) => item.setTitle(t("shared.contextMenu.groupSelected", { count: String(groupFiles.length) })).setDisabled(true));
+    }
     menu.addSeparator();
+
+    /* Structure : Carnet et création. */
+    if (isGroup) {
+      const selectedPaths = [...groupSel];
+      const allAdmissible = selectedPaths.every((p) => {
+        const f = this.app.vault.getAbstractFileByPath(p);
+        return f instanceof TFile && this.plugin.isSceneFile(f);
+      });
+      if (allAdmissible) {
+        const root = this.plugin.getProjectFolder();
+        const orderedSelected = root
+          ? this.plugin.flattenFiles(root).filter((f) => groupSel.has(f.path))
+          : [];
+        menu.addItem((item) =>
+          item
+            .setTitle(t("shared.contextMenu.addSelectionToNotebook"))
+            .setIcon("notebook")
+            .onClick(() => { void this.plugin.addFilesToNotebook(orderedSelected); })
+        );
+      }
+    } else if (file.extension === "md" && file.path.startsWith(`${this.plugin.getProjectFolder()?.path || "\0"}/`)) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.contextMenu.addToNotebook"))
+          .setIcon("notebook")
+          .onClick(() => { void this.plugin.addFileToNotebook(file); })
+      );
+    }
 
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.newSheetMenu")).setIcon("file-plus").onClick((evt) =>
       showChoices(evt, e, (choices) => {
@@ -2457,9 +2747,10 @@ export abstract class BaseFeuilletsView extends ItemView {
       })
     ));
     menu.addSeparator();
-
     const currentStatus = (this.fm(file).status as string) || "";
-    const allStatuses = getProjectStatuses(this.app, this.plugin ? this.plugin.settings : null);
+    const allStatuses = ["", ...workspaceStatuses(this.app, this.plugin.settings, file.parent)
+      .map((status) => status.name?.trim() || "")
+      .filter(Boolean)];
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
     for (const st of allStatuses.filter(Boolean)) {
       choices.addItem((item) =>
@@ -2473,11 +2764,9 @@ export abstract class BaseFeuilletsView extends ItemView {
       );
     }
     })));
-    menu.addSeparator();
-
     const currentLabel = plugin.labelOf(file);
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const l of this.getProjectLabels()) {
+    for (const l of this.getProjectLabels(file.parent)) {
       choices.addItem((item) =>
         item
           .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
@@ -2489,8 +2778,6 @@ export abstract class BaseFeuilletsView extends ItemView {
       );
     }
     })));
-    menu.addSeparator();
-
     if (isGroup) {
       menu.addItem((item) =>
         item
@@ -2498,40 +2785,19 @@ export abstract class BaseFeuilletsView extends ItemView {
           .setIcon("tag")
           .onClick(() => this.promptBulkTag(groupFiles, () => { void this.render(); }))
       );
-      menu.addSeparator();
     }
 
     menu.addItem((item) => item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search").onClick((evt) =>
       showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, file, researchName))
     ));
-    menu.addItem((item) => item.setTitle("Versions…").setIcon("history").onClick((evt) => showChoices(evt, e, (choices) => {
-    choices.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.snapshot"))
-        .setIcon("camera")
-        .onClick(async () => {
-          const root = plugin.getProjectFolder();
-          if (!root) return;
-          const n = await plugin.snapshotFile(file, root);
-          new Notice(t("shared.contextMenu.snapshotCreated", { name: n }));
-        })
-    );
-    choices.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.compareWithSnapshot"))
-        .setIcon("history")
-        .onClick(async () => {
-          const root = plugin.getProjectFolder();
-          if (!root) return;
-          const snapshots = listSnapshotFiles(this.app, file, root);
-          if (snapshots.length === 0) {
-            new Notice(t("shared.contextMenu.noSnapshotFound", { name: file.basename }));
-            return;
-          }
-          await openSnapshotComparison(this.app, plugin, file, snapshots[0]);
-        })
-    );
-    })));
+    menu.addSeparator();
+    if (binderRename) {
+      menu.addItem((item) => item
+        .setTitle(t("shared.contextMenu.rename"))
+        .setIcon("pencil")
+        .onClick(() => this.promptRenameBinderFile(file))
+      );
+    }
     /* « Déplacer » : comportement unitaire historique (moveSceneFile).
        Le réordonnancement multi-feuillets se fait par glisser-déposer
        dans le Binder (sélectionner plusieurs feuillets, puis drag). */
@@ -2561,6 +2827,35 @@ export abstract class BaseFeuilletsView extends ItemView {
           new Notice(t("shared.duplicated", { name }));
         })
     );
+    menu.addItem((item) => item.setTitle("Versions…").setIcon("history").onClick((evt) => showChoices(evt, e, (choices) => {
+    choices.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.snapshot"))
+        .setIcon("camera")
+        .onClick(async () => {
+          const root = plugin.getProjectFolder();
+          if (!root) return;
+          const n = await plugin.snapshotFile(file, root);
+          new Notice(t("shared.contextMenu.snapshotCreated", { name: n }));
+        })
+    );
+    choices.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.compareWithSnapshot"))
+        .setIcon("history")
+        .onClick(async () => {
+          const root = plugin.getProjectFolder();
+          if (!root) return;
+          const snapshots = listSnapshotFiles(this.app, file, root);
+          if (snapshots.length === 0) {
+            new Notice(t("shared.contextMenu.noSnapshotFound", { name: file.basename }));
+            return;
+          }
+          await openSnapshotComparison(this.app, plugin, file, snapshots[0]);
+        })
+    );
+    })));
+    menu.addSeparator();
 
     // Compilation libre
     const compilationTitle = isGroup
@@ -2635,7 +2930,7 @@ export abstract class BaseFeuilletsView extends ItemView {
    * Binder — voir FeuilletsView.binderIsolateExtras) sans dupliquer tout ce
    * menu ni en créer un second. BoardView (l'autre appelant) ne le passe
    * jamais : son menu reste identique à avant. */
-  showFolderContextMenu(e: MouseEvent, folder: TFolder, _parent: ProjectNode, _index: number, _siblings: ProjectNode[], extraItems?: (menu: Menu) => void): void {
+  showFolderContextMenu(e: MouseEvent, folder: TFolder, _parent: ProjectNode, _index: number, _siblings: ProjectNode[], extraItems?: (menu: Menu) => void, binderRename = false): void {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -2654,15 +2949,72 @@ export abstract class BaseFeuilletsView extends ItemView {
     this.addFolderCarnetMenuItem(menu, folder);
     menu.addSeparator();
 
+    /* Structure : Carnet, note de dossier et création. */
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.contextMenu.openFolderNote"))
+        .setIcon("notebook-text")
+        .onClick(async () => {
+          const note = await plugin.getOrCreateFolderNote(folder);
+          openFileActivating(this.app, this.app.workspace.getLeaf(false), note);
+        })
+    );
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.newMenu")).setIcon("plus").onClick((evt) => showChoices(evt, e, (choices) => {
       choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetInside")).setIcon("file-plus").onClick(() => plugin.newSheet(folder)));
       choices.addItem((choice) => choice.setTitle(t("binder.newSubfolder")).setIcon("folder-plus").onClick(() => plugin.newFolder(folder)));
     })));
+    menu.addSeparator();
+
+    const note = plugin.folderNoteFor(folder);
+    const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
+    const allStatuses = ["", ...workspaceStatuses(this.app, plugin.settings, folder)
+      .map((status) => status.name?.trim() || "")
+      .filter(Boolean)];
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
+    for (const st of allStatuses.filter(Boolean)) {
+      choices.addItem((item) =>
+        item
+          .setTitle(t("shared.contextMenu.statusLabel", { status: st }))
+          .setChecked(st === currentStatus)
+          .onClick(async () => {
+            const targetNote = note || await plugin.getOrCreateFolderNote(folder);
+            if (targetNote) {
+              await this.setFm(targetNote, "status", st === currentStatus ? "" : st);
+            }
+          })
+      );
+    }
+    })));
+    const currentLabel = note ? plugin.labelOf(note) : "";
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
+    for (const l of this.getProjectLabels(folder)) {
+      choices.addItem((item) =>
+        item
+          .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
+          .setChecked(l.name === currentLabel)
+          .onClick(async () => {
+            const targetNote = note || await plugin.getOrCreateFolderNote(folder);
+            if (targetNote) {
+              await this.setFm(targetNote, "label", l.name === currentLabel ? "" : l.name);
+            }
+          })
+      );
+    }
+    })));
+    menu.addItem((item) => item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search").onClick((evt) =>
+      showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, folder, folder.name))
+    ));
+    menu.addSeparator();
+
     menu.addItem((item) =>
       item
         .setTitle(t("shared.contextMenu.renameFolder"))
         .setIcon("pencil")
         .onClick(async () => {
+          if (binderRename) {
+            this.promptRenameBinderFolder(folder);
+            return;
+          }
           const root = plugin.getProjectFolder();
           if (root && folder.path === root.path) {
             new Notice(t("shared.contextMenu.cannotRenameProjectRoot") || "Cannot rename the project root.");
@@ -2686,59 +3038,6 @@ export abstract class BaseFeuilletsView extends ItemView {
           }).open();
         })
     );
-    menu.addSeparator();
-
-    menu.addItem((item) =>
-      item
-        .setTitle(t("shared.contextMenu.openFolderNote"))
-        .setIcon("notebook-text")
-        .onClick(async () => {
-          const note = await plugin.getOrCreateFolderNote(folder);
-          openFileActivating(this.app, this.app.workspace.getLeaf(false), note);
-        })
-    );
-    menu.addSeparator();
-
-    menu.addItem((item) => item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search").onClick((evt) =>
-      showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, folder, folder.name))
-    ));
-    menu.addSeparator();
-
-    const note = plugin.folderNoteFor(folder);
-    const currentLabel = note ? plugin.labelOf(note) : "";
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const l of this.getProjectLabels()) {
-      choices.addItem((item) =>
-        item
-          .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
-          .setChecked(l.name === currentLabel)
-          .onClick(async () => {
-            const targetNote = note || await plugin.getOrCreateFolderNote(folder);
-            if (targetNote) {
-              await this.setFm(targetNote, "label", l.name === currentLabel ? "" : l.name);
-            }
-          })
-      );
-    }
-    })));
-    menu.addSeparator();
-    const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
-    const allStatuses = getProjectStatuses(this.app, plugin ? plugin.settings : null);
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const st of allStatuses.filter(Boolean)) {
-      choices.addItem((item) =>
-        item
-          .setTitle(t("shared.contextMenu.statusLabel", { status: st }))
-          .setChecked(st === currentStatus)
-          .onClick(async () => {
-            const targetNote = note || await plugin.getOrCreateFolderNote(folder);
-            if (targetNote) {
-              await this.setFm(targetNote, "status", st === currentStatus ? "" : st);
-            }
-          })
-      );
-    }
-    })));
     menu.addSeparator();
 
     menu.addItem((item) => item
@@ -2868,23 +3167,23 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   goalFor(file: TFile): number {
     const g = parseInt(String(this.fm(file).goal), 10);
-    return isNaN(g) ? projectWordGoalDefault(this.app, this.plugin.settings) : g;
+    return isNaN(g) ? workspaceWordGoalDefault(this.app, this.plugin.settings, file.parent) : g;
   }
 
-  ringState(wc: number, goal: number): "none" | "hit" | "over" | "under" {
-    const tol = projectTolerance(this.app, this.plugin.settings);
+  ringState(wc: number, goal: number, folder: TFolder | null = null): "none" | "hit" | "over" | "under" {
+    const tol = workspaceTolerance(this.app, this.plugin.settings, folder);
     if (goal <= 0) return "none";
     if (wc >= goal - tol && wc <= goal + tol) return "hit";
     if (wc > goal + tol) return "over";
     return "under";
   }
 
-  fillRing(ring: HTMLElement, wc: number, goal: number): void {
+  fillRing(ring: HTMLElement, wc: number, goal: number, folder: TFolder | null = null): void {
     const pct = goal > 0 ? Math.min(100, Math.round((wc / goal) * 100)) : 0;
     ring.style.setProperty("--pct", `${pct}%`);
     ring.removeClass("feuillets-ring-hit");
     ring.removeClass("feuillets-ring-over");
-    const state = this.ringState(wc, goal);
+    const state = this.ringState(wc, goal, folder);
     if (state === "hit" || state === "over")
       ring.addClass(`feuillets-ring-${state}`);
   }

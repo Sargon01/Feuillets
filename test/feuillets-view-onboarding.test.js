@@ -547,7 +547,7 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
     await realRender(true);
     assert.equal(settings.collapsed[front.path], true, "le chevron FRONT replie");
     assert.equal(openFolderCalls.length, 0, "le chevron n'ouvre jamais Continu");
-    assert.equal(view._binderWorkingRootPath, undefined, "le chevron n'isole jamais");
+    assert.equal(view.plugin.workspaceFolderPath, undefined, "le chevron n'isole jamais");
 
     findChevron("FRONT").events.get("click")({ preventDefault() {}, stopPropagation() {} });
     await realRender(true);
@@ -562,7 +562,7 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
     findFolderRow("FRONT").events.get("click")({});
     assert.equal(timers.pendingCount(), 1, "l'ouverture Continu est programmée, pas exécutée tout de suite");
     assert.equal(openFolderCalls.length, 0, "rien avant l'écoulement du délai");
-    assert.equal(view._binderWorkingRootPath, undefined, "un simple clic sur le nom n'isole jamais");
+    assert.equal(view.plugin.workspaceFolderPath, undefined, "un simple clic sur le nom n'isole jamais");
     assert.equal(renderCalls, 0, "programmer l'ouverture Continu ne redéclenche aucun rendu tout de suite");
     timers.flush();
     await Promise.resolve();
@@ -576,7 +576,7 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
     findFolderRow("TARIKAT").events.get("dblclick")({ preventDefault() {} });
     assert.equal(timers.pendingCount(), 0, "le dblclick annule l'ouverture Continu programmée par le premier clic avant qu'elle ne parte");
     await realRender(true);
-    assert.equal(view._binderWorkingRootPath, tarikat.path, "double-clic = isolateFolder, exactement comme « Isoler ce dossier »");
+    assert.equal(view.plugin.workspaceFolderPath, tarikat.path, "double-clic = isolateFolder, exactement comme « Isoler ce dossier »");
     assert.equal(currentHeaderText(), "TARIKAT");
     assert.deepEqual(openFolderCalls, [front.path], "le double-clic n'a PAS aussi ouvert Continu au passage");
     assert.equal(settings.collapsed[tarikat.path], undefined, "le double-clic n'a PAS aussi replié/déplié TARIKAT au passage");
@@ -585,7 +585,7 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
     assert.ok(findFolderRow("CHAPITRE 1"), "CHAPITRE 1, visible dans la branche isolée, a sa propre ligne");
     findFolderRow("CHAPITRE 1").events.get("dblclick")({ preventDefault() {} });
     await realRender(true);
-    assert.equal(view._binderWorkingRootPath, chapitre1.path, "isolation imbriquée : un sous-dossier déjà isolé peut être isolé à son tour");
+    assert.equal(view.plugin.workspaceFolderPath, chapitre1.path, "isolation imbriquée : un sous-dossier déjà isolé peut être isolé à son tour");
     assert.equal(currentHeaderText(), "CHAPITRE 1");
     assert.equal(settings.collapsed[chapitre1.path], undefined, "là non plus, le double-clic ne replie pas CHAPITRE 1 au passage");
   } finally {
@@ -599,7 +599,7 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
   const menus = [];
   Menu.prototype.showAtMouseEvent = function showAtMouseEvent() { menus.push(this); return this; };
   try {
-    view._binderWorkingRootPath = undefined;
+    view.plugin.workspaceFolderPath = undefined;
     await realRender(true);
     findFolderRow("TARIKAT").events.get("contextmenu")({ preventDefault() {} });
     assert.ok(menus.pop().items.some((item) => item.title === t("binder.isolateFolder")), "le menu contextuel du dossier reste inchangé");
@@ -693,7 +693,7 @@ test("Binder : profondeur par variable CSS — un feuillet aligne sa colonne sur
   // Vue ISOLÉE (FRONT devient la racine de travail) : la profondeur repart
   // de 0, exactement comme un nouvel arbre — même mécanisme d'isolation
   // déjà existant, aucune nouvelle préférence.
-  view._binderWorkingRootPath = front.path;
+  view.plugin.workspaceFolderPath = front.path;
   await view.render(true);
   assert.equal(folderDepth("Sous-dossier"), "0", "vue isolée : Sous-dossier redevient un dossier de premier niveau");
   assert.equal(itemDepth("Dédicace"), "0", "vue isolée : feuillet racine de la branche isolée, aligné sur Sous-dossier");
@@ -1000,10 +1000,10 @@ test("Binder : isoler un dossier limite l'affichage à sa branche, sans jamais t
     assert.equal(currentHeaderText(), "Projet actif", "icône manuscrit = retour direct au projet complet");
 
     // --- Racine de travail invalide (dossier supprimé/hors projet) : repli sûr. ---
-    view._binderWorkingRootPath = "Projet/Manuscrit/Fantome";
+    view.plugin.workspaceFolderPath = "Projet/Manuscrit/Fantome";
     await realRender(true);
     assert.equal(currentHeaderText(), "Projet actif", "chemin isolé introuvable => retour au projet");
-    assert.equal(view._binderWorkingRootPath, undefined, "l'isolation invalide est nettoyée");
+    assert.equal(view.plugin.workspaceFolderPath, undefined, "l'isolation invalide est nettoyée");
     assert.deepEqual(folderNames(), ["FRONT", "TARIKAT", "CHAPITRE 1", "CHAPITRE 2", "SUBHANALLAH"]);
   } finally {
     Menu.prototype.showAtMouseEvent = originalShowAtMouseEvent;
@@ -1104,7 +1104,7 @@ test("Binder : densité propre à une racine isolée, sans nouvelle clé persist
     for (const key of settingsKeysBefore) assert.ok(key in settings, `${key} toujours présent`);
 
     // --- Retour au projet complet : redonne immédiatement settings.binderCompact. ---
-    view._binderWorkingRootPath = undefined;
+    view.plugin.workspaceFolderPath = undefined;
     await realRender(true);
     assert.equal(isCompact(), true, "retour au projet : redonne settings.binderCompact (true), pas l'override de TARIKAT");
 
@@ -1117,7 +1117,7 @@ test("Binder : densité propre à une racine isolée, sans nouvelle clé persist
     assert.equal(isCompact(), true, "SUBHANALLAH n'a pas encore d'override : hérite de settings.binderCompact");
 
     // --- Réisoler TARIKAT dans la même session : son override (standard) est retrouvé. ---
-    view._binderWorkingRootPath = tarikat.path;
+    view.plugin.workspaceFolderPath = tarikat.path;
     await realRender(true);
     assert.equal(isCompact(), false, "TARIKAT retrouve son override précédent (standard), indépendamment de SUBHANALLAH");
   } finally {

@@ -1,13 +1,20 @@
 import { Menu, Modal, Setting, TAbstractFile, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
-import { VIEW_BOARD, getProjectStatuses, BOARD_MODES } from "../constants.js";
-import { projectPlanningField, projectWordGoalDefault, type ProjectPlanningField } from "../services/project-settings.js";
+import { VIEW_BOARD, BOARD_MODES } from "../constants.js";
+import type { ProjectPlanningField } from "../services/project-settings.js";
+import {
+  workspaceCardContent,
+  ensureExactFolderWorkspaceConfig,
+  workspaceHiddenBoardModes,
+  workspaceOutlineColumns,
+  workspacePlanningField,
+  workspaceWordGoalDefault,
+} from "../services/folder-workspaces.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
 import { parseStoryDate, stripMarkdown } from "../utils/core.js";
 import {
   PROJECT_MODES,
   resolveType,
-  resolveBoardCardContent,
   resolveBoardOutlineColumns,
 } from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
@@ -18,6 +25,8 @@ import { TagsModal } from "../ui/entity-modals.js";
 import { listSnapshotFiles, type NewSheetOptions } from "../services/project-files.js";
 import { t } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
+import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
+import { resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
 import { buildBoardTimelineOptionsMenu, renderBoardTimeline } from "./board-timeline.js";
 import { resolveBoardFolderScope } from "./board-scope.js";
 import { renderBoardOutline, type OutlineRenderContext } from "./board-outline.js";
@@ -158,6 +167,7 @@ type ModeOptionsCtx = {
   meta: ProjectMeta;
   wholeManuscript: boolean;
   planningField: ProjectPlanningField;
+  workspaceFolder: TFolder | null;
   timelineResearchFolders?: readonly TFolder[];
 };
 
@@ -209,7 +219,6 @@ export class BoardView extends BaseFeuilletsView {
     tooltip?: string,
     onClick?: (e: MouseEvent) => unknown
   ) => HTMLElement;
-  focusedFolderPath: string | null;
   currentCardContent?: string;
   private runtimePlanningField: ProjectPlanningField = "synopsis";
   /** Sous-vue de l'espace narratif (Trame/Couloirs) — état de SESSION
@@ -272,7 +281,6 @@ export class BoardView extends BaseFeuilletsView {
 
   constructor(leaf: import("obsidian").WorkspaceLeaf, plugin: BoardViewPlugin) {
     super(leaf, plugin);
-    this.focusedFolderPath = null;
   }
 
   getViewType(): string {
@@ -381,7 +389,7 @@ export class BoardView extends BaseFeuilletsView {
       const wc = this.wcMap.get(file.path);
       const goal = this.goalFor(file);
       if (wc !== undefined && goal > 0) {
-        const state = this.ringState(wc, goal);
+        const state = this.ringState(wc, goal, file.parent);
         if (progressFilter === "Atteint" && state !== "hit") return false;
         if (progressFilter === "En dessous" && state !== "under") return false;
         if (progressFilter === "Dépassé" && state !== "over") return false;
@@ -427,23 +435,26 @@ export class BoardView extends BaseFeuilletsView {
       return;
     }
 
-    let focusedFolder: TFolder | null = null;
-    if (this.focusedFolderPath) {
-      const folder = this.app.vault.getAbstractFileByPath(this.focusedFolderPath);
-      if (folder instanceof TFolder) focusedFolder = folder;
-    }
+    const focusedFolderCandidate =
+      typeof this.plugin.getWorkspaceFolder === "function"
+        ? this.plugin.getWorkspaceFolder()
+        : this.plugin.workspaceFolderPath
+          ? this.app.vault.getAbstractFileByPath(this.plugin.workspaceFolderPath)
+          : null;
+    const focusedFolder = focusedFolderCandidate instanceof TFolder ? focusedFolderCandidate : null;
     const scope = resolveBoardFolderScope(manuscriptRoot, focusedFolder);
-    if (this.focusedFolderPath && !scope.hasFocusedFolder) this.focusedFolderPath = null;
+    const workflowFolder = focusedFolder || manuscriptRoot;
+    const localWorkspaceActive = focusedFolder !== null;
 
     if (!S.projectMeta) S.projectMeta = {};
     if (!S.projectMeta[scope.manuscriptRoot.path]) S.projectMeta[scope.manuscriptRoot.path] = {};
     const meta = S.projectMeta[scope.manuscriptRoot.path];
     const projectType = resolveType(meta.type);
-    const planningField = projectPlanningField(this.app, S);
+    const planningField = workspacePlanningField(this.app, S, workflowFolder);
     this.runtimePlanningField = planningField;
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
     let mode: string = meta.boardMode || modeConfig.defaults.boardMode;
-    this.currentCardContent = resolveBoardCardContent(projectType, meta.cardContent, planningField);
+    this.currentCardContent = workspaceCardContent(this.app, S, workflowFolder, planningField);
 
     /* LOT 5C §2.1 — migration locale défensive : un ancien boardMode "lanes"
        persisté par un lot précédent n'existe plus comme mode (§2 impose 4
@@ -482,7 +493,12 @@ export class BoardView extends BaseFeuilletsView {
        effectif (grammaire finale du Plan) à partir de la priorité
        meta/legacy/defaults ci-dessus — meta.outlineCols garde la donnée
        brute non migrée. */
-    const effectiveOutlineColumns = resolveBoardOutlineColumns(projectType, outlineColumns, planningField);
+    const scopedHiddenModes = localWorkspaceActive
+      ? workspaceHiddenBoardModes(this.app, S, workflowFolder)
+      : hiddenModes;
+    const effectiveOutlineColumns = localWorkspaceActive
+      ? workspaceOutlineColumns(this.app, S, workflowFolder, planningField)
+      : resolveBoardOutlineColumns(projectType, outlineColumns, planningField);
     this.outlineColumns = effectiveOutlineColumns;
     if (initializedProjectPrefs && typeof this.plugin.saveSettings === "function") void this.plugin.saveSettings();
     const wholeManuscript = meta.boardWholeManuscript !== undefined ? !!meta.boardWholeManuscript : !!S.boardWholeManuscript;
@@ -494,14 +510,18 @@ export class BoardView extends BaseFeuilletsView {
        l'espace narratif (arcs). `visibleModes` dérive donc directement de
        BOARD_MODES et de hiddenBoardModes, sans aucun filtrage par type. */
     const allBoardModes = BOARD_MODES.map(([k]) => k);
-    let visibleModes = allBoardModes.filter((k) => !hiddenModes.includes(k));
+    let visibleModes = allBoardModes.filter((k) => !scopedHiddenModes.includes(k));
     if (visibleModes.length === 0) visibleModes = allBoardModes;
     if (!visibleModes.includes(mode)) {
-      mode = visibleModes[0];
+      const preferredModes = ["board", "outline"];
+      mode = preferredModes.find((candidate) => visibleModes.includes(candidate)) || visibleModes[0];
     }
     const activeMode = mode as BoardModeKey;
     const trameDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
     const timelineDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
+    const timelineResearchFolders = activeMode === "timeline"
+      ? this.resolveTimelineResearchFolders(wholeManuscript, scope.currentFolder, focusedFolder)
+      : [];
     if (activeMode !== "outline") {
       this._outlineViewport.key = "";
       this._outlineViewport.top = 0;
@@ -529,7 +549,10 @@ export class BoardView extends BaseFeuilletsView {
     this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
-      for (const st of ["Tous", ...getProjectStatuses(this.app, S).filter(Boolean), "Sans statut"]) {
+      const effectiveStatuses = workspaceStatuses(this.app, S, workflowFolder)
+        .map((status) => status.name?.trim() || "")
+        .filter(Boolean);
+      for (const st of ["Tous", ...effectiveStatuses, "Sans statut"]) {
         menu.addItem((item) =>
           item.setTitle(this.filterSentinelLabel(st)).setChecked((S.statusFilter || "Tous") === st).onClick(async () => {
             S.statusFilter = st;
@@ -551,8 +574,7 @@ export class BoardView extends BaseFeuilletsView {
         };
         collect(projectRoot);
       }
-      const pMeta = projectRoot ? S.projectMeta[projectRoot.path] : null;
-      (pMeta && pMeta.labels ? pMeta.labels : S.labels || []).forEach((l) => { if (l.name) labels.add(l.name); });
+      workspaceLabels(this.app, S, workflowFolder).forEach((l) => { if (l.name) labels.add(l.name); });
       const sortedLabels = Array.from(labels).sort((a, b) => a.localeCompare(b, "fr"));
       menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
       for (const lb of ["Tous", ...sortedLabels, "Sans label"]) {
@@ -651,12 +673,17 @@ export class BoardView extends BaseFeuilletsView {
       for (const k of allBoardModes) {
         menu.addItem((item) =>
           item.setTitle(this.boardModeLabel(k)).setChecked(visibleModes.includes(k)).onClick(async () => {
-            const set = new Set(hiddenModes);
+            const set = new Set(scopedHiddenModes);
             if (!set.has(k) && visibleModes.length === 1) return;
             if (set.has(k)) set.delete(k); else set.add(k);
             const arr = [...set];
-            if (meta) meta.hiddenBoardModes = arr;
-            S.hiddenBoardModes = arr;
+            if (localWorkspaceActive && focusedFolder) {
+              const config = ensureExactFolderWorkspaceConfig(this.app, S, focusedFolder);
+              if (config) config.hiddenBoardModes = [...arr];
+            } else {
+              meta.hiddenBoardModes = arr;
+              S.hiddenBoardModes = arr;
+            }
             await this.plugin.saveSettings();
             void this.render(true);
           })
@@ -671,21 +698,13 @@ export class BoardView extends BaseFeuilletsView {
         })
       );
       menu.addSeparator();
-      let timelineResearchFolders: readonly TFolder[] = [];
-      if (activeMode === "timeline") {
-        if (wholeManuscript) {
-          const chronologyFolder = this.plugin.getChronoFolder();
-          timelineResearchFolders = chronologyFolder ? [chronologyFolder] : [];
-        } else if (typeof this.plugin.getLinkedResearchFolder === "function") {
-          timelineResearchFolders = this.collectLinkedResearchFolders(scope.currentFolder);
-        }
-      }
       this.buildModeOptionsMenu(menu, activeMode, {
         S,
         meta,
         wholeManuscript,
         outlineColumns: effectiveOutlineColumns,
         planningField,
+        workspaceFolder: localWorkspaceActive ? focusedFolder : null,
         timelineResearchFolders,
       });
       menu.showAtMouseEvent(e);
@@ -774,7 +793,9 @@ export class BoardView extends BaseFeuilletsView {
           );
           menu.addSeparator();
 
-          for (const st of getProjectStatuses(this.app, this.plugin.settings).filter(Boolean)) {
+          for (const st of workspaceStatuses(this.app, this.plugin.settings, workflowFolder)
+            .map((status) => status.name?.trim() || "")
+            .filter(Boolean)) {
             menu.addItem((item) =>
               item.setTitle(t("board.selection.statusCount", { status: st, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
@@ -785,7 +806,7 @@ export class BoardView extends BaseFeuilletsView {
           }
           menu.addSeparator();
 
-          for (const l of this.getProjectLabels()) {
+          for (const l of this.getProjectLabels(workflowFolder)) {
             menu.addItem((item) =>
               item.setTitle(t("board.selection.labelCount", { label: l.name, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
@@ -920,20 +941,12 @@ export class BoardView extends BaseFeuilletsView {
         if (this.passesFilter(file)) bumpTotal(this.wcMap.get(file.path) || 0);
       }
       if (!wholeManuscript) this.renderBreadcrumbs(scrollArea, scope.manuscriptRoot, scope.currentFolder);
-      const timelineResearchFolders = wholeManuscript
-        ? (() => {
-          const chronologyFolder = this.plugin.getChronoFolder();
-          return chronologyFolder ? [chronologyFolder] : [];
-        })()
-        : typeof this.plugin.getLinkedResearchFolder === "function"
-          ? this.collectLinkedResearchFolders(scope.currentFolder)
-          : [];
       await this.renderTimeline(scrollArea, timelineDisplayFolder, numbering, timelineResearchFolders);
     }
   }
 
   buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx & { outlineColumns: Record<string, boolean> }): void {
-    const { S, meta, wholeManuscript, planningField, outlineColumns } = ctx;
+    const { S, meta, wholeManuscript, planningField, outlineColumns, workspaceFolder } = ctx;
 
     const addScopeOptions = (): void => {
       for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]] as [boolean, string][]) {
@@ -967,8 +980,13 @@ export class BoardView extends BaseFeuilletsView {
       for (const [val, label] of contentOptions) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(this.currentCardContent === val).onClick(async () => {
-            if (meta) meta.cardContent = val;
-            S.cardContent = val;
+            if (workspaceFolder) {
+              const config = ensureExactFolderWorkspaceConfig(this.app, S, workspaceFolder);
+              if (config) config.cardContent = val;
+            } else {
+              meta.cardContent = val;
+              S.cardContent = val;
+            }
             await this.plugin.saveSettings();
             void this.render();
           })
@@ -1025,9 +1043,14 @@ export class BoardView extends BaseFeuilletsView {
       for (const [colKey, label] of outlineColumnDefs) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(!!outlineColumns[colKey]).onClick(async () => {
-            outlineColumns[colKey] = !outlineColumns[colKey];
-            meta.outlineCols = outlineColumns;
-            S.outlineCols = { ...outlineColumns };
+            const nextOutlineColumns = { ...outlineColumns, [colKey]: !outlineColumns[colKey] };
+            if (workspaceFolder) {
+              const config = ensureExactFolderWorkspaceConfig(this.app, S, workspaceFolder);
+              if (config) config.outlineCols = nextOutlineColumns;
+            } else {
+              meta.outlineCols = nextOutlineColumns;
+              S.outlineCols = { ...nextOutlineColumns };
+            }
             await this.plugin.saveSettings();
             void this.render();
           })
@@ -1080,6 +1103,52 @@ export class BoardView extends BaseFeuilletsView {
     }
   }
 
+  private resolveTimelineResearchFolders(
+    wholeManuscript: boolean,
+    currentFolder: TFolder,
+    workspaceFolder: TFolder | null,
+  ): TFolder[] {
+    if (wholeManuscript) {
+      const chronologyFolder = this.plugin.getChronoFolder();
+      return chronologyFolder ? [chronologyFolder] : [];
+    }
+
+    if (!workspaceFolder) {
+      return typeof this.plugin.getLinkedResearchFolder === "function"
+        ? this.collectLinkedResearchFolders(currentFolder)
+        : [];
+    }
+
+    const folders: TFolder[] = [];
+    const seen = new Set<string>();
+    const append = (folder: TFolder | null): void => {
+      if (!folder || seen.has(folder.path)) return;
+      if (folders.some((existing) => folder.path.startsWith(`${existing.path}/`))) return;
+      seen.add(folder.path);
+      folders.push(folder);
+    };
+
+    append(this.plugin.getChronoFolder());
+    const workspaceResearch = resolveWorkspaceResearchFolder(this.app, this.plugin.settings, workspaceFolder);
+    if (workspaceResearch.sourceKind === "exact" || workspaceResearch.sourceKind === "ancestor") {
+      append(workspaceResearch.folder);
+    }
+
+    if (typeof this.plugin.getLinkedResearchFolder !== "function") return folders;
+
+    const collectFileLinks = (folder: TFolder): void => {
+      for (const child of this.plugin.getOrderedChildren(folder)) {
+        if (child instanceof TFile) {
+          append(this.plugin.getLinkedResearchFolder(child));
+        } else if (child instanceof TFolder) {
+          collectFileLinks(child);
+        }
+      }
+    };
+    collectFileLinks(workspaceFolder);
+    return folders;
+  }
+
   collectLinkedResearchFolders(currentFolder: TFolder): TFolder[] {
     const folders: TFolder[] = [];
     const seen = new Set<string>();
@@ -1102,7 +1171,7 @@ export class BoardView extends BaseFeuilletsView {
     const input = parent.createEl("input", {
       cls: "feuillets-goal-input",
       type: "number",
-      attr: { min: "0", placeholder: String(projectWordGoalDefault(this.app, this.plugin.settings)) },
+      attr: { min: "0", placeholder: String(workspaceWordGoalDefault(this.app, this.plugin.settings, file.parent)) },
     });
     if (fm.goal !== undefined) input.value = toValue(fm.goal);
     input.addEventListener("change", () => {
@@ -1170,20 +1239,29 @@ export class BoardView extends BaseFeuilletsView {
       breadcrumbs
         .createSpan({ cls: "feuillets-breadcrumb-link" + (isLast ? " is-active" : ""), text: f.path === root.path ? t("board.projectBreadcrumb") : f.name })
         .addEventListener("click", () => {
-          this.focusedFolderPath = f.path;
-          void this.render(true);
+          if (f.path === root.path) {
+            if (typeof this.plugin.clearWorkspaceFolder === "function") this.plugin.clearWorkspaceFolder();
+            else this.plugin.workspaceFolderPath = undefined;
+          } else if (typeof this.plugin.setWorkspaceFolder === "function") {
+            this.plugin.setWorkspaceFolder(f);
+          } else {
+            this.plugin.workspaceFolderPath = f.path;
+          }
         });
     });
   }
 
   private async focusBoardFolder(folder: TFolder): Promise<void> {
-    this.focusedFolderPath = folder.path;
+    if (typeof this.plugin.setWorkspaceFolder === "function") this.plugin.setWorkspaceFolder(folder);
+    else {
+      this.plugin.workspaceFolderPath = folder.path;
+      void this.render(true);
+    }
     const projectRoot = this.getProjectFolder();
     const projectMeta = projectRoot ? this.plugin.settings.projectMeta?.[projectRoot.path] : undefined;
     if (projectMeta) projectMeta.boardWholeManuscript = false;
     this.plugin.settings.boardWholeManuscript = false;
     await this.plugin.saveSettings();
-    void this.render(true);
   }
 
   renderBoard(container: HTMLElement, root: TFolder, currentFolder: TFolder, numbering: Map<string, string>, bumpTotal: (n?: number) => void): void {
@@ -1385,13 +1463,12 @@ export class BoardView extends BaseFeuilletsView {
       this.showFolderContextMenu(e, folder, parentFolder, index, siblings);
     });
     card.addEventListener("dblclick", () => {
-      this.focusedFolderPath = folder.path;
-      void this.render(true);
+      void this.focusBoardFolder(folder);
     });
 
     const folderNote = this.plugin.folderNoteFor(folder);
     const label = folderNote ? this.plugin.labelOf(folderNote) : null;
-    const color = label ? this.plugin.labelColor(label) : null;
+    const color = label ? this.plugin.labelColor(label, folder) : null;
     if (color) card.style.borderTop = `3px solid ${color}`;
 
     const head = card.createDiv({ cls: "feuillets-card-head" });
@@ -1409,8 +1486,7 @@ export class BoardView extends BaseFeuilletsView {
     num.setAttr("title", t("board.folderCard.clickToEnter"));
     num.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.focusedFolderPath = folder.path;
-      void this.render(true);
+      void this.focusBoardFolder(folder);
     });
 
     /* §15 : plus de nombre de mots, d'objectif affiché ni d'anneau de
@@ -1435,7 +1511,7 @@ export class BoardView extends BaseFeuilletsView {
     });
 
     const label = this.plugin.labelOf(file);
-    const color = label ? this.plugin.labelColor(label) : null;
+    const color = label ? this.plugin.labelColor(label, file.parent) : null;
     /* Liseré latéral plutôt que bande supérieure : sur la grille de
        fiches, une barre pleine largeur en haut de chaque carte dominait
        visuellement toute la grille (effet "tableau kanban coloré") avant
@@ -1499,7 +1575,9 @@ export class BoardView extends BaseFeuilletsView {
       const menu = new Menu();
       const currentSt = toValue(this.fm(file).status);
       const S = this.plugin.settings;
-      for (const st of getProjectStatuses(this.app, S).filter(Boolean)) {
+      for (const st of workspaceStatuses(this.app, S, file.parent)
+        .map((status) => status.name?.trim() || "")
+        .filter(Boolean)) {
         menu.addItem((item) =>
           item.setTitle(t("shared.contextMenu.statusLabel", { status: st })).setChecked(st === currentSt).onClick(async () => {
             await this.setFm(file, "status", st === currentSt ? "" : st);
@@ -1781,7 +1859,7 @@ export class BoardView extends BaseFeuilletsView {
         const col = rails.createDiv({ cls: "feuillets-arcs-col" });
         setTooltip(col, lb);
         col.setAttr("title", lb);
-        const color = this.plugin.labelColor(lb) || "";
+        const color = this.plugin.labelColor(lb, file.parent) || "";
         col.style.setProperty("--arc-color", color);
         const hasLabel = currentLabels.includes(lb);
         if (labelFirst[lb] !== -1 && idx >= labelFirst[lb] && idx <= labelLast[lb]) {
@@ -1800,7 +1878,7 @@ export class BoardView extends BaseFeuilletsView {
       if (numbering) titleRow.createSpan({ cls: "feuillets-row-num", text: numbering.get(file.path) || "" });
       if (fm.status) {
         const dot = titleRow.createSpan({ cls: "feuillets-status-dot" });
-        dot.style.background = this.plugin.getStatusColor(toValue(fm.status)) || "var(--text-faint)";
+        dot.style.background = this.plugin.getStatusColor(toValue(fm.status), file.parent) || "var(--text-faint)";
       }
       const fileTitle = titleRow.createDiv({ cls: "feuillets-arcs-file-title", text: this.plugin.shortTitleFor(file) });
       fileTitle.addClass("feuillets-clickable");
@@ -2068,7 +2146,9 @@ export class BoardView extends BaseFeuilletsView {
      couleur neutre native. */
   private laneLineColor(value: string): string | null {
     if (!value) return null;
-    if (this.laneAxis === "label") return this.plugin.labelColor(value);
+    if (this.laneAxis === "label") {
+      return this.plugin.labelColor(value);
+    }
     if (this.laneAxis === "character") return characterLaneColor(value);
     if (this.laneAxis === "thread") return filColor(value);
     return povLaneColor(value);
@@ -2165,7 +2245,7 @@ export class BoardView extends BaseFeuilletsView {
        renvoyer une valeur fausse (label sans couleur configurée) → aucun
        liseré artificiel, bordure neutre conservée. */
     const labelName = this.plugin.labelOf(file);
-    const labelColor = labelName ? this.plugin.labelColor(labelName) : null;
+    const labelColor = labelName ? this.plugin.labelColor(labelName, file.parent) : null;
     if (labelColor) card.style.borderLeft = `3px solid ${labelColor}`;
 
     /* Ordre imposé : 1. numéro + titre sur la même ligne (numéro avant le
@@ -2387,7 +2467,7 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   /** Valeur de tri Objectif : le goal EXPLICITE du feuillet, jamais le défaut
-   * projet (projectWordGoalDefault). Absent, vide ou non numérique → vide,
+   * workspace (workspaceWordGoalDefault). Absent, vide ou non numérique → vide,
    * donc TOUJOURS trié en dernier, dans les deux directions. 0 explicitement
    * défini est une vraie valeur numérique (>= 0, jamais « vide »). */
   private outlineGoalSortValue(file: TFile): string | number {
@@ -2693,7 +2773,7 @@ export class BoardView extends BaseFeuilletsView {
       goal: (cell) => this.makeGoalInput(cell, file),
       progress: (cell) => {
         const ring = cell.createDiv({ cls: "feuillets-ring" });
-        this.fillRing(ring, wc, this.goalFor(file));
+        this.fillRing(ring, wc, this.goalFor(file), file.parent);
       }
     });
   }

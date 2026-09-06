@@ -3,7 +3,7 @@ import { Modal, type App, type TFile, type TFolder } from "obsidian";
 import { countWords } from "../utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "../utils/text-metrics.js";
 import { t } from "../i18n/index.js";
-import { projectWordGoalDefault, projectTolerance, projectTotalWordGoal, projectDeadline } from "../services/project-settings.js";
+import { workspaceDeadline, workspaceTolerance, workspaceTotalWordGoal, workspaceWordGoalDefault } from "../services/folder-workspaces.js";
 
 type StatsSettings = FeuilletsSettings & {
   /* Absent de DEFAULT_SETTINGS (voir default-settings.ts) : réglable via
@@ -28,6 +28,7 @@ type StatsPlugin = {
   titleFor(file: TFile): string;
   fmOf(file: TFile): SceneFrontmatter;
   getProjectFolder(): TFolder | null;
+  getWorkspaceFolder(): TFolder | null;
   flattenFiles(folder: TFolder): TFile[];
   getWordCounts(files: TFile[]): Promise<Map<string, WordCount>>;
 };
@@ -38,7 +39,7 @@ type StatsBlock = {
 };
 
 /** Statistiques complètes — ouvertes d'un clic sur la barre d'état : le
- * détail du feuillet actif, puis les stats globales du projet entier.
+ * détail du feuillet actif, puis les stats globales du workspace courant.
  * Ni l'un ni l'autre n'a de section dédiée dans un panneau : à la demande
  * plutôt que d'alourdir en permanence Journal ou Projet & export. */
 export class FileStatsModal extends Modal {
@@ -62,6 +63,7 @@ export class FileStatsModal extends Modal {
     charsNoSpaces: number,
     sentences: number,
     paragraphs: number,
+    folder: TFolder | null = null,
   ): StatsBlock {
     const wcCard = container.createDiv({ cls: "feuillets-wc-card" });
     const wcHeader = wcCard.createDiv({ cls: "feuillets-wc-header" });
@@ -76,7 +78,7 @@ export class FileStatsModal extends Modal {
       fill.style.width = `${pct}%`;
       wcLabel.setText(`${label} (${pct}%)`);
 
-      const tol = projectTolerance(this.app, this.plugin.settings);
+      const tol = workspaceTolerance(this.app, this.plugin.settings, folder);
       if (wc >= goal - tol && wc <= goal + tol) fill.addClass("feuillets-status-hit");
       else if (wc > goal + tol) fill.addClass("feuillets-status-over");
     }
@@ -111,7 +113,7 @@ export class FileStatsModal extends Modal {
     const rawText = await app.vault.cachedRead(file);
     const wc = countWords(rawText);
     const g = parseInt(String(plugin.fmOf(file).goal), 10);
-    const goal = isNaN(g) ? projectWordGoalDefault(app, plugin.settings) : g;
+    const goal = isNaN(g) ? workspaceWordGoalDefault(app, plugin.settings, file.parent) : g;
 
     const cleanText = stripWritingNoise(rawText);
     const chars = cleanText.length;
@@ -119,14 +121,16 @@ export class FileStatsModal extends Modal {
     const sentences = countSentences(cleanText);
     const paragraphs = countParagraphs(cleanText);
 
-    this.renderStatsBlock(contentEl, t("analysis.metrics.words"), wc, goal, chars, charsNoSpaces, sentences, paragraphs);
+    this.renderStatsBlock(contentEl, t("analysis.metrics.words"), wc, goal, chars, charsNoSpaces, sentences, paragraphs, file.parent);
 
-    // ------------------------------- Projet entier ---------------------------
+    // ------------------------------- Espace de travail -----------------------
     const root = plugin.getProjectFolder();
-    if (root) {
-      contentEl.createEl("h3", { text: t("modal.stats.wholeProject"), cls: "feuillets-stats-modal-section" });
+    const workspace = plugin.getWorkspaceFolder();
+    const scope = workspace || root;
+    if (scope) {
+      contentEl.createEl("h3", { text: workspace ? t("modal.stats.workspace", { name: workspace.name }) : t("modal.stats.wholeProject"), cls: "feuillets-stats-modal-section" });
 
-      const files = plugin.flattenFiles(root);
+      const files = plugin.flattenFiles(scope);
       const counts = await plugin.getWordCounts(files);
       let pChars = 0, pCharsNoSpaces = 0, pWords = 0, pSentences = 0, pParagraphs = 0;
       for (const f of files) {
@@ -139,13 +143,14 @@ export class FileStatsModal extends Modal {
         pParagraphs += c.paragraphs || 0;
       }
 
-      const totalGoal = projectTotalWordGoal(app, plugin.settings);
+      const totalGoal = workspaceTotalWordGoal(app, plugin.settings, scope);
       const { addRow } = this.renderStatsBlock(
         contentEl, t("analysis.metrics.words"), pWords, totalGoal,
         pChars, pCharsNoSpaces, pSentences, pParagraphs
+        , scope
       );
 
-      const deadline = projectDeadline(app, plugin.settings);
+      const deadline = workspaceDeadline(app, plugin.settings, scope);
       if (deadline) {
         const targetDate = new Date(deadline);
         if (!isNaN(targetDate.getTime())) {

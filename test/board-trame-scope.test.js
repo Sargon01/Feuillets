@@ -104,7 +104,7 @@ test("Trame — le double-clic du titre d'un dossier focalise le vrai TFolder", 
   view.renderCheminDeFer(container, root, new Map());
   const title = all(container, (element) => element.classes.has("feuillets-arcs-folder-title"))[0];
   await title.trigger("dblclick");
-  assert.equal(view.focusedFolderPath, partB.path);
+  assert.equal(plugin.workspaceFolderPath, partB.path);
   assert.equal(plugin.settings.boardWholeManuscript, false);
   assert.equal(plugin.settings.projectMeta[root.path].boardWholeManuscript, false);
   assert.equal(renders, 1);

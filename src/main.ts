@@ -15,8 +15,8 @@
 import { DEFAULT_SETTINGS } from "./default-settings.js";
 import type { CompileScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
-import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, getStatusColor, HIDEABLE_PANELS } from "./constants.js";
-import { migrateLegacyProjectTypes, projectWordGoalDefault, projectTolerance } from "./services/project-settings.js";
+import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
+import { migrateLegacyProjectTypes } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
@@ -47,7 +47,8 @@ import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
-import { bibliographyEntries, generateBibliography, resolveBibliographySource } from "./services/bibliography-generator.js";
+import { bibliographyEntries, generateBibliography, resolveBibliographySource, resolveBibliographySourceInResearchRoot } from "./services/bibliography-generator.js";
+import { resolveWorkspaceResearchContext } from "./services/workspace-research-context.js";
 import { getResearchTemplate } from "./services/research-templates.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
@@ -56,10 +57,11 @@ import { SidebarFeuilletsView, type EditionPage } from "./views/sidebar-feuillet
 import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
-import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, labelColor, folderGoal } from "./services/frontmatter.js";
+import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
+import { workspaceIndentParagraphs, workspaceLabelColor, workspaceLineHeight, workspaceLiveEmptyLines, workspaceLiveHyphenation, workspaceLiveJustify, workspaceReadingFontSize, workspaceStatusColor, workspaceTextWidth, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
 import { chronologyFolderPath, getChronoFolder, getResearchRoot, researchFolderPath, migrateLegacyResearchEntries, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
 import { parseChronologyImport } from "./services/chronology-import.js";
 import { buildNumbering } from "./services/numbering.js";
@@ -151,6 +153,7 @@ import {
 import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename } from "./services/work-notes.js";
 import { remapLayoutAfterRename, removeLayoutAfterDelete, LayoutFileCorruptedError } from "./services/layout-store.js";
 import { createSourceAnchor } from "./services/source-anchor.js";
+import { addCitationOccurrence, remapCitationRegistryAfterRename } from "./services/citation-registry.js";
 import { applyDocumentLayoutChanges, documentLayoutValuesForTarget, type DocumentLayoutTarget } from "./services/document-layout-actions.js";
 import { pageBreakAnchorsForFile } from "./services/document-layout-actions.js";
 import { documentLayoutPageBreakPlugin, setDocumentLayoutPageBreakAnchors } from "./utils/cm-document-layout.js";
@@ -462,6 +465,10 @@ class FeuilletsPlugin extends Plugin {
    * Volontairement absente de settings/data.json : perdue au redémarrage,
    * ce qui est normal — voir export-workflow.ts. */
   activeExportScope: CompileScope | null = null;
+
+  /** Scope de travail partagé entre le Binder et le Board, limité à la
+   * session courante et jamais persisté dans les réglages. */
+  workspaceFolderPath?: string;
 
   moveStack?: MoveHistoryEntry[];
   _ribbonDefs?: Array<{ key: string; icon: string; labelKey: string; action: () => void; hideable?: boolean }>;
@@ -1537,6 +1544,9 @@ class FeuilletsPlugin extends Plugin {
         if (remapped.changed) void this.saveSettings();
         void remapAnnotationsAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         void remapWorkNotesAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
+        void remapCitationRegistryAfterRename(this.app, this.settings, oldPath, file.path).catch((error: unknown) => {
+          console.error("Feuillets citation registry rename maintenance", oldPath, file.path, error);
+        });
         for (const settings of knownProjectContexts()) {
           void remapLayoutAfterRename(this.app, settings, oldPath, file.path).catch((error: unknown) => {
             if (error instanceof LayoutFileCorruptedError) console.warn("Feuillets layout.json rename maintenance", oldPath, file.path, error);
@@ -2642,9 +2652,9 @@ class FeuilletsPlugin extends Plugin {
     const wc = countWords(body);
     const fm = this.fmOf(file);
     const g = parseInt(String(fm.goal), 10);
-    const goal = isNaN(g) ? projectWordGoalDefault(this.app, this.settings) : g;
+    const goal = isNaN(g) ? workspaceWordGoalDefault(this.app, this.settings, file.parent) : g;
     this._concCounterEl.setText(goal > 0 ? `${wc} / ${goal}` : String(wc));
-    const tol = projectTolerance(this.app, this.settings);
+    const tol = workspaceTolerance(this.app, this.settings, file.parent);
     this._concCounterEl.removeClass("feuillets-status-hit");
     this._concCounterEl.removeClass("feuillets-status-over");
     if (goal > 0) {
@@ -3045,29 +3055,37 @@ class FeuilletsPlugin extends Plugin {
   applyLiveTypoClasses(): void {
     const S = this.settings;
     const inProject = this.isActiveFileInProject();
-    document.body.toggleClass("feuillets-lignesvides-invisible", inProject && S.liveEmptyLines === "invisible");
-    document.body.toggleClass("feuillets-lignesvides-reduit", inProject && S.liveEmptyLines === "reduit");
-    document.body.toggleClass("feuillets-cesure", inProject && S.liveHyphenation);
-    document.body.toggleClass("feuillets-justify-live", inProject && !!S.liveJustify);
+    const activeFile = this.app.workspace.getActiveFile();
+    const inContinu = !!this.getCentralContinuView();
+    const folder = inContinu
+      ? this.getWorkspaceFolder() || this.getProjectFolder()
+      : activeFile?.parent || this.getWorkspaceFolder() || this.getProjectFolder();
+    const liveEmptyLines = workspaceLiveEmptyLines(this.app, S, folder);
+    const liveHyphenation = workspaceLiveHyphenation(this.app, S, folder);
+    const liveJustify = workspaceLiveJustify(this.app, S, folder);
+    document.body.toggleClass("feuillets-lignesvides-invisible", inProject && liveEmptyLines === "invisible");
+    document.body.toggleClass("feuillets-lignesvides-reduit", inProject && liveEmptyLines === "reduit");
+    document.body.toggleClass("feuillets-cesure", inProject && liveHyphenation);
+    document.body.toggleClass("feuillets-justify-live", inProject && liveJustify);
     document.body.toggleClass("feuillets-lecture-comme-live", inProject && S.readingMatchLive !== false);
-    if (inProject && S.liveHyphenation && !document.body.getAttr("lang")) {
+    if (inProject && liveHyphenation && !document.body.getAttr("lang")) {
       document.body.setAttr("lang", "fr");
     }
-    const rfs = inProject ? S.readingFontSize : 0;
+    const rfs = inProject ? workspaceReadingFontSize(this.app, S, folder) : 0;
     document.body.toggleClass("feuillets-reading-fs", rfs > 0);
     if (rfs > 0) {
       document.body.style.setProperty("--feuillets-reading-fs", `${rfs}px`);
     } else {
       document.body.style.removeProperty("--feuillets-reading-fs");
     }
-    const lh = inProject ? S.lineHeight : 0;
+    const lh = inProject ? workspaceLineHeight(this.app, S, folder) : 0;
     document.body.toggleClass("feuillets-line-height", lh > 0);
     if (lh > 0) {
       document.body.style.setProperty("--feuillets-line-height", `${lh}`);
     } else {
       document.body.style.removeProperty("--feuillets-line-height");
     }
-    const tw = inProject ? S.textWidth : 0;
+    const tw = inProject ? workspaceTextWidth(this.app, S, folder) : 0;
     document.body.toggleClass("feuillets-text-width", tw > 0);
     if (tw > 0) {
       document.body.style.setProperty("--feuillets-text-width", `${tw}px`);
@@ -3077,7 +3095,11 @@ class FeuilletsPlugin extends Plugin {
   }
 
   applyIndentClass() {
-    document.body.toggleClass("feuillets-indent", !!(this.isActiveFileInProject() && this.settings.indentParagraphs));
+    const file = this.app.workspace.getActiveFile();
+    const folder = this.getCentralContinuView()
+      ? this.getWorkspaceFolder() || this.getProjectFolder()
+      : file?.parent || this.getWorkspaceFolder() || this.getProjectFolder();
+    document.body.toggleClass("feuillets-indent", !!(this.isActiveFileInProject() && workspaceIndentParagraphs(this.app, this.settings, folder)));
   }
 
   applyLeanInterfaceClasses() {
@@ -3169,7 +3191,7 @@ class FeuilletsPlugin extends Plugin {
     const wc = countWords(content);
     const chars = stripWritingNoise(content).length;
     const g = parseInt(String(this.fmOf(file).goal), 10);
-    const goal = isNaN(g) ? projectWordGoalDefault(this.app, this.settings) : g;
+    const goal = isNaN(g) ? workspaceWordGoalDefault(this.app, this.settings, file.parent) : g;
     let txt = goal > 0 ? t("main.statusBar.wordsWithGoal", { wc: String(wc), goal: String(goal) }) : t("main.statusBar.words", { wc: String(wc) });
     txt += ` · ${t("main.statusBar.chars", { count: formatNumber(chars) })}`;
     const key = todayKey();
@@ -3182,7 +3204,7 @@ class FeuilletsPlugin extends Plugin {
     this.statusEl.setText(txt);
     this.statusEl.removeClass("feuillets-status-hit");
     this.statusEl.removeClass("feuillets-status-over");
-    const tol = projectTolerance(this.app, this.settings);
+    const tol = workspaceTolerance(this.app, this.settings, file.parent);
     if (goal > 0) {
       if (wc >= goal - tol && wc <= goal + tol) this.statusEl.addClass("feuillets-status-hit");
       else if (wc > goal + tol) this.statusEl.addClass("feuillets-status-over");
@@ -3446,6 +3468,34 @@ class FeuilletsPlugin extends Plugin {
   getProjectFolder() { return getProjectFolder(this.app, this.settings); }
   projectMode() { return getProjectMode(this.app, this.settings); }
 
+  getWorkspaceFolder(): TFolder | null {
+    const projectRoot = this.getProjectFolder();
+    if (!projectRoot || !this.workspaceFolderPath) return null;
+    const folder = this.app.vault.getAbstractFileByPath(this.workspaceFolderPath);
+    const inProject =
+      folder instanceof TFolder &&
+      (folder.path === projectRoot.path || folder.path.startsWith(`${projectRoot.path}/`));
+    if (!inProject) {
+      this.workspaceFolderPath = undefined;
+      return null;
+    }
+    return folder;
+  }
+
+  setWorkspaceFolder(folder: TFolder): void {
+    const projectRoot = this.getProjectFolder();
+    const inProject =
+      projectRoot &&
+      (folder.path === projectRoot.path || folder.path.startsWith(`${projectRoot.path}/`));
+    this.workspaceFolderPath = inProject ? folder.path : undefined;
+    this.renderAllViews(true);
+  }
+
+  clearWorkspaceFolder(): void {
+    this.workspaceFolderPath = undefined;
+    this.renderAllViews(true);
+  }
+
   /**
    * Change de projet actif — UNIQUE point de passage, utilisé par la commande
    * `switch-project`, par le gestionnaire de projets du Binder et par le
@@ -3465,6 +3515,7 @@ class FeuilletsPlugin extends Plugin {
     if (!(target instanceof TFolder)) return false;
     if (path === S.projectFolder) return true;
     if (S.projectFolder && !S.projects.includes(S.projectFolder)) S.projects.push(S.projectFolder);
+    this.workspaceFolderPath = undefined;
     S.projectFolder = path;
     await this.saveSettings();
     this.renderAllViews(true);
@@ -3551,8 +3602,20 @@ class FeuilletsPlugin extends Plugin {
    * sinon repli Bibliographie/Bibliography legacy, jamais les deux à la
    * fois — même règle que la bibliographie générée. */
   getCitationFolders(): TFolder[] {
-    const resolved = resolveBibliographySource(this.app, this.settings);
-    return resolved ? [resolved.folder] : [];
+    const workspace = this.getWorkspaceFolder();
+    if (!workspace) {
+      const resolved = resolveBibliographySource(this.app, this.settings);
+      return resolved ? [resolved.folder] : [];
+    }
+    const folders: TFolder[] = [];
+    const seen = new Set<string>();
+    for (const root of resolveWorkspaceResearchContext(this.app, this.settings, workspace)) {
+      const resolved = resolveBibliographySourceInResearchRoot(this.app, root.folder);
+      if (!resolved || seen.has(resolved.folder.path)) continue;
+      seen.add(resolved.folder.path);
+      folders.push(resolved.folder);
+    }
+    return folders;
   }
 
   openInsertCitation(editor?: Editor | null): void {
@@ -3571,8 +3634,9 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.noSourceOrBibliographySheet"));
       return;
     }
+    const targetFile = this.app.workspace.getActiveFile();
     new CitationSourceModal(this.app, this, files, (file, page) =>
-      this.insertCitationFor(file, page, resolvedEditor)
+      this.insertCitationFor(file, page, resolvedEditor, targetFile)
     ).open();
   }
 
@@ -3582,8 +3646,9 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.openSceneBeforeCitation"));
       return;
     }
+    const targetFile = this.app.workspace.getActiveFile();
     promptForPage(this.app, this, sourceFile, (file, page) =>
-      this.insertCitationFor(file, page, editor)
+      this.insertCitationFor(file, page, editor, targetFile)
     );
   }
 
@@ -3706,7 +3771,7 @@ class FeuilletsPlugin extends Plugin {
     new FootnoteCheckModal(this.app, editor, result).open();
   }
 
-  insertCitationFor(sourceFile: TFile, page: string, editor: Editor): void {
+  insertCitationFor(sourceFile: TFile, page: string, editor: Editor, targetFile?: TFile | null): void {
     const rawFm = this.fmOf(sourceFile);
     const fm = {
       author: asString(rawFm.author),
@@ -3716,21 +3781,23 @@ class FeuilletsPlugin extends Plugin {
       url: asString(rawFm.url),
     };
     const style = this.citationStyleFor();
-    const activeFile = this.app.workspace.getActiveFile();
+    const citationTarget = targetFile || this.app.workspace.getActiveFile();
     if (!this._lastCitedSourceByFile) this._lastCitedSourceByFile = new Map();
-    const isRepeat = !!activeFile && this._lastCitedSourceByFile.get(activeFile.path) === sourceFile.path;
+    const isRepeat = !!citationTarget && this._lastCitedSourceByFile.get(citationTarget.path) === sourceFile.path;
     const text = formatCitation(fm, page, style, isRepeat);
     if (!text) {
       new Notice(t("main.notice.emptySourceSheet"));
       return;
     }
-    if (activeFile) this._lastCitedSourceByFile.set(activeFile.path, sourceFile.path);
-    this.markSourceCited(sourceFile);
+    if (citationTarget) this._lastCitedSourceByFile.set(citationTarget.path, sourceFile.path);
     if (style === "parenthetical") {
       const at = editor.getCursor("to");
+      const start = editor.posToOffset(at);
       editor.replaceRange(text, at, at);
       editor.setCursor({ line: at.line, ch: at.ch + text.length });
       editor.focus();
+      this.recordCitationOccurrence(citationTarget, sourceFile, editor.getValue(), start, start + text.length);
+      this.markSourceCited(sourceFile);
       new Notice(isRepeat ? t("main.notice.ibidInserted") : t("main.notice.citationInserted"));
       return;
     }
@@ -3740,10 +3807,27 @@ class FeuilletsPlugin extends Plugin {
     editor.replaceRange(refMarker, at, at);
     const lastLine = editor.lastLine();
     const end = { line: lastLine, ch: editor.getLine(lastLine).length };
+    const definitionStart = editor.posToOffset(end) + `\n\n[^${n}]: `.length;
     editor.replaceRange(`\n\n[^${n}]: ${text}`, end, end);
     editor.setCursor({ line: at.line, ch: at.ch + refMarker.length });
     editor.focus();
+    this.recordCitationOccurrence(citationTarget, sourceFile, editor.getValue(), definitionStart, definitionStart + text.length);
+    this.markSourceCited(sourceFile);
     new Notice(isRepeat ? t("main.notice.ibidInsertedNote", { n: String(n) }) : t("main.notice.citationInsertedNote", { n: String(n) }));
+  }
+
+  recordCitationOccurrence(
+    targetFile: TFile | null | undefined,
+    sourceFile: TFile,
+    content: string,
+    start: number,
+    end: number
+  ): void {
+    if (!targetFile) return;
+    void addCitationOccurrence(this.app, this.settings, targetFile, sourceFile, content, start, end).catch((error: unknown) => {
+      console.error("Feuillets citation registry write", error);
+      new Notice(t("main.notice.citationInsertedButNotIndexed"));
+    });
   }
 
   /* L'échec n'interrompt pas l'insertion de la citation (déjà écrite dans le
@@ -3808,8 +3892,14 @@ class FeuilletsPlugin extends Plugin {
   tagsOf(file: TFile): string[] { return tagsOf(this.app, file); }
   labelOf(file: TFile): string { return labelOf(this.app, file); }
   labelsOf(file: TFile): string[] { return labelsOf(this.app, file); }
-  labelColor(name: string): string | null { return labelColor(this.settings, name); }
-  getStatusColor(name: string): string | null { return getStatusColor(this.app, this.settings, name); }
+  labelColor(name: string, folder?: TFolder | null): string | null {
+    const context = folder === undefined ? this.getWorkspaceFolder() || this.getProjectFolder() : folder;
+    return workspaceLabelColor(this.app, this.settings, context, name);
+  }
+  getStatusColor(name: string, folder?: TFolder | null): string | null {
+    const context = folder === undefined ? this.getWorkspaceFolder() || this.getProjectFolder() : folder;
+    return workspaceStatusColor(this.app, this.settings, context, name);
+  }
   folderGoal(folder: TFolder): number { return folderGoal(this.settings, folder); }
   depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node); }
   isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node); }
@@ -5113,7 +5203,7 @@ class FeuilletsPlugin extends Plugin {
         new Notice(t("main.notice.sheetNameExists"));
         return;
       }
-      const content = sheetFrontmatter(this.app, this.settings, chapTitle || "", 0);
+      const content = sheetFrontmatter(this.app, this.settings, chapTitle || "", 0, folder);
       const file = await this.app.vault.create(path, content);
       const others = this.getOrderedChildren(folder).filter((c) => c.path !== file.path);
       const at = Math.max(0, Math.min(insertIndex, others.length));

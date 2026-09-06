@@ -206,12 +206,14 @@ class FakeElement {
   }
   createDiv(options = {}) {
     const child = new FakeElement(options);
+    child.parent = this;
     if (options.cls) child.addClass(options.cls);
     this.children.push(child);
     return child;
   }
   createEl(tag, options = {}) {
     const child = new FakeElement(options);
+    child.parent = this;
     child.tag = tag;
     if (options.cls) child.addClass(options.cls);
     this.children.push(child);
@@ -276,7 +278,7 @@ function createResearchViewHarness({ linkedFolders = [] } = {}) {
     getLinkedResearchFolders: () => linkedFolders,
   };
   const contentEl = new FakeElement();
-  const leaf = { app: { vault: {} }, contentEl };
+  const leaf = { app: { vault: { getAbstractFileByPath: () => null } }, contentEl };
   const view = new ResearchView(leaf, plugin);
 
   view.iconBtn = (parent, _icon, tooltip, onClick) => {
@@ -310,16 +312,113 @@ test("renderAssociatedResearchFolders affiche un dossier associé externe avec s
   view.renderAssociatedResearchFolders(contentEl, null);
 
   const groupTitle = findAll(contentEl, (c) =>
-    c.classes.has("feuillets-research-linked-group-title")
+    c.classes.has("feuillets-notes-section-title")
   )[0];
-  assert.ok(groupTitle, "l'en-tête « Dossiers associés » doit être rendu");
-  assert.equal(groupTitle.text, t("shared.research.linkedFolders"));
+  assert.ok(groupTitle, "l'en-tête « Espaces » doit être rendu");
+  assert.equal(groupTitle.text, t("shared.research.workspaces"));
 
   const names = findAll(contentEl, (c) => c.classes.has("feuillets-research-item-name"));
   assert.ok(
     names.some((n) => n.text === "Notice"),
     "le contenu du dossier associé (son fichier) est bien rendu, comme n'importe quelle rubrique Recherche"
   );
+});
+
+test("renderAssociatedResearchFolders place un dossier associé sous Espaces dans la Recherche globale", () => {
+  const baseResearch = new TFolder("Projet/_Recherche");
+  const docs = new TFolder("Projet/_Recherche/Chapitre 1");
+  const chronology = new TFile("Projet/_Recherche/Chapitre 1/Chronology.md");
+  docs.children = [chronology];
+  baseResearch.children = [docs];
+  const chapitreA = new TFolder(CHAPITRE_A);
+
+  const { view, contentEl } = createResearchViewHarness({
+    linkedFolders: [{ folder: docs, binderNodes: [chapitreA] }],
+  });
+
+  view.renderAssociatedResearchFolders(contentEl, baseResearch);
+
+  const groupHead = findAll(contentEl, (c) => c.getAttr("data-research-group") === "spaces")[0];
+  assert.ok(groupHead, "le header Espaces est présent");
+  const groupSection = groupHead.parent.parent;
+  const chapterTitle = findAll(groupSection, (c) =>
+    c.classes.has("feuillets-notes-section-title") && c.text === "Chapitre 1"
+  )[0];
+  assert.ok(chapterTitle, "Chapitre 1 est dans le groupe Espaces");
+  assert.notEqual(chapterTitle.parent.parent.parent.parent, contentEl, "Chapitre 1 n'est pas une section sœur du body Recherche");
+  const chronologyName = findAll(groupSection, (c) => c.text === "Chronology")[0];
+  assert.ok(chronologyName, "Chronology reste descendant du dossier associé");
+});
+
+test("renderAssociatedResearchFolders ne rend pas séparément un lien TFile descendant d'un lien TFolder", () => {
+  const baseResearch = new TFolder("Projet/_Recherche");
+  const chapter = new TFolder("Vault/Chapitre 1");
+  const sheet = new TFolder("Vault/Chapitre 1/Feuille 1");
+  const chronology = new TFile("Vault/Chapitre 1/Chronology.md");
+  const sheetNote = new TFile("Vault/Chapitre 1/Feuille 1/Note.md");
+  chapter.children = [sheet, chronology];
+  sheet.parent = chapter;
+  chronology.parent = chapter;
+  sheet.children = [sheetNote];
+  sheetNote.parent = sheet;
+  const binderFolder = new TFolder(CHAPITRE_A);
+  const binderFile = new TFile(SCENE, "");
+
+  const { view, contentEl } = createResearchViewHarness({
+    linkedFolders: [
+      { folder: chapter, binderNodes: [binderFolder] },
+      { folder: sheet, binderNodes: [binderFile] },
+    ],
+  });
+
+  view.renderAssociatedResearchFolders(contentEl, baseResearch);
+
+  const spaces = findAll(contentEl, (c) => c.getAttr("data-research-group") === "spaces")[0];
+  assert.ok(spaces, "la rubrique Espaces est visible");
+  const groupSection = spaces.parent.parent;
+  const chapterTitles = findAll(groupSection, (c) =>
+    c.classes.has("feuillets-notes-section-title") && c.text === "Chapitre 1"
+  );
+  const sheetTitles = findAll(groupSection, (c) =>
+    c.classes.has("feuillets-notes-section-title") && c.text === "Feuille 1"
+  );
+  assert.equal(chapterTitles.length, 1, "la racine Recherche associée apparaît une fois");
+  assert.equal(sheetTitles.length, 0, "le dossier lié au feuillet n'est pas une section autonome");
+
+  const sheetRows = findAll(groupSection, (c) =>
+    c.classes.has("feuillets-research-subfolder") && c.text === ""
+  );
+  assert.ok(sheetRows.length > 0, "Feuille 1 reste visible comme sous-dossier du dossier parent");
+  assert.ok(
+    findAll(groupSection, (c) => c.text === "Note").length > 0,
+    "le contenu du dossier lié au feuillet reste accessible dans l'arborescence"
+  );
+  assert.ok(
+    findAll(groupSection, (c) => c.text === "Chronology").length > 0,
+    "Chronology.md reste visible dans le dossier associé parent"
+  );
+});
+
+test("renderAssociatedResearchFolders place les dossiers associés dans la rubrique Espaces", () => {
+  const docs = new TFolder("Vault/Docs");
+  const note = new TFile("Vault/Docs/Chronology.md");
+  docs.children = [note];
+  const chapitreA = new TFolder(CHAPITRE_A);
+
+  const { view, contentEl } = createResearchViewHarness({
+    linkedFolders: [{ folder: docs, binderNodes: [chapitreA] }],
+  });
+
+  view.renderAssociatedResearchFolders(contentEl, new TFolder("Projet/_Recherche"));
+
+  const group = findAll(contentEl, (c) => c.getAttr("data-research-group") === "spaces")[0];
+  assert.ok(group, "la rubrique virtuelle Espaces existe");
+  const groupSection = group.parent;
+  const folderTitle = findAll(groupSection, (c) =>
+    c.classes.has("feuillets-notes-section-title") && c.text === "Docs"
+  )[0];
+  assert.ok(folderTitle, "le dossier associé est rendu dans Espaces");
+  assert.equal(folderTitle.parent.parent.parent.parent, groupSection, "le dossier associé reste descendant de la rubrique Espaces");
 });
 
 test("renderAssociatedResearchFolders : clic sur l'en-tête plie/déplie le contenu (même mécanisme que les autres rubriques)", () => {
@@ -336,12 +435,12 @@ test("renderAssociatedResearchFolders : clic sur l'en-tête plie/déplie le cont
   view.renderAssociatedResearchFolders(contentEl, null);
 
   const heads = findAll(contentEl, (c) => c.classes.has("feuillets-notes-section-head"));
-  assert.equal(heads.length, 1);
+  assert.equal(heads.length, 2);
   assert.doesNotThrow(() => heads[0].events.get("click")({}));
   assert.equal(
-    view.plugin.settings.collapsed[docs.path],
+    view.plugin.settings.collapsed["research:spaces"],
     true,
-    "l'état replié est mémorisé sous la clé du VRAI dossier"
+    "l'état replié est mémorisé sous la clé de la rubrique ESPACES"
   );
 });
 
@@ -367,7 +466,7 @@ test("renderAssociatedResearchFolders affiche une seule fois un dossier associé
 
   const badges = findAll(contentEl, (c) => c.classes.has("feuillets-research-linked-badge"));
   assert.equal(badges.length, 1);
-  assert.equal(badges[0].text, "Chapitre A · Chapitre B");
+  assert.equal(badges[0].text, "2 espaces");
 });
 
 /* --- C. Déduplication --- */
@@ -381,6 +480,7 @@ test("renderAssociatedResearchFolders ne réaffiche pas un dossier déjà sous l
   const { view, contentEl } = createResearchViewHarness({
     linkedFolders: [{ folder: sources, binderNodes: [chapitreA] }],
   });
+  view.app.vault.getAbstractFileByPath = (path) => path === sources.path ? sources : null;
 
   view.renderAssociatedResearchFolders(contentEl, baseResearch);
 
@@ -415,9 +515,9 @@ test("renderAssociatedResearchFolders affiche quand même un dossier associé DI
   assert.ok(names.some((n) => n.text === "Docs"));
 });
 
-/* --- 4. Aucune modification du dossier externe (lecture/navigation seule) --- */
+/* --- 4. Les associations ESPACES conservent leurs actions physiques --- */
 
-test("un dossier associé externe n'a ni menu d'actions (au niveau dossier) ni glisser-déposer", () => {
+test("un dossier associé sous ESPACES conserve ses actions et sa cible de dépôt", () => {
   const docs = new TFolder("Vault/Docs");
   const note = new TFile("Vault/Docs/Notice.md");
   docs.children = [note];
@@ -431,15 +531,14 @@ test("un dossier associé externe n'a ni menu d'actions (au niveau dossier) ni g
 
   view.renderAssociatedResearchFolders(contentEl, null);
 
-  // Le dossier lui-même reste sans menu d'actions (renommer/déplacer/
-  // supprimer un dossier externe reste interdit) — voir renderSection,
-  // `if (folderOrFiles instanceof TFolder && !external)`.
   const folderRows = findAll(contentEl, (c) => c.classes.has("feuillets-notes-section-head"));
+  let actionCount = 0;
   for (const row of folderRows) {
     const actionButtons = findAll(row, (c) => c.tag === "button" && c.tooltip === t("shared.research.folderActions"));
-    assert.equal(actionButtons.length, 0, "pas de menu ⋯ sur l'en-tête du dossier externe");
+    actionCount += actionButtons.length;
   }
-  assert.equal(dropTargetCalls, 0, "un dossier externe n'est jamais cible de dépôt");
+  assert.equal(actionCount, 1, "le dossier associé conserve son menu ⋯");
+  assert.equal(dropTargetCalls, 1, "le dossier associé conserve sa cible de dépôt");
 });
 
 /* Micro-correctif "navigation des fichiers Recherche externes" (dernier
@@ -464,13 +563,14 @@ test("un fichier d'un dossier associé externe garde son bouton ⋯ (menu limit�
   view.renderAssociatedResearchFolders(contentEl, null);
 
   const actionsLabel = t("shared.research.folderActions");
-  const fileActionBtn = findAll(contentEl, (c) => c.tag === "button" && c.tooltip === actionsLabel)[0];
+  const fileHeader = findAll(contentEl, (c) => c.classes.has("feuillets-research-item-header"))[0];
+  const fileActionBtn = findAll(fileHeader, (c) => c.tag === "button" && c.tooltip === actionsLabel)[0];
   assert.ok(fileActionBtn, "le bouton ⋯ du fichier externe doit être présent");
   fileActionBtn.events.get("click")({ stopPropagation() {} });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].file.path, note.path);
-  assert.equal(calls[0].navigationOnly, true, "navigationOnly doit être vrai pour un fichier externe");
+  assert.equal(calls[0].navigationOnly, undefined, "le fichier associé conserve le menu Recherche normal");
 });
 
 /* --- E (rendu) : orpheline déjà filtrée en amont, rien à faire ici --- */
@@ -509,9 +609,9 @@ test("renderAssociatedResearchFolders : l'en-tête suit la locale active (aucun 
     view.renderAssociatedResearchFolders(contentEl, null);
 
     const groupTitle = findAll(contentEl, (c) =>
-      c.classes.has("feuillets-research-linked-group-title")
+      c.classes.has("feuillets-notes-section-title")
     )[0];
-    assert.equal(groupTitle.text, "Linked folders");
+    assert.equal(groupTitle.text, "Workspaces");
   } finally {
     setLocale(previous);
   }

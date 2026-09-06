@@ -1,8 +1,9 @@
-import { TFile, type WorkspaceLeaf } from "obsidian";
+import { TFile, TFolder, type WorkspaceLeaf } from "obsidian";
 import { VIEW_RESEARCH } from "../constants.js";
 import { t } from "../i18n/index.js";
 import { isEditing } from "../utils/dom.js";
-import { BaseFeuilletsView } from "./base-feuillets-view.js";
+import { BaseFeuilletsView, type ResearchScopeMode } from "./base-feuillets-view.js";
+import { resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
 
 type ResearchViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type ResearchContainer = HTMLElement & { find?: <T extends HTMLElement>(selector: string) => T | null };
@@ -17,6 +18,7 @@ export class ResearchView extends BaseFeuilletsView {
   declare targetContainer?: HTMLElement;
   declare viewingFile: TFile | null;
   declare _renderGen?: number;
+  researchScopeMode: ResearchScopeMode = "workspace";
 
   constructor(leaf: WorkspaceLeaf, plugin: ResearchViewPlugin) {
     super(leaf, plugin);
@@ -84,7 +86,30 @@ export class ResearchView extends BaseFeuilletsView {
       this.viewingFile = null;
     }
 
-    await this.renderResearchBody(container, root, myGen);
+    const workspaceFolder = typeof this.plugin.getWorkspaceFolder === "function"
+      ? this.plugin.getWorkspaceFolder()
+      : null;
+    const workspaceActive = workspaceFolder instanceof TFolder && workspaceFolder.path !== root.path;
+    const projectResearchRoot = typeof this.plugin.getResearchRoot === "function"
+      ? this.plugin.getResearchRoot()
+      : null;
+    const workspaceResearch = workspaceActive && this.researchScopeMode === "workspace"
+      ? resolveWorkspaceResearchFolder(this.app, this.plugin.settings, workspaceFolder)
+      : null;
+    const associatedResearchFolder = workspaceResearch?.sourceKind === "exact" || workspaceResearch?.sourceKind === "ancestor"
+      ? workspaceResearch.folder
+      : null;
+    await this.renderResearchBody(container, root, myGen, {
+      scopeMode: this.researchScopeMode,
+      workspaceActive,
+      workspaceFolder,
+      researchRoot: projectResearchRoot,
+      associatedResearchFolder,
+      onScopeModeChange: (mode) => {
+        this.researchScopeMode = mode;
+        void this.render(true);
+      },
+    });
     restoreUi();
   }
 }

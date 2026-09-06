@@ -1,0 +1,345 @@
+import { folderPathToRelativeScope, relativeScopeToFolderPath } from "../carnet/core/folder-carnets.js";
+import type { App, TFolder } from "obsidian";
+import { getProjectFolder } from "./folder-structure.js";
+import { DEFAULT_SETTINGS } from "../default-settings.js";
+import {
+  projectBoardDefaults,
+  resolveBoardCardContent,
+  resolveBoardOutlineColumns,
+  resolveType,
+} from "../utils/project-modes.js";
+import {
+  activeProjectMeta,
+  projectDeadline,
+  projectFavoriteTags,
+  projectNewSheetIncludeSources,
+  projectPlanningField,
+  projectLabels,
+  projectSessionGoal,
+  projectStatuses,
+  projectTolerance,
+  projectTotalWordGoal,
+  projectWordGoalDefault,
+} from "./project-settings.js";
+import type { ProjectPlanningField } from "./project-settings.js";
+
+export type FolderWorkspaceResolution<T> = {
+  value: T | undefined;
+  source: string | null;
+};
+
+/** Convertit un dossier du coffre en clé locale d'un workspace. */
+export function folderPathToWorkspaceScope(projectRootPath: string, folderPath: string): string | null {
+  return folderPathToRelativeScope(projectRootPath, folderPath);
+}
+
+/** Retourne la configuration exacte d'une clé relative, sans jamais la créer. */
+export function getFolderWorkspaceConfig(
+  meta: ProjectMeta | undefined,
+  relativeScope: string,
+): FolderWorkspaceConfig | undefined {
+  if (!relativeScope || !meta?.folderWorkspaces) return undefined;
+  return meta.folderWorkspaces[relativeScope];
+}
+
+/** Retourne la configuration exacte du dossier ciblé pour une écriture locale.
+ * Ne résout jamais l'héritage et ne crée rien pendant une lecture. */
+export function ensureExactFolderWorkspaceConfig(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder,
+): FolderWorkspaceConfig | null {
+  const root = getProjectFolder(app, settings);
+  if (!root) return null;
+  const relativeScope = folderPathToWorkspaceScope(root.path, folder.path);
+  if (!relativeScope) return null;
+  const meta = settings.projectMeta[root.path] || {};
+  settings.projectMeta[root.path] = meta;
+  if (!meta.folderWorkspaces) meta.folderWorkspaces = {};
+  if (!meta.folderWorkspaces[relativeScope]) meta.folderWorkspaces[relativeScope] = { version: 1 };
+  return meta.folderWorkspaces[relativeScope];
+}
+
+/** Construit la chaîne dossier → parents, sans inclure le manuscript root. */
+export function folderWorkspaceScopeChain(projectRootPath: string, folderPath: string): string[] {
+  const relative = folderPathToWorkspaceScope(projectRootPath, folderPath);
+  if (!relative) return [];
+  const parts = relative.split("/");
+  const scopes: string[] = [];
+  for (let end = parts.length; end > 0; end -= 1) scopes.push(parts.slice(0, end).join("/"));
+  return scopes;
+}
+
+/** Résout le premier override défini ; false, 0 et "" sont des valeurs valides. */
+export function resolveFolderWorkspaceValue<K extends keyof FolderWorkspaceConfig>(
+  meta: ProjectMeta | undefined,
+  projectRootPath: string,
+  folderPath: string,
+  key: K,
+  projectValue?: FolderWorkspaceConfig[K],
+): FolderWorkspaceResolution<FolderWorkspaceConfig[K]> {
+  for (const scope of folderWorkspaceScopeChain(projectRootPath, folderPath)) {
+    const config = getFolderWorkspaceConfig(meta, scope);
+    if (config && config[key] !== undefined) return { value: config[key], source: scope };
+  }
+  return { value: projectValue, source: null };
+}
+
+/** Vérifie qu'une clé relative désigne bien un dossier du projet. */
+export function workspaceScopeToFolderPath(projectRootPath: string, relativeScope: string): string | null {
+  return relativeScopeToFolderPath(projectRootPath, relativeScope);
+}
+
+function workspaceValueContext(app: App, settings: FeuilletsSettings, folder: TFolder | null): {
+  root: TFolder;
+  meta: ProjectMeta | undefined;
+  folder: TFolder;
+} | null {
+  const root = getProjectFolder(app, settings);
+  if (!root || !folder) return null;
+  const relativeScope = folderPathToWorkspaceScope(root.path, folder.path);
+  if (!relativeScope) return null;
+  return { root, meta: activeProjectMeta(app, settings) || undefined, folder };
+}
+
+export function workspaceStatuses(app: App, settings: FeuilletsSettings, folder: TFolder | null): ProjectStatusEntry[] {
+  const fallback = projectStatuses(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "statuses", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceLabels(app: App, settings: FeuilletsSettings, folder: TFolder | null): Label[] {
+  const fallback = projectLabels(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "labels", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceFavoriteTags(app: App, settings: FeuilletsSettings, folder: TFolder | null): string[] {
+  const fallback = projectFavoriteTags(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "favoriteTags", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceWordGoalDefault(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const fallback = projectWordGoalDefault(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "wordGoal", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceTolerance(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const fallback = projectTolerance(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "tolerance", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceTotalWordGoal(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const fallback = projectTotalWordGoal(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "projectWordGoal", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceDeadline(app: App, settings: FeuilletsSettings, folder: TFolder | null): string {
+  const fallback = projectDeadline(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "deadlineDate", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceSessionGoal(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const fallback = projectSessionGoal(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "sessionGoal", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspacePlanningField(app: App, settings: FeuilletsSettings, folder: TFolder | null): ProjectPlanningField {
+  const fallback = projectPlanningField(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "planningField", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceNewSheetIncludeSources(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
+  const fallback = projectNewSheetIncludeSources(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "newSheetIncludeSources", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+function differsFromDefaults(value: Record<string, unknown> | undefined, defaults: Record<string, unknown>): boolean {
+  if (!value) return false;
+  return Object.keys({ ...defaults, ...value }).some((key) => {
+    const current = value[key];
+    const initial = defaults[key];
+    if (Array.isArray(current) && Array.isArray(initial)) {
+      return current.length !== initial.length || current.some((entry, index) => entry !== initial[index]);
+    }
+    return current !== initial;
+  });
+}
+
+function projectBoardContext(app: App, settings: FeuilletsSettings): {
+  meta: ProjectMeta | undefined;
+  type: string;
+  cardContent: string | undefined;
+  hiddenBoardModes: string[];
+  outlineCols: Record<string, boolean>;
+} {
+  const meta = activeProjectMeta(app, settings) || undefined;
+  const type = resolveType(meta?.type);
+  const boardDefaults = projectBoardDefaults(type);
+  const hiddenBoardModes = Array.isArray(meta?.hiddenBoardModes)
+    ? [...meta.hiddenBoardModes]
+    : Array.isArray(settings.hiddenBoardModes) && differsFromDefaults(
+      { hiddenBoardModes: settings.hiddenBoardModes },
+      { hiddenBoardModes: DEFAULT_SETTINGS.hiddenBoardModes },
+    )
+      ? [...settings.hiddenBoardModes]
+      : [...boardDefaults.hiddenBoardModes];
+  const outlineCols = meta?.outlineCols
+    ? { ...meta.outlineCols }
+    : differsFromDefaults(settings.outlineCols, DEFAULT_SETTINGS.outlineCols)
+      ? { ...settings.outlineCols }
+      : { ...boardDefaults.outlineCols };
+  return { meta, type, cardContent: meta?.cardContent, hiddenBoardModes, outlineCols };
+}
+
+export function workspaceCardContent(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  planningField: ProjectPlanningField,
+): string {
+  const project = projectBoardContext(app, settings);
+  const fallback = resolveBoardCardContent(project.type, project.cardContent, planningField);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "cardContent", fallback).value;
+  return resolveBoardCardContent(project.type, value, planningField);
+}
+
+export function workspaceHiddenBoardModes(app: App, settings: FeuilletsSettings, folder: TFolder | null): string[] {
+  const project = projectBoardContext(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return project.hiddenBoardModes;
+  const value = resolveFolderWorkspaceValue(
+    context.meta,
+    context.root.path,
+    context.folder.path,
+    "hiddenBoardModes",
+    project.hiddenBoardModes,
+  ).value;
+  return value === undefined ? project.hiddenBoardModes : [...value];
+}
+
+export function workspaceOutlineColumns(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  planningField: ProjectPlanningField,
+): Record<string, boolean> {
+  const project = projectBoardContext(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  const stored = context
+    ? resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "outlineCols", project.outlineCols).value
+    : project.outlineCols;
+  return resolveBoardOutlineColumns(project.type, stored, planningField);
+}
+
+export function workspaceIndentParagraphs(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.indentParagraphs;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "indentParagraphs", settings.indentParagraphs).value;
+  return value === undefined ? settings.indentParagraphs : value;
+}
+
+export function workspaceLiveJustify(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.liveJustify;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "liveJustify", settings.liveJustify).value;
+  return value === undefined ? settings.liveJustify : value;
+}
+
+export function workspaceLiveEmptyLines(app: App, settings: FeuilletsSettings, folder: TFolder | null): "normal" | "reduit" | "invisible" {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.liveEmptyLines;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "liveEmptyLines", settings.liveEmptyLines).value;
+  return value === undefined ? settings.liveEmptyLines : value;
+}
+
+export function workspaceLiveHyphenation(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.liveHyphenation;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "liveHyphenation", settings.liveHyphenation).value;
+  return value === undefined ? settings.liveHyphenation : value;
+}
+
+export function workspaceReadingFontSize(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.readingFontSize;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "readingFontSize", settings.readingFontSize).value;
+  return value === undefined ? settings.readingFontSize : value;
+}
+
+export function workspaceLineHeight(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.lineHeight;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "lineHeight", settings.lineHeight).value;
+  return value === undefined ? settings.lineHeight : value;
+}
+
+export function workspaceTextWidth(app: App, settings: FeuilletsSettings, folder: TFolder | null): number {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return settings.textWidth;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "textWidth", settings.textWidth).value;
+  return value === undefined ? settings.textWidth : value;
+}
+
+/** Retourne la clé relative qui fournit un override effectif, ou null quand
+ * la valeur vient du projet/réglage global. Lecture pure, sans création. */
+export function workspaceFieldSource<K extends keyof FolderWorkspaceConfig>(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  key: K,
+): string | null {
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return null;
+  return resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, key).source;
+}
+
+export function workspaceStatusColor(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  name: string,
+): string | null {
+  const status = workspaceStatuses(app, settings, folder).find((entry) => entry.name === name);
+  return status ? status.color : null;
+}
+
+export function workspaceLabelColor(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  name: string,
+): string | null {
+  const label = workspaceLabels(app, settings, folder).find((entry) => entry.name === name);
+  return label ? label.color : null;
+}

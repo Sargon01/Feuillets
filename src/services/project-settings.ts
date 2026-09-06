@@ -75,6 +75,12 @@ export function projectFavoriteTags(app: App, settings: FeuilletsSettings): stri
   return Array.isArray(settings.favoriteTags) ? settings.favoriteTags : [];
 }
 
+export function projectLabels(app: App, settings: FeuilletsSettings): Label[] {
+  const meta = activeProjectMeta(app, settings);
+  if (meta && Array.isArray(meta.labels)) return meta.labels;
+  return Array.isArray(settings.labels) ? settings.labels : [];
+}
+
 /** Objectif de mots par défaut d'UN feuillet (pas le total du manuscrit —
  * voir projectTotalWordGoal). */
 export function projectWordGoalDefault(app: App, settings: FeuilletsSettings): number {
