@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const source = fs.readFileSync(`${process.cwd()}/src/views/notes-view.ts`, "utf8");
-const start = source.indexOf("const planningField = projectPlanningField");
+const start = source.indexOf("const planningField = workspacePlanningField");
 const end = source.indexOf("// Références du passage", start);
 const planningBlock = source.slice(start, end);
 

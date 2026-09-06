@@ -28,7 +28,7 @@ import {
   type ContentCacheableFile,
   type ContentSourceKind,
 } from "../services/context-content-cache.js";
-import { projectPlanningField } from "../services/project-settings.js";
+import { workspacePlanningField } from "../services/folder-workspaces.js";
 import { addWorkNote, deleteWorkNote, loadWorkNotes } from "../services/work-notes.js";
 
 /** Délai de latence avant de recalculer la section « Contexte » après un
@@ -422,7 +422,7 @@ export class NotesView extends BaseFeuilletsView {
        réglages notesShowSynopsis/notesShowResume restent respectés en plus,
        pour la compatibilité avec un utilisateur qui aurait désactivé la
        section. */
-    const planningField = projectPlanningField(this.app, this.plugin.settings);
+    const planningField = workspacePlanningField(this.app, this.plugin.settings, file.parent);
     const showSynopsis = planningField === "synopsis";
     const showResume = planningField === "summary";
 

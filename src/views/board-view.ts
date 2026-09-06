@@ -1,14 +1,20 @@
 import { Menu, Modal, Setting, TAbstractFile, TFile, TFolder, setIcon, setTooltip, Notice } from "obsidian";
 import { VIEW_BOARD, BOARD_MODES } from "../constants.js";
-import { projectPlanningField, type ProjectPlanningField } from "../services/project-settings.js";
-import { workspaceWordGoalDefault } from "../services/folder-workspaces.js";
+import type { ProjectPlanningField } from "../services/project-settings.js";
+import {
+  workspaceCardContent,
+  ensureExactFolderWorkspaceConfig,
+  workspaceHiddenBoardModes,
+  workspaceOutlineColumns,
+  workspacePlanningField,
+  workspaceWordGoalDefault,
+} from "../services/folder-workspaces.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
 import { parseStoryDate, stripMarkdown } from "../utils/core.js";
 import {
   PROJECT_MODES,
   resolveType,
-  resolveBoardCardContent,
   resolveBoardOutlineColumns,
 } from "../utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
@@ -160,6 +166,7 @@ type ModeOptionsCtx = {
   meta: ProjectMeta;
   wholeManuscript: boolean;
   planningField: ProjectPlanningField;
+  workspaceFolder: TFolder | null;
   timelineResearchFolders?: readonly TFolder[];
 };
 
@@ -436,16 +443,17 @@ export class BoardView extends BaseFeuilletsView {
     const focusedFolder = focusedFolderCandidate instanceof TFolder ? focusedFolderCandidate : null;
     const scope = resolveBoardFolderScope(manuscriptRoot, focusedFolder);
     const workflowFolder = focusedFolder || manuscriptRoot;
+    const localWorkspaceActive = focusedFolder !== null;
 
     if (!S.projectMeta) S.projectMeta = {};
     if (!S.projectMeta[scope.manuscriptRoot.path]) S.projectMeta[scope.manuscriptRoot.path] = {};
     const meta = S.projectMeta[scope.manuscriptRoot.path];
     const projectType = resolveType(meta.type);
-    const planningField = projectPlanningField(this.app, S);
+    const planningField = workspacePlanningField(this.app, S, workflowFolder);
     this.runtimePlanningField = planningField;
     const modeConfig = PROJECT_MODES[projectType] || PROJECT_MODES.fiction;
     let mode: string = meta.boardMode || modeConfig.defaults.boardMode;
-    this.currentCardContent = resolveBoardCardContent(projectType, meta.cardContent, planningField);
+    this.currentCardContent = workspaceCardContent(this.app, S, workflowFolder, planningField);
 
     /* LOT 5C §2.1 — migration locale défensive : un ancien boardMode "lanes"
        persisté par un lot précédent n'existe plus comme mode (§2 impose 4
@@ -484,7 +492,12 @@ export class BoardView extends BaseFeuilletsView {
        effectif (grammaire finale du Plan) à partir de la priorité
        meta/legacy/defaults ci-dessus — meta.outlineCols garde la donnée
        brute non migrée. */
-    const effectiveOutlineColumns = resolveBoardOutlineColumns(projectType, outlineColumns, planningField);
+    const scopedHiddenModes = localWorkspaceActive
+      ? workspaceHiddenBoardModes(this.app, S, workflowFolder)
+      : hiddenModes;
+    const effectiveOutlineColumns = localWorkspaceActive
+      ? workspaceOutlineColumns(this.app, S, workflowFolder, planningField)
+      : resolveBoardOutlineColumns(projectType, outlineColumns, planningField);
     this.outlineColumns = effectiveOutlineColumns;
     if (initializedProjectPrefs && typeof this.plugin.saveSettings === "function") void this.plugin.saveSettings();
     const wholeManuscript = meta.boardWholeManuscript !== undefined ? !!meta.boardWholeManuscript : !!S.boardWholeManuscript;
@@ -496,10 +509,11 @@ export class BoardView extends BaseFeuilletsView {
        l'espace narratif (arcs). `visibleModes` dérive donc directement de
        BOARD_MODES et de hiddenBoardModes, sans aucun filtrage par type. */
     const allBoardModes = BOARD_MODES.map(([k]) => k);
-    let visibleModes = allBoardModes.filter((k) => !hiddenModes.includes(k));
+    let visibleModes = allBoardModes.filter((k) => !scopedHiddenModes.includes(k));
     if (visibleModes.length === 0) visibleModes = allBoardModes;
     if (!visibleModes.includes(mode)) {
-      mode = visibleModes[0];
+      const preferredModes = ["board", "outline"];
+      mode = preferredModes.find((candidate) => visibleModes.includes(candidate)) || visibleModes[0];
     }
     const activeMode = mode as BoardModeKey;
     const trameDisplayFolder = wholeManuscript ? scope.manuscriptRoot : scope.currentFolder;
@@ -655,12 +669,17 @@ export class BoardView extends BaseFeuilletsView {
       for (const k of allBoardModes) {
         menu.addItem((item) =>
           item.setTitle(this.boardModeLabel(k)).setChecked(visibleModes.includes(k)).onClick(async () => {
-            const set = new Set(hiddenModes);
+            const set = new Set(scopedHiddenModes);
             if (!set.has(k) && visibleModes.length === 1) return;
             if (set.has(k)) set.delete(k); else set.add(k);
             const arr = [...set];
-            if (meta) meta.hiddenBoardModes = arr;
-            S.hiddenBoardModes = arr;
+            if (localWorkspaceActive && focusedFolder) {
+              const config = ensureExactFolderWorkspaceConfig(this.app, S, focusedFolder);
+              if (config) config.hiddenBoardModes = [...arr];
+            } else {
+              meta.hiddenBoardModes = arr;
+              S.hiddenBoardModes = arr;
+            }
             await this.plugin.saveSettings();
             void this.render(true);
           })
@@ -690,6 +709,7 @@ export class BoardView extends BaseFeuilletsView {
         wholeManuscript,
         outlineColumns: effectiveOutlineColumns,
         planningField,
+        workspaceFolder: localWorkspaceActive ? focusedFolder : null,
         timelineResearchFolders,
       });
       menu.showAtMouseEvent(e);
@@ -939,7 +959,7 @@ export class BoardView extends BaseFeuilletsView {
   }
 
   buildModeOptionsMenu(menu: Menu, activeMode: BoardModeKey, ctx: ModeOptionsCtx & { outlineColumns: Record<string, boolean> }): void {
-    const { S, meta, wholeManuscript, planningField, outlineColumns } = ctx;
+    const { S, meta, wholeManuscript, planningField, outlineColumns, workspaceFolder } = ctx;
 
     const addScopeOptions = (): void => {
       for (const [val, label] of [[false, t("board.options.folderByFolder")], [true, t("board.options.wholeManuscript")]] as [boolean, string][]) {
@@ -973,8 +993,13 @@ export class BoardView extends BaseFeuilletsView {
       for (const [val, label] of contentOptions) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(this.currentCardContent === val).onClick(async () => {
-            if (meta) meta.cardContent = val;
-            S.cardContent = val;
+            if (workspaceFolder) {
+              const config = ensureExactFolderWorkspaceConfig(this.app, S, workspaceFolder);
+              if (config) config.cardContent = val;
+            } else {
+              meta.cardContent = val;
+              S.cardContent = val;
+            }
             await this.plugin.saveSettings();
             void this.render();
           })
@@ -1031,9 +1056,14 @@ export class BoardView extends BaseFeuilletsView {
       for (const [colKey, label] of outlineColumnDefs) {
         menu.addItem((item) =>
           item.setTitle(label).setChecked(!!outlineColumns[colKey]).onClick(async () => {
-            outlineColumns[colKey] = !outlineColumns[colKey];
-            meta.outlineCols = outlineColumns;
-            S.outlineCols = { ...outlineColumns };
+            const nextOutlineColumns = { ...outlineColumns, [colKey]: !outlineColumns[colKey] };
+            if (workspaceFolder) {
+              const config = ensureExactFolderWorkspaceConfig(this.app, S, workspaceFolder);
+              if (config) config.outlineCols = nextOutlineColumns;
+            } else {
+              meta.outlineCols = nextOutlineColumns;
+              S.outlineCols = { ...nextOutlineColumns };
+            }
             await this.plugin.saveSettings();
             void this.render();
           })

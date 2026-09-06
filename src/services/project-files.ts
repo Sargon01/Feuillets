@@ -15,8 +15,8 @@ import {
   MANUSCRIPT_FOLDER_NAME,
   FRONT_FOLDER_NAME,
 } from "./folder-structure.js";
-import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType, projectNewSheetIncludeSources, projectPlanningField } from "./project-settings.js";
-import { workspaceWordGoalDefault } from "./folder-workspaces.js";
+import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType } from "./project-settings.js";
+import { workspaceNewSheetIncludeSources, workspacePlanningField, workspaceWordGoalDefault } from "./folder-workspaces.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyModeDefaults, resolveType, PROJECT_MODES, RESEARCH_FOLDERS, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
 
@@ -831,8 +831,8 @@ export function newFolder(app: App, parent: TFolder, onDone?: () => void): void 
  * `position` est l'`order:` à inscrire ; l'appelant le calcule selon son
  * contexte (fin de dossier pour newSheet, position planifiée pour le Plan). */
 export function sheetFrontmatter(app: App, settings: FeuilletsSettings, title: string, position: number, folder: TFolder | null = null): string {
-  const planningField = projectPlanningField(app, settings);
-  const includeSources = projectNewSheetIncludeSources(app, settings);
+  const planningField = workspacePlanningField(app, settings, folder);
+  const includeSources = workspaceNewSheetIncludeSources(app, settings, folder);
   return [
     "---",
     `title: ${title || ""}`,

@@ -1,10 +1,19 @@
 import { folderPathToRelativeScope, relativeScopeToFolderPath } from "../carnet/core/folder-carnets.js";
 import type { App, TFolder } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
+import { DEFAULT_SETTINGS } from "../default-settings.js";
+import {
+  projectBoardDefaults,
+  resolveBoardCardContent,
+  resolveBoardOutlineColumns,
+  resolveType,
+} from "../utils/project-modes.js";
 import {
   activeProjectMeta,
   projectDeadline,
   projectFavoriteTags,
+  projectNewSheetIncludeSources,
+  projectPlanningField,
   projectLabels,
   projectSessionGoal,
   projectStatuses,
@@ -12,6 +21,7 @@ import {
   projectTotalWordGoal,
   projectWordGoalDefault,
 } from "./project-settings.js";
+import type { ProjectPlanningField } from "./project-settings.js";
 
 export type FolderWorkspaceResolution<T> = {
   value: T | undefined;
@@ -29,6 +39,24 @@ export function getFolderWorkspaceConfig(
   relativeScope: string,
 ): FolderWorkspaceConfig | undefined {
   if (!relativeScope || !meta?.folderWorkspaces) return undefined;
+  return meta.folderWorkspaces[relativeScope];
+}
+
+/** Retourne la configuration exacte du dossier ciblé pour une écriture locale.
+ * Ne résout jamais l'héritage et ne crée rien pendant une lecture. */
+export function ensureExactFolderWorkspaceConfig(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder,
+): FolderWorkspaceConfig | null {
+  const root = getProjectFolder(app, settings);
+  if (!root) return null;
+  const relativeScope = folderPathToWorkspaceScope(root.path, folder.path);
+  if (!relativeScope) return null;
+  const meta = settings.projectMeta[root.path] || {};
+  settings.projectMeta[root.path] = meta;
+  if (!meta.folderWorkspaces) meta.folderWorkspaces = {};
+  if (!meta.folderWorkspaces[relativeScope]) meta.folderWorkspaces[relativeScope] = { version: 1 };
   return meta.folderWorkspaces[relativeScope];
 }
 
@@ -136,6 +164,102 @@ export function workspaceSessionGoal(app: App, settings: FeuilletsSettings, fold
   if (!context) return fallback;
   const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "sessionGoal", fallback).value;
   return value === undefined ? fallback : value;
+}
+
+export function workspacePlanningField(app: App, settings: FeuilletsSettings, folder: TFolder | null): ProjectPlanningField {
+  const fallback = projectPlanningField(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "planningField", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+export function workspaceNewSheetIncludeSources(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
+  const fallback = projectNewSheetIncludeSources(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "newSheetIncludeSources", fallback).value;
+  return value === undefined ? fallback : value;
+}
+
+function differsFromDefaults(value: Record<string, unknown> | undefined, defaults: Record<string, unknown>): boolean {
+  if (!value) return false;
+  return Object.keys({ ...defaults, ...value }).some((key) => {
+    const current = value[key];
+    const initial = defaults[key];
+    if (Array.isArray(current) && Array.isArray(initial)) {
+      return current.length !== initial.length || current.some((entry, index) => entry !== initial[index]);
+    }
+    return current !== initial;
+  });
+}
+
+function projectBoardContext(app: App, settings: FeuilletsSettings): {
+  meta: ProjectMeta | undefined;
+  type: string;
+  cardContent: string | undefined;
+  hiddenBoardModes: string[];
+  outlineCols: Record<string, boolean>;
+} {
+  const meta = activeProjectMeta(app, settings) || undefined;
+  const type = resolveType(meta?.type);
+  const boardDefaults = projectBoardDefaults(type);
+  const hiddenBoardModes = Array.isArray(meta?.hiddenBoardModes)
+    ? [...meta.hiddenBoardModes]
+    : Array.isArray(settings.hiddenBoardModes) && differsFromDefaults(
+      { hiddenBoardModes: settings.hiddenBoardModes },
+      { hiddenBoardModes: DEFAULT_SETTINGS.hiddenBoardModes },
+    )
+      ? [...settings.hiddenBoardModes]
+      : [...boardDefaults.hiddenBoardModes];
+  const outlineCols = meta?.outlineCols
+    ? { ...meta.outlineCols }
+    : differsFromDefaults(settings.outlineCols, DEFAULT_SETTINGS.outlineCols)
+      ? { ...settings.outlineCols }
+      : { ...boardDefaults.outlineCols };
+  return { meta, type, cardContent: meta?.cardContent, hiddenBoardModes, outlineCols };
+}
+
+export function workspaceCardContent(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  planningField: ProjectPlanningField,
+): string {
+  const project = projectBoardContext(app, settings);
+  const fallback = resolveBoardCardContent(project.type, project.cardContent, planningField);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return fallback;
+  const value = resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "cardContent", fallback).value;
+  return resolveBoardCardContent(project.type, value, planningField);
+}
+
+export function workspaceHiddenBoardModes(app: App, settings: FeuilletsSettings, folder: TFolder | null): string[] {
+  const project = projectBoardContext(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  if (!context) return project.hiddenBoardModes;
+  const value = resolveFolderWorkspaceValue(
+    context.meta,
+    context.root.path,
+    context.folder.path,
+    "hiddenBoardModes",
+    project.hiddenBoardModes,
+  ).value;
+  return value === undefined ? project.hiddenBoardModes : [...value];
+}
+
+export function workspaceOutlineColumns(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder | null,
+  planningField: ProjectPlanningField,
+): Record<string, boolean> {
+  const project = projectBoardContext(app, settings);
+  const context = workspaceValueContext(app, settings, folder);
+  const stored = context
+    ? resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, "outlineCols", project.outlineCols).value
+    : project.outlineCols;
+  return resolveBoardOutlineColumns(project.type, stored, planningField);
 }
 
 export function workspaceIndentParagraphs(app: App, settings: FeuilletsSettings, folder: TFolder | null): boolean {
