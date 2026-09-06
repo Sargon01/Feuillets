@@ -153,6 +153,7 @@ import {
 import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename } from "./services/work-notes.js";
 import { remapLayoutAfterRename, removeLayoutAfterDelete, LayoutFileCorruptedError } from "./services/layout-store.js";
 import { createSourceAnchor } from "./services/source-anchor.js";
+import { addCitationOccurrence, remapCitationRegistryAfterRename } from "./services/citation-registry.js";
 import { applyDocumentLayoutChanges, documentLayoutValuesForTarget, type DocumentLayoutTarget } from "./services/document-layout-actions.js";
 import { pageBreakAnchorsForFile } from "./services/document-layout-actions.js";
 import { documentLayoutPageBreakPlugin, setDocumentLayoutPageBreakAnchors } from "./utils/cm-document-layout.js";
@@ -1543,6 +1544,9 @@ class FeuilletsPlugin extends Plugin {
         if (remapped.changed) void this.saveSettings();
         void remapAnnotationsAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         void remapWorkNotesAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
+        void remapCitationRegistryAfterRename(this.app, this.settings, oldPath, file.path).catch((error: unknown) => {
+          console.error("Feuillets citation registry rename maintenance", oldPath, file.path, error);
+        });
         for (const settings of knownProjectContexts()) {
           void remapLayoutAfterRename(this.app, settings, oldPath, file.path).catch((error: unknown) => {
             if (error instanceof LayoutFileCorruptedError) console.warn("Feuillets layout.json rename maintenance", oldPath, file.path, error);
@@ -3630,8 +3634,9 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.noSourceOrBibliographySheet"));
       return;
     }
+    const targetFile = this.app.workspace.getActiveFile();
     new CitationSourceModal(this.app, this, files, (file, page) =>
-      this.insertCitationFor(file, page, resolvedEditor)
+      this.insertCitationFor(file, page, resolvedEditor, targetFile)
     ).open();
   }
 
@@ -3641,8 +3646,9 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.openSceneBeforeCitation"));
       return;
     }
+    const targetFile = this.app.workspace.getActiveFile();
     promptForPage(this.app, this, sourceFile, (file, page) =>
-      this.insertCitationFor(file, page, editor)
+      this.insertCitationFor(file, page, editor, targetFile)
     );
   }
 
@@ -3765,7 +3771,7 @@ class FeuilletsPlugin extends Plugin {
     new FootnoteCheckModal(this.app, editor, result).open();
   }
 
-  insertCitationFor(sourceFile: TFile, page: string, editor: Editor): void {
+  insertCitationFor(sourceFile: TFile, page: string, editor: Editor, targetFile?: TFile | null): void {
     const rawFm = this.fmOf(sourceFile);
     const fm = {
       author: asString(rawFm.author),
@@ -3775,21 +3781,23 @@ class FeuilletsPlugin extends Plugin {
       url: asString(rawFm.url),
     };
     const style = this.citationStyleFor();
-    const activeFile = this.app.workspace.getActiveFile();
+    const citationTarget = targetFile || this.app.workspace.getActiveFile();
     if (!this._lastCitedSourceByFile) this._lastCitedSourceByFile = new Map();
-    const isRepeat = !!activeFile && this._lastCitedSourceByFile.get(activeFile.path) === sourceFile.path;
+    const isRepeat = !!citationTarget && this._lastCitedSourceByFile.get(citationTarget.path) === sourceFile.path;
     const text = formatCitation(fm, page, style, isRepeat);
     if (!text) {
       new Notice(t("main.notice.emptySourceSheet"));
       return;
     }
-    if (activeFile) this._lastCitedSourceByFile.set(activeFile.path, sourceFile.path);
-    this.markSourceCited(sourceFile);
+    if (citationTarget) this._lastCitedSourceByFile.set(citationTarget.path, sourceFile.path);
     if (style === "parenthetical") {
       const at = editor.getCursor("to");
+      const start = editor.posToOffset(at);
       editor.replaceRange(text, at, at);
       editor.setCursor({ line: at.line, ch: at.ch + text.length });
       editor.focus();
+      this.recordCitationOccurrence(citationTarget, sourceFile, editor.getValue(), start, start + text.length);
+      this.markSourceCited(sourceFile);
       new Notice(isRepeat ? t("main.notice.ibidInserted") : t("main.notice.citationInserted"));
       return;
     }
@@ -3799,10 +3807,27 @@ class FeuilletsPlugin extends Plugin {
     editor.replaceRange(refMarker, at, at);
     const lastLine = editor.lastLine();
     const end = { line: lastLine, ch: editor.getLine(lastLine).length };
+    const definitionStart = editor.posToOffset(end) + `\n\n[^${n}]: `.length;
     editor.replaceRange(`\n\n[^${n}]: ${text}`, end, end);
     editor.setCursor({ line: at.line, ch: at.ch + refMarker.length });
     editor.focus();
+    this.recordCitationOccurrence(citationTarget, sourceFile, editor.getValue(), definitionStart, definitionStart + text.length);
+    this.markSourceCited(sourceFile);
     new Notice(isRepeat ? t("main.notice.ibidInsertedNote", { n: String(n) }) : t("main.notice.citationInsertedNote", { n: String(n) }));
+  }
+
+  recordCitationOccurrence(
+    targetFile: TFile | null | undefined,
+    sourceFile: TFile,
+    content: string,
+    start: number,
+    end: number
+  ): void {
+    if (!targetFile) return;
+    void addCitationOccurrence(this.app, this.settings, targetFile, sourceFile, content, start, end).catch((error: unknown) => {
+      console.error("Feuillets citation registry write", error);
+      new Notice(t("main.notice.citationInsertedButNotIndexed"));
+    });
   }
 
   /* L'échec n'interrompt pas l'insertion de la citation (déjà écrite dans le

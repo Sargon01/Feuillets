@@ -88,6 +88,25 @@ function fieldOf(fm: Record<string, unknown>, key: string): string | undefined {
   return value || undefined;
 }
 
+function bibliographyEntryForFile(app: App, file: TFile): BibliographyEntry {
+  const fm = app.metadataCache.getFileCache(file)?.frontmatter || {};
+  return {
+    author: fieldOf(fm, "author"),
+    title: fieldOf(fm, "title"),
+    publisher: fieldOf(fm, "publisher"),
+    date: fieldOf(fm, "date"),
+    url: fieldOf(fm, "url"),
+  };
+}
+
+/** Convertit une liste explicite de fiches Source avec le même mapping que
+ * la bibliographie historique, sans appliquer cite_count. */
+export function bibliographyEntriesForFiles(app: App, files: TFile[]): BibliographyEntry[] {
+  return files
+    .filter((file) => file instanceof TFile && file.extension === "md")
+    .map((file) => bibliographyEntryForFile(app, file));
+}
+
 /** Fiches de la bibliothèque résolue (`resolveBibliographySource`), dans
  * l'ordre où le dossier les liste — le TRI RÉEL de la bibliographie générée
  * (par auteur, puis par titre) est décidé par `generateBibliography`, pas
@@ -97,20 +116,12 @@ function fieldOf(fm: Record<string, unknown>, key: string): string | undefined {
 export function bibliographyEntries(app: App, settings: FeuilletsSettings): BibliographyEntry[] {
   const resolved = resolveBibliographySource(app, settings);
   if (!resolved) return [];
-  const out: BibliographyEntry[] = [];
-  for (const child of resolved.folder.children || []) {
-    if (!(child instanceof TFile) || child.extension !== "md") continue;
-    const fm = app.metadataCache.getFileCache(child)?.frontmatter || {};
-    if (resolved.canonical && !(Number(fm.cite_count) > 0)) continue;
-    out.push({
-      author: fieldOf(fm, "author"),
-      title: fieldOf(fm, "title"),
-      publisher: fieldOf(fm, "publisher"),
-      date: fieldOf(fm, "date"),
-      url: fieldOf(fm, "url"),
-    });
-  }
-  return out;
+  const files = (resolved.folder.children || []).filter(
+    (child): child is TFile => child instanceof TFile
+      && child.extension === "md"
+      && (!resolved.canonical || Number(app.metadataCache.getFileCache(child)?.frontmatter?.cite_count) > 0)
+  );
+  return bibliographyEntriesForFiles(app, files);
 }
 
 /** Une référence formatée : `Auteur. *Titre*. Éditeur, Date.` — chaque

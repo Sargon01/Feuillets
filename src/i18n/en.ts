@@ -1677,6 +1677,7 @@ export const en = {
   "main.notice.ibidInsertedNote": "Ibid. inserted — note {n}.",
   "main.notice.citationInsertedNote": "Citation inserted — note {n}.",
   "main.notice.citationInsertedButNotMarked": "Citation inserted, but the source could not be marked as cited.",
+  "main.notice.citationInsertedButNotIndexed": "Citation inserted, but its provenance index could not be updated.",
   "main.notice.noSourceCitedYet": "No source cited yet.",
   "main.notice.bibliographyGenerated": "Bibliography generated: {path}",
   "main.notice.bibliographyNotGenerated": "Bibliography not generated. See the console for details.",

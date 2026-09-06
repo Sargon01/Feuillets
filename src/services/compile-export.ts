@@ -30,7 +30,8 @@ import { SUMMARY, TOC, TABLES, BIBLIOGRAPHY, ANNEXES, readGeneratedIncluded } fr
 import { generateSummary, generateTableOfContents } from "./contents-generator.js";
 import type { GeneratedContentsKind } from "./generated-contents.js";
 import { generateTableOfIllustrations } from "./tables-generator.js";
-import { bibliographyEntries, generateBibliography } from "./bibliography-generator.js";
+import { bibliographyEntries, bibliographyEntriesForFiles, generateBibliography } from "./bibliography-generator.js";
+import { resolveCitedSourceFilesForCompileFiles } from "./citation-registry.js";
 import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "./layout-store.js";
 import { injectDocumentLayoutMarkers } from "./document-layout.js";
 import { selectedContentVariant, type ContentVariant } from "./content-variants.js";
@@ -758,7 +759,11 @@ export async function compile(
     }
 
     if (wantBibliography) {
-      const bibliographyText = generateBibliography(bibliographyEntries(app, settings));
+      const contextualCitations = await resolveCitedSourceFilesForCompileFiles(app, settings, filesToCompile);
+      const bibliographyEntriesForCompilation = contextualCitations.hasIndexedOccurrences
+        ? bibliographyEntriesForFiles(app, contextualCitations.sourceFiles)
+        : bibliographyEntries(app, settings);
+      const bibliographyText = generateBibliography(bibliographyEntriesForCompilation);
       if (bibliographyText) {
         parts.push(bibliographyText);
         segments.push({ path: null, text: bibliographyText, frontType: null });
