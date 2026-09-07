@@ -24,10 +24,13 @@
  * après `stripObsidianCruft`, hors de sa portée.
  */
 
+import { joinCompiledSegments } from "../services/compile-export.js";
+
 export type SourceSegment = {
   path: string | null;
   text: string;
   frontType?: string | null;
+  sceneBreakBefore?: boolean;
 };
 
 /** Préfixe volontairement improbable dans un manuscrit, et sur une ligne
@@ -54,9 +57,7 @@ export function markSegments(segments: SourceSegment[]): SourceSegment[] {
  * séparateur doit être celui utilisé par `compile()` pour joindre les
  * segments, faute de quoi les deux chemins de rendu divergeraient. */
 export function markManuscript(segments: SourceSegment[], separator: string): string {
-  return markSegments(segments)
-    .map((seg) => seg.text)
-    .join(separator);
+  return joinCompiledSegments(markSegments(segments), separator);
 }
 
 type MarkerHost = {

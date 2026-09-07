@@ -64,6 +64,43 @@ test("compile : respecte l'ordre, les pages Front et compile: false", async () =
   assert.ok(vault.getAbstractFileByPath("Projet/_Feuillets/Sortie/Manuscrit.md"));
 });
 
+test("compile : le séparateur personnalisé n'apparaît qu'entre deux scènes, jamais après un titre de chapitre", async () => {
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const first = new TFile("Projet/Manuscrit/Chapitre 1/Scène 1.md", "Premier texte.");
+  const second = new TFile("Projet/Manuscrit/Chapitre 1/Scène 2.md", "Deuxième texte.");
+  manuscript.children = [chapter];
+  chapter.parent = manuscript;
+  chapter.children = [first, second];
+  first.parent = chapter;
+  second.parent = chapter;
+
+  const { vault } = createFakeVault([manuscript, chapter, first, second]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: true,
+    insertSceneTitles: false,
+    separator: "***",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const result = await compile(app, settings);
+
+  assert.ok(result);
+  assert.equal(result.manuscript, "# Chapitre 1\n\nPremier texte.\n\n***\n\nDeuxième texte.");
+});
+
 test("compile contextuelle : une portée Feuillet n'exporte que le fichier demandé", async () => {
   const manuscript = new TFolder("Projet/Manuscrit");
   const chapter = new TFolder("Projet/Manuscrit/Chapitre");
