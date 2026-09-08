@@ -28,7 +28,8 @@ import {
   findDefinition,
   findReferences,
 } from "./utils/footnotes.js";
-import { openFileActivating, selectRange } from "./utils/dom.js";
+import { openFileActivating, openFileActivatingWithCursor, selectRange } from "./utils/dom.js";
+import { createQuickDraftFile, isProjectDraft, nextAvailablePromotedDraftPath, ProjectDraftAutoRenamer } from "./services/project-drafts.js";
 import type { FeuilletsEditorSurface } from "./utils/scrivenings-editor-adapter.js";
 import { ScriveningsSegmentEditorAdapter } from "./utils/scrivenings-editor-adapter.js";
 import { NotesView } from "./views/notes-view.js";
@@ -608,9 +609,14 @@ class FeuilletsPlugin extends Plugin {
   } | null;
   declare openTagsModal: (file: TFile) => void;
 
+  /** Service interne : public pour rester compatible avec les contrats de
+   * plugin partiels utilisés par NotesView et DocxReviewView. */
+  projectDraftAutoRenamer: ProjectDraftAutoRenamer | null = null;
+
   async onload() {
     await this.loadSettings();
     setLocale(detectLocale(this.settings as { language?: string }));
+    this.initializeProjectDraftAutoRenamer();
 
     this.registerViews();
     this.registerHoverLinkSource("feuillets", { display: "Feuillets", defaultMod: false });
@@ -840,6 +846,15 @@ class FeuilletsPlugin extends Plugin {
       id: "open-binder",
       name: t("main.cmd.openBinder"),
       callback: () => this.activateSidebar(),
+    });
+    this.addCommand({
+      id: "create-quick-draft",
+      name: t("main.cmd.createQuickDraft"),
+      checkCallback: (checking) => {
+        if (!this.getProjectFolder()) return false;
+        if (!checking) void this.createQuickDraft();
+        return true;
+      },
     });
     this.addCommand({
       id: "open-board",
@@ -1469,6 +1484,17 @@ class FeuilletsPlugin extends Plugin {
     });
   }
 
+  initializeProjectDraftAutoRenamer(): void {
+    const renamer = new ProjectDraftAutoRenamer(this.app, () => this.getProjectFolder());
+    this.projectDraftAutoRenamer = renamer;
+    this.register(() => {
+      renamer.dispose();
+      if (this.projectDraftAutoRenamer === renamer) {
+        this.projectDraftAutoRenamer = null;
+      }
+    });
+  }
+
   registerVaultEvents() {
     const refresh = () => {
       if (!this.isLayoutReady) return;
@@ -1497,6 +1523,7 @@ class FeuilletsPlugin extends Plugin {
     }));
 
     this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (file instanceof TFile) this.projectDraftAutoRenamer?.cancel(file);
       if (this.isLayoutReady) {
         if (this.settings.projectFolder && (file.path === this.settings.projectFolder || this.settings.projectFolder.startsWith(file.path + "/"))) {
           this.settings.projectFolder = "";
@@ -1534,6 +1561,7 @@ class FeuilletsPlugin extends Plugin {
     }));
 
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      if (file instanceof TFile) this.projectDraftAutoRenamer?.handleRename(file, oldPath);
       if (this.isLayoutReady) refresh();
       void this.maybeAutoInitializeResearchFile(file);
       /* Un renommage/déplacement dans le coffre rend obsolètes les chemins
@@ -1559,7 +1587,10 @@ class FeuilletsPlugin extends Plugin {
         this.carnetLifecycle?.refresh();
       }
     }));
-    this.registerEvent(this.app.vault.on("modify", () => this.refreshView(2500)));
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (file instanceof TFile) this.projectDraftAutoRenamer?.schedule(file);
+      this.refreshView(2500);
+    }));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file)));
     this.registerEvent(this.app.workspace.on("layout-change", () => {
@@ -4144,7 +4175,11 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.cannotMoveFolderIntoItself"));
       return;
     }
-    const destPath = normalizePath(`${destFolder.path}/${node.name}`);
+    const projectRoot = this.getProjectFolder();
+    const movingProjectDraft = node instanceof TFile && projectRoot !== null && isProjectDraft(projectRoot, node);
+    const destPath = movingProjectDraft && node.basename === destFolder.name && srcParent.path !== destFolder.path
+      ? nextAvailablePromotedDraftPath(this.app, destFolder, node)
+      : normalizePath(`${destFolder.path}/${node.name}`);
     if (this.app.vault.getAbstractFileByPath(destPath)) {
       new Notice(t("main.notice.alreadyExistsIn", { name: node.name, folder: destFolder.name }));
       return;
@@ -5305,6 +5340,24 @@ class FeuilletsPlugin extends Plugin {
     });
     if (unpinnedEmpty.length > 0) return unpinnedEmpty[0];
     return this.app.workspace.getLeaf(false);
+  }
+
+  async createQuickDraft(): Promise<TFile | null> {
+    const root = this.getProjectFolder();
+    if (!root) {
+      new Notice(t("main.notice.projectFolderNotFound"));
+      return null;
+    }
+    try {
+      const file = await createQuickDraftFile(this.app, root);
+      const leaf = this.getLeafForOpeningFile();
+      await openFileActivatingWithCursor(this.app, leaf, file);
+      return file;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      new Notice(t("main.notice.quickDraftCreateFailed", { message }));
+      return null;
+    }
   }
 
   async activateSidebarView(tabId = "project"): Promise<void> {

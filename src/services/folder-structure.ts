@@ -36,6 +36,7 @@ export const FEUILLETS_AUXILIARY_FOLDERS = {
   backups: "Backups",
   output: "Sortie",
   versions: "Versions",
+  drafts: "Drafts",
 } as const;
 
 export function isStructuredManuscriptRoot(root: TFolder | null | undefined): boolean {

@@ -316,6 +316,7 @@ test("createMinimalProject (non-fiction) : crée Partie 1/Chapitre 1.md, sans Sc
   assert.ok(vault.getAbstractFileByPath("Essai/Manuscrit/Front/Page de titre.md") instanceof TFile);
   assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Recherche") instanceof TFolder);
   assert.ok(vault.getAbstractFileByPath("Essai/_Feuillets/Ressources") instanceof TFolder);
+  assert.equal(vault.getAbstractFileByPath("Essai/_Feuillets/Drafts"), null, "Drafts reste paresseux");
   assert.equal(vault.getAbstractFileByPath("Essai/Manuscrit/Chapitre 1"), null);
   assert.equal(vault.getAbstractFileByPath("Essai/Manuscrit/Partie 1/Scène 1.md"), null);
 

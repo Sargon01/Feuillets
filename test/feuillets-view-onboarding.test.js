@@ -54,7 +54,7 @@ class FakeElement {
   toggleClass(className, on) { on ? this.classes.add(className) : this.classes.delete(className); }
   hide() { this.hidden = true; }
   setText(text) { this.text = String(text); return this; }
-  setAttr() {}
+  setAttr(name, value) { this.attrs ??= {}; this.attrs[name] = value; }
   addEventListener(type, callback) { this.events.set(type, callback); }
   empty() { this.children = []; }
   querySelector() { return null; }
@@ -153,6 +153,7 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
   });
   const contentEl = new FakeElement();
   const createdSheets = [];
+  const quickDrafts = [];
   const plugin = {
     settings,
     getProjectFolder: () => root,
@@ -175,6 +176,7 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
     updateStatusBar() {},
     newSheet: (folder) => { createdSheets.push(folder); },
     newFolder() {},
+    createQuickDraft: () => { quickDrafts.push(true); },
   };
   const view = new FeuilletsView({
     app: {
@@ -211,7 +213,12 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
 
   const rootName = findElements(contentEl, (element) => element.classes.has("feuillets-folder-name"))[0];
   const rootRow = findElements(contentEl, (element) => element.classes.has("feuillets-tree-root"))[0];
-  assert.equal(findElements(contentEl, (element) => element.classes.has("feuillets-folder-add")).length, 0);
+  const quickDraftAdd = findElements(contentEl, (element) => element.classes.has("feuillets-quick-draft-add"));
+  assert.equal(quickDraftAdd.length, 1);
+  assert.equal(quickDraftAdd[0].classes.has("feuillets-folder-add"), true);
+  assert.equal(rootRow.children.includes(quickDraftAdd[0]), true);
+  assert.equal(rootRow.children.indexOf(quickDraftAdd[0]) > rootRow.children.indexOf(rootName), true);
+  assert.equal(quickDraftAdd[0].icon, "plus");
   const originalShowAtMouseEvent = Menu.prototype.showAtMouseEvent;
   const menus = [];
   Menu.prototype.showAtMouseEvent = function showAtMouseEvent() { menus.push(this); return this; };
@@ -223,6 +230,9 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
     view.render = async () => {};
     rootName.events.get("click")({ stopPropagation() {} });
     assert.deepEqual(modalsOpened, ["manage"], "le clic sur le nom racine ouvre ManageProjectsModal");
+    quickDraftAdd[0].events.get("click")({ preventDefault() {}, stopPropagation() {} });
+    assert.equal(quickDrafts.length, 1, "le bouton de brouillon rapide appelle le chemin métier unique");
+    assert.deepEqual(modalsOpened, ["manage"], "le bouton de brouillon rapide n'ouvre pas la modale projet");
     assert.equal(settings.collapsed[root.path], undefined, "le clic ne replie pas la racine");
     rootRow.events.get("contextmenu")({ preventDefault() {} });
     const rootMenu = menus[0];
@@ -321,14 +331,22 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   const dedicace = new TFile("Projet/Manuscrit/FRONT/Dédicace.md");
   const feuillet1 = new TFile("Projet/Manuscrit/TARIKAT/Feuillet 1.md");
   const racine = new TFile("Projet/Manuscrit/Racine.md");
+  const auxiliary = new TFolder("Projet/Manuscrit/_Feuillets");
+  const drafts = new TFolder("Projet/Manuscrit/_Feuillets/Drafts");
+  const draft = new TFile("Projet/Manuscrit/_Feuillets/Drafts/Sans titre.md", "---\nstatus: Brouillon\n---\n\nTexte");
   front.children = [dedicace];
   tarikat.children = [feuillet1];
   dedicace.parent = front;
   feuillet1.parent = tarikat;
-  root.children = [front, tarikat, racine];
+  root.children = [front, tarikat, racine, auxiliary];
   front.parent = root;
   tarikat.parent = root;
   racine.parent = root;
+  auxiliary.parent = root;
+  auxiliary.children = [drafts];
+  drafts.parent = auxiliary;
+  drafts.children = [draft];
+  draft.parent = drafts;
 
   const settings = baseSettings({
     projectFolder: root.path,
@@ -357,12 +375,20 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   };
   const view = new FeuilletsView({
     app: {
-      vault: { getAbstractFileByPath: (path) => path === root.path ? root : null },
+      vault: {
+        getAbstractFileByPath: (path) => new Map([
+          [root.path, root],
+          [auxiliary.path, auxiliary],
+          [drafts.path, drafts],
+          [draft.path, draft],
+        ]).get(path) || null,
+      },
       workspace: {},
     },
     contentEl,
   }, plugin);
-  view.attachDragHandlers = () => {};
+  const attachedDragRows = [];
+  view.attachDragHandlers = (...args) => attachedDragRows.push(args);
   view.updateActiveHighlight = () => {};
 
   const folderNames = () =>
@@ -382,7 +408,12 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   // État initial : tout déplié par défaut (rien dans S.collapsed).
   await realRender(true);
   assert.deepEqual(folderNames(), ["FRONT", "TARIKAT"]);
-  assert.deepEqual(itemNames(), ["Dédicace", "Feuillet 1", "Racine"]);
+  assert.deepEqual(itemNames(), ["Sans titre", "Dédicace", "Feuillet 1", "Racine"]);
+  const renderedDraft = findElements(contentEl, (el) => el.classes.has("feuillets-item"))
+    .find((el) => el.attrs?.["data-path"] === draft.path);
+  assert.ok(renderedDraft, "le brouillon est rendu comme une ligne de fichier normale");
+  assert.equal(renderedDraft.classes.has("feuillets-hidden"), false);
+  assert.ok(attachedDragRows.some(([row]) => row === renderedDraft), "le moteur normal de drag-and-drop est attaché");
 
   view.render = async () => {};
 
@@ -404,7 +435,7 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   settings.collapsed[tarikat.path] = true;
   await realRender(true);
   assert.deepEqual(folderNames(), ["FRONT", "TARIKAT"], "les dossiers restent visibles et cliquables avec repli global");
-  assert.deepEqual(itemNames(), [], "les feuillets sont masqués avec repli global");
+  assert.deepEqual(itemNames(), [], "les feuillets et brouillons sont masqués avec repli global");
 
   // Déplier uniquement FRONT : TARIKAT doit rester replié. LOT FINAL Binder
   // ↔ Continu : le repli/dépli d'un dossier est désormais la responsabilité
@@ -695,9 +726,14 @@ test("Binder : profondeur par variable CSS — un feuillet aligne sa colonne sur
   // déjà existant, aucune nouvelle préférence.
   view.plugin.workspaceFolderPath = front.path;
   await view.render(true);
+  assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-quick-draft-add")).length, 0, "le bouton disparaît en vue isolée");
   assert.equal(folderDepth("Sous-dossier"), "0", "vue isolée : Sous-dossier redevient un dossier de premier niveau");
   assert.equal(itemDepth("Dédicace"), "0", "vue isolée : feuillet racine de la branche isolée, aligné sur Sous-dossier");
   assert.equal(itemDepth("Feuillet"), "1", "vue isolée : un niveau de plus que Sous-dossier, inchangé");
+
+  view.plugin.workspaceFolderPath = undefined;
+  await view.render(true);
+  assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-quick-draft-add")).length, 1, "le bouton réapparaît au retour au projet");
 });
 
 test("Binder : icônes dossier/feuillet natives + liseré de label sur l'icône, jamais un recolorage de ligne", async () => {

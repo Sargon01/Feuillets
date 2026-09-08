@@ -43,6 +43,40 @@ test("sélectionner un dossier retourne tous ses fichiers Markdown", () => {
   assert.deepEqual(files.map((file) => file.path), [first.path, second.path]);
 });
 
+test("les brouillons techniques sont exclus du projet mais exportables par portée fichier", async () => {
+  const root = new TFolder("WARPI");
+  const auxiliary = new TFolder("WARPI/_Feuillets");
+  const drafts = new TFolder("WARPI/_Feuillets/Drafts");
+  const textes = new TFolder("WARPI/TEXTES");
+  const draft = new TFile("WARPI/_Feuillets/Drafts/Sans titre.md", "---\nstatus: Brouillon\n---\n\n");
+  root.children = [auxiliary, textes];
+  auxiliary.parent = root;
+  auxiliary.children = [drafts];
+  drafts.parent = auxiliary;
+  drafts.children = [draft];
+  draft.parent = drafts;
+  textes.parent = root;
+  textes.children = [];
+  const { vault, fileManager } = createFakeVault([root, auxiliary, drafts, draft, textes]);
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const settings = { projectFolder: root.path, orders: {}, folderPositions: {}, compileFileName: "Manuscrit.md" };
+
+  assert.deepEqual(
+    resolveCompileScopeFiles(app, settings, { type: "project", projectRoot: root.path }),
+    []
+  );
+  assert.deepEqual(
+    resolveCompileScopeFiles(app, settings, { type: "file", projectRoot: root.path, path: draft.path }),
+    [draft]
+  );
+
+  await fileManager.renameFile(draft, "WARPI/TEXTES/Sans titre.md");
+  assert.deepEqual(
+    resolveCompileScopeFiles(app, settings, { type: "project", projectRoot: root.path }),
+    [draft]
+  );
+});
+
 test("sélectionner un dossier et l'un de ses fichiers ne crée pas de doublon", () => {
   const { app, chapter, first, second, settings } = createFixture();
 

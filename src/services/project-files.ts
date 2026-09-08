@@ -38,7 +38,7 @@ export async function ensureFolder(app: App, path: string): Promise<TAbstractFil
  * - les 5 sous-dossiers canoniques de Ressources (Images, Modèles, Mises en page, Exports, Ressources internes)
  *
  * Ne crée JAMAIS lors du bootstrap les dossiers lazy :
- * Edition, Journal, Snapshots, Backups, Versions, Sortie.
+ * Edition, Journal, Snapshots, Backups, Versions, Sortie, Drafts.
  */
 function findExistingResearchFolder(app: App, manuscritRoot: TFolder): TFolder | null {
   const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(manuscritRoot, "research"));

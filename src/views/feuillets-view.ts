@@ -12,6 +12,7 @@ import type { BoardModeKey } from "./board-view.js";
 import { t } from "../i18n/index.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
+import { getDraftsFolder, isProjectDraft } from "../services/project-drafts.js";
 import { Menu, MarkdownView, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import { folderPathToWorkspaceScope } from "../services/folder-workspaces.js";
@@ -89,7 +90,7 @@ function asFolder(af: TAbstractFile | null): TFolder {
   return af;
 }
 
-type RenderFileRowOpts = { showPreview?: boolean };
+type RenderFileRowOpts = { showPreview?: boolean; revealProjectDraft?: boolean };
 type RenderFileRow = (
   host: HTMLElement,
   file: TFile,
@@ -116,6 +117,9 @@ type SplitBodyCtx = {
    * FeuilletsView.getEffectiveBinderCompact. Ne JAMAIS relire
    * S.binderCompact directement ici pour cette décision. */
   binderCompact: boolean;
+  /** Dossier Drafts canonique révélé dans une projection Binder, jamais une
+   * racine de compilation ou de statistiques. */
+  revealDraftsFolder?: TFolder | null;
 };
 
 /* _binderMultiSelect est attaché dynamiquement au plugin par
@@ -817,6 +821,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     const workingRoot = folder ? (this.getBinderWorkingRoot(folder) || folder) : null;
     const binderCompactScope = folder && workingRoot && workingRoot.path !== folder.path ? workingRoot.path : null;
     const effectiveBinderCompact = this.getEffectiveBinderCompact(binderCompactScope);
+    const draftsFolder = folder ? getDraftsFolder(this.app, folder) : null;
 
     const header = container.createDiv({ cls: "feuillets-header" });
     const actions = header.createDiv({ cls: "feuillets-actions" });
@@ -958,9 +963,10 @@ export class FeuilletsView extends BaseFeuilletsView {
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
-      const effectiveStatuses = workspaceStatuses(this.app, S, folder)
-        .map((status) => status.name?.trim() || "")
-        .filter(Boolean);
+      const effectiveStatuses = [...new Set([
+        ...workspaceStatuses(this.app, S, folder).map((status) => status.name?.trim() || ""),
+        ...draftFiles.map((file) => toValue(this.fm(file).status).trim()),
+      ])].filter(Boolean);
       for (const s of ["Tous", ...effectiveStatuses, "Sans statut"]) {
         menu.addItem((item) =>
           item
@@ -986,6 +992,9 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       };
       if (folder) walkLabels(folder);
+      for (const file of draftFiles) {
+        for (const label of this.plugin.labelsOf(file)) activeLabels.add(label);
+      }
       const labelsList = workspaceLabels(this.app, S, folder);
       labelsList.forEach((l) => {
         if (l.name) activeLabels.add(l.name);
@@ -1124,9 +1133,14 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const searchTerm = foldAccents((S.binderSearch || "").trim());
     let contentIndex: Map<string, { text: string }> | null = null;
+    const projectFiles = folder ? this.plugin.flattenFiles(folder) : [];
+    const draftFiles = draftsFolder ? this.plugin.flattenFiles(draftsFolder) : [];
+    const binderFiles = [...new Map(
+      [...projectFiles, ...draftFiles].map((file) => [file.path, file])
+    ).values()];
     if (searchTerm && S.binderSearchContent && folder) {
       contentIndex = await this.buildSearchIndex(
-        this.plugin.flattenFiles(folder)
+        binderFiles
       );
       if (this._renderGen !== myGen) return;
     }
@@ -1181,8 +1195,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     };
 
     const numbering = folder ? this.plugin.buildNumbering(folder) : new Map<string, string>();
-    const allFiles = folder ? this.plugin.flattenFiles(folder) : [];
-    const wcCache = await this.plugin.getWordCounts(allFiles);
+    const wcCache = await this.plugin.getWordCounts(binderFiles);
     if (this._renderGen !== myGen) return;
 
     /* Instantané capturé UNE FOIS pour tout ce rendu — strict (§3 du
@@ -1205,13 +1218,18 @@ export class FeuilletsView extends BaseFeuilletsView {
       dragScopeEl,
       opts = {}
     ) => {
+      const revealDraft = opts.revealProjectDraft === true && isProjectDraft(folder, file);
       const hidden =
         file.name.startsWith("_") ||
         parent.name.startsWith("_") ||
         parent.path.includes("/_");
-      if (!hidden && !passesBinderFilter(file)) return false;
+      const visible = revealDraft && draftsFolder && (
+        parent.path === draftsFolder.path || parent.path.startsWith(`${draftsFolder.path}/`)
+      );
+      const effectivelyHidden = hidden && !visible;
+      if (!effectivelyHidden && !passesBinderFilter(file)) return false;
 
-      const role = hidden ? "cachee" : this.plugin.roleOfFile(file);
+      const role = effectivelyHidden ? "cachee" : this.plugin.roleOfFile(file);
       const item = host.createDiv({
         cls:
           role === "scene"
@@ -1243,9 +1261,9 @@ export class FeuilletsView extends BaseFeuilletsView {
       item.createSpan({ cls: "feuillets-folder-chevron is-empty" });
 
       let labelColor: string | null = null;
-      if (!hidden && S.binderShowLabels) {
+      if (!effectivelyHidden && S.binderShowLabels) {
         const labelName = this.plugin.labelOf(file);
-        const labelFolder = parent instanceof TFolder ? parent : file.parent;
+        const labelFolder = revealDraft ? folder : parent instanceof TFolder ? parent : file.parent;
         labelColor = labelName ? this.plugin.labelColor(labelName, labelFolder) : null;
       }
       /* Micro-lot "simplification définitive du Binder", §4 : le liseré de
@@ -1267,12 +1285,12 @@ export class FeuilletsView extends BaseFeuilletsView {
       const body = item.createDiv({ cls: "feuillets-item-body" });
       const nameRow = body.createDiv({ cls: "feuillets-item-name-row" });
 
-      const num = hidden ? "" : `${numbering.get(file.path) || ""} `;
+      const num = effectivelyHidden ? "" : `${numbering.get(file.path) || ""} `;
       nameRow
         .createSpan({ cls: "feuillets-item-name" })
         .setText(`${num}${this.plugin.shortTitleFor(file)}`);
 
-      if (!hidden && searchTerm && contentIndex) {
+      if (!effectivelyHidden && searchTerm && contentIndex) {
         const inTitle = foldAccents(
           `${this.plugin.titleFor(file)} ${this.plugin.shortTitleFor(file)} ${file.basename}`
         ).includes(searchTerm);
@@ -1292,7 +1310,7 @@ export class FeuilletsView extends BaseFeuilletsView {
          disque (voir resolveBinderPreviewField, utils/binder-preview.ts). */
       const effectiveField = resolveBinderPreviewField(S.listPanePreviewField, binderPreviewSemantic);
       const previewExpanded =
-        !hidden
+        !effectivelyHidden
         && !effectiveBinderCompact
         && opts.showPreview === true
         && effectiveField !== "none";
@@ -1377,7 +1395,7 @@ export class FeuilletsView extends BaseFeuilletsView {
            jamais `continu`/`is-continu-member`/setMembers/promotion. Sur
            une ligne cachée, retombe intégralement sur le chemin
            historique ci-dessous (comme les autres branches). */
-        if (!hidden && e.altKey) {
+        if (!effectivelyHidden && e.altKey) {
           e.preventDefault();
           e.stopPropagation();
           this.toggleBinderReorderSelection(file.path, parent.path, i, dragScopeEl);
@@ -1397,9 +1415,9 @@ export class FeuilletsView extends BaseFeuilletsView {
            Rien de tout cela sur une ligne cachée/dossier : `continu` reste
            `null` pour elles, le clic retombe alors intégralement sur le
            chemin historique ci-dessous. */
-        const continu = !hidden ? this.activeContinuMembershipView() : null;
+        const continu = !effectivelyHidden ? this.activeContinuMembershipView() : null;
 
-        if (!hidden && (e.ctrlKey || e.metaKey)) {
+        if (!effectivelyHidden && (e.ctrlKey || e.metaKey)) {
           e.preventDefault();
           e.stopPropagation();
 
@@ -1428,7 +1446,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           return;
         }
 
-        if (!hidden && e.shiftKey && continu) {
+        if (!effectivelyHidden && e.shiftKey && continu) {
           e.preventDefault();
           e.stopPropagation();
 
@@ -1453,7 +1471,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           return;
         }
 
-        if (!hidden && !e.shiftKey && continu) {
+        if (!effectivelyHidden && !e.shiftKey && continu) {
           /* §3-4 : clic simple pendant que Continu est actif — abandonne la
              sélection multiple de travail, ouvre CE fichier seul dans
              EXACTEMENT la même leaf. Aucune nouvelle leaf, jamais de
@@ -1505,7 +1523,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         }, 60);
       });
 
-      if (!hidden) {
+      if (!effectivelyHidden) {
         this.attachDragHandlers(item, item, parent, i, siblings, dragScopeEl);
         item.addEventListener("contextmenu", (e) => {
           e.preventDefault();
@@ -1524,6 +1542,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         renderFileRow,
         projectRoot: folder,
         binderCompact: effectiveBinderCompact,
+        revealDraftsFolder: draftsFolder,
       };
       if (S.binderLayout === "split") {
         this.renderSplitBody(container, folder, hierarchyCtx);
@@ -2170,7 +2189,12 @@ export class FeuilletsView extends BaseFeuilletsView {
     const { S, binderCompact, projectRoot } = ctx;
     /* Double vue : la Library gauche reste toujours l'arborescence globale
        du projet. Le contenu droit suit uniquement le scope partagé. */
-    const activeFolder = this.getBinderWorkingRoot(projectRoot) || projectRoot;
+    const workspaceFolder = this.getBinderWorkingRoot(projectRoot) || projectRoot;
+    const draftsFolder = ctx.revealDraftsFolder instanceof TFolder ? ctx.revealDraftsFolder : null;
+    const draftsSelected = draftsFolder !== null && S.binderSelectedPath === draftsFolder.path;
+    const displayRoot = draftsSelected
+      ? draftsFolder
+      : workspaceFolder;
     const isIsolated = false;
 
     // Sélection structurelle conservée pour les flux historiques de
@@ -2179,7 +2203,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     const selectedInProject = (f: unknown): f is TFolder =>
       f instanceof TFolder && (f.path === projectRoot.path || f.path.startsWith(projectRoot.path + "/"));
     if (!selectedInProject(selected)) selected = projectRoot;
-    const selectedFolder = asFolder(selected);
+    const selectedFolder = !draftsSelected && selectedInProject(selected) ? asFolder(selected) : workspaceFolder;
 
     const split = container.createDiv({ cls: "feuillets-split" });
     split.style.setProperty("--feuillets-tree-w", `${S.binderTreeWidth || 170}px`);
@@ -2225,7 +2249,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     // isolée — §15 : mêmes contrôles/callbacks d'isolation que la vue
     // simple, réutilisés ici plutôt que dupliqués). ----
     const rootRow = treePane.createDiv({ cls: "feuillets-folder-row feuillets-tree-root" });
-    if (activeFolder.path === root.path) rootRow.addClass("is-selected");
+    if (!draftsSelected && workspaceFolder.path === root.path) rootRow.addClass("is-selected");
 
     if (isIsolated) {
       // Retour immédiat au projet complet (même helper que la vue simple).
@@ -2360,9 +2384,11 @@ export class FeuilletsView extends BaseFeuilletsView {
       const draggedPath = this.plugin.dragState.path;
       if (!draggedPath) return;
       const dragged = this.app.vault.getAbstractFileByPath(draggedPath);
-      if (!(dragged instanceof TFolder)) return;
+      const draftFile = dragged instanceof TFile && draftsFolder && isProjectDraft(projectRoot, dragged)
+        && dragged.parent?.path === this.plugin.dragState.parentPath;
+      if (!(dragged instanceof TFolder) && !draftFile) return;
       if (dragged.path === root.path) return;
-      if (dragged.parent?.path === root.path) return;
+      if (dragged instanceof TFolder && dragged.parent?.path === root.path) return;
       e.preventDefault();
       e.dataTransfer!.dropEffect = "move";
       rootRow.addClass("feuillets-dragover");
@@ -2380,11 +2406,14 @@ export class FeuilletsView extends BaseFeuilletsView {
         const draggedPath = drag.multi ? null : drag.path;
         if (!draggedPath) return;
         const dragged = this.app.vault.getAbstractFileByPath(draggedPath);
-        if (!(dragged instanceof TFolder)) return;
+        const draftFile = dragged instanceof TFile && draftsFolder && isProjectDraft(projectRoot, dragged)
+          && dragged.parent?.path === drag.parentPath;
+        if (!(dragged instanceof TFolder) && !draftFile) return;
         if (dragged.path === root.path) return;
-        if (dragged.parent?.path === root.path) return;
+        if (dragged instanceof TFolder && dragged.parent?.path === root.path) return;
         const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
         if (!(srcParent instanceof TFolder)) return;
+        if (dragged instanceof TFile && dragged.parent?.path !== srcParent.path) return;
         await this.plugin.moveNode(dragged, srcParent, root, Number.MAX_SAFE_INTEGER);
         this.plugin.renderAllViews(true);
       })();
@@ -2402,7 +2431,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (depth === 0) row.addClass("is-depth-0");
         row.style.paddingLeft = `${6 + depth * 14}px`;
         row.setAttr("data-path", child.path);
-        if (activeFolder.path === child.path) row.addClass("is-selected");
+        if (!draftsSelected && workspaceFolder.path === child.path) row.addClass("is-selected");
 
         const childFolders = this.plugin.getOrderedChildren(child).filter((c) => c instanceof TFolder);
         const childCollapsed = !!S.collapsed[child.path];
@@ -2456,6 +2485,27 @@ export class FeuilletsView extends BaseFeuilletsView {
       });
     };
     renderTreeFolders(root, 0);
+
+    if (draftsFolder) {
+      const draftsVisible = !ctx.binderFilterActive || ctx.folderHasMatch(draftsFolder);
+      if (draftsVisible) {
+        const draftsRow = treePane.createDiv({
+          cls: "feuillets-folder-row feuillets-binder-research-row feuillets-binder-research-root feuillets-drafts-row",
+        });
+        draftsRow.setAttr("data-path", draftsFolder.path);
+        const icon = draftsRow.createSpan({ cls: "feuillets-cell-icon" });
+        setIcon(icon, "inbox");
+        draftsRow.createSpan({ cls: "feuillets-folder-name" }).setText(t("binder.drafts"));
+        if (draftsSelected) draftsRow.addClass("is-selected");
+        draftsRow.addEventListener("click", () => {
+          void (async () => {
+            S.binderSelectedPath = draftsFolder.path;
+            await this.plugin.saveSettings();
+            void this.render(true);
+          })();
+        });
+      }
+    }
 
     /* ---- Recherche : section historique restaurée dans la double vue
        (e2570de) — renderResearchSection garde la Recherche Projet et place
@@ -2637,8 +2687,8 @@ export class FeuilletsView extends BaseFeuilletsView {
     // §13, ce volet ne représente QUE le contenu du workspace actif. */
     const listBody = listPane.createDiv({ cls: "feuillets-list" });
 
-    const rightHierarchy = this.renderHierarchyContents(listBody, ctx, activeFolder, null);
-    rightHierarchy.render(activeFolder, 0);
+    const rightHierarchy = this.renderHierarchyContents(listBody, ctx, displayRoot, null);
+    rightHierarchy.render(displayRoot, 0);
     if (rightHierarchy.rowsRendered() === 0) {
       listBody
         .createDiv({ cls: "feuillets-empty" })
@@ -2667,7 +2717,8 @@ export class FeuilletsView extends BaseFeuilletsView {
     treePane: HTMLElement,
     ctx: SplitBodyCtx,
     selectedFolder: TFolder,
-    collapseCheckRoot: TFolder | null
+    collapseCheckRoot: TFolder | null,
+    prependRoot: TFolder | null = null
   ): {
     render: (parent: TFolder, depth: number) => void;
     isTruncated: () => boolean;
@@ -2718,13 +2769,19 @@ export class FeuilletsView extends BaseFeuilletsView {
              fichier (plus de `depth + 1` artificiel) — un feuillet et un
              dossier du même niveau alignent désormais leur colonne
              chevron/icône/titre via la MÊME `--feuillets-binder-depth`. */
-          if (renderFileRow(treePane, child, parent, i, siblings, depth, treePane, { showPreview: true })) {
+          if (renderFileRow(treePane, child, parent, i, siblings, depth, treePane, {
+            showPreview: true,
+            revealProjectDraft: !!ctx.revealDraftsFolder,
+          })) {
             treeRowCount++;
           }
           continue;
         }
         if (!(child instanceof TFolder)) continue;
-        const hidden = child.name.startsWith("_") || parent.path.includes("/_");
+        const inDraftsProjection = ctx.revealDraftsFolder !== null && ctx.revealDraftsFolder !== undefined && (
+          child.path === ctx.revealDraftsFolder.path || child.path.startsWith(`${ctx.revealDraftsFolder.path}/`)
+        );
+        const hidden = (child.name.startsWith("_") || parent.path.includes("/_")) && !inDraftsProjection;
         if (hidden) continue;
         if (binderFilterActive && !folderHasMatch(child)) continue;
 
@@ -2746,7 +2803,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         row.setAttr("data-path", child.path);
 
-        if (this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(child.path)) {
+        if (collapseCheckRoot !== null && this.plugin._binderMultiSelect && this.plugin._binderMultiSelect.has(child.path)) {
           row.addClass("is-selected");
         }
 
@@ -2829,8 +2886,19 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
     };
 
+    const render = (parent: TFolder, depth: number): void => {
+      if (
+        prependRoot &&
+        parent === collapseCheckRoot &&
+        (!collapseCheckRoot || !S.collapsed[collapseCheckRoot.path])
+      ) {
+        renderTreeFolders(prependRoot, depth);
+      }
+      renderTreeFolders(parent, depth);
+    };
+
     return {
-      render: renderTreeFolders,
+      render,
       isTruncated: () => treeTruncated,
       rowsRendered: () => treeRowCount,
     };
@@ -2838,6 +2906,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
   renderHierarchyBody(container: HTMLElement, root: TFolder, ctx: SplitBodyCtx): void {
     const { S, projectRoot, binderCompact } = ctx;
+    const draftsFolder = getDraftsFolder(this.app, projectRoot);
 
     const treePane = container.createDiv({ cls: "feuillets-list" });
     if (binderCompact) treePane.addClass("feuillets-compact");
@@ -2962,6 +3031,22 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (e.stopPropagation) e.stopPropagation();
         this.showProjectRootContextMenu(e, treeRoot);
       });
+
+      const quickDraftAdd = rootRow.createSpan({ cls: "feuillets-folder-add feuillets-quick-draft-add" });
+      setIcon(quickDraftAdd, "plus");
+      quickDraftAdd.setAttr("role", "button");
+      quickDraftAdd.setAttr("tabindex", "0");
+      quickDraftAdd.setAttr("aria-label", t("binder.quickDraft.create"));
+      quickDraftAdd.setAttr("title", t("binder.quickDraft.create"));
+      const createQuickDraft = (e: Event) => {
+        e.preventDefault();
+        e.stopPropagation();
+        void this.plugin.createQuickDraft();
+      };
+      quickDraftAdd.addEventListener("click", createQuickDraft);
+      quickDraftAdd.addEventListener("keydown", (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") createQuickDraft(e);
+      });
     }
 
     rootRow.addEventListener("click", (e) => {
@@ -3003,12 +3088,15 @@ export class FeuilletsView extends BaseFeuilletsView {
       const draggedPath = this.plugin.dragState.path;
       if (!draggedPath) return;
       const dragged = this.app.vault.getAbstractFileByPath(draggedPath);
-      // Accepter seulement les dossiers, pas les fichiers
-      if (!(dragged instanceof TFolder)) return;
+      const draftFile = treeRoot.path === projectRoot.path && dragged instanceof TFile && draftsFolder
+        && isProjectDraft(projectRoot, dragged) && dragged.parent?.path === this.plugin.dragState.parentPath;
+      // Accepter les dossiers historiques et les brouillons uniquement sur
+      // la vraie racine du projet.
+      if (!(dragged instanceof TFolder) && !draftFile) return;
       // Ne pas accepter la racine elle-même
       if (dragged.path === treeRoot.path) return;
       // Ne pas accepter un dossier qui est déjà à la racine
-      if (dragged.parent?.path === treeRoot.path) return;
+      if (dragged instanceof TFolder && dragged.parent?.path === treeRoot.path) return;
       e.preventDefault();
       e.dataTransfer!.dropEffect = "move";
       rootRow.addClass("feuillets-dragover");
@@ -3030,15 +3118,19 @@ export class FeuilletsView extends BaseFeuilletsView {
         if (!draggedPath) return;
 
         const dragged = this.app.vault.getAbstractFileByPath(draggedPath);
-        // Accepter seulement les dossiers
-        if (!(dragged instanceof TFolder)) return;
+        const draftFile = treeRoot.path === projectRoot.path && dragged instanceof TFile && draftsFolder
+          && isProjectDraft(projectRoot, dragged) && dragged.parent?.path === drag.parentPath;
+        // Accepter les dossiers historiques et les brouillons uniquement sur
+        // la vraie racine du projet.
+        if (!(dragged instanceof TFolder) && !draftFile) return;
         // Ne pas accepter la racine
         if (dragged.path === treeRoot.path) return;
         // Ne pas accepter un dossier qui est déjà à la racine
-        if (dragged.parent?.path === treeRoot.path) return;
+        if (dragged instanceof TFolder && dragged.parent?.path === treeRoot.path) return;
 
         const srcParent = this.app.vault.getAbstractFileByPath(drag.parentPath);
         if (!(srcParent instanceof TFolder)) return;
+        if (dragged instanceof TFile && dragged.parent?.path !== srcParent.path) return;
 
         // Déplacer le dossier à la racine
         await this.plugin.moveNode(dragged, srcParent, treeRoot, Number.MAX_SAFE_INTEGER);
@@ -3050,7 +3142,13 @@ export class FeuilletsView extends BaseFeuilletsView {
        helper alimente le volet droit de la double vue (renderSplitBody).
        `collapseCheckRoot = treeRoot` : comportement historique inchangé,
        le repli de l'en-tête racine masque ses feuillets directs. */
-    const hierarchy = this.renderHierarchyContents(treePane, ctx, selectedFolder, treeRoot);
+    const hierarchy = this.renderHierarchyContents(
+      treePane,
+      ctx,
+      selectedFolder,
+      treeRoot,
+      treeRoot.path === projectRoot.path ? getDraftsFolder(this.app, projectRoot) : null
+    );
     hierarchy.render(treeRoot, 0);
 
     // Vider la sélection quand on clique dans une zone vide du Binder

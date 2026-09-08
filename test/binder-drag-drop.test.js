@@ -1,5 +1,151 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { TFile, TFolder } from "obsidian";
+import { FeuilletsView } from "../src/views/feuillets-view.js";
+
+class FakeElement {
+  constructor(options = {}) {
+    this.children = [];
+    this.classes = new Set();
+    this.events = new Map();
+    this.attrs = {};
+    this.text = options.text ?? "";
+    this.style = { setProperty() {} };
+    if (options.cls) this.addClass(options.cls);
+  }
+  createEl(tag, options = {}) { const child = new FakeElement(options); child.tag = tag; this.children.push(child); return child; }
+  createDiv(options = {}) { return this.createEl("div", options); }
+  createSpan(options = {}) { return this.createEl("span", options); }
+  addClass(names) { for (const name of String(names).split(" ")) if (name) this.classes.add(name); }
+  removeClass(name) { this.classes.delete(name); }
+  toggleClass(name, enabled) { if (enabled) this.addClass(name); else this.removeClass(name); }
+  setText(value) { this.text = String(value); return this; }
+  setAttr(name, value) { this.attrs[name] = value; }
+  getAttr(name) { return this.attrs[name] ?? null; }
+  addEventListener(name, callback) { this.events.set(name, callback); }
+  empty() { this.children = []; }
+  hide() { this.hidden = true; }
+  show() { this.hidden = false; }
+  querySelector() { return null; }
+  querySelectorAll() { return []; }
+}
+
+function findElements(element, predicate) {
+  const found = [];
+  for (const child of element.children) {
+    if (predicate(child)) found.push(child);
+    found.push(...findElements(child, predicate));
+  }
+  return found;
+}
+
+function createIntegrationFixture(draftPath) {
+  const root = new TFolder("WARPI");
+  const auxiliary = new TFolder("WARPI/_Feuillets");
+  const drafts = new TFolder("WARPI/_Feuillets/Drafts");
+  const notes = new TFolder("WARPI/_Feuillets/Drafts/Notes");
+  const target = new TFolder("WARPI/TEXTES");
+  const direct = new TFile("WARPI/_Feuillets/Drafts/Sans titre.md", "---\nstatus: Brouillon\n---\n\n");
+  const nested = new TFile("WARPI/_Feuillets/Drafts/Notes/Imbrique.md", "---\nstatus: Brouillon\n---\n\n");
+  auxiliary.parent = root;
+  drafts.parent = auxiliary;
+  notes.parent = drafts;
+  target.parent = root;
+  direct.parent = drafts;
+  nested.parent = notes;
+  root.children = [auxiliary, target];
+  auxiliary.children = [drafts];
+  drafts.children = [notes, direct];
+  notes.children = [nested];
+  target.children = [];
+
+  const entries = new Map([
+    [root.path, root], [auxiliary.path, auxiliary], [drafts.path, drafts],
+    [notes.path, notes], [target.path, target], [direct.path, direct], [nested.path, nested],
+  ]);
+  const settings = {
+    projectFolder: root.path, binderLayout: "tree", binderSelectedPath: root.path,
+    binderCompact: false, binderTreeWidth: 170, collapsed: {}, orders: {}, folderPositions: {},
+  };
+  const calls = { moveNode: [], renderAllViews: [] };
+  const plugin = {
+    settings,
+    dragState: null,
+    getProjectFolder: () => root,
+    getResearchRoot: () => null,
+    getVersionsRoot: () => null,
+    getOrderedChildren: (folder) => folder.children,
+    flattenFiles: () => [],
+    getWordCounts: async () => new Map(),
+    buildNumbering: () => new Map(),
+    fmOf: () => ({}), titleFor: (file) => file.basename, shortTitleFor: (file) => file.basename,
+    labelOf: () => "", labelsOf: () => [], projectDisplayName: () => "WARPI", roleOfFile: () => "scene",
+    saveSettings: async () => {}, generateCanvasBoard() {}, activateBoard() {}, updateStatusBar() {},
+    adjustSidebarWidth() {}, getLeafForOpeningFile: () => ({ openFile: async () => {} }),
+    getLinkedResearchFolders: () => [], getLinkedResearchFolder: () => null,
+    setLinkedResearchFolder: async () => {}, removeLinkedResearchFolder: async () => {},
+    renderAllViews(force) { calls.renderAllViews.push(force); },
+    moveNode: async (...args) => { calls.moveNode.push(args); },
+  };
+  const contentEl = new FakeElement();
+  const view = new FeuilletsView({
+    app: { vault: { getAbstractFileByPath: (path) => entries.get(path) || null }, workspace: {} },
+    contentEl,
+  }, plugin);
+  view.attachDragHandlers = () => {};
+  view.updateActiveHighlight = () => {};
+  return { root, drafts, notes, target, direct, nested, settings, calls, plugin, view, contentEl, draftPath };
+}
+
+function eventSpy() {
+  return { prevented: false, preventDefault() { this.prevented = true; }, dataTransfer: { dropEffect: "" } };
+}
+
+function rootRowOf(fixture) {
+  return findElements(fixture.contentEl, (element) => element.classes.has("feuillets-tree-root"))[0];
+}
+
+function flush() { return new Promise((resolve) => setTimeout(resolve, 0)); }
+
+test("dragover/drop réel accepte un brouillon direct vers la racine", async () => {
+  const fixture = createIntegrationFixture("direct");
+  fixture.plugin.dragState = { path: fixture.direct.path, parentPath: fixture.drafts.path };
+  await fixture.view.render(true);
+  const rootRow = rootRowOf(fixture);
+  const over = eventSpy();
+  rootRow.events.get("dragover")(over);
+  assert.equal(over.prevented, true);
+  const drop = eventSpy();
+  rootRow.events.get("drop")(drop);
+  await flush();
+  assert.deepEqual(fixture.calls.moveNode, [[fixture.direct, fixture.drafts, fixture.root, Number.MAX_SAFE_INTEGER]]);
+});
+
+test("dragover/drop réel accepte un brouillon imbriqué vers la racine", async () => {
+  const fixture = createIntegrationFixture("nested");
+  fixture.plugin.dragState = { path: fixture.nested.path, parentPath: fixture.notes.path };
+  await fixture.view.render(true);
+  const rootRow = rootRowOf(fixture);
+  const over = eventSpy();
+  rootRow.events.get("dragover")(over);
+  assert.equal(over.prevented, true);
+  rootRow.events.get("drop")(eventSpy());
+  await flush();
+  assert.deepEqual(fixture.calls.moveNode, [[fixture.nested, fixture.notes, fixture.root, Number.MAX_SAFE_INTEGER]]);
+});
+
+test("dragover/drop réel refuse un parentPath forgé", async () => {
+  const fixture = createIntegrationFixture("nested");
+  fixture.plugin.dragState = { path: fixture.nested.path, parentPath: fixture.drafts.path };
+  await fixture.view.render(true);
+  const rootRow = rootRowOf(fixture);
+  const over = eventSpy();
+  rootRow.events.get("dragover")(over);
+  assert.equal(over.prevented, false);
+  rootRow.events.get("drop")(eventSpy());
+  await flush();
+  assert.equal(fixture.calls.moveNode.length, 0);
+});
 
 test("Drag & drop du Binder avec sélection multiple", async (t) => {
   await t.test("déplacement d'un fichier seul", () => {

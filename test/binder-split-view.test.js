@@ -122,7 +122,7 @@ function makeVault(allFiles) {
 /** Construit un plugin minimal + une vue, sur un projet NEFES à plat, prêt
  * pour renderSplitBody. `vaultChildren` peuple `app.vault.getRoot().children`
  * (mini-navigateur Vault) séparément de l'arbre du projet. */
-function createSplitFixture({ settingsOverrides = {}, vaultChildren = [], researchRoot = null, versionsRoot = null, linkedResearch = [] } = {}) {
+function createSplitFixture({ settingsOverrides = {}, vaultChildren = [], researchRoot = null, versionsRoot = null, linkedResearch = [], draftFiles = [], withDrafts = false } = {}) {
   const root = new TFolder("NEFES");
   const front = new TFolder("NEFES/Front");
   const subhanallah = new TFolder("NEFES/Subhanallah");
@@ -145,6 +145,16 @@ function createSplitFixture({ settingsOverrides = {}, vaultChildren = [], resear
   const vaultRoot = new TFolder("");
   vaultRoot.name = "";
   vaultRoot.children = vaultChildren;
+  const auxiliary = withDrafts || draftFiles.length > 0 ? new TFolder("NEFES/_Feuillets") : null;
+  const drafts = withDrafts || draftFiles.length > 0 ? new TFolder("NEFES/_Feuillets/Drafts") : null;
+  if (auxiliary && drafts) {
+    auxiliary.parent = root;
+    drafts.parent = auxiliary;
+    auxiliary.children = [drafts];
+    drafts.children = draftFiles;
+    for (const file of draftFiles) file.parent = drafts;
+    root.children.push(auxiliary);
+  }
 
   const allFiles = new Map([
     ["NEFES", root],
@@ -157,6 +167,11 @@ function createSplitFixture({ settingsOverrides = {}, vaultChildren = [], resear
     ["NEFES/El Hamdulillah/Feuillet2.md", feuillet2],
     ["", vaultRoot],
   ]);
+  if (auxiliary && drafts) {
+    allFiles.set(auxiliary.path, auxiliary);
+    allFiles.set(drafts.path, drafts);
+    for (const file of draftFiles) allFiles.set(file.path, file);
+  }
   for (const f of vaultChildren) allFiles.set(f.path, f);
 
   const settings = baseSettings({ projectFolder: root.path, binderSelectedPath: root.path, ...settingsOverrides });
@@ -215,7 +230,7 @@ function createSplitFixture({ settingsOverrides = {}, vaultChildren = [], resear
   view.attachDragHandlers = (...args) => calls.attachDragHandlers.push(args);
   view.updateActiveHighlight = () => {};
 
-  return { view, contentEl, plugin, settings, root, front, subhanallah, elHamdulillah, allahuEkber, chapitreX, feuillet1, feuillet2, vaultRoot, calls };
+  return { view, contentEl, plugin, settings, root, front, subhanallah, elHamdulillah, allahuEkber, chapitreX, feuillet1, feuillet2, vaultRoot, drafts, calls };
 }
 
 /** Fixture "Blog" du CORRECTIF FINAL (§31 et suivants) :
@@ -634,19 +649,64 @@ test('le "+" racine propose Nouveau dossier… et Importer un plan…', async ()
   const rootRow = findAll(contentEl, (el) => el.classes.has("feuillets-tree-root"))[0];
   const addBtn = findAll(rootRow, (el) => el.classes.has("feuillets-folder-add"))[0];
   assert.ok(addBtn);
+  assert.equal(addBtn.classes.has("feuillets-quick-draft-add"), false);
 
   const menus = [];
   const original = Menu.prototype.showAtMouseEvent;
   Menu.prototype.showAtMouseEvent = function () { menus.push(this); };
   try {
     addBtn.events.get("click")({ preventDefault() {}, stopPropagation() {} });
+    assert.equal(menus.length, 1);
     const menu = menus[0];
+    assert.ok(menu.items.some((i) => i.title === t("binder.newFolder")));
+    assert.ok(menu.items.some((i) => i.title === t("binder.importOutline")));
     menu.items.find((i) => i.title === t("binder.newFolder")).callback();
     assert.deepEqual(calls.newFolder, [root]);
     assert.ok(menu.items.some((i) => i.title === t("binder.importOutline")));
   } finally {
     Menu.prototype.showAtMouseEvent = original;
   }
+});
+
+test("les brouillons sont une racine virtuelle du volet droit sans modifier le workspace", async () => {
+  const draft = new TFile("NEFES/_Feuillets/Drafts/Sans titre.md", "---\nstatus: Brouillon\n---\n\n");
+  const fixture = createSplitFixture({ draftFiles: [draft] });
+  fixture.plugin.workspaceFolderPath = fixture.elHamdulillah.path;
+  await fixture.view.render(true);
+
+  const draftsRow = findAll(fixture.contentEl, (el) => el.classes.has("feuillets-drafts-row"))[0];
+  assert.ok(draftsRow);
+  assert.equal(findAll(draftsRow, (el) => el.classes.has("feuillets-folder-add")).length, 0);
+  assert.equal(findAll(draftsRow, (el) => el.classes.has("feuillets-folder-chevron")).length, 0);
+  assert.equal(draftsRow.getAttr("aria-expanded"), null);
+  assert.ok(draftsRow.classes.has("feuillets-binder-research-row"));
+  assert.ok(draftsRow.classes.has("feuillets-binder-research-root"));
+  assert.equal(findAll(draftsRow, (el) => el.classes.has("feuillets-cell-icon")).length, 1);
+  assert.equal(findAll(draftsRow, (el) => el.classes.has("feuillets-folder-name"))[0].text, t("binder.drafts"));
+  draftsRow.events.get("click")();
+  await flush();
+  assert.equal(fixture.settings.binderSelectedPath, "NEFES/_Feuillets/Drafts");
+  assert.equal(fixture.plugin.workspaceFolderPath, fixture.elHamdulillah.path);
+  const draftRow = findAll(fixture.contentEl, (el) => el.classes.has("feuillets-item"))
+    .find((el) => findAll(el, (child) => child.classes.has("feuillets-item-name"))[0]?.text.trim() === "Sans titre");
+  assert.ok(draftRow);
+  assert.equal(draftRow.classes.has("feuillets-hidden"), false);
+});
+
+test("la racine virtuelle Brouillons existe même vide et reste après le manuscrit", async () => {
+  const researchRoot = new TFolder("_Recherche");
+  researchRoot.children = [];
+  const fixture = createSplitFixture({ withDrafts: true, researchRoot });
+  await fixture.view.render(true);
+  const treePane = findAll(fixture.contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const draftsRow = findAll(treePane, (el) => el.classes.has("feuillets-drafts-row"))[0];
+  assert.ok(draftsRow);
+  assert.equal(draftsRow.getAttr("aria-expanded"), null);
+  assert.equal(treePane.children.indexOf(draftsRow) > 0, true);
+  const researchRow = findAll(treePane, (el) => el.classes.has("feuillets-binder-research-root"))
+    .find((row) => findAll(row, (el) => el.classes.has("feuillets-folder-name"))[0]?.text === "Recherche");
+  assert.ok(researchRow);
+  assert.equal(treePane.children.indexOf(draftsRow) < treePane.children.indexOf(researchRow), true);
 });
 
 test('le "+" d\'un dossier propose Nouveau sous-dossier… et Nouveau feuillet ici (sélectionne puis newSheet)', async () => {
