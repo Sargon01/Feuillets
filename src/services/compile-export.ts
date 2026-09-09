@@ -83,7 +83,7 @@ export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", 
 /** @typedef {{ filPlaceholders: Record<string, string>; filOrigins: Record<string, string>; filResolved: string[] }} NarrativeThreadState */
 
 /** @typedef {{ name: string; fileName: string; folderTitles: boolean; chapterTitles: boolean; sceneTitles: boolean; separator: string; [key: string]: unknown }} PresetConfig */
-type CompileSegment = { path: string | null; text: string; renderText?: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part" };
+type CompileSegment = { path: string | null; text: string; renderText?: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part"; sceneBreakBefore?: boolean };
 /** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[] }} CompileResult */
 /** @typedef {{ markdown: string; title: string; author: string; sourcePath: string; segments?: CompileSegment[] }} ExportContext */
 
@@ -143,6 +143,28 @@ export function resolvedFileTitleMarkdown(
   return lines.length ? lines.join("\n\n") : null;
 }
 
+/** Pads the separator with blank lines so it (and the FEUILLETS-SRC marker
+ * that follows it) forms its own Markdown paragraph, instead of gluing onto
+ * neighboring text. (atendev) */
+function normalizeCompileSeparator(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed ? `\n\n${trimmed}\n\n` : "\n\n";
+}
+
+/** Joins compiled segments for display/export: the custom separator only
+ * between two consecutive scenes (`sceneBreakBefore`, set by the scene loop
+ * in `walk()`), a plain blank line everywhere else — a chapter/part title,
+ * a front page, or a generated block never gets the scene separator glued
+ * next to it. (atendev) */
+export function joinCompiledSegments(segments: { text: string; sceneBreakBefore?: boolean }[], separator: string): string {
+  let out = "";
+  for (let i = 0; i < segments.length; i++) {
+    if (i > 0) out += segments[i].sceneBreakBefore ? separator : "\n\n";
+    out += segments[i].text;
+  }
+  return out;
+}
+
 export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
   const S = settings;
   const base: PresetConfig = {
@@ -154,10 +176,11 @@ export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
     separator: toValue(S.separator),
   };
   const idx = typeof S.activePreset === "number" ? S.activePreset : -1;
-  if (idx >= 0 && Array.isArray(S.compilePresets) && S.compilePresets[idx]) {
-    return Object.assign({}, base, S.compilePresets[idx] as Record<string, unknown>);
-  }
-  return base;
+  const merged = idx >= 0 && Array.isArray(S.compilePresets) && S.compilePresets[idx]
+    ? Object.assign({}, base, S.compilePresets[idx] as Record<string, unknown>)
+    : base;
+  merged.separator = normalizeCompileSeparator(toValue(merged.separator));
+  return merged;
 }
 
 /** Nom de base (sans extension) de la sortie compilée : résolu ICI, UNE
@@ -549,6 +572,27 @@ export async function compile(
     return true;
   };
 
+  /** Pushes a run of scene files from the same chapter folder, marking every
+   * scene but the first with `sceneBreakBefore` — the scene separator belongs
+   * between scenes, never between a chapter/part title and its first scene
+   * (atendev). */
+  const pushSceneSequence = async (
+    files: TFile[],
+    depth: number,
+    targetParts: string[] = parts,
+    targetSegments: CompileSegment[] = segments
+  ): Promise<void> => {
+    let previousWasScene = false;
+    for (const sc of files) {
+      const before = targetSegments.length;
+      await pushFile(sc, "scene", depth, targetParts, targetSegments);
+      if (targetSegments.length > before) {
+        if (previousWasScene) targetSegments[targetSegments.length - 1].sceneBreakBefore = true;
+        previousWasScene = true;
+      }
+    }
+  };
+
   /* Ensemble des dossiers autorisés à produire un titre, selon la portée.
      - file       : ensemble vide — aucun titre de dossier.
      - folder     : le dossier cible et ses sous-dossiers qui contiennent
@@ -632,9 +676,7 @@ export async function compile(
           if (role === "partie") {
             await walk(child, depth + 1, folderParts, folderSegments);
           } else {
-            for (const sc of flattenFiles(app, settings, child)) {
-              await pushFile(sc, "scene", depth + 1, folderParts, folderSegments);
-            }
+            await pushSceneSequence(flattenFiles(app, settings, child), depth + 1, folderParts, folderSegments);
           }
           if (folderSegments.length > 0) {
             const showTitle = role === "partie" ? P.folderTitles : P.chapterTitles;
@@ -652,9 +694,7 @@ export async function compile(
           await walk(child, depth + 1);
         } else {
           if (P.chapterTitles && !isFrontFolder && titleAllowed) { push(`${level} ${child.name}`, null, null); segments[segments.length - 1].startsWithGeneratedTitle = true; }
-          for (const sc of flattenFiles(app, settings, child)) {
-            await pushFile(sc, "scene", depth + 1);
-          }
+          await pushSceneSequence(flattenFiles(app, settings, child), depth + 1);
         }
       } else {
         await pushFile(child, roleOfFile(app, settings, child), depth, targetParts, targetSegments);
@@ -824,7 +864,7 @@ export async function compile(
     parts.length = 0;
     parts.push(...renumberedParts);
   }
-  const manuscript = parts.join(P.separator || "\n\n");
+  const manuscript = joinCompiledSegments(segments, P.separator);
   if (options?.writeOutput === false) {
     return { outPath: "", manuscript, segments };
   }

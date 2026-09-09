@@ -17,7 +17,7 @@ import { hasRemainingDocumentLayoutMarker } from "../services/document-layout.js
 import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "../services/layout-store.js";
 import { applyPandocCitationPreview } from "../services/pandoc-citation-preview.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
-import { activePresetConfig, compile, resolvedFileTitleMarkdown } from "../services/compile-export.js";
+import { activePresetConfig, compile, joinCompiledSegments, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { selectedContentVariant } from "../services/content-variants.js";
 import { runExportWorkflow } from "../services/export-workflow.js";
 import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
@@ -68,6 +68,7 @@ type PreviewCompileSegment = {
    * recalculé via titleLeadingSkipFor) pour les segments issus de compile(),
    * qui ne portent pas cette information. */
   titleBlockCount?: number;
+  sceneBreakBefore?: boolean;
 };
 
 type PreviewCompileResult = {
@@ -1231,7 +1232,7 @@ export class PreviewView extends ItemView {
     const separator = activePresetConfig(settings).separator || "\n\n";
     const firstScene = segments.find((seg) => seg.path)?.path;
     const source: PreviewSource = {
-      markdown: segments.map((seg) => seg.text).join(separator),
+      markdown: joinCompiledSegments(segments, separator),
       segments,
       sourcePath: firstScene || scope.path,
       title: scope.name,
@@ -1304,6 +1305,12 @@ export class PreviewView extends ItemView {
     const segments: PreviewCompileSegment[] = [];
 
     const walk = async (current: TFolder): Promise<void> => {
+      /* Le séparateur de scène ne doit apparaître qu'ENTRE deux scènes
+         consécutives du même dossier — jamais juste après un titre de
+         chapitre/partie. Réinitialisé à chaque sous-dossier rencontré
+         (nouvelle unité structurelle), voir joinCompiledSegments côté
+         compile() pour la même règle (atendev). */
+      let previousWasScene = false;
       for (const child of getOrderedChildren(this.app, settings, current)) {
         if (child instanceof TFolder) {
           if (isFrontMatter(this.app, settings, child)) continue; // pages liminaires : hors sujet ici
@@ -1317,6 +1324,7 @@ export class PreviewView extends ItemView {
             segments.push({ text: `${"#".repeat(headingLevelOf(depthOf(this.app, settings, child)))} ${child.name}`, path: null, frontType: null });
           }
           await walk(child);
+          previousWasScene = false;
         } else if (child instanceof TFile && child.extension === "md") {
           if (isFrontMatter(this.app, settings, child)) continue;
           if (fmOf(this.app, child).compile === false) continue;
@@ -1336,7 +1344,9 @@ export class PreviewView extends ItemView {
             // mode Partie) : autant de blocs de titre artificiels que de
             // paragraphes séparés par une ligne vide.
             titleBlockCount: title ? title.split("\n\n").length : 0,
+            sceneBreakBefore: previousWasScene,
           });
+          previousWasScene = true;
         }
       }
     };
