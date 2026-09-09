@@ -191,6 +191,39 @@ test("exportOdt : aucune section Notes si le manuscrit n'a aucune note", async (
   }
 });
 
+test("exportOdt : documentSimple conserve le contenu écrit sans page de titre générique", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("h1", "Titre saisi"));
+    container.appendChild(element("p", "Corps du discours"));
+  });
+  try {
+    const bytes = await exportOdt({}, { exportTemplate: "documentSimple" }, {
+      markdown: "# Titre saisi\n\nCorps du discours", title: "Titre automatique interdit",
+      author: "Auteur automatique interdit", sourcePath: "Source.md", segments: [],
+    });
+    const zip = await JSZip.loadAsync(bytes);
+    const content = await zip.file("content.xml").async("string");
+    const styles = await zip.file("styles.xml").async("string");
+    assert.match(content, /Titre saisi/);
+    assert.match(content, /Corps du discours/);
+    assert.doesNotMatch(content, /Titre automatique interdit|Auteur automatique interdit/);
+    assert.match(styles, /fo:font-name="Times New Roman"/);
+    assert.match(styles, /fo:font-size="14pt"/);
+    assert.match(styles, /fo:line-height="150%"/);
+    assert.match(styles, /fo:text-align="justify"/);
+    assert.match(styles, /fo:text-indent="0pt"/);
+    assert.match(styles, /fo:margin-bottom="10pt"/);
+    assert.doesNotMatch(styles, /<style:header>/);
+    assert.match(styles, /<style:footer>/);
+    assert.match(styles, /<text:page-number\/>/);
+    assert.doesNotMatch(styles, /<text:page-count\/>|Page|sur/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
 /* Chantier « Compilation professionnelle — Lot 2 » (fidélité visuelle
  * aperçu/export) : avant ce lot, l'ODT ignorait complètement le modèle
  * d'export choisi (font/taille/interligne/marges toujours Times 12pt,

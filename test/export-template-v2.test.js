@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
+import { BUILTIN_TEMPLATE_CATALOG, EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 import { createDefaultExportTemplateV2, normalizeLegacyTemplate, normalizeV2Template, shouldGenerateGenericTitlePage } from "../src/services/export-template-v2.js";
 
 test("shouldGenerateGenericTitlePage : respecte le profil explicite et la page Front", () => {
@@ -26,6 +26,46 @@ test("createDefaultExportTemplateV2 : produit le gabarit document neutre complet
     firstLineIndentPt: 0, paragraphSpacingBeforePt: 0, paragraphSpacingAfterPt: 0, hyphenation: false,
   });
   assert.deepEqual(result.headings, { h1: {}, h2: {}, h3: {}, h4: {}, h5: {}, h6: {} });
+});
+
+test("documentSimple : expose sa définition documentaire complète", () => {
+  const template = EXPORT_TEMPLATES.documentSimple;
+  assert.equal(template.profile, "document");
+  assert.deepEqual(template.marginsCm, { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 });
+  assert.equal(template.fontFamily, "'Times New Roman', Times, serif");
+  assert.equal(template.fontSizePt, 14);
+  assert.equal(template.lineHeight, 1.5);
+  assert.equal(template.align, "justify");
+  assert.equal(template.indent, false);
+  assert.equal(template.paragraphSpacingPt, 0);
+  assert.equal(template.paragraphSpacingAfterPt, 10);
+  assert.equal(template.hyphenation, true);
+  assert.deepEqual(template.columns, { count: 1, gutterPt: 0 });
+  assert.equal(template.mirrorMargins, false);
+  assert.deepEqual(template.header, { enabled: false, left: "", center: "", right: "", distanceCm: 0.75, bodyGapPt: 3, differentOddEven: false });
+  assert.deepEqual(template.footer, { enabled: true, left: "", center: "{page}", right: "", distanceCm: 0.75, bodyGapPt: 3 });
+  assert.deepEqual(template.firstPage, { hideHeader: false, pageNumberPosition: "center" });
+  assert.deepEqual(template.titlePage, { styles: {} });
+  assert.deepEqual(template.headings, {
+    h1: { fontFamily: "'Times New Roman', Times, serif", fontSizePt: 18, bold: true, align: "center", marginTopPt: 0, marginBottomPt: 14, pageBreakBefore: false },
+    h2: { fontFamily: "'Times New Roman', Times, serif", fontSizePt: 16, bold: true, align: "left", marginTopPt: 14, marginBottomPt: 7, pageBreakBefore: false },
+    h3: { fontFamily: "'Times New Roman', Times, serif", fontSizePt: 14, bold: true, italic: true, align: "left", marginTopPt: 10, marginBottomPt: 5, pageBreakBefore: false },
+    h4: { pageBreakBefore: false }, h5: { pageBreakBefore: false }, h6: { pageBreakBefore: false },
+  });
+  assert.deepEqual([...BUILTIN_TEMPLATE_CATALOG], ["classique", "romanSimple", "documentSimple", "moderne", "apa", "these"]);
+});
+
+test("normalizeLegacyTemplate : les bandes explicites du gabarit priment les réglages legacy", () => {
+  const result = normalizeLegacyTemplate(EXPORT_TEMPLATES.documentSimple, {
+    pdfEnableHeaders: true, pdfHeaderLeft: "Legacy", pdfHeaderCenter: "Legacy", pdfHeaderRight: "Legacy",
+    pdfEnableFooters: false, pdfFooterLeft: "Legacy", pdfFooterCenter: "Legacy", pdfFooterRight: "Legacy",
+    pdfHideFirstPageHeader: true, pdfPageNumberPosition: "right",
+  });
+  assert.equal(result.header.enabled, false);
+  assert.deepEqual([result.header.left, result.header.center, result.header.right], ["", "", ""]);
+  assert.equal(result.footer.enabled, true);
+  assert.deepEqual([result.footer.left, result.footer.center, result.footer.right], ["", "{page}", ""]);
+  assert.deepEqual(result.firstPage, { hideHeader: false, pageNumberPosition: "center" });
 });
 
 test("normalizeLegacyTemplate : classique devient un manuscrit V2", () => {

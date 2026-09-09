@@ -160,6 +160,57 @@ test("export EPUB : le CSS du gabarit choisi (police, taille, interligne) est bi
   }
 });
 
+test("export EPUB : documentSimple conserve le H1 écrit sans titre générique", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(el("h1", "Titre saisi"));
+    container.appendChild(el("p", "Corps du discours"));
+  });
+  try {
+    const bytes = await exportEpub({}, { exportTemplate: "documentSimple" }, {
+      markdown: "# Titre saisi\n\nCorps du discours", title: "Titre automatique interdit",
+      author: "Auteur automatique interdit", sourcePath: "Source.md", segments: [],
+    });
+    const html = await chaptersXhtml(bytes);
+    const body = html.slice(html.indexOf("<body>"), html.indexOf("</body>"));
+    assert.match(body, /Titre saisi/);
+    assert.match(body, /Corps du discours/);
+    assert.doesNotMatch(body, /Titre automatique interdit|Auteur automatique interdit/);
+    assert.match(html, /font-family: 'Times New Roman', Times, serif/);
+    assert.match(html, /font-size: 14pt/);
+    assert.match(html, /line-height: 1\.5/);
+    assert.match(html, /text-align: justify/);
+    assert.match(html, /margin: 0pt 0 10pt;/);
+    for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"]) assert.doesNotMatch(html, new RegExp(`${level} \\{[^}]*break-before`));
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("export EPUB : une page Front écrite reste conservée sans doublon", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(el("div", "Page Front écrite", { class: "feuillets-frontpage feuillets-frontpage-titre" }));
+    container.appendChild(el("h1", "Titre saisi"));
+  });
+  try {
+    const bytes = await exportEpub({}, { exportTemplate: "documentSimple" }, {
+      markdown: "Page Front écrite\n\n# Titre saisi", title: "Titre automatique interdit",
+      author: "Auteur automatique interdit", sourcePath: "Source.md",
+      segments: [{ text: "Page Front écrite", frontType: "titre" }],
+    });
+    const html = await chaptersXhtml(bytes);
+    const body = html.slice(html.indexOf("<body>"), html.indexOf("</body>"));
+    assert.match(body, /feuillets-frontpage-titre/);
+    assert.match(body, /Page Front écrite/);
+    assert.doesNotMatch(body, /Titre automatique interdit|Auteur automatique interdit/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
 test("CSS EPUB V2 : corps, retrait, espacements, césure, titres et page de titre sont reflowables", () => {
   const template = normalizeLegacyTemplate({
     key: "epub", label: "EPUB", fontFamily: "Georgia", fontSizePt: 13, lineHeight: 1.4, align: "justify",

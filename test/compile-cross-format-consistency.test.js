@@ -410,3 +410,47 @@ test("compile -> DOCX et EPUB : mêmes titres de chapitre, même texte, même no
     restoreDom();
   }
 });
+
+test("documentSimple : DOCX, EPUB et ODT conservent le contenu écrit sans titre générique", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(el("h1", "Titre saisi"));
+    container.appendChild(el("p", "Corps du discours"));
+  });
+  try {
+    const input = {
+      markdown: "# Titre saisi\n\nCorps du discours",
+      title: "Titre automatique interdit", author: "Auteur automatique interdit",
+      sourcePath: "Source.md", segments: [],
+    };
+    const settings = { exportTemplate: "documentSimple" };
+    const [docx, epub, odt] = await Promise.all([
+      exportDocx({}, settings, input), exportEpub({}, settings, input), exportOdt({}, settings, input),
+    ]);
+    const docxZip = await JSZip.loadAsync(docx);
+    const documentXml = await docxZip.file("word/document.xml").async("string");
+    const stylesXml = await docxZip.file("word/styles.xml").async("string");
+    const footerXml = (await docxZip.file("word/footer1.xml")?.async("string")) || "";
+    const headerXml = (await docxZip.file("word/header1.xml")?.async("string")) || "";
+    const odtZip = await JSZip.loadAsync(odt);
+    const odtXml = await odtZip.file("content.xml").async("string");
+    const epubZip = await JSZip.loadAsync(epub);
+    const epubXml = await epubZip.file("OEBPS/chapitres.xhtml").async("string");
+    const epubBody = epubXml.slice(epubXml.indexOf("<body>"), epubXml.indexOf("</body>"));
+
+    for (const output of [documentXml, odtXml, epubBody]) {
+      assert.match(output, /Titre saisi/);
+      assert.match(output, /Corps du discours/);
+      assert.doesNotMatch(output, /Titre automatique interdit|Auteur automatique interdit/);
+    }
+    assert.match(stylesXml, /w:rFonts[^>]+w:ascii="Times New Roman"/);
+    assert.match(stylesXml, /w:sz w:val="14pt"/);
+    assert.match(footerXml, /w:fldChar|w:instrText[^>]*> PAGE/);
+    assert.doesNotMatch(footerXml, /NUMPAGES|Page|sur/);
+    assert.doesNotMatch(headerXml, /<w:t>[^<]+<\/w:t>/);
+    assert.doesNotMatch(documentXml, /Titre automatique interdit|Auteur automatique interdit/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});

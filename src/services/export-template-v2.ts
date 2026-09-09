@@ -177,7 +177,7 @@ export function normalizeLegacyTemplate(
 
   return normalizeV2Template({
     version: 2,
-    profile: profileFor(tpl.key),
+    profile: tpl.profile ?? profileFor(tpl.key),
     page: {
       size: normalizedPageSize(legacySettings.pdfPageSize),
       orientation: legacySettings.pdfOrientation ?? (tpl.pageOrientation === "landscape" ? "landscape" : "portrait"),
@@ -200,14 +200,14 @@ export function normalizeLegacyTemplate(
     blockquote: tpl.blockquote ? { ...tpl.blockquote } : {},
     sceneDivider: tpl.sceneDivider ?? "",
     header: {
-      enabled: legacySettings.pdfEnableHeaders !== false, left: legacySettings.pdfHeaderLeft ?? "{title}", center: legacySettings.pdfHeaderCenter ?? "", right: legacySettings.pdfHeaderRight ?? "{author}",
-      distanceCm: legacySettings.pdfHeaderDistanceCm ?? 0.75, bodyGapPt: legacySettings.pdfHeaderBodyGapPt ?? 3, differentOddEven: !!legacySettings.pdfDiffHeaders,
+      enabled: tpl.header?.enabled ?? legacySettings.pdfEnableHeaders !== false, left: tpl.header?.left ?? legacySettings.pdfHeaderLeft ?? "{title}", center: tpl.header?.center ?? legacySettings.pdfHeaderCenter ?? "", right: tpl.header?.right ?? legacySettings.pdfHeaderRight ?? "{author}",
+      distanceCm: tpl.header?.distanceCm ?? legacySettings.pdfHeaderDistanceCm ?? 0.75, bodyGapPt: tpl.header?.bodyGapPt ?? legacySettings.pdfHeaderBodyGapPt ?? 3, differentOddEven: tpl.header?.differentOddEven ?? !!legacySettings.pdfDiffHeaders,
     },
     footer: {
-      enabled: legacySettings.pdfEnableFooters !== false, left: legacySettings.pdfFooterLeft ?? "", center: legacySettings.pdfFooterCenter ?? "", right: legacySettings.pdfFooterRight ?? "Page {page} sur {pages}",
-      distanceCm: legacySettings.pdfFooterDistanceCm ?? 0.75, bodyGapPt: legacySettings.pdfFooterBodyGapPt ?? 3,
+      enabled: tpl.footer?.enabled ?? legacySettings.pdfEnableFooters !== false, left: tpl.footer?.left ?? legacySettings.pdfFooterLeft ?? "", center: tpl.footer?.center ?? legacySettings.pdfFooterCenter ?? "", right: tpl.footer?.right ?? legacySettings.pdfFooterRight ?? "Page {page} sur {pages}",
+      distanceCm: tpl.footer?.distanceCm ?? legacySettings.pdfFooterDistanceCm ?? 0.75, bodyGapPt: tpl.footer?.bodyGapPt ?? legacySettings.pdfFooterBodyGapPt ?? 3,
     },
-    firstPage: { hideHeader: legacySettings.pdfHideFirstPageHeader !== false, pageNumberPosition: legacySettings.pdfPageNumberPosition ?? "right" },
+    firstPage: { hideHeader: tpl.firstPage?.hideHeader ?? legacySettings.pdfHideFirstPageHeader !== false, pageNumberPosition: tpl.firstPage?.pageNumberPosition ?? legacySettings.pdfPageNumberPosition ?? "right" },
     titlePage: cloneTitlePage(tpl.titlePage),
     semanticRoleMarkers: normalizedSemanticRoleMarkers(tpl.semanticRoleMarkers),
   });

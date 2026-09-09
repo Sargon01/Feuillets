@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
+import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import { templateV2ToEpubCss } from "./export-template-v2-css.js";
 import { escapeXml } from "../utils/xml.js";
 import type { ContentVariant } from "./content-variants.js";
@@ -129,7 +130,7 @@ export async function exportEpub(app: App, settings: FeuilletsSettings, { markdo
   <style type="text/css">${css}</style>
 </head>
 <body>
-${hasAuthoredTitlePage ? "" : `<h1>${escapeXml(title)}</h1>\n${author ? `<p class="author">${escapeXml(author)}</p>` : ""}`}
+${shouldGenerateGenericTitlePage(template.profile, hasAuthoredTitlePage) ? `<h1>${escapeXml(title)}</h1>\n${author ? `<p class="author">${escapeXml(author)}</p>` : ""}` : ""}
 ${bodyXhtml}
 ${footnotesXhtml(footnotes)}
 </body>

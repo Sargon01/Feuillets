@@ -147,7 +147,7 @@ test("Mise en page : sélecteur Gabarit peuplé par listExportTemplates, valeur 
     const options = select.children.map((o) => o.value);
     assert.ok(options.includes("classique"));
     assert.ok(options.includes("moderne"));
-    assert.equal(options.length, 5, "seuls les cinq gabarits intégrés proposés sont listés");
+    assert.equal(options.length, 6, "les six gabarits intégrés proposés sont listés");
   } finally {
     restore();
   }

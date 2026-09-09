@@ -179,6 +179,38 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
     chapterTitle: { fontSizePt: 52, align: "center", marginTopPt: 72, marginBottomPt: 72 },
     blockquote: { italic: true, colorHex: "#333333" },
   },
+  documentSimple: {
+    key: "documentSimple",
+    label: "Document simple",
+    profile: "document",
+    titlePage: { styles: {} },
+    fontFamily: "'Times New Roman', Times, serif",
+    fontSizePt: 14,
+    lineHeight: 1.5,
+    align: "justify",
+    indent: false,
+    marginsCm: { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 },
+    pageSize: "A4",
+    pageOrientation: "portrait",
+    mirrorMargins: false,
+    columns: { count: 1, gutterPt: 0 },
+    paragraphSpacing: false,
+    paragraphSpacingPt: 0,
+    paragraphSpacingAfterPt: 10,
+    pageNumbers: true,
+    hyphenation: true,
+    header: { enabled: false, left: "", center: "", right: "", distanceCm: 0.75, bodyGapPt: 3, differentOddEven: false },
+    footer: { enabled: true, left: "", center: "{page}", right: "", distanceCm: 0.75, bodyGapPt: 3 },
+    firstPage: { hideHeader: false, pageNumberPosition: "center" },
+    headings: {
+      h1: { fontFamily: "'Times New Roman', Times, serif", fontSizePt: 18, bold: true, align: "center", marginTopPt: 0, marginBottomPt: 14, pageBreakBefore: false },
+      h2: { fontFamily: "'Times New Roman', Times, serif", fontSizePt: 16, bold: true, align: "left", marginTopPt: 14, marginBottomPt: 7, pageBreakBefore: false },
+      h3: { fontFamily: "'Times New Roman', Times, serif", fontSizePt: 14, bold: true, italic: true, align: "left", marginTopPt: 10, marginBottomPt: 5, pageBreakBefore: false },
+      h4: { pageBreakBefore: false },
+      h5: { pageBreakBefore: false },
+      h6: { pageBreakBefore: false },
+    },
+  },
   /* Adapté du style Ulysses "French Novel" (loïc martin, styles.ulysses.app)
      à partir du fichier .ulstyle partagé : Garamond 11pt/14pt d'interligne,
      césure activée, A4 PAYSAGE en 2 colonnes, titres de chapitre 34pt en
@@ -265,7 +297,7 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
 /** Catalogue intégré proposé dans l'interface, distinct du registre complet
  * afin que les anciennes clés restent résolubles sans encombrer un nouveau
  * projet. L'ordre est contractuel pour les sélecteurs de gabarits. */
-export const BUILTIN_TEMPLATE_CATALOG = ["classique", "romanSimple", "moderne", "apa", "these"] as const;
+export const BUILTIN_TEMPLATE_CATALOG = ["classique", "romanSimple", "documentSimple", "moderne", "apa", "these"] as const;
 
 /** Traduit un modèle vers une carte {h1?,h2?,h3?,h4?,h5?,h6?} uniforme : priorité au
  * champ `headings` (nouveau, plusieurs niveaux) ; à défaut, traduit

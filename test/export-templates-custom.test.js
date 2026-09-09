@@ -592,7 +592,7 @@ test("listExportTemplates : catalogue proposé, historiques actifs et personnali
   const settings = { projectFolder: manuscript.path, exportTemplate: "classique" };
 
   const fresh = await listExportTemplates(app, settings);
-  assert.deepEqual(fresh.map((tpl) => tpl.key), ["classique", "romanSimple", "moderne", "apa", "these", "ulysses", "word"]);
+  assert.deepEqual(fresh.map((tpl) => tpl.key), ["classique", "romanSimple", "documentSimple", "moderne", "apa", "these", "ulysses", "word"]);
   assert.equal(fresh.find((tpl) => tpl.key === "apa").label, "APA maison");
   assert.equal(fresh.some((tpl) => tpl.key === "tapuscrit"), false);
   assert.equal(fresh.some((tpl) => tpl.key === "romanFrancais"), false);
@@ -605,13 +605,23 @@ test("listExportTemplates : catalogue proposé, historiques actifs et personnali
   assert.equal((await resolveExportTemplateV2(app, settings, "romanFrancais")).body.fontFamily, EXPORT_TEMPLATES.romanFrancais.fontFamily);
 });
 
-test("exportBuiltInTemplates : ne matérialise que les cinq gabarits proposés dans Mises en page", async () => {
+test("exportBuiltInTemplates : matérialise les six gabarits proposés dans Mises en page", async () => {
   const project = new TFolder("Projet"); const manuscript = new TFolder("Projet/Manuscrit"); manuscript.parent = project; project.children = [manuscript];
   const { vault, fileManager } = createFakeVault([project, manuscript]);
   const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
   const count = await exportBuiltInTemplates(app, { projectFolder: manuscript.path });
-  assert.equal(count, 5);
-  for (const key of ["classique", "romanSimple", "moderne", "apa", "these"]) assert.ok(vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Mises en page/${key}.md`));
+  assert.equal(count, 6);
+  for (const key of ["classique", "romanSimple", "documentSimple", "moderne", "apa", "these"]) assert.ok(vault.getAbstractFileByPath(`Projet/_Feuillets/Ressources/Mises en page/${key}.md`));
+  const documentSimple = vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/documentSimple.md");
+  const serialized = await vault.read(documentSimple);
+  assert.match(serialized, /version:\s*2/);
+  assert.match(serialized, /profile:\s*document/);
+  assert.deepEqual(normalizeLegacyTemplate(EXPORT_TEMPLATES.documentSimple).body, {
+    fontFamily: "'Times New Roman', Times, serif", fontSizePt: 14, lineHeight: 1.5, align: "justify",
+    firstLineIndentPt: 0, paragraphSpacingBeforePt: 0, paragraphSpacingAfterPt: 10, hyphenation: true,
+  });
+  assert.match(serialized, /header: \[object Object\]/);
+  assert.match(serialized, /footer: \[object Object\]/);
   assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/tapuscrit.md"), null);
   assert.equal(vault.getAbstractFileByPath("Projet/_Feuillets/Ressources/Mises en page/romanFrancais.md"), null);
   assert.equal((await ensureTemplateFile(app, { projectFolder: manuscript.path }, "tapuscrit"))?.basename, "tapuscrit");

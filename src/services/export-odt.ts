@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages } from "./export-render.js";
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
+import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import { escapeXml } from "../utils/xml.js";
 import type { ContentVariant } from "./content-variants.js";
 
@@ -291,7 +292,7 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   </office:automatic-styles>
   <office:body>
     <office:text>
-      ${hasAuthoredTitlePage ? "" : `<text:p text:style-name="Title">${escapeXml(title)}</text:p>\n${author ? `<text:p text:style-name="Subtitle">${escapeXml(author)}</text:p>` : ""}`}
+      ${shouldGenerateGenericTitlePage(template.profile, hasAuthoredTitlePage) ? `<text:p text:style-name="Title">${escapeXml(title)}</text:p>\n${author ? `<text:p text:style-name="Subtitle">${escapeXml(author)}</text:p>` : ""}` : ""}
       ${bodyXml}
     </office:text>
   </office:body>

@@ -610,3 +610,44 @@ test("exportPdf : ne double pas la page titre lorsqu'un segment Front titre exis
     dom.restore();
   }
 });
+
+test("exportPdf : documentSimple conserve le contenu écrit et son pied centré dès la première page", async () => {
+  const dom = installDom();
+  const previousMobile = Platform.isMobile;
+  const previousRender = MarkdownRenderer.render;
+  Platform.isMobile = false;
+  MarkdownRenderer.render = async (_app, _markdown, container) => {
+    container.appendChild(element("h1", "Titre saisi"));
+    container.appendChild(element("p", "Corps du discours"));
+  };
+  try {
+    await exportPdf({}, { exportTemplate: "documentSimple" }, {
+      markdown: "# Titre saisi\n\nCorps du discours",
+      title: "Titre automatique interdit",
+      author: "Auteur automatique interdit",
+      sourcePath: "Source.md",
+      segments: [],
+    });
+    const html = dom.frames[0].contentDocument.body.innerHTML;
+    assert.match(html, /Titre saisi/);
+    assert.match(html, /Corps du discours/);
+    assert.doesNotMatch(html, /Titre automatique interdit|Auteur automatique interdit/);
+    assert.doesNotMatch(html, /pdf-page-header/);
+    assert.match(html, /pdf-page-footer/);
+    assert.match(html, /<div style="text-align: center;">1<\/div>/);
+    assert.doesNotMatch(html, /Page|sur/);
+
+    const css = templateToCss(EXPORT_TEMPLATES.documentSimple);
+    assert.match(css, /font-family: 'Times New Roman', Times, serif;/);
+    assert.match(css, /font-size: 14pt;/);
+    assert.match(css, /line-height: 1\.5;/);
+    assert.match(css, /text-align: justify;/);
+    assert.match(css, /margin: 0pt 0 10pt 0/);
+    assert.match(css, /text-indent: 0;/);
+    for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"]) assert.match(css, new RegExp(`${level} \\{[^}]*page-break-before: avoid;`));
+  } finally {
+    Platform.isMobile = previousMobile;
+    MarkdownRenderer.render = previousRender;
+    dom.restore();
+  }
+});
