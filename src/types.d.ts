@@ -675,6 +675,7 @@ declare type CompileSegment = {
   path: string | null;
   text: string;
   frontType: string | null;
+  titleBlockCount?: number;
 };
 
 /** Résultat de compile() : chemin du fichier écrit, texte complet et

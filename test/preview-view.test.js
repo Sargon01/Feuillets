@@ -1981,6 +1981,48 @@ test("chapitre — un feuillet à la racine du projet n'appartient à aucun chap
   assert.equal(view.chapterFolderOf(null), null);
 });
 
+test("chapitre — scène nichée dans un sous-dossier : chapterFolderOf renvoie le chapitre parent (projet plat et avec parties)", () => {
+  // 1. Projet avec parties
+  const { view, c1 } = nestedView();
+  const subFolder = new TFolder(`${c1.path}/Sous-dossier`);
+  subFolder.name = "Sous-dossier";
+  subFolder.path = `${c1.path}/Sous-dossier`;
+  subFolder.parent = c1;
+  subFolder.children = [];
+  c1.children.push(subFolder);
+
+  const nestedScene = new TFile(`${subFolder.path}/03 Scène nichée.md`, "Scène nichée.");
+  nestedScene.name = "03 Scène nichée.md";
+  nestedScene.basename = "03 Scène nichée";
+  nestedScene.extension = "md";
+  nestedScene.parent = subFolder;
+  subFolder.children.push(nestedScene);
+
+  assert.equal(view.chapterFolderOf(nestedScene)?.path, c1.path, "renvoie le chapitre parent, pas le sous-dossier");
+
+  // 2. Projet plat (level1Role: chapitres)
+  const { app, settings, manuscript, chapterDir } = buildProject();
+  settings.level1Role = "chapitres";
+  const flatView = new PreviewView({ contentEl: element("div") }, { settings, getProjectFolder: () => manuscript, saveSettings: async () => {} });
+  flatView.app = app;
+
+  const flatSub = new TFolder(`${chapterDir.path}/Sous-dossier`);
+  flatSub.name = "Sous-dossier";
+  flatSub.path = `${chapterDir.path}/Sous-dossier`;
+  flatSub.parent = chapterDir;
+  flatSub.children = [];
+  chapterDir.children.push(flatSub);
+
+  const flatNestedScene = new TFile(`${flatSub.path}/03 Scène.md`, "Texte niché.");
+  flatNestedScene.name = "03 Scène.md";
+  flatNestedScene.basename = "03 Scène";
+  flatNestedScene.extension = "md";
+  flatNestedScene.parent = flatSub;
+  flatSub.children.push(flatNestedScene);
+
+  assert.equal(flatView.chapterFolderOf(flatNestedScene)?.path, chapterDir.path, "projet plat : renvoie le chapitre racine, pas le sous-dossier");
+});
+
 test("chapitre — les scènes sont assemblées dans l'ordre du Binder", () => {
   const { view, c1, s1a, s1b } = nestedView();
   const scenes = view.orderedScenesOf(c1);
@@ -5214,3 +5256,134 @@ test("clic bloc — le scroll manuel de l'éditeur resynchronise l'Aperçu juste
 
   assert.notEqual(viewport.scrollTop, 1500, "l'Aperçu suit de nouveau le scroll manuel de l'éditeur");
 }));
+
+test("assembleFolder (mode Chapitre) — arborescence avec sous-dossiers : aucun titre de sous-dossier et séparateurs continus", async () => {
+  const { app, settings, manuscript, chapterDir, sceneFile, sceneFile2 } = buildProject();
+  const view = new PreviewView({ contentEl: element("div") }, { settings, getProjectFolder: () => manuscript, saveSettings: async () => {} });
+  view.app = app;
+
+  const subFolder = new TFolder(`${chapterDir.path}/Bloc`);
+  subFolder.name = "Bloc";
+  subFolder.path = `${chapterDir.path}/Bloc`;
+  subFolder.parent = chapterDir;
+  subFolder.children = [];
+
+  const subScene1 = new TFile(`${subFolder.path}/02b-scene.md`, "Scène dans le sous-dossier B.");
+  subScene1.name = "02b-scene.md";
+  subScene1.basename = "02b-scene";
+  subScene1.extension = "md";
+  subScene1.parent = subFolder;
+  subFolder.children.push(subScene1);
+
+  const subScene2 = new TFile(`${subFolder.path}/02c-scene.md`, "Scène dans le sous-dossier C.");
+  subScene2.name = "02c-scene.md";
+  subScene2.basename = "02c-scene";
+  subScene2.extension = "md";
+  subScene2.parent = subFolder;
+  subFolder.children.push(subScene2);
+
+  settings.orders[chapterDir.path] = [sceneFile.name, subFolder.name, sceneFile2.name];
+  chapterDir.children = [sceneFile, subFolder, sceneFile2];
+
+  const segments = await view.assembleFolder(chapterDir);
+
+  assert.equal(segments.length, 4, "exactement 4 segments de scènes");
+  assert.deepEqual(
+    segments.map((s) => s.path),
+    [sceneFile.path, subScene1.path, subScene2.path, sceneFile2.path],
+    "ordre aplati du Binder respecté"
+  );
+  assert.ok(!segments.some((s) => s.text.includes("Bloc")), "aucun titre émis pour le sous-dossier");
+
+  assert.equal(segments[0].sceneBreakBefore, false, "première scène sans séparateur");
+  assert.equal(segments[1].sceneBreakBefore, true, "deuxième scène (dans sous-dossier) avec séparateur");
+  assert.equal(segments[2].sceneBreakBefore, true, "troisième scène (dans sous-dossier) avec séparateur");
+  assert.equal(segments[3].sceneBreakBefore, true, "quatrième scène (après sous-dossier) avec séparateur");
+
+  for (const s of segments) {
+    assert.equal(typeof s.titleBlockCount, "number", "titleBlockCount doit être un nombre");
+  }
+});
+
+test("assembleFolder (mode Partie) — les sous-dossiers internes d'un chapitre ne créent pas de faux titres et gardent la continuité", async () => {
+  const { view, p1, c1, s1a, s1b, c1b } = nestedView();
+
+  const sub = new TFolder(`${c1.path}/Sous-bloc`);
+  sub.name = "Sous-bloc";
+  sub.path = `${c1.path}/Sous-bloc`;
+  sub.parent = c1;
+  sub.children = [];
+
+  const sSub = new TFile(`${sub.path}/01b Scène sous-bloc.md`, "Scène intermédiaire sous-bloc.");
+  sSub.name = "01b Scène sous-bloc.md";
+  sSub.basename = "01b Scène sous-bloc";
+  sSub.extension = "md";
+  sSub.parent = sub;
+  sub.children.push(sSub);
+
+  c1.children = [s1a, sub, s1b];
+
+  view.plugin.settings.insertTitles = true;
+  const segments = await view.assembleFolder(p1);
+
+  const titles = segments.filter((s) => s.path === null).map((s) => s.text);
+  assert.ok(titles.some((t) => t.includes("Chapitre premier")));
+  assert.ok(titles.some((t) => t.includes("Chapitre second")));
+  assert.ok(!titles.some((t) => t.includes("Sous-bloc")), "Sous-bloc ne doit pas émettre de titre");
+
+  const c1Segments = segments.filter((s) => s.path && s.path.startsWith(c1.path));
+  assert.equal(c1Segments.length, 3);
+  assert.equal(c1Segments[0].sceneBreakBefore, false);
+  assert.equal(c1Segments[1].sceneBreakBefore, true);
+  assert.equal(c1Segments[2].sceneBreakBefore, true);
+
+  const c1bSegments = segments.filter((s) => s.path && s.path.startsWith(c1b.path));
+  assert.equal(c1bSegments[0].sceneBreakBefore, false);
+});
+
+test("parité exacte compile() vs assembleFolder() sur chapitres avec sous-dossiers", async () => {
+  const { compile } = await import("../src/services/compile-export.js");
+  const { createFolderScope } = await import("../src/services/compile-scope.js");
+
+  const { app, settings, manuscript, chapterDir, sceneFile, sceneFile2 } = buildProject();
+  const view = new PreviewView({ contentEl: element("div") }, { settings, getProjectFolder: () => manuscript, saveSettings: async () => {} });
+  view.app = app;
+
+  const sub = new TFolder(`${chapterDir.path}/Groupe`);
+  sub.name = "Groupe";
+  sub.path = `${chapterDir.path}/Groupe`;
+  sub.parent = chapterDir;
+  sub.children = [];
+
+  const subScene = new TFile(`${sub.path}/01b-milieu.md`, "Scène du milieu.");
+  subScene.name = "01b-milieu.md";
+  subScene.basename = "01b-milieu";
+  subScene.extension = "md";
+  subScene.parent = sub;
+  sub.children.push(subScene);
+
+  chapterDir.children = [sceneFile, sub, sceneFile2];
+
+  const scope = createFolderScope(manuscript.path, chapterDir.path);
+  const compiled = await compile(app, settings, null, scope, undefined, { writeOutput: false });
+  assert.ok(compiled);
+
+  const compiledFileSegments = compiled.segments.filter((s) => s.path !== null);
+  const previewSegments = await view.assembleFolder(chapterDir);
+
+  assert.deepEqual(
+    compiledFileSegments.map((s) => s.path),
+    previewSegments.map((s) => s.path),
+    "les chemins et l'ordre des scènes doivent être strictement identiques"
+  );
+  assert.deepEqual(
+    compiledFileSegments.map((s) => !!s.sceneBreakBefore),
+    previewSegments.map((s) => !!s.sceneBreakBefore),
+    "les positions de sceneBreakBefore doivent être strictement identiques"
+  );
+  assert.deepEqual(
+    compiledFileSegments.map((s) => s.titleBlockCount ?? 0),
+    previewSegments.map((s) => s.titleBlockCount ?? 0),
+    "titleBlockCount doit être strictement identique sur chaque segment"
+  );
+});

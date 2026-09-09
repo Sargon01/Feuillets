@@ -20,7 +20,7 @@ import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, joinCompiledSegments, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { selectedContentVariant } from "../services/content-variants.js";
 import { runExportWorkflow } from "../services/export-workflow.js";
-import { depthOf, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
+import { depthOf, flattenFiles, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
 import { compiledTitleFor, fmOf, shortTitleFor, splitFrontmatter, stripFrontmatter } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
 import { countWords } from "../utils/core.js";
@@ -956,18 +956,20 @@ export class PreviewView extends ItemView {
     const root = this.plugin.getProjectFolder();
     if (!root) return null;
 
-    const ancestors: TFolder[] = [];
+    const part = this.partFolderOf(file);
+    const boundary = part || root;
+
     let folder: TFolder | null = file.parent;
-    while (folder && folder.path !== root.path) {
-      ancestors.push(folder);
+    let directChildOfBoundary: TFolder | null = null;
+    while (folder && folder.path !== boundary.path) {
+      directChildOfBoundary = folder;
       folder = folder.parent;
     }
-    if (!ancestors.length) return null;
-
-    for (const candidate of ancestors) {
-      if (roleOfFolder(this.app, settings, candidate) === "chapitre") return candidate;
-    }
-    return null;
+    if (!folder || folder.path !== boundary.path || !directChildOfBoundary) return null;
+    if (isFrontMatter(this.app, settings, directChildOfBoundary)) return null;
+    return roleOfFolder(this.app, settings, directChildOfBoundary) === "chapitre"
+      ? directChildOfBoundary
+      : null;
   }
 
   /** Portée à afficher : un Chapitre peut être un dossier ou un feuillet
@@ -1304,54 +1306,77 @@ export class PreviewView extends ItemView {
     const preset = activePresetConfig(settings);
     const segments: PreviewCompileSegment[] = [];
 
-    const walk = async (current: TFolder): Promise<void> => {
-      /* Le séparateur de scène ne doit apparaître qu'ENTRE deux scènes
-         consécutives du même dossier — jamais juste après un titre de
-         chapitre/partie. Réinitialisé à chaque sous-dossier rencontré
-         (nouvelle unité structurelle), voir joinCompiledSegments côté
-         compile() pour la même règle (atendev). */
+    if (roleOfFolder(this.app, settings, folder) === "chapitre") {
       let previousWasScene = false;
-      for (const child of getOrderedChildren(this.app, settings, current)) {
-        if (child instanceof TFolder) {
-          if (isFrontMatter(this.app, settings, child)) continue; // pages liminaires : hors sujet ici
-          const role = roleOfFolder(this.app, settings, child);
-          const wantTitle = role === "partie" ? preset.folderTitles : preset.chapterTitles;
-          if (wantTitle) {
-            /* MÊME niveau de titre que la compilation : `compile()` pose
-               `#`.repeat(profondeur du nœud) — une partie de niveau 1 en H1,
-               son chapitre en H2. Diverger d'un cran donnerait à l'aperçu
-               une hiérarchie que l'export n'a pas. */
-            segments.push({ text: `${"#".repeat(headingLevelOf(depthOf(this.app, settings, child)))} ${child.name}`, path: null, frontType: null });
-          }
-          await walk(child);
-          previousWasScene = false;
-        } else if (child instanceof TFile && child.extension === "md") {
-          if (isFrontMatter(this.app, settings, child)) continue;
-          if (fmOf(this.app, child).compile === false) continue;
-          // Nettoyage feuillet PAR feuillet, avant tout assemblage : jamais
-          // « concaténer puis retirer le premier frontmatter ».
-          const body = stripFrontmatter(await this.readFileForPreview(child)).trim();
-          if (!body) continue;
-          const level = headingLevelOf(depthOf(this.app, settings, child));
-          const title = this.mode === "part"
-            ? this.partFileTitleMarkdown(child, body, level)
-            : this.sceneTitleMarkdown(child, level);
-          segments.push({
-            text: title ? `${title}\n\n${body}` : body,
-            path: child.path,
-            frontType: null,
-            // `title` peut contenir un sous-titre (`resolvedFileTitleMarkdown`,
-            // mode Partie) : autant de blocs de titre artificiels que de
-            // paragraphes séparés par une ligne vide.
-            titleBlockCount: title ? title.split("\n\n").length : 0,
-            sceneBreakBefore: previousWasScene,
-          });
-          previousWasScene = true;
-        }
+      const chapterDepth = depthOf(this.app, settings, folder);
+      const level = headingLevelOf(chapterDepth + 1);
+      for (const file of flattenFiles(this.app, settings, folder)) {
+        if (isFrontMatter(this.app, settings, file)) continue;
+        if (fmOf(this.app, file).compile === false) continue;
+        const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
+        if (!body) continue;
+        const title = this.sceneTitleMarkdown(file, level);
+        segments.push({
+          text: title ? `${title}\n\n${body}` : body,
+          path: file.path,
+          frontType: null,
+          titleBlockCount: title ? title.split("\n\n").length : 0,
+          sceneBreakBefore: previousWasScene,
+        });
+        previousWasScene = true;
       }
-    };
+      return segments;
+    }
 
-    await walk(folder);
+    let previousWasScene = false;
+    for (const child of getOrderedChildren(this.app, settings, folder)) {
+      if (child instanceof TFolder) {
+        if (isFrontMatter(this.app, settings, child)) continue;
+        if (roleOfFolder(this.app, settings, child) === "chapitre") {
+          if (preset.chapterTitles) {
+            segments.push({
+              text: `${"#".repeat(headingLevelOf(depthOf(this.app, settings, child)))} ${child.name}`,
+              path: null,
+              frontType: null,
+            });
+          }
+          let previousWasSceneInChapter = false;
+          const chapterDepth = depthOf(this.app, settings, child);
+          const level = headingLevelOf(chapterDepth + 1);
+          for (const file of flattenFiles(this.app, settings, child)) {
+            if (isFrontMatter(this.app, settings, file)) continue;
+            if (fmOf(this.app, file).compile === false) continue;
+            const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
+            if (!body) continue;
+            const title = this.partFileTitleMarkdown(file, body, level);
+            segments.push({
+              text: title ? `${title}\n\n${body}` : body,
+              path: file.path,
+              frontType: null,
+              titleBlockCount: title ? title.split("\n\n").length : 0,
+              sceneBreakBefore: previousWasSceneInChapter,
+            });
+            previousWasSceneInChapter = true;
+          }
+          previousWasScene = false;
+        }
+      } else if (child instanceof TFile && child.extension === "md") {
+        if (isFrontMatter(this.app, settings, child)) continue;
+        if (fmOf(this.app, child).compile === false) continue;
+        const body = stripFrontmatter(await this.readFileForPreview(child)).trim();
+        if (!body) continue;
+        const level = headingLevelOf(depthOf(this.app, settings, child));
+        const title = this.partFileTitleMarkdown(child, body, level);
+        segments.push({
+          text: title ? `${title}\n\n${body}` : body,
+          path: child.path,
+          frontType: null,
+          titleBlockCount: title ? title.split("\n\n").length : 0,
+          sceneBreakBefore: previousWasScene,
+        });
+        previousWasScene = true;
+      }
+    }
     return segments;
   }
 
@@ -1391,7 +1416,9 @@ export class PreviewView extends ItemView {
     const preset = activePresetConfig(settings);
     const role = roleOfFile(this.app, settings, file);
     const wantTitle = role === "scene" ? preset.sceneTitles : preset.chapterTitles;
-    const depth = depthOf(this.app, settings, file);
+    const chapter = this.chapterFolderOf(file);
+    const baseFolder = chapter ?? file.parent;
+    const depth = baseFolder ? depthOf(this.app, settings, baseFolder) : depthOf(this.app, settings, file);
     const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
     const title = resolvedFileTitleMarkdown(this.app, file, body, wantTitle, depth + 1);
     return title ? title.split("\n\n").length : 0;
@@ -1443,18 +1470,10 @@ export class PreviewView extends ItemView {
   }
 
   /** Feuillets d'un chapitre, dans l'ordre du Binder, sous-dossiers
-   * compris. `getOrderedChildren` est la primitive partagée avec le Binder,
+   * compris. `flattenFiles` est la primitive partagée avec le Binder,
    * le Tableau et `compile()` — diverger d'elle serait un bug. */
   orderedScenesOf(chapter: TFolder): TFile[] {
-    const out: TFile[] = [];
-    const walk = (folder: TFolder): void => {
-      for (const child of getOrderedChildren(this.app, this.plugin.settings, folder)) {
-        if (child instanceof TFolder) walk(child);
-        else if (child instanceof TFile && child.extension === "md") out.push(child);
-      }
-    };
-    walk(chapter);
-    return out;
+    return flattenFiles(this.app, this.plugin.settings, chapter);
   }
 
   /* ========================= Rendu commun ============================= */

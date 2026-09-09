@@ -85,7 +85,7 @@ export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", 
 /** @typedef {{ filPlaceholders: Record<string, string>; filOrigins: Record<string, string>; filResolved: string[] }} NarrativeThreadState */
 
 /** @typedef {{ name: string; fileName: string; folderTitles: boolean; chapterTitles: boolean; sceneTitles: boolean; separator: string; [key: string]: unknown }} PresetConfig */
-type CompileSegment = { path: string | null; text: string; renderText?: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part"; sceneBreakBefore?: boolean };
+type CompileSegment = { path: string | null; text: string; renderText?: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part"; sceneBreakBefore?: boolean; titleBlockCount?: number };
 /** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[] }} CompileResult */
 /** @typedef {{ markdown: string; title: string; author: string; sourcePath: string; segments?: CompileSegment[] }} ExportContext */
 
@@ -549,6 +549,7 @@ export async function compile(
     }
     Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
     if (title) targetSegments[targetSegments.length - 1].startsWithGeneratedTitle = true;
+    targetSegments[targetSegments.length - 1].titleBlockCount = title ? title.split("\n\n").length : 0;
     count++;
     return true;
   };
