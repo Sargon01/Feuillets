@@ -155,11 +155,13 @@ function normalizeCompileSeparator(raw: string): string {
  * between two consecutive scenes (`sceneBreakBefore`, set by the scene loop
  * in `walk()`), a plain blank line everywhere else — a chapter/part title,
  * a front page, or a generated block never gets the scene separator glued
- * next to it. (atendev) */
+ * next to it. The configured separator is normalized only at this boundary.
+ * (atendev) */
 export function joinCompiledSegments(segments: { text: string; sceneBreakBefore?: boolean }[], separator: string): string {
+  const normalizedSeparator = normalizeCompileSeparator(separator);
   let out = "";
   for (let i = 0; i < segments.length; i++) {
-    if (i > 0) out += segments[i].sceneBreakBefore ? separator : "\n\n";
+    if (i > 0) out += segments[i].sceneBreakBefore ? normalizedSeparator : "\n\n";
     out += segments[i].text;
   }
   return out;
@@ -179,7 +181,6 @@ export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
   const merged = idx >= 0 && Array.isArray(S.compilePresets) && S.compilePresets[idx]
     ? Object.assign({}, base, S.compilePresets[idx] as Record<string, unknown>)
     : base;
-  merged.separator = normalizeCompileSeparator(toValue(merged.separator));
   return merged;
 }
 

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { MarkdownRenderer, TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { compile, activePresetConfig, getOutputFolder, listCompiledFilePaths, projectMetaFor } from "../src/services/compile-export.js";
+import { compile, activePresetConfig, getOutputFolder, joinCompiledSegments, listCompiledFilePaths, projectMetaFor } from "../src/services/compile-export.js";
 import { writeGeneratedIncluded } from "../src/services/book-composition.js";
 
 test("compile : respecte l'ordre, les pages Front et compile: false", async () => {
@@ -258,6 +258,28 @@ test("activePresetConfig : renvoie le preset de base quand activePreset = -1", (
   assert.equal(cfg.sceneTitles, true);
   assert.equal(cfg.separator, "\n\n---\n\n");
   assert.equal(cfg.fileName, "Custom.md");
+});
+
+test("activePresetConfig : conserve le séparateur configuré tel quel", () => {
+  const cfg = activePresetConfig({
+    compileFileName: "Manuscrit.md",
+    separator: "***",
+    activePreset: -1,
+    compilePresets: [],
+  });
+
+  assert.equal(cfg.separator, "***");
+});
+
+test("joinCompiledSegments : normalise le séparateur uniquement entre scènes", () => {
+  const result = joinCompiledSegments([
+    { text: "# Partie" },
+    { text: "## Chapitre" },
+    { text: "Scène 1" },
+    { text: "Scène 2", sceneBreakBefore: true },
+  ], "***");
+
+  assert.equal(result, "# Partie\n\n## Chapitre\n\nScène 1\n\n***\n\nScène 2");
 });
 
 test("activePresetConfig : fusionne le preset actif par-dessus le preset de base", () => {
