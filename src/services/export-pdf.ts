@@ -24,6 +24,7 @@ type PdfExportInput = {
   sourcePath: string;
   segments?: PdfExportSegment[];
   contentVariant?: ContentVariant | null;
+  separator?: string;
 };
 
 type PaginationResult = {
@@ -587,7 +588,7 @@ export async function paginateManuscriptCooperatively(
 }
 
 /** PDF via la boîte de dialogue d'impression du système */
-export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant }: PdfExportInput): Promise<void> {
+export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n" }: PdfExportInput): Promise<void> {
   if (Platform.isMobile) {
     new Notice(
       "L'export PDF n'est disponible que sur desktop pour l'instant — utilise EPUB ou Word (.docx) sur mobile."
@@ -596,7 +597,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   }
 
   const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes, images } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null);
+  const { containerEl, footnotes, images } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, undefined, separator);
   if (tpl.profile === "document") composeDocumentMedia(containerEl, images);
 
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre

@@ -20,6 +20,7 @@ type ExportInput = {
   sourcePath: string;
   segments?: ExportSegment[];
   contentVariant?: ContentVariant | null;
+  separator?: string;
 };
 
 type ExportFootnote = {
@@ -61,9 +62,9 @@ function footnotesXhtml(footnotes: ExportFootnote[]): string {
  * (markdown, sortie de compile()) : un seul flux XHTML continu, pas de
  * découpage par chapitre en v1 (portée assumée — voir plan). Utilise
  * jszip (pur JS, aucune dépendance Node) : fonctionne desktop et mobile. */
-export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant }: ExportInput): Promise<Uint8Array> {
+export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n" }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null);
+  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, undefined, separator);
   const bodyXhtml = serializeXhtmlBody(containerEl);
   const css = templateV2ToEpubCss(template) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS;
   const lang = settings.epubLanguage || "fr";

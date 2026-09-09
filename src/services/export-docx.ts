@@ -32,7 +32,7 @@ import {
   wordLocale,
   titleRoleOf,
 } from "./export-docx-style.js";
-import { blockToParagraphs } from "./docx-blocks.js";
+import { blockToParagraphs, headingPageBreakBefore } from "./docx-blocks.js";
 import { generatedContentsDescriptor, type GeneratedContentsKind } from "./generated-contents.js";
 import type { ContentVariant } from "./content-variants.js";
 
@@ -51,6 +51,16 @@ type ExportSegment = {
 const headingLevelForTag: Record<string, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = { H1: HeadingLevel.HEADING_1, H2: HeadingLevel.HEADING_2, H3: HeadingLevel.HEADING_3, H4: HeadingLevel.HEADING_4, H5: HeadingLevel.HEADING_5, H6: HeadingLevel.HEADING_6 };
 const normalized = (value: string) => value.trim().replace(/\s+/g, " ");
 const firstFontFamily = (value?: string) => value?.split(",")[0]?.trim().replace(/^['"]|['"]$/g, "") || undefined;
+const containsArabicScript = (value: string): boolean =>
+  /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/u.test(value);
+const DOCX_COMPLEX_SCRIPT_FONT = "Times New Roman";
+type DocxFont = { ascii: string; hAnsi: string; eastAsia: string; cs: string };
+const docxFont = (primaryFont: string): DocxFont => ({
+  ascii: primaryFont,
+  hAnsi: primaryFont,
+  eastAsia: primaryFont,
+  cs: DOCX_COMPLEX_SCRIPT_FONT,
+});
 export const FEUILLETS_CITATION_STYLE = "FeuilletsCitation";
 
 /** Style Word stable appliqué aux paragraphes Markdown `>` exportés. */
@@ -90,6 +100,7 @@ type ExportInput = {
   sourcePath: string;
   segments?: ExportSegment[];
   contentVariant?: ContentVariant | null;
+  separator?: string;
 };
 
 type RenderedFootnote = {
@@ -146,12 +157,14 @@ type ExportDocxSettings = FeuilletsSettings & {
    services/docx-review-import.js. */
 
 /** Génère un fichier Word (.docx) avec gestion des en-têtes/pieds et numérotation des pages */
-export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant }: ExportInput): Promise<Buffer> {
+export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n" }: ExportInput): Promise<Buffer> {
   /* Ces champs sont fournis par DEFAULT_SETTINGS ; FeuilletsSettings les
      garde ouverts pendant la migration progressive pour les autres services. */
   const docxSettings = settings as ExportDocxSettings;
   const template = await resolveExportTemplateV2(app, settings, docxSettings.exportTemplate);
   const resolvedLegacyTemplate = await resolveExportTemplate(app, settings, docxSettings.exportTemplate);
+  const fontFamily = template.body.fontFamily.split(",")[0].replace(/['"]/g, "").trim();
+  const headingFontFamily = fontFamily;
   // L'adaptateur ne sert qu'à blockToParagraphs, dont l'API legacy est
   // conservée pendant la migration. Toutes les valeurs viennent de V2.
   const tpl: ExportTemplate = {
@@ -182,7 +195,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   const isManuscriptTemplate = template.profile === "manuscript";
   const allSegments = segments ?? [];
   const renderSegments = allSegments.filter((segment) => segment.generatedType !== "summary" && segment.generatedType !== "toc");
-  const renderMarkdown = segments && segments.length ? markedMarkdownFor(renderSegments.map((segment) => ({ ...segment, text: segment.renderText ?? segment.text }))) : markdown;
+  const renderMarkdown = segments && segments.length ? markedMarkdownFor(renderSegments.map((segment) => ({ ...segment, text: segment.renderText ?? segment.text })), separator) : markdown;
   const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath, [], contentVariant ?? null);
 
   const footnoteIdByHref = new Map<string, number>();
@@ -327,7 +340,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
         pageBreakBefore: true,
         alignment: AlignmentType.CENTER,
         children: [
-          new TextRun({ text: (child.textContent || "").toLocaleUpperCase("fr"), bold: true, size: 32, font: template.body.fontFamily.split(",")[0].replace(/['"]/g, "").trim() }),
+          new TextRun({ text: (child.textContent || "").toLocaleUpperCase("fr"), bold: true, size: 32, font: docxFont(headingFontFamily) }),
           new PageBreak(),
         ],
       }));
@@ -340,9 +353,11 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
       if (!structuralHeadingHandled && (sourceTitle || sourceSubtitle)) {
         structuralHeadingHandled = true;
         const content = sourceTitle || sourceSubtitle;
-        const runs = [new TextRun(content)];
-        if (sourceTitle && sourceSubtitle) runs.push(new TextRun({ break: 1 }), new TextRun(sourceSubtitle));
-        (currentFrontBuffer || bodyParagraphs).push(new Paragraph({ heading: headingLevelForTag[tag], pageBreakBefore: !!currentSourceSegment.startsWithGeneratedTitle, children: runs }));
+        const runs = [new TextRun({ text: content, font: docxFont(headingFontFamily), rightToLeft: containsArabicScript(content) })];
+        if (sourceTitle && sourceSubtitle) {
+          runs.push(new TextRun({ break: 1 }), new TextRun({ text: sourceSubtitle, font: docxFont(headingFontFamily), rightToLeft: containsArabicScript(sourceSubtitle) }));
+        }
+        (currentFrontBuffer || bodyParagraphs).push(new Paragraph({ heading: headingLevelForTag[tag], pageBreakBefore: headingPageBreakBefore(tag, headings), children: runs }));
         continue;
       }
       if (structuralHeadingHandled && sourceSubtitle && !subtitleHeadingSkipped && normalized(child.textContent || "") === sourceSubtitle) {
@@ -381,9 +396,6 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   }
   flushFrontBuffer();
 
-  const fontFamily = template.body.fontFamily.split(",")[0].replace(/['"]/g, "").trim();
-  const headingFontFamily = fontFamily;
-
   const headingStyles: HeadingDefaults = {};
   for (const [level, styleKey] of [["h1", "heading1"], ["h2", "heading2"], ["h3", "heading3"], ["h4", "heading4"], ["h5", "heading5"], ["h6", "heading6"]] as const) {
     const h = headings[level];
@@ -393,7 +405,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
         size: h.fontSizePt ? `${h.fontSizePt}pt` : undefined,
         bold: h.bold,
         italics: h.italic,
-        font: headingFontFamily,
+        font: docxFont(headingFontFamily),
         ...(h.colorHex ? { color: h.colorHex.replace(/^#/, "") } : {}),
       },
       paragraph: {
@@ -470,7 +482,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     styles: {
       default: {
         document: {
-          run: { font: fontFamily, size: `${template.body.fontSizePt}pt`, language: { value: wordLocale(docxSettings.epubLanguage) } },
+          run: { font: docxFont(fontFamily), size: `${template.body.fontSizePt}pt`, language: { value: wordLocale(docxSettings.epubLanguage) } },
           paragraph: { spacing: { line: Math.round(template.body.lineHeight * 240) } },
         },
         ...headingStyles,
@@ -501,7 +513,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
             const descriptor = generatedContentsDescriptor(segment.generatedType as GeneratedContentsKind);
             return [
               new Paragraph({
-                children: [new TextRun({ text: descriptor.title, bold: true, size: "20pt", font: headingFontFamily })],
+                children: [new TextRun({ text: descriptor.title, bold: true, size: "20pt", font: docxFont(headingFontFamily) })],
               }),
               new TableOfContents("", { hyperlink: true, headingStyleRange: "1-2" }),
             ];
@@ -513,7 +525,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
           ...allSegments.filter((segment) => segment.generatedType === "toc").flatMap((segment) => {
             const descriptor = generatedContentsDescriptor(segment.generatedType as GeneratedContentsKind);
             return [
-              new Paragraph({ pageBreakBefore: true, children: [new TextRun({ text: descriptor.title, bold: true, size: "20pt", font: headingFontFamily })] }),
+              new Paragraph({ pageBreakBefore: true, children: [new TextRun({ text: descriptor.title, bold: true, size: "20pt", font: docxFont(headingFontFamily) })] }),
               new TableOfContents("", { hyperlink: true, headingStyleRange: "1-6" }),
             ];
           }),

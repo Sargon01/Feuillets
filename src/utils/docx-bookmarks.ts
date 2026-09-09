@@ -38,6 +38,8 @@ export const MARKER_PREFIX = "FEUILLETS-SCENE:";
    réel, donc sans effet à la relecture d'un .docx annoté. */
 export const RESET_MARKER_ID = "reset";
 
+import { joinCompiledSegments } from "../services/compile-segments.js";
+
 const MARKER_RE = /^FEUILLETS-SCENE:([a-zA-Z0-9_]+)(?::(titre|dedicace|epigraphe))?$/;
 
 /**
@@ -45,15 +47,13 @@ const MARKER_RE = /^FEUILLETS-SCENE:([a-zA-Z0-9_]+)(?::(titre|dedicace|epigraphe
  * @param {{ path?: string|null, text: string, frontType?: string|null }[]} segments
  * @returns {string}
  */
-export function markedMarkdownFor(segments: Array<{ path?: string | null; text: string; frontType?: string | null }>) {
-  return segments
-    .map((seg) => {
-      if (!seg.path) return `${MARKER_PREFIX}${RESET_MARKER_ID}\n\n${seg.text}`;
+export function markedMarkdownFor(segments: Array<{ path?: string | null; text: string; frontType?: string | null; sceneBreakBefore?: boolean }>, separator = "\n\n") {
+  return joinCompiledSegments(segments.map((seg) => {
+      if (!seg.path) return { ...seg, text: `${MARKER_PREFIX}${RESET_MARKER_ID}\n\n${seg.text}` };
       const suffix = seg.frontType ? `:${seg.frontType}` : "";
       const marker = `${MARKER_PREFIX}${bookmarkIdFor(seg.path)}${suffix}\n\n`;
-      return marker + seg.text;
-    })
-    .join("\n\n");
+      return { ...seg, text: marker + seg.text };
+    }), separator);
 }
 
 /**

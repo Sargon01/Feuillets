@@ -24,7 +24,7 @@
  * après `stripObsidianCruft`, hors de sa portée.
  */
 
-import { joinCompiledSegments } from "../services/compile-export.js";
+import { joinCompiledSegments } from "../services/compile-segments.js";
 
 export type SourceSegment = {
   path: string | null;

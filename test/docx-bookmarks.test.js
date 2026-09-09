@@ -93,3 +93,21 @@ test("aller-retour : chaque segment est retrouvable par son identifiant", () => 
     null,
   ]);
 });
+
+test("markedMarkdownFor : le séparateur reste entre scènes et conserve les marqueurs", () => {
+  const output = markedMarkdownFor([
+    { path: "Manuscrit/Front.md", text: "Front", frontType: "titre" },
+    { text: "# Partie" },
+    { text: "## Chapitre" },
+    { path: "Manuscrit/Chapitre/Un.md", text: "Un" },
+    { path: "Manuscrit/Chapitre/Deux.md", text: "Deux", sceneBreakBefore: true },
+    { text: "## Autre chapitre" },
+    { path: "Manuscrit/Autre/Autre.md", text: "Autre" },
+  ], "***");
+
+  assert.equal((output.match(/\n\n\*\*\*\n\n/g) || []).length, 1);
+  assert.match(output, /FEUILLETS-SCENE:[^\n]+:titre/);
+  assert.match(output, /FEUILLETS-SCENE:[^\n]+\n\nUn/);
+  assert.match(output, /FEUILLETS-SCENE:[^\n]+\n\nDeux/);
+  assert.doesNotMatch(output, /Chapitre\n\n\*\*\*/);
+});

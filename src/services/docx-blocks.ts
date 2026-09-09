@@ -89,6 +89,16 @@ const HEADING_MAP: Record<string, (typeof HeadingLevel)[keyof typeof HeadingLeve
   H6: HeadingLevel.HEADING_6,
 };
 
+export function headingPageBreakBefore(
+  tag: string,
+  headings: Record<string, HeadingStyle | undefined>,
+): boolean {
+  const configured = headings[tag.toLowerCase()];
+  if (configured) return !!configured.pageBreakBefore;
+  if (Object.keys(headings).length > 0) return false;
+  return tag === "H1" || tag === "H2";
+}
+
 /* Largeur maximale d'une image dans la page, en points docx. Au-delà, l'image
    est réduite en conservant son rapport hauteur/largeur. */
 const MAX_IMAGE_WIDTH = 500;
@@ -276,15 +286,7 @@ export function blockToParagraphs(
   const tag = el.tagName;
 
   if (["H1", "H2", "H3", "H4", "H5", "H6"].includes(tag)) {
-    const levelKey = tag.toLowerCase();
-    const h = (headings as Record<string, HeadingStyle | undefined>)[levelKey];
-    const hasHeadingsConfig = Object.keys(headings).length > 0;
-    /* Repli historique quand le modèle ne configure aucun niveau de titre :
-       H1 et H2 démarrent une page, H3/H4 non. Dès qu'un modèle définit
-       `headings`, c'est lui qui décide entièrement — un niveau qu'il ne
-       mentionne pas ne prend donc PAS le repli, sinon un modèle réglant
-       seulement h2 hériterait d'un saut de page surprise sur h1. */
-    const pageBreak = h ? !!h.pageBreakBefore : hasHeadingsConfig ? false : (tag === "H1" || tag === "H2");
+    const pageBreak = headingPageBreakBefore(tag, headings);
     return [
       new Paragraph({
         heading: HEADING_MAP[tag],

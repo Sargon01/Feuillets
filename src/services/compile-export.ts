@@ -40,6 +40,8 @@ import type { ContentExtraction } from "./content-extractions.js";
 import { extractSectionsByRoles } from "./content-section-extraction.js";
 import type { ContentCollection } from "./content-collections.js";
 import { renderContentCollectionMarkdown } from "./content-collection-render.js";
+import { joinCompiledSegments } from "./compile-segments.js";
+export { joinCompiledSegments } from "./compile-segments.js";
 
 /** Les deux noms reconnus pour le dossier Annexes, à la RACINE du dossier
  * Manuscrit — même convention de double reconnaissance (FR/EN) que
@@ -97,6 +99,7 @@ type NativeExportSegment = {
   sourceSubtitle?: string | null;
   startsWithGeneratedTitle?: boolean;
   structuralType?: "part";
+  sceneBreakBefore?: boolean;
 };
 
 type NativeExportContext = {
@@ -106,6 +109,7 @@ type NativeExportContext = {
   sourcePath: string;
   segments: NativeExportSegment[];
   contentVariant: ContentVariant | null;
+  separator: string;
 };
 
 type PresetConfig = {
@@ -141,30 +145,6 @@ export function resolvedFileTitleMarkdown(
   if (title) lines.push(`${"#".repeat(titleLevel)} ${title}`);
   if (subtitle) lines.push(`${"#".repeat(subtitleLevel)} ${subtitle}`);
   return lines.length ? lines.join("\n\n") : null;
-}
-
-/** Pads the separator with blank lines so it (and the FEUILLETS-SRC marker
- * that follows it) forms its own Markdown paragraph, instead of gluing onto
- * neighboring text. (atendev) */
-function normalizeCompileSeparator(raw: string): string {
-  const trimmed = raw.trim();
-  return trimmed ? `\n\n${trimmed}\n\n` : "\n\n";
-}
-
-/** Joins compiled segments for display/export: the custom separator only
- * between two consecutive scenes (`sceneBreakBefore`, set by the scene loop
- * in `walk()`), a plain blank line everywhere else — a chapter/part title,
- * a front page, or a generated block never gets the scene separator glued
- * next to it. The configured separator is normalized only at this boundary.
- * (atendev) */
-export function joinCompiledSegments(segments: { text: string; sceneBreakBefore?: boolean }[], separator: string): string {
-  const normalizedSeparator = normalizeCompileSeparator(separator);
-  let out = "";
-  for (let i = 0; i < segments.length; i++) {
-    if (i > 0) out += segments[i].sceneBreakBefore ? normalizedSeparator : "\n\n";
-    out += segments[i].text;
-  }
-  return out;
 }
 
 export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
@@ -1130,11 +1110,11 @@ async function exportViaNative(
     const outputFolder = await getOutputFolder(app, settings);
     const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
     const baseName = resolveOutputBaseName(settings, baseNameOverride);
-    const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType }) =>
-      frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) } : { path, text, ...(renderText !== undefined ? { renderText } : {}), frontType, ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}) }
+    const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType, sceneBreakBefore }) =>
+      frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) } : { path, text, frontType, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) }
     );
     const contentVariant = await selectedContentVariant(app, settings);
-    const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments, contentVariant };
+    const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments, contentVariant, separator: activePresetConfig(settings).separator };
 
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);

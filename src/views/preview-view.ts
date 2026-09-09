@@ -1744,6 +1744,7 @@ export class PreviewView extends ItemView {
           applyBlockSourceMarkers(container, blocksByPath);
         },
         createAfterVariantCallback(true),
+        separator,
       );
       containerEl = rendered.containerEl;
       footnotes = rendered.footnotes;

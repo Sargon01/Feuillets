@@ -2167,6 +2167,43 @@ function withRender(fn) {
   };
 }
 
+test("Aperçu projet : transmet le séparateur aux scènes rendues", async () => {
+  const dom = installDom();
+  const previousRender = MarkdownRenderer.render;
+  let renderedMarkdown = "";
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    renderedMarkdown = markdown;
+    container.appendChild(element("p", "rendu"));
+  };
+  try {
+    const { view } = await openView("manuscript");
+  const source = {
+    markdown: "",
+    sourcePath: "Manuscrit.md",
+    title: "Projet",
+    author: "",
+    segments: [
+      { path: "Manuscrit/Chapitre/Un.md", text: "Un", renderText: "Un" },
+      { path: "Manuscrit/Chapitre/Deux.md", text: "Deux", renderText: "Deux", sceneBreakBefore: true },
+      { text: "## Chapitre suivant" },
+      { path: "Manuscrit/Autre/Trois.md", text: "Trois", renderText: "Trois" },
+    ],
+  };
+  const previousSeparator = view.plugin.settings.separator;
+  view.plugin.settings.separator = "+++";
+  try {
+    await view.renderPreviewSource(source, view.refreshGeneration, null, () => {});
+    assert.equal((renderedMarkdown.match(/\n\n\+\+\+\n\n/g) || []).length, 1);
+    assert.doesNotMatch(renderedMarkdown, /Chapitre suivant[\s\S]*\+\+\+/);
+  } finally {
+    view.plugin.settings.separator = previousSeparator;
+  }
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    dom.restore();
+  }
+});
+
 /** Variante indispensable aux tests de section : un rendu bloc par bloc,
  *  seul cas où les paragraphes-marqueurs de preview-source-map.ts existent
  *  réellement dans le DOM, donc où les `data-source-path` sont posés. */

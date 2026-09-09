@@ -54,6 +54,7 @@ type ExportInput = {
   sourcePath: string;
   segments?: ExportSegment[];
   contentVariant?: ContentVariant | null;
+  separator?: string;
 };
 
 type OdtOptions = {
@@ -151,9 +152,9 @@ function footnotesEndSectionXml(footnotes: RenderedFootnote[]): string {
 }
 
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
-export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant }: ExportInput): Promise<Uint8Array> {
+export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n" }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null);
+  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, undefined, separator);
 
   const fontName = primaryFontName(template.body.fontFamily);
   const { body, page, headings } = template;

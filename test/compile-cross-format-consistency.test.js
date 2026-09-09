@@ -7,7 +7,7 @@ import { compile } from "../src/services/compile-export.js";
 import { exportDocx } from "../src/services/export-docx.js";
 import { exportEpub } from "../src/services/export-epub.js";
 import { exportOdt } from "../src/services/export-odt.js";
-import { renderManuscriptHtml } from "../src/services/export-render.js";
+import { renderManuscriptHtml, renderManuscriptHtmlWithFrontPages } from "../src/services/export-render.js";
 
 /* Item 3 du chantier « Compilation professionnelle — Lot 1 » : DOCX et EPUB
  * partagent un seul pipeline de rendu (renderManuscriptHtml*, voir
@@ -197,6 +197,36 @@ test("pipeline Document réel : une solution exclue disparaît après nettoyage 
     });
     assert.deepEqual(result.containerEl.children.map((child) => child.textContent), ["texte normal", "texte normal"]);
     assert.equal(result.containerEl.textContent, "texte normaltexte normal");
+  } finally {
+    MarkdownRenderer.render = previous;
+    restoreDom();
+  }
+});
+
+test("pipeline partagé : le séparateur ne traverse ni titres ni pages Front", async () => {
+  const restoreDom = installDom();
+  const previous = MarkdownRenderer.render;
+  let renderedMarkdown = "";
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    renderedMarkdown = markdown;
+    container.appendChild(el("p", "rendu"));
+  };
+  try {
+    await renderManuscriptHtmlWithFrontPages({}, "ignoré", [
+      { path: "Front.md", text: "Front", frontType: "titre" },
+      { text: "# Partie" },
+      { text: "## Chapitre" },
+      { path: "Un.md", text: "Un" },
+      { path: "Deux.md", text: "Deux", sceneBreakBefore: true },
+      { text: "## Autre chapitre" },
+      { path: "Trois.md", text: "Trois" },
+      { text: "Bloc généré" },
+    ], "Source.md", null, undefined, undefined, "***");
+    assert.equal((renderedMarkdown.match(/\n\n\*\*\*\n\n/g) || []).length, 1);
+    assert.match(renderedMarkdown, /FEUILLETS-FRONT:titre/);
+    assert.match(renderedMarkdown, /FEUILLETS-FRONT:titre[\s\S]*Front/);
+    assert.doesNotMatch(renderedMarkdown, /Partie[\s\S]*\*\*\*[\s\S]*Chapitre/);
+    assert.doesNotMatch(renderedMarkdown, /Front[\s\S]*\*\*\*[\s\S]*Partie/);
   } finally {
     MarkdownRenderer.render = previous;
     restoreDom();
@@ -444,11 +474,48 @@ test("documentSimple : DOCX, EPUB et ODT conservent le contenu écrit sans titre
       assert.doesNotMatch(output, /Titre automatique interdit|Auteur automatique interdit/);
     }
     assert.match(stylesXml, /w:rFonts[^>]+w:ascii="Times New Roman"/);
+    assert.match(stylesXml, /w:rFonts[^>]+w:hAnsi="Times New Roman"/);
+    assert.match(stylesXml, /w:rFonts[^>]+w:cs="Times New Roman"/);
     assert.match(stylesXml, /w:sz w:val="14pt"/);
     assert.match(footerXml, /w:fldChar|w:instrText[^>]*> PAGE/);
     assert.doesNotMatch(footerXml, /NUMPAGES|Page|sur/);
     assert.doesNotMatch(headerXml, /<w:t>[^<]+<\/w:t>/);
     assert.doesNotMatch(documentXml, /Titre automatique interdit|Auteur automatique interdit/);
+  } finally {
+    restoreRenderer();
+    restoreDom();
+  }
+});
+
+test("DOCX : le titre de scène arabe porte directement la police complexe", async () => {
+  const restoreDom = installDom();
+  const restoreRenderer = setRenderer(async (_app, markdown, container) => {
+    container.appendChild(el("p", markdown.split("\n\n")[0]));
+    container.appendChild(el("h1", "Titre de scène"));
+  });
+  try {
+    const sourceTitle = "الرَّحْمَن";
+    const sourceSubtitle = "Al-Rahman — Le Tout-Miséricordieux";
+    const input = {
+      markdown: "Titre de scène",
+      title: "Projet",
+      author: "",
+      sourcePath: "Manuscrit/Scène.md",
+      segments: [{
+        path: "Manuscrit/Scène.md",
+        text: "Titre de scène",
+        sourceTitle,
+        sourceSubtitle,
+        startsWithGeneratedTitle: true,
+      }],
+    };
+    const bytes = await exportDocx({}, { exportTemplate: "classique" }, input);
+    const documentXml = await (await JSZip.loadAsync(bytes)).file("word/document.xml").async("string");
+    const titleRun = documentXml.match(new RegExp(`<w:r>[\\s\\S]*?${sourceTitle}[\\s\\S]*?</w:r>`))?.[0] || "";
+    assert.ok(titleRun, "le run du titre arabe doit être présent");
+    assert.match(titleRun, /w:rFonts[^>]*w:cs="Times New Roman"/);
+    assert.match(titleRun, /<w:rtl\/>/);
+    assert.match(documentXml, new RegExp(sourceSubtitle));
   } finally {
     restoreRenderer();
     restoreDom();

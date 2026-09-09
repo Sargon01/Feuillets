@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Document, Packer, AlignmentType } from "docx";
 import JSZip from "jszip";
-import { blockToParagraphs, inlineChildren, captionParagraphFor } from "../src/services/docx-blocks.js";
+import { blockToParagraphs, inlineChildren, captionParagraphFor, headingPageBreakBefore } from "../src/services/docx-blocks.js";
 import { citationParagraphStyle } from "../src/services/export-docx.js";
 
 /* Faux nœuds DOM : uniquement l'interface réellement consommée par le module. */
@@ -203,6 +203,14 @@ test("blockToParagraphs : un modèle qui configure headings décide seul", () =>
   // h1 non mentionné → PAS de saut de page hérité du repli historique
   assert.ok(!h1.includes("w:pageBreakBefore"), "h1 non configuré ne doit pas hériter du repli");
   assert.ok(h2.includes("w:pageBreakBefore"), "h2 configuré doit démarrer une page");
+});
+
+test("headingPageBreakBefore : respecte les headings configurés et le repli historique", () => {
+  assert.equal(headingPageBreakBefore("H3", { h3: { pageBreakBefore: false } }), false);
+  assert.equal(headingPageBreakBefore("H3", { h3: { pageBreakBefore: true } }), true);
+  assert.equal(headingPageBreakBefore("H1", { h3: { pageBreakBefore: false } }), false);
+  assert.equal(headingPageBreakBefore("H1", {}), true);
+  assert.equal(headingPageBreakBefore("H3", {}), false);
 });
 
 test("blockToParagraphs : une liste préfixe ses items", () => {

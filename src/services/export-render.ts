@@ -6,6 +6,7 @@ import { applyDocumentLayoutMarkers, injectDocumentLayoutMarkers } from "./docum
 import type { LayoutOverride } from "./layout-store.js";
 import { applyContentVariant } from "./content-variant-render.js";
 import type { ContentVariant } from "./content-variants.js";
+import { joinCompiledSegments } from "./compile-segments.js";
 
 type RenderedFootnote = {
   id: string;
@@ -36,6 +37,7 @@ type ExportRenderSegment = {
   text: string;
   renderText?: string;
   frontType?: string | null;
+  sceneBreakBefore?: boolean;
 };
 
 type ImageDimensions = {
@@ -335,15 +337,15 @@ export async function renderManuscriptHtmlWithFrontPages(
   variant: ContentVariant | null = null,
   beforeVariant?: (container: HTMLElement) => void | Promise<void>,
   afterVariant?: (container: HTMLElement) => void | Promise<void>,
+  separator = "\n\n",
 ): Promise<RenderedManuscript> {
   if (!segments || !segments.length || (!segments.some((s) => s.frontType) && !segments.some((s) => s.renderText !== undefined))) {
     return renderManuscriptHtml(app, markdown, sourcePath, [], variant, beforeVariant, afterVariant);
   }
-  const markedMarkdown = segments
-    .map((seg) =>
-      seg.frontType ? `FEUILLETS-FRONT:${seg.frontType}\n\n${seg.renderText ?? seg.text}\n\n${FRONT_END}` : (seg.renderText ?? seg.text)
-    )
-    .join("\n\n");
+  const markedMarkdown = joinCompiledSegments(segments.map((seg) => ({
+    ...seg,
+    text: seg.frontType ? `FEUILLETS-FRONT:${seg.frontType}\n\n${seg.renderText ?? seg.text}\n\n${FRONT_END}` : (seg.renderText ?? seg.text),
+  })), separator);
   const result = await renderManuscriptHtml(app, markedMarkdown, sourcePath, [], variant, beforeVariant, afterVariant);
   wrapFrontPagesInDom(result.containerEl);
   tagTitleRolesInDom(result.containerEl);
