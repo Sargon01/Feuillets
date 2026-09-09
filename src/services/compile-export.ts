@@ -18,6 +18,7 @@ import {
   feuilletsAuxiliaryPath,
   MANUSCRIPT_FOLDER_NAME,
 } from "./folder-structure.js";
+import { isProjectDraft } from "./project-drafts.js";
 import { ensureFolder } from "./project-files.js";
 import { preserveBlankLinesForFrontPage } from "./export-render.js";
 import { parseTitleRoles, hasTitleRoleLines, TITLE_ROLE_MARKER } from "../utils/title-roles.js";
@@ -334,7 +335,10 @@ export async function compile(
   }
 
   // Résoudre la portée en liste de fichiers
-  const filesToCompile = resolveCompileScopeFiles(app, settings, compilationScope);
+  const resolvedFiles = resolveCompileScopeFiles(app, settings, compilationScope);
+  const filesToCompile = compilationScope.type === "file"
+    ? resolvedFiles
+    : resolvedFiles.filter((file) => !isProjectDraft(folder, file));
   if (filesToCompile.length === 0) {
     new Notice("Aucun feuillet à compiler.");
     return null;
@@ -664,9 +668,15 @@ export async function compile(
   const meta = compilationScope.type === "project" ? projectMetaFor(settings, folder) : null;
   const wantAnnexes = meta ? readGeneratedIncluded(meta, ANNEXES) ?? false : false;
   try {
-    // Compiler en respectant la structure du projet
-    // La vérification fileSet dans pushFile() respectera la portée résolue
-    await walk(folder, 0);
+    // Compiler en respectant la structure du projet. Une portée fichier
+    // explicite peut viser un brouillon, physiquement hors de l'arborescence
+    // du manuscrit ; ce cas passe directement par le même pushFile().
+    // La vérification fileSet dans pushFile() respecte la portée résolue.
+    if (compilationScope.type === "file" && filesToCompile.length === 1 && isProjectDraft(folder, filesToCompile[0])) {
+      await pushFile(filesToCompile[0], roleOfFile(app, settings, filesToCompile[0]), 0);
+    } else {
+      await walk(folder, 0);
+    }
 
     /* Annexes, compilées À PART (jamais dans `parts`/`segments` tant
        qu'elles ne sont pas insérées plus bas) : mêmes transformations
@@ -1037,20 +1047,25 @@ async function exportViaNative(
   }
   /* `compile()` est désormais À L'INTÉRIEUR du même filet try/catch que
      l'écriture des formats binaires plus bas : une erreur survenant pendant
-     la compilation (y compris l'écriture de Manuscrit.md, voir compile())
-     ne doit jamais devenir une Promise rejetée non gérée — compile() gère
+     la compilation en mémoire ne doit jamais devenir une Promise rejetée
+     non gérée — compile() gère
      déjà elle-même la plupart de ses erreurs (Notice + retour null), mais
      ce filet reste le dernier recours si une exception lui échappe malgré
      tout. */
   try {
     /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
+    const compileOptions: CompileOptions = { writeOutput: false };
+    if (contentExtraction || contentCollection) {
+      compileOptions.contentExtraction = contentExtraction;
+      compileOptions.contentCollection = contentCollection;
+    }
     const result = await compile(
       app,
       settings,
       scopePath,
       scope ?? null,
       undefined,
-      contentExtraction || contentCollection ? { contentExtraction, contentCollection } : undefined,
+      compileOptions,
     );
     if (!result) return undefined;
 
@@ -1059,7 +1074,18 @@ async function exportViaNative(
        la résolution des embeds (![[image.png]]) par Obsidian a besoin d'un
        chemin de FICHIER pour son contexte de répertoire — un chemin de
        dossier peut fausser la résolution des liens relatifs. */
-    const sourcePath = result.outPath;
+    const scopedFile = scope?.type === "file"
+      ? app.vault.getAbstractFileByPath(normalizePath(scope.path))
+      : null;
+    const segmentFile = result.segments.find((segment) => {
+      if (!segment.path) return false;
+      return app.vault.getAbstractFileByPath(normalizePath(segment.path)) instanceof TFile;
+    });
+    const sourcePath = scopedFile instanceof TFile
+      ? scopedFile.path
+      : segmentFile?.path && app.vault.getAbstractFileByPath(normalizePath(segmentFile.path)) instanceof TFile
+        ? normalizePath(segmentFile.path)
+        : folder.path;
     const outputFolder = await getOutputFolder(app, settings);
     const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
     const baseName = resolveOutputBaseName(settings, baseNameOverride);

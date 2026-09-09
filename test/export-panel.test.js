@@ -6,7 +6,8 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import { t } from "../src/i18n/index.js";
 import { contentExtractionsFilePath } from "../src/services/content-extractions.js";
 import { contentCollectionsFilePath } from "../src/services/content-collections.js";
-import { currentExportDerivation, rememberExportDerivation } from "../src/services/export-workflow.js";
+import { currentExportDerivation, rememberExportDerivation, rememberExportScope } from "../src/services/export-workflow.js";
+import { createFileScope } from "../src/services/compile-scope.js";
 
 /* Même petit DOM factice que test/preview-view.test.js (convention du
  * dépôt : dupliqué, pas partagé), réduit à ce qu'ExportPanel utilise
@@ -96,15 +97,29 @@ function installDom() {
 /** Projet minimal, plugin minimal — juste assez pour que le panneau se
  * rende (currentExportScope, listExportTemplates, frontTitleCandidates). */
 function buildFixture() {
+  const project = new TFolder("Projet");
   const manuscript = new TFolder("Projet/Manuscrit");
-  const scene = new TFile("Projet/Manuscrit/Scène 1.md", "---\ntitle: Départ\n---\nTexte.");
-  manuscript.children = [scene];
+  const scene = new TFile("Projet/Manuscrit/Scène 1.md", "---\ntitle: Départ\n---\nTexte A.");
+  const secondScene = new TFile("Projet/Manuscrit/Scène 2.md", "---\ntitle: Arrivée\n---\nTexte B.");
+  manuscript.children = [scene, secondScene];
+  project.children = [manuscript];
+  manuscript.parent = project;
   scene.parent = manuscript;
-  const { vault, fileManager, files } = createFakeVault([manuscript, scene]);
+  secondScene.parent = manuscript;
+  let activeFile = scene;
+  const { vault, fileManager, files } = createFakeVault([project, manuscript, scene, secondScene]);
   vault.cachedRead = vault.read;
   vault.files = files;
-  const frontmatter = new Map([[scene.path, { title: "Départ", compile: true }]]);
-  const app = { vault, fileManager, metadataCache: { getFileCache: (f) => ({ frontmatter: frontmatter.get(f.path) || {} }) } };
+  const frontmatter = new Map([
+    [scene.path, { title: "Départ", compile: true }],
+    [secondScene.path, { title: "Arrivée", compile: true }],
+  ]);
+  const app = {
+    vault,
+    fileManager,
+    workspace: { getActiveFile: () => activeFile },
+    metadataCache: { getFileCache: (f) => ({ frontmatter: frontmatter.get(f.path) || {} }) },
+  };
   const settings = {
     projectFolder: manuscript.path,
     exportTemplate: "classique",
@@ -124,7 +139,7 @@ function buildFixture() {
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
     saveSettings: async () => {},
   };
-  return { app, settings, plugin, manuscript };
+  return { app, settings, plugin, manuscript, scene, secondScene, setActiveFile: (file) => { activeFile = file; } };
 }
 
 test("ExportPanel : se construit et se rend sans aucun callback — getScope et onPresentationChanged sont facultatifs", async () => {
@@ -482,6 +497,52 @@ test("ExportPanel.renderQuickBar : portée + format + Exporter, sans étiquette 
     epub.callback();
     Menu.lastShown.hide();
     assert.equal(plugin.settings.exportFormat, "epub");
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : une portée file exporte le feuillet actif au clic", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript, scene, secondScene, setActiveFile, settings } = buildFixture();
+    settings.exportFormat = "md";
+    rememberExportScope(plugin, createFileScope(manuscript.path, scene.path));
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+    setActiveFile(secondScene);
+
+    bar.querySelector(".feuillets-edition-quickexport-cta").click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const output = app.vault.getFiles().find((file) => file.path.includes("/_Feuillets/Sortie/") && file.extension === "md");
+    assert.ok(output);
+    assert.match(output.content, /Texte B/);
+    assert.doesNotMatch(output.content, /Texte A/);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : un brouillon actif est exportable par portée file", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript, scene, setActiveFile, settings } = buildFixture();
+    settings.exportFormat = "md";
+    await app.vault.createFolder("Projet/_Feuillets");
+    await app.vault.createFolder("Projet/_Feuillets/Drafts");
+    const draft = await app.vault.create("Projet/_Feuillets/Drafts/Sans titre.md", "---\nstatus: Brouillon\n---\nTexte du brouillon.");
+    rememberExportScope(plugin, createFileScope(manuscript.path, scene.path));
+    setActiveFile(draft);
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+
+    bar.querySelector(".feuillets-edition-quickexport-cta").click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const output = app.vault.getFiles().find((file) => file.path.includes("/_Feuillets/Sortie/") && file.extension === "md");
+    assert.ok(output);
+    assert.match(output.content, /Texte du brouillon/);
   } finally {
     restore();
   }

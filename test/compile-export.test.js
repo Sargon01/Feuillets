@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFile, TFolder } from "obsidian";
+import { MarkdownRenderer, TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { compile, activePresetConfig, getOutputFolder, listCompiledFilePaths, projectMetaFor } from "../src/services/compile-export.js";
 import { writeGeneratedIncluded } from "../src/services/book-composition.js";
@@ -85,6 +85,7 @@ test("compile contextuelle : une portée Feuillet n'exporte que le fichier deman
     projectFolder: manuscript.path,
     level1Role: "chapitres",
     orders: {},
+    folderPositions: {},
     compileFileName: "Portée.md",
     insertFolderTitles: false,
     insertTitles: false,
@@ -1679,6 +1680,96 @@ test("exportWithScope format md : la portee file est respectee", async () => {
   assert.doesNotMatch(file.content, /Texte B/, "le contenu ne doit pas inclure sceneB");
 });
 
+test("exportWithScope : les formats binaires reçoivent toujours un sourcePath pour chaque portée", async () => {
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+  const { createFileScope, createFolderScope, createProjectScope } = await import("../src/services/compile-scope.js");
+  const { app, settings, manuscript } = makeExportFixture();
+  const folder = manuscript.children[0];
+  const file = folder.children[0];
+  const scopes = [
+    createFileScope(manuscript.path, file.path),
+    createFolderScope(manuscript.path, folder.path),
+    createProjectScope(manuscript.path),
+  ];
+  const formats = ["pdf", "docx", "epub", "odt"];
+  const restoreDom = installMinimalDom();
+  const previousRender = MarkdownRenderer.render;
+  const sourcePaths = [];
+  MarkdownRenderer.render = async (_app, _markdown, _container, sourcePath) => {
+    sourcePaths.push(sourcePath);
+  };
+  try {
+    for (const format of formats) {
+      for (const scope of scopes) await exportWithScope(app, settings, scope, format, `SourcePath-${format}`);
+    }
+    assert.equal(sourcePaths.length, formats.length * scopes.length);
+    assert.ok(sourcePaths.every((sourcePath) => typeof sourcePath === "string" && sourcePath.length > 0));
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    restoreDom();
+  }
+});
+
+test("compile : un brouillon est exportable explicitement, mais exclu du projet", async () => {
+  const { createFileScope, createProjectScope } = await import("../src/services/compile-scope.js");
+  const project = new TFolder("WARPI");
+  const feuillets = new TFolder("WARPI/_Feuillets");
+  const drafts = new TFolder("WARPI/_Feuillets/Drafts");
+  const textes = new TFolder("WARPI/TEXTES");
+  const normal = new TFile("WARPI/TEXTES/Normal.md", "Texte normal.");
+  const draft = new TFile("WARPI/_Feuillets/Drafts/Sans titre.md", "---\nstatus: Brouillon\n---\nTexte brouillon.");
+  project.children = [feuillets, textes];
+  feuillets.parent = project;
+  textes.parent = project;
+  feuillets.children = [drafts];
+  drafts.parent = feuillets;
+  drafts.children = [draft];
+  draft.parent = drafts;
+  textes.children = [normal];
+  normal.parent = textes;
+
+  const { vault, fileManager } = createFakeVault([project, feuillets, drafts, textes, normal, draft]);
+  vault.cachedRead = vault.read;
+  const app = { vault, fileManager, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const settings = {
+    projectFolder: project.path,
+    level1Role: "chapitres",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+  };
+
+  const projectResult = await compile(app, settings, null, createProjectScope(project.path), null, { writeOutput: false });
+  assert.ok(projectResult);
+  assert.ok(!projectResult.segments.some((segment) => segment.path === draft.path));
+
+  const fileResult = await compile(app, settings, null, createFileScope(project.path, draft.path), null, { writeOutput: false });
+  assert.ok(fileResult);
+  assert.deepEqual(fileResult.segments.map((segment) => segment.path), [draft.path]);
+
+  const nestedFolder = await vault.createFolder("WARPI/_Feuillets/Drafts/Notes");
+  assert.ok(nestedFolder instanceof TFolder);
+  const nested = await vault.create("WARPI/_Feuillets/Drafts/Notes/Imbrique.md", "---\nstatus: Brouillon\n---\nTexte imbrique.");
+  const nestedResult = await compile(app, settings, null, createFileScope(project.path, nested.path), null, { writeOutput: false });
+  assert.ok(nestedResult);
+  assert.deepEqual(nestedResult.segments.map((segment) => segment.path), [nested.path]);
+
+  await vault.createFolder("WARPI/TEXTES/Promu");
+  const promotedFolder = vault.getAbstractFileByPath("WARPI/TEXTES/Promu");
+  assert.ok(promotedFolder instanceof TFolder);
+  await fileManager.renameFile(draft, "WARPI/TEXTES/Promu/Sans titre.md");
+  const promotedResult = await compile(app, settings, null, createProjectScope(project.path), null, { writeOutput: false });
+  assert.ok(promotedResult);
+  assert.ok(promotedResult.segments.some((segment) => segment.path === draft.path));
+});
+
 test("exportWithScope format docx : produit un fichier .docx (pas .md)", async () => {
   const { exportWithScope } = await import("../src/services/compile-export.js");
   const { createProjectScope } = await import("../src/services/compile-scope.js");
@@ -1692,6 +1783,7 @@ test("exportWithScope format docx : produit un fichier .docx (pas .md)", async (
     assert.doesNotMatch(outPath, /\.md$/, "docx ne doit pas produire un .md");
     assert.doesNotMatch(outPath, /\.docx\.docx$/, "aucune double extension .docx.docx");
     assert.ok(vault.getAbstractFileByPath(outPath), "le fichier .docx doit exister dans le vault");
+    assert.equal(vault.getAbstractFileByPath("EW/_Feuillets/Sortie/Manuscrit.md"), null, "un export DOCX ne doit pas écrire Manuscrit.md");
   } finally {
     restoreDom();
   }
@@ -1736,6 +1828,7 @@ test("exportWithScope format epub : produit un fichier .epub (pas .md)", async (
     assert.doesNotMatch(outPath, /\.md$/, "epub ne doit pas produire un .md");
     assert.doesNotMatch(outPath, /\.epub\.epub$/, "aucune double extension");
     assert.ok(vault.getAbstractFileByPath(outPath), "le fichier .epub doit exister dans le vault");
+    assert.equal(vault.getAbstractFileByPath("EW/_Feuillets/Sortie/Manuscrit.md"), null, "un export EPUB ne doit pas écrire Manuscrit.md");
   } finally {
     restoreDom();
   }
@@ -1754,6 +1847,7 @@ test("exportWithScope format odt : produit un fichier .odt (pas .md)", async () 
     assert.doesNotMatch(outPath, /\.md$/, "odt ne doit pas produire un .md");
     assert.doesNotMatch(outPath, /\.odt\.odt$/, "aucune double extension");
     assert.ok(vault.getAbstractFileByPath(outPath), "le fichier .odt doit exister dans le vault");
+    assert.equal(vault.getAbstractFileByPath("EW/_Feuillets/Sortie/Manuscrit.md"), null, "un export ODT ne doit pas écrire Manuscrit.md");
   } finally {
     restoreDom();
   }

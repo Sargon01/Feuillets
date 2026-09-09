@@ -14,6 +14,7 @@ import { loadContentExtractions, type ContentExtraction } from "../services/cont
 import { loadContentCollections, type ContentCollection } from "../services/content-collections.js";
 import { type CompileScope } from "../services/compile-scope.js";
 import { createFileScope, createFolderScope, createProjectScope } from "../services/compile-scope.js";
+import { isProjectDraft } from "../services/project-drafts.js";
 
 type ExportPanelSettings = FeuilletsSettings & {
   exportTemplate: string;
@@ -257,7 +258,7 @@ export class ExportPanel {
       text: t("project.compilation.exportBtn"),
     });
     launch.setAttribute("aria-label", t("preview.export.launch"));
-    launch.addEventListener("click", () => void this.launchExport());
+    launch.addEventListener("click", () => void this.launchQuickBarExport());
   }
 
   private quickMenuButton(parent: HTMLElement, kind: string, icon: string, tooltip: string): HTMLButtonElement {
@@ -487,8 +488,9 @@ export class ExportPanel {
   private activeProjectFile(): TFile | null {
     const file = this.app.workspace?.getActiveFile?.();
     const root = this.plugin.getProjectFolder();
-    if (!(file instanceof TFile) || file.extension !== "md" || !root || !file.path.startsWith(`${root.path}/`)) return null;
-    if (file.path.includes("/Front/") || file.path.includes("/Annexes/") || file.path.includes("/Appendices/") || file.path.includes("/_")) return null;
+    const isDraft = isProjectDraft(root, file);
+    if (!(file instanceof TFile) || file.extension !== "md" || !root || (!isDraft && !file.path.startsWith(`${root.path}/`))) return null;
+    if (file.path.includes("/Front/") || file.path.includes("/Annexes/") || file.path.includes("/Appendices/") || (file.path.includes("/_") && !isDraft)) return null;
     return file;
   }
 
@@ -519,6 +521,29 @@ export class ExportPanel {
    * par ce panneau. Aucun appel à PreviewView.doExport(). */
   private async launchExport(): Promise<void> {
     await runExportWorkflow(this.app, this.plugin, this.resolveScope());
+  }
+
+  /** Recalcule les portées dépendantes du feuillet actif au moment du clic.
+   * La quickbar d'Édition n'a pas le callback de portée explicite de l'Aperçu
+   * : elle ne doit donc jamais réutiliser un ancien fichier ou dossier si
+   * l'auteur a changé de feuillet entre deux clics. Les portées Projet et
+   * Sélection restent, elles, inchangées. */
+  private async launchQuickBarExport(): Promise<void> {
+    const current = this.resolveScope();
+    if (!current || this.callbacks.getScope || (current.type !== "file" && current.type !== "folder")) {
+      await runExportWorkflow(this.app, this.plugin, current);
+      return;
+    }
+    const active = this.activeProjectFile();
+    if (!active) return;
+    const root = this.plugin.getProjectFolder();
+    if (!root) return;
+    const scope = current.type === "file"
+      ? createFileScope(root.path, active.path)
+      : active.parent
+        ? createFolderScope(root.path, active.parent.path)
+        : null;
+    if (scope) await runExportWorkflow(this.app, this.plugin, scope);
   }
 
   /** Reconstruit le panneau ENTIER (les valeurs affichées viennent des
