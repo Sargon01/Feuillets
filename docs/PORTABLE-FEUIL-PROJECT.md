@@ -15,7 +15,7 @@ Use a `.feuil` when you want to:
 - send a complete Feuillets project to another Feuillets installation;
 - move a project without losing supported manuscript order, folder settings or Research links.
 
-A `.feuil` is not a day-to-day writing format, a synchronization service, or a replacement for regular backups.
+A `.feuil` remains a full-project export rather than an isolated work: it captures the complete project along with all nested works. It is not a day-to-day writing format, a synchronization service, or a replacement for regular backups.
 
 ## Export a project
 
@@ -35,11 +35,16 @@ The archive manifest also keeps the information needed to rebuild the supported 
 - project name and root kind;
 - manuscript path inside the project;
 - first-level structural role;
-- supported project-scoped metadata;
+- effective composition of the project at export time;
+- supported project-scoped metadata, including nested works and their local folder settings;
 - recorded folder and sheet order;
 - recorded folder positions and goals;
 - narrative-thread state used by the project;
 - links between Binder nodes and Research folders.
+
+### Nested works and composition
+
+Nested works within the project (such as a separate volume or book) and their local settings are faithfully restored during import. The effective project composition is transported in the archive. Thus, an inheriting work (without custom local composition) retains its inheritance after import and inherits directly from the exported project composition of the source project, without depending on the destination installation's general settings.
 
 ### Linked Research outside the project
 

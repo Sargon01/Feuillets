@@ -29,6 +29,7 @@ export type FeuilProjectImportSettingsPatch = {
   structure: {
     level1Role: "parties" | "chapitres";
   };
+  composition?: OuvrageCompositionConfig;
 };
 
 export type FeuilProjectImportResult = {
@@ -181,6 +182,7 @@ export async function materializeFeuilProjectImport(
       resolved: [...plan.manifest.project.narrativeState.resolved],
     },
     structure: { level1Role: plan.manifest.project.structure.level1Role },
+    ...(plan.manifest.project.composition ? { composition: { ...plan.manifest.project.composition } } : {}),
   };
 
   let created = false;

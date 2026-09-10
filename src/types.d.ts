@@ -202,6 +202,10 @@ declare type ProjectMeta = {
    *  Porte aussi, depuis la fusion avec les anciennes racines d'ouvrage, le
    *  statut d'ouvrage de chaque dossier (FolderWorkspaceConfig.ouvrage). */
   folderWorkspaces?: Record<string, FolderWorkspaceConfig>;
+  /** LOT UNIQUE .feuil — composition effective du projet au moment de l'export.
+   *  Créé UNIQUEMENT par l'import .feuil, jamais par une simple lecture ni par
+   *  les projets existants. */
+  projectComposition?: OuvrageCompositionConfig;
   /** Nom d'affichage personnalisé ; sinon le nom du dossier. */
   name?: string;
   /** Emoji ou nom d'icône Lucide. */

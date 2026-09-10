@@ -33,6 +33,7 @@ export type FeuilProjectManifest = {
     structure: {
       level1Role: "parties" | "chapitres";
     };
+    composition?: OuvrageCompositionConfig;
     meta: Record<string, unknown>;
     pathSettings: {
       orders: Record<string, string[]>;
@@ -149,6 +150,26 @@ function validateNarrativeState(value: unknown): boolean {
   return validatePaths(value.placeholders) && validatePaths(value.origins);
 }
 
+function validateOuvrageComposition(value: unknown): value is OuvrageCompositionConfig {
+  if (!isPlainObject(value) || !hasOnlySafeKeys(value)) return false;
+  return typeof value.fileName === "string"
+    && (value.level1Role === "parties" || value.level1Role === "chapitres")
+    && (value.chapterNumbering === "continu" || value.chapterNumbering === "parPartie" || value.chapterNumbering === "aucune")
+    && (value.sceneNumbering === "hier" || value.sceneNumbering === "continue" || value.sceneNumbering === "aucune")
+    && typeof value.autoRename === "boolean"
+    && typeof value.renamePrefix === "string"
+    && typeof value.folderTitles === "boolean"
+    && typeof value.chapterTitles === "boolean"
+    && typeof value.sceneTitles === "boolean"
+    && typeof value.separator === "string"
+    && typeof value.footnoteRenumberOnCompile === "boolean"
+    && typeof value.summary === "boolean"
+    && typeof value.tables === "boolean"
+    && typeof value.toc === "boolean"
+    && typeof value.bibliography === "boolean"
+    && typeof value.annexes === "boolean";
+}
+
 /** Validates and returns a V1 manifest without removing safe future fields. */
 export function validateFeuilProjectManifest(value: unknown): FeuilProjectManifest {
   if (!isPlainObject(value) || !hasOnlySafeKeys(value)) fail("Manifeste .feuil invalide.");
@@ -166,6 +187,7 @@ export function validateFeuilProjectManifest(value: unknown): FeuilProjectManife
   if ((project.rootKind === "adopted" && project.manuscriptPath !== ".")
     || (project.rootKind === "structured" && project.manuscriptPath === ".")) fail("rootKind et manuscriptPath .feuil incohérents.");
   if (!isPlainObject(project.structure) || (project.structure.level1Role !== "parties" && project.structure.level1Role !== "chapitres")) fail("structure .feuil invalide.");
+  if (project.composition !== undefined && !validateOuvrageComposition(project.composition)) fail("composition .feuil invalide.");
   if (!isPlainObject(project.meta)) fail("meta .feuil invalide.");
   if (!validatePathSettings(project.pathSettings)) fail("pathSettings .feuil invalide.");
   if (!validateNarrativeState(project.narrativeState)) fail("narrativeState .feuil invalide.");

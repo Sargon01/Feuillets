@@ -23,6 +23,7 @@ export function applyFeuilProjectImportSettings(settings: FeuilletsSettings, res
 
   const projectMeta = JSON.parse(JSON.stringify(result.settingsPatch.projectMeta)) as ProjectMeta;
   if (knownProjectType(projectMeta.type) === null) projectMeta.type = "fiction";
+  const compositionPatch = result.settingsPatch.composition;
   settings.projectMeta[manuscriptPath] = {
     ...projectMeta,
     researchFolderLinks: { ...(projectMeta.researchFolderLinks || {}) },
@@ -32,5 +33,6 @@ export function applyFeuilProjectImportSettings(settings: FeuilletsSettings, res
       origins: { ...result.settingsPatch.narrativeState.origins },
       resolved: [...result.settingsPatch.narrativeState.resolved],
     },
+    ...(compositionPatch ? { projectComposition: { ...compositionPatch } } : {}),
   };
 }

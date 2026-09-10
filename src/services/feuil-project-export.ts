@@ -6,6 +6,7 @@ import { getBackupsRoot } from "./project-backup.js";
 import { validateFeuilProjectManifest } from "./feuil-project-package.js";
 import type { FeuilProjectLinkedResearch, FeuilProjectManifest } from "./feuil-project-package.js";
 import { filsOf } from "../utils/arc-fields.js";
+import { effectiveComposition } from "./ouvrage-composition.js";
 
 export type FeuilProjectExportPlan = {
   manifest: FeuilProjectManifest;
@@ -47,6 +48,7 @@ function cloneMeta(meta: ProjectMeta | undefined): Record<string, unknown> {
   delete clone.researchFolderLinks;
   delete clone.level1Role;
   delete clone.narrativeState;
+  delete clone.projectComposition;
   return clone;
 }
 
@@ -182,6 +184,7 @@ export async function buildFeuilProjectExportPlan(
       rootKind: isStructured ? "structured" : "adopted",
       manuscriptPath: isStructured ? relativePath(manuscriptRoot.path, projectRoot.path) : ".",
       structure: { level1Role: level1RoleOf(meta, settings) },
+      composition: effectiveComposition(settings, manuscriptRoot, manuscriptRoot),
       meta: cloneMeta(meta),
       pathSettings: {
         orders: exportSettings(settings.orders, projectRoot.path, (value) => [...value]),

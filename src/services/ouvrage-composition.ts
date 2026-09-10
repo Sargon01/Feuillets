@@ -136,18 +136,38 @@ function toEnumSetting<T extends string>(value: unknown, allowed: readonly T[], 
   return typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 }
 
+/** Prédicat de validation stricte d'une composition complète (16 champs). */
+export function isValidOuvrageComposition(value: unknown): value is OuvrageCompositionConfig {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const v = value as Record<string, unknown>;
+  return typeof v.fileName === "string"
+    && (v.level1Role === "parties" || v.level1Role === "chapitres")
+    && (v.chapterNumbering === "continu" || v.chapterNumbering === "parPartie" || v.chapterNumbering === "aucune")
+    && (v.sceneNumbering === "hier" || v.sceneNumbering === "continue" || v.sceneNumbering === "aucune")
+    && typeof v.autoRename === "boolean"
+    && typeof v.renamePrefix === "string"
+    && typeof v.folderTitles === "boolean"
+    && typeof v.chapterTitles === "boolean"
+    && typeof v.sceneTitles === "boolean"
+    && typeof v.separator === "string"
+    && typeof v.footnoteRenumberOnCompile === "boolean"
+    && typeof v.summary === "boolean"
+    && typeof v.tables === "boolean"
+    && typeof v.toc === "boolean"
+    && typeof v.bibliography === "boolean"
+    && typeof v.annexes === "boolean";
+}
+
 /** Composition EFFECTIVE d'une racine éditoriale — objet normalisé UNIQUE
  * (OuvrageCompositionConfig, types.d.ts), SOURCE UNIQUE pour compile-export.ts
  * ET pour toute l'UI (Édition → Composition et ses six panneaux) : rôle du
  * premier niveau, numérotation (chapitres/sections, renumérotation des
  * titres, préfixe), titres, séparateur, notes, sommaire/tables/table des
  * matières/bibliographie/annexes. Calcule d'abord la composition GLOBALE
- * (repli historique, inchangé : activePresetConfig() + le même repli
- * projectMeta[globalRoot]→settings déjà pratiqué par roleOfFolder() pour
- * `level1Role`, + réglages generated-items du projet global) puis la
+ * (a. projectComposition importé via .feuil si valide, b. sinon repli historique :
+ * activePresetConfig() + level1Role + réglages generated-items) puis la
  * résout pour `editorialRoot` — un ouvrage sans composition locale hérite
- * intégralement de cette composition globale, jamais une seconde
- * résolution divergente ailleurs. Mise en page, dossier de sortie,
+ * intégralement de cette composition globale. Mise en page, dossier de sortie,
  * métadonnées générales et catalogue de presets n'en font JAMAIS partie —
  * toujours globaux. */
 export function effectiveComposition(
@@ -155,49 +175,58 @@ export function effectiveComposition(
   globalRoot: TFolder,
   editorialRoot: TFolder
 ): OuvrageCompositionConfig {
-  const P = activePresetConfig(settings);
-  const globalMeta = projectMetaFor(settings, globalRoot);
-  /* Même repli que roleOfFolder() (folder-structure.ts) pour la racine
-     globale : projectMeta[globalRoot].level1Role d'abord, sinon le réglage
-     global historique — comportement PRÉEXISTANT, inchangé ici. */
-  const globalLevel1Role = toEnumSetting(globalMeta.level1Role, ["parties", "chapitres"] as const, toEnumSetting(settings.level1Role, ["parties", "chapitres"] as const, "parties"));
-  const globalComposition: OuvrageCompositionConfig = {
-    fileName: P.fileName,
-    folderTitles: P.folderTitles,
-    chapterTitles: P.chapterTitles,
-    sceneTitles: P.sceneTitles,
-    separator: P.separator,
-    footnoteRenumberOnCompile: settings.footnoteRenumberOnCompile !== false,
-    summary: readGeneratedIncluded(globalMeta, SUMMARY) ?? false,
-    tables: readGeneratedIncluded(globalMeta, TABLES) ?? false,
-    toc: readGeneratedIncluded(globalMeta, TOC) ?? false,
-    bibliography: readGeneratedIncluded(globalMeta, BIBLIOGRAPHY) ?? false,
-    annexes: readGeneratedIncluded(globalMeta, ANNEXES) ?? false,
-    level1Role: globalLevel1Role,
-    chapterNumbering: toEnumSetting(settings.chapterNumbering, ["continu", "parPartie", "aucune"] as const, "continu"),
-    sceneNumbering: toEnumSetting(settings.sceneNumbering, ["hier", "continue", "aucune"] as const, "hier"),
-    autoRename: settings.autoRename !== false,
-    renamePrefix: toValue(settings.renamePrefix) || "chapitre",
-  };
+  const rootKey = rootKeyFor(settings, globalRoot);
+  const globalMeta = settings.projectMeta?.[rootKey] ?? settings.projectMeta?.[globalRoot.path];
+  let globalComposition: OuvrageCompositionConfig;
+
+  if (globalMeta?.projectComposition && isValidOuvrageComposition(globalMeta.projectComposition)) {
+    globalComposition = { ...globalMeta.projectComposition };
+  } else {
+    const P = activePresetConfig(settings);
+    const resolvedMeta = projectMetaFor(settings, globalRoot);
+    const globalLevel1Role = toEnumSetting(
+      resolvedMeta.level1Role,
+      ["parties", "chapitres"] as const,
+      toEnumSetting(settings.level1Role, ["parties", "chapitres"] as const, "parties")
+    );
+    globalComposition = {
+      fileName: P.fileName,
+      folderTitles: P.folderTitles,
+      chapterTitles: P.chapterTitles,
+      sceneTitles: P.sceneTitles,
+      separator: P.separator,
+      footnoteRenumberOnCompile: settings.footnoteRenumberOnCompile !== false,
+      summary: readGeneratedIncluded(resolvedMeta, SUMMARY) ?? false,
+      tables: readGeneratedIncluded(resolvedMeta, TABLES) ?? false,
+      toc: readGeneratedIncluded(resolvedMeta, TOC) ?? false,
+      bibliography: readGeneratedIncluded(resolvedMeta, BIBLIOGRAPHY) ?? false,
+      annexes: readGeneratedIncluded(resolvedMeta, ANNEXES) ?? false,
+      level1Role: globalLevel1Role,
+      chapterNumbering: toEnumSetting(settings.chapterNumbering, ["continu", "parPartie", "aucune"] as const, "continu"),
+      sceneNumbering: toEnumSetting(settings.sceneNumbering, ["hier", "continue", "aucune"] as const, "hier"),
+      autoRename: settings.autoRename !== false,
+      renamePrefix: toValue(settings.renamePrefix) || "chapitre",
+    };
+  }
   return resolveOuvrageComposition(settings, globalRoot, editorialRoot, globalComposition);
 }
 
 /** Écrit un champ de la composition GLOBALE (WARPI) à son emplacement
- * HISTORIQUE exact — jamais via folderWorkspaces/ouvrage, qui n'existe que
- * pour un ouvrage. Un seul point d'écriture, réutilisé par
- * createCompositionBinding() ci-dessous pour que WARPI conserve
- * rigoureusement les mêmes emplacements et effets qu'avant l'introduction
- * du binding (édition-composition-content.ts avant LOT 5B). Les cinq champs
- * partagés avec PresetConfig (fileName/folderTitles/chapterTitles/
- * sceneTitles/separator) restent écrits dans les réglages DE BASE — jamais
- * dans le preset actif, exactement comme la Structure historique : le
- * catalogue de presets se modifie UNIQUEMENT via ses propres lignes
- * dédiées (une par preset, y compris l'actif), inchangées par LOT 5B. */
+ * HISTORIQUE exact ou dans projectComposition si importé via .feuil.
+ * Si projectComposition existe, on applique le patch et on retourne immédiatement
+ * sans toucher aux réglages globaux de destination ni aux options générées historiques. */
 function applyGlobalCompositionPatch(
   settings: FeuilletsSettings,
   globalRoot: TFolder,
   patch: Partial<OuvrageCompositionConfig>
 ): void {
+  const rootKey = rootKeyFor(settings, globalRoot);
+  const meta = settings.projectMeta?.[rootKey] ?? settings.projectMeta?.[globalRoot.path];
+  if (meta?.projectComposition && isValidOuvrageComposition(meta.projectComposition)) {
+    meta.projectComposition = { ...meta.projectComposition, ...patch };
+    return;
+  }
+
   if (patch.fileName !== undefined) settings.compileFileName = patch.fileName;
   if (patch.folderTitles !== undefined) settings.insertFolderTitles = patch.folderTitles;
   if (patch.chapterTitles !== undefined) settings.insertTitles = patch.chapterTitles;
@@ -220,11 +249,11 @@ function applyGlobalCompositionPatch(
   const needsMeta = generated.some(([field]) => patch[field] !== undefined);
   if (needsMeta) {
     if (!settings.projectMeta) settings.projectMeta = {};
-    const meta = settings.projectMeta[globalRoot.path] || {};
-    settings.projectMeta[globalRoot.path] = meta;
+    const metaObj = settings.projectMeta[globalRoot.path] || {};
+    settings.projectMeta[globalRoot.path] = metaObj;
     for (const [field, id] of generated) {
       const value = patch[field];
-      if (typeof value === "boolean") writeGeneratedIncluded(meta, id, value);
+      if (typeof value === "boolean") writeGeneratedIncluded(metaObj, id, value);
     }
   }
 }

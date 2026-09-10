@@ -15,7 +15,7 @@ Utilisez un `.feuil` lorsque vous voulez :
 - transmettre un projet Feuillets complet à une autre installation de Feuillets ;
 - déplacer un projet sans perdre l’ordre du manuscrit, certains réglages de dossier ou les associations Recherche prises en charge.
 
-Un `.feuil` n’est ni un format d’écriture quotidien, ni un service de synchronisation, ni un remplacement des sauvegardes régulières.
+Un `.feuil` reste un export de projet complet, et non d’un ouvrage isolé : il capture l’ensemble du projet avec tous ses ouvrages imbriqués. Ce n’est ni un format d’écriture quotidien, ni un service de synchronisation, ni un remplacement des sauvegardes régulières.
 
 ## Exporter un projet
 
@@ -35,11 +35,16 @@ Le manifeste de l’archive conserve également les informations nécessaires po
 - le nom du projet et son type de racine ;
 - le chemin du manuscrit dans le projet ;
 - le rôle structurel du premier niveau ;
-- les métadonnées propres au projet prises en charge ;
+- la composition effective du projet au moment de l’export ;
+- les métadonnées propres au projet prises en charge, y compris les ouvrages imbriqués et leurs réglages locaux de dossier ;
 - l’ordre enregistré des dossiers et feuillets ;
 - les positions et objectifs de dossiers enregistrés ;
 - l’état narratif lié aux fils utilisé par le projet ;
 - les associations entre nœuds du Classeur et dossiers Recherche.
+
+### Ouvrages imbriqués et composition
+
+Les ouvrages imbriqués dans le projet (tels qu’un tome ou un livre distinct) et leurs réglages locaux sont fidèlement restaurés lors de l’import. La composition effective du projet est transportée dans l’archive. Ainsi, un ouvrage héritier (sans composition locale personnalisée) conserve son statut d’héritage après l’import et hérite directement de la composition exportée du projet d’origine, sans dépendre des réglages généraux de l’installation destinataire.
 
 ### Dossiers Recherche liés hors du projet
 
