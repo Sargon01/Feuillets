@@ -157,6 +157,17 @@ export function matchesResearchLabel(researchFolders: Readonly<Record<string, { 
   return names.includes(name);
 }
 
+/** (atendev) Translates a physical research folder name to the active locale, or returns it unchanged if unknown. */
+export function translatedResearchFolderName(
+  researchFolders: Readonly<Record<string, { label: string }>>,
+  name: string
+): string {
+  const knownKey = Object.keys(researchFolders).find((key) =>
+    researchFolderNames(researchFolders, key).includes(name)
+  );
+  return knownKey ? researchFolderLabel(researchFolders, knownKey) : name;
+}
+
 export const PROJECT_MODES = {
   fiction: {
     label: "Fiction",
