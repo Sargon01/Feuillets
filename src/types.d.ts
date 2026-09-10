@@ -90,8 +90,55 @@ declare type ProjectStatusEntry = {
   color: string;
 };
 
+/** Réglages de composition d'un ouvrage — objet normalisé UNIQUE consommé
+ * par la compilation (services/compile-export.ts effectiveComposition) pour
+ * tous les réglages de la section Composition (Édition → Composition) :
+ * avant le manuscrit (sommaire, tables), le manuscrit lui-même (titres,
+ * séparateur), après le manuscrit (table des matières, bibliographie,
+ * annexes) et les notes de bas de page. Extrait du type déjà utilisé par
+ * activePresetConfig() — PresetConfig en reprend un sous-ensemble par
+ * `Pick` plutôt que de redéclarer séparément les mêmes champs (voir plus
+ * bas). Ne couvre JAMAIS Mise en page, dossier de sortie, métadonnées
+ * générales de projet ni catalogue de presets : ces réglages restent
+ * toujours globaux, jamais propres à un ouvrage — voir
+ * services/ouvrage-composition.ts. */
+declare type OuvrageCompositionConfig = {
+  /** Nom de fichier de sortie — seul champ de composition qu'un ouvrage
+   *  peut vouloir distinct sans que cela relève du "dossier de sortie"
+   *  (son EMPLACEMENT, lui, reste toujours global). */
+  fileName: string;
+  /** Rôle du premier niveau de dossiers sous la racine éditoriale
+   *  ("Structure" — edition-composition-content.ts renderStructureSection,
+   *  settings.level1Role / ProjectMeta.level1Role). */
+  level1Role: "parties" | "chapitres";
+  /** Numérotation des chapitres (settings.chapterNumbering). */
+  chapterNumbering: "continu" | "parPartie" | "aucune";
+  /** Numérotation des sections/scènes (settings.sceneNumbering). */
+  sceneNumbering: "hier" | "continue" | "aucune";
+  /** Renumérotation automatique des titres au renommage (settings.autoRename). */
+  autoRename: boolean;
+  /** Préfixe utilisé par cette renumérotation (settings.renamePrefix). */
+  renamePrefix: string;
+  folderTitles: boolean;
+  chapterTitles: boolean;
+  sceneTitles: boolean;
+  separator: string;
+  footnoteRenumberOnCompile: boolean;
+  summary: boolean;
+  tables: boolean;
+  toc: boolean;
+  bibliography: boolean;
+  annexes: boolean;
+};
+
 declare type OuvrageConfig = {
   version: 1;
+  /** Composition propre à CET ouvrage — absente = héritage intégral de la
+   *  composition effective du projet global (resolveOuvrageComposition).
+   *  Toujours une copie COMPLÈTE une fois posée (materializeOuvrageComposition
+   *  puis mise à jour), jamais un delta partiel — voir
+   *  services/ouvrage-composition.ts, seul lecteur/écrivain légitime. */
+  composition?: OuvrageCompositionConfig;
 };
 
 declare type FolderWorkspacePreset = "free" | "fiction" | "nonfiction";
@@ -668,14 +715,12 @@ declare type FeuilletsSettings = {
 };
 
 /** Configuration d'un preset de compilation actif (résultat de
- * activePresetConfig). */
-declare type PresetConfig = {
+ * activePresetConfig). Un preset reste une IDENTITÉ nommée (name) appliquée
+ * par-dessus un sous-ensemble de la composition — ses cinq champs partagés
+ * avec OuvrageCompositionConfig sont donc repris par `Pick`, jamais
+ * redéclarés séparément (voir ce type, plus haut). */
+declare type PresetConfig = Pick<OuvrageCompositionConfig, "fileName" | "folderTitles" | "chapterTitles" | "sceneTitles" | "separator"> & {
   name: string;
-  fileName: string;
-  folderTitles: boolean;
-  chapterTitles: boolean;
-  sceneTitles: boolean;
-  separator: string;
   [key: string]: unknown;
 };
 

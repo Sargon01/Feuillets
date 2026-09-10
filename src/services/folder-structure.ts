@@ -339,30 +339,45 @@ export function isFrontMatter(
   return node.path === p || node.path.startsWith(`${p}/`);
 }
 
+/**
+ * @param level1RoleOverride Rôle du premier niveau imposé par l'appelant
+ *   (ex. compile-export.ts, `composition.level1Role` — une racine éditoriale
+ *   peut avoir son propre `level1Role`, distinct du réglage global) — s'il
+ *   est fourni, il tranche seul le niveau 1, SANS jamais consulter
+ *   `projectMeta`/`settings.level1Role`. Absent, la résolution historique
+ *   (projectMeta de la racine globale, puis réglage global) reste
+ *   strictement inchangée — c'est le même algorithme, jamais une copie
+ *   parallèle : voir aussi roleOfFile() ci-dessous, qui le transmet tel quel.
+ */
 export function roleOfFolder(
   app: App,
   settings: FeuilletsSettings,
   folder: TFolder,
-  editorialRoot?: TFolder | null
+  editorialRoot?: TFolder | null,
+  level1RoleOverride?: "parties" | "chapitres"
 ): "chapitre" | "partie" {
   const d = depthOf(app, settings, folder, editorialRoot);
   if (d >= 2) return "chapitre";
   if (editorialRoot && d <= 0) return "partie";
+  if (level1RoleOverride) return level1RoleOverride === "chapitres" ? "chapitre" : "partie";
   const root = getProjectFolder(app, settings);
   const level1Role = root && settings.projectMeta?.[root.path]?.level1Role;
   return (level1Role === "chapitres" || (!level1Role && settings.level1Role === "chapitres")) ? "chapitre" : "partie";
 }
 
+/** @param level1RoleOverride Transmis tel quel à roleOfFolder() — voir sa
+ *   documentation ci-dessus. */
 export function roleOfFile(
   app: App,
   settings: FeuilletsSettings,
   file: TFile,
-  editorialRoot?: TFolder | null
+  editorialRoot?: TFolder | null,
+  level1RoleOverride?: "parties" | "chapitres"
 ): "chapitre" | "scene" {
   const parent = file.parent;
   const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root || !parent || parent.path === root.path) return "chapitre";
-  return roleOfFolder(app, settings, parent, editorialRoot) === "chapitre" ? "scene" : "chapitre";
+  return roleOfFolder(app, settings, parent, editorialRoot, level1RoleOverride) === "chapitre" ? "scene" : "chapitre";
 }
 
 /** Un dossier préfixé « _ » (recherche, fiches, chronologie…) est exclu

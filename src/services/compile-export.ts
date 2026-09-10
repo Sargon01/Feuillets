@@ -42,6 +42,7 @@ import type { ContentCollection } from "./content-collections.js";
 import { renderContentCollectionMarkdown } from "./content-collection-render.js";
 import { joinCompiledSegments } from "./compile-segments.js";
 export { joinCompiledSegments } from "./compile-segments.js";
+import { resolveOuvrageComposition } from "./ouvrage-composition.js";
 
 /** Les deux noms reconnus pour le dossier Annexes, à la RACINE du dossier
  * Manuscrit — même convention de double reconnaissance (FR/EN) que
@@ -112,15 +113,10 @@ type NativeExportContext = {
   separator: string;
 };
 
-type PresetConfig = {
-  name: string;
-  fileName: string;
-  folderTitles: boolean;
-  chapterTitles: boolean;
-  sceneTitles: boolean;
-  separator: string;
-  [key: string]: unknown;
-};
+/* PresetConfig n'est plus redéclaré ici : il vient de types.d.ts (ambiant,
+   visible sans import), qui le dérive désormais de OuvrageCompositionConfig
+   par `Pick` plutôt que de porter une seconde liste des mêmes champs — voir
+   effectiveComposition() plus bas, qui construit l'objet complet. */
 
 /** Résolution unique des titres de feuillet : Markdown existant, puis YAML,
  * puis (pour les vues contextuelles seulement) un dernier repli Binder. */
@@ -164,20 +160,106 @@ export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
   return merged;
 }
 
+/** Repli défensif pour un champ à choix fermé lu depuis `settings`, qui n'a
+ * pas de déclaration ambiante dans FeuilletsSettings (types.d.ts) — accès
+ * via la signature d'index (`unknown`), même style que `S.activePreset`/
+ * `S.compileFileName` déjà pratiqué par activePresetConfig() ci-dessus.
+ * `fallback` est TOUJOURS l'une des valeurs autorisées : la valeur par
+ * défaut de DEFAULT_SETTINGS. */
+function toEnumSetting<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof value === "string" && (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
+}
+
+/** Composition EFFECTIVE d'une racine éditoriale — objet normalisé UNIQUE
+ * (OuvrageCompositionConfig, types.d.ts) qui alimente désormais TOUT ce que
+ * compile()/exportViaNative() consomment pour la section Composition :
+ * rôle du premier niveau, numérotation (chapitres/sections, renumérotation
+ * des titres, préfixe), titres, séparateur, notes, sommaire/tables/table
+ * des matières/bibliographie/annexes. Calcule d'abord la composition
+ * GLOBALE (repli historique, inchangé : activePresetConfig() + le même
+ * repli projectMeta[globalRoot]→settings déjà pratiqué par roleOfFolder()
+ * pour `level1Role`, + réglages generated-items du projet global) puis la
+ * résout pour `editorialRoot` via services/ouvrage-composition.ts — un
+ * ouvrage sans composition locale hérite intégralement de cette
+ * composition globale, jamais une seconde résolution divergente ailleurs
+ * dans ce fichier. Mise en page, dossier de sortie, métadonnées générales
+ * et catalogue de presets n'en font JAMAIS partie — toujours globaux. */
+export function effectiveComposition(
+  settings: FeuilletsSettings,
+  globalRoot: TFolder,
+  editorialRoot: TFolder
+): OuvrageCompositionConfig {
+  const P = activePresetConfig(settings);
+  const globalMeta = projectMetaFor(settings, globalRoot);
+  /* Même repli que roleOfFolder() (folder-structure.ts) pour la racine
+     globale : projectMeta[globalRoot].level1Role d'abord, sinon le réglage
+     global historique — comportement PRÉEXISTANT, inchangé ici. */
+  const globalLevel1Role = toEnumSetting(globalMeta.level1Role, ["parties", "chapitres"] as const, toEnumSetting(settings.level1Role, ["parties", "chapitres"] as const, "parties"));
+  const globalComposition: OuvrageCompositionConfig = {
+    fileName: P.fileName,
+    folderTitles: P.folderTitles,
+    chapterTitles: P.chapterTitles,
+    sceneTitles: P.sceneTitles,
+    separator: P.separator,
+    footnoteRenumberOnCompile: settings.footnoteRenumberOnCompile !== false,
+    summary: readGeneratedIncluded(globalMeta, SUMMARY) ?? false,
+    tables: readGeneratedIncluded(globalMeta, TABLES) ?? false,
+    toc: readGeneratedIncluded(globalMeta, TOC) ?? false,
+    bibliography: readGeneratedIncluded(globalMeta, BIBLIOGRAPHY) ?? false,
+    annexes: readGeneratedIncluded(globalMeta, ANNEXES) ?? false,
+    level1Role: globalLevel1Role,
+    chapterNumbering: toEnumSetting(settings.chapterNumbering, ["continu", "parPartie", "aucune"] as const, "continu"),
+    sceneNumbering: toEnumSetting(settings.sceneNumbering, ["hier", "continue", "aucune"] as const, "hier"),
+    autoRename: settings.autoRename !== false,
+    renamePrefix: toValue(settings.renamePrefix) || "chapitre",
+  };
+  return resolveOuvrageComposition(settings, globalRoot, editorialRoot, globalComposition);
+}
+
+/** Résout, à partir des mêmes `scopePath`/`scope` que compile(), la racine
+ * éditoriale qu'il calculerait lui-même — factorisé pour qu'exportViaNative
+ * (qui ne construit jamais sa propre CompileScope) obtienne EXACTEMENT la
+ * même racine, condition nécessaire pour que sa composition effective
+ * (ci-dessus) ne diverge jamais de celle que compile() vient d'utiliser
+ * pour ce même appel. Ne renvoie jamais null : à défaut de portée
+ * résoluble, replie sur `globalRoot` — compile(), appelé juste avant,
+ * affiche déjà sa propre Notice si le scope explicite s'avère invalide. */
+function resolveEditorialRootFor(
+  app: App,
+  globalRoot: TFolder,
+  scopePath: string | null,
+  scope: CompileScope | null | undefined
+): TFolder {
+  let compilationScope: CompileScope;
+  if (scope) {
+    compilationScope = scope;
+  } else if (scopePath) {
+    const scoped = app.vault.getAbstractFileByPath(normalizePath(scopePath));
+    if (scoped instanceof TFile && scoped.extension === "md") {
+      compilationScope = { type: "file", projectRoot: globalRoot.path, path: scoped.path };
+    } else if (scoped instanceof TFolder) {
+      compilationScope = { type: "folder", projectRoot: globalRoot.path, path: scoped.path };
+    } else {
+      return globalRoot;
+    }
+  } else {
+    compilationScope = createProjectScope(globalRoot.path);
+  }
+  const editorialRoot = app.vault.getAbstractFileByPath(normalizePath(compilationScope.projectRoot));
+  return editorialRoot instanceof TFolder ? editorialRoot : globalRoot;
+}
+
 /** Nom de base (sans extension) de la sortie compilée : résolu ICI, UNE
  * SEULE FOIS, puis réutilisé tel quel par compile() (Markdown) et
  * exportViaNative() (formats binaires) — jamais deux résolutions
  * concurrentes du même nom qui pourraient diverger. Priorité : nom explicite
  * transmis par l'appelant pour CETTE compilation/cet export précis (portée
  * fichier/dossier/sélection avec son propre nom, voir exportWithScope),
- * sinon le nom du preset actif s'il en définit un — activePresetConfig()
- * fusionne déjà preset.fileName > compileFileName legacy (réglage conservé
- * pour compatibilité depuis le retrait du champ « Nom du fichier » de
- * Édition, voir ui/export-panel.ts) — sinon repli "Manuscrit". */
-function resolveOutputBaseName(settings: FeuilletsSettings, explicit?: string | null): string {
+ * sinon `compositionFileName`, tel que résolu par effectiveComposition()
+ * pour la racine éditoriale de cet appel — sinon repli "Manuscrit". */
+function resolveOutputBaseName(explicit: string | null | undefined, compositionFileName: string): string {
   if (explicit) return explicit.replace(/\.md$/i, "");
-  const P = activePresetConfig(settings);
-  return P.fileName ? P.fileName.replace(/\.md$/i, "") : "Manuscrit";
+  return compositionFileName ? compositionFileName.replace(/\.md$/i, "") : "Manuscrit";
 }
 
 /** Une erreur `create()`/`createBinary()` correspondant à une collision de
@@ -361,7 +443,13 @@ export async function compile(
     return null;
   }
 
-  const P = activePresetConfig(settings);
+  /* LOT 5A — composition EFFECTIVE de editorialRoot (jamais globalRoot tel
+     quel) : un ouvrage (NEFES) sans composition locale hérite de celle du
+     projet global, un ouvrage avec composition locale l'utilise seule. Le
+     nom du preset actif (identité, hors composition) reste lu séparément
+     via activePresetConfig(settings).name, seulement pour la Notice finale
+     — jamais propre à un ouvrage (voir plus bas). */
+  const composition = effectiveComposition(settings, globalRoot, editorialRoot);
   const layoutStore = await loadLayoutStore(app, settings);
   const parts: string[] = [];
   let count = 0;
@@ -551,7 +639,7 @@ export async function compile(
       return true;
     }
 
-    const wantTitle = role === "scene" ? P.sceneTitles : P.chapterTitles;
+    const wantTitle = role === "scene" ? composition.sceneTitles : composition.chapterTitles;
     /* RECTIFICATION LOT 4 — le titre automatique d'une SCÈNE est TOUJOURS
        généré en H4, niveau ABSOLU (jamais depth + 1, jamais dépendant d'un
        ouvrage) : projet global ou ouvrage, portée project/folder/file,
@@ -559,7 +647,7 @@ export async function compile(
        "chapitre" (roleOfFile() peut aussi le renvoyer ici, pour un feuillet
        posé directement sous une partie) garde le calcul historique
        `depth + 1`, comme les titres de dossier (parties/chapitres,
-       inchangés ailleurs dans ce fichier). Ni P.sceneTitles/P.chapterTitles
+       inchangés ailleurs dans ce fichier). Ni sceneTitles/chapterTitles
        (réglage d'affichage, seul maître de wantTitle) ni un titre déjà
        écrit à la main dans le contenu (resolvedFileTitleMarkdown lui donne
        toujours la priorité par rapport à `level`) ne sont affectés. */
@@ -671,7 +759,7 @@ export async function compile(
            à afficher — ses pages (titre/dédicace/épigraphe) précèdent le
            roman, elles n'en font pas narrativement partie. */
         const isFrontFolder = isFrontMatter(app, settings, child, editorialRoot);
-        const role = roleOfFolder(app, settings, child, editorialRoot);
+        const role = roleOfFolder(app, settings, child, editorialRoot, composition.level1Role);
         const level = "#".repeat(Math.min(depth + 1, 6));
         /* N'émettre le titre du dossier que si :
            - la portée ne restreint pas les titres (allowedTitleFolders === null), OU
@@ -686,7 +774,7 @@ export async function compile(
             await pushSceneSequence(flattenFiles(app, settings, child), depth + 1, folderParts, folderSegments);
           }
           if (folderSegments.length > 0) {
-            const showTitle = role === "partie" ? P.folderTitles : P.chapterTitles;
+            const showTitle = role === "partie" ? composition.folderTitles : composition.chapterTitles;
             if (showTitle && !isFrontFolder && titleAllowed) {
               push(`${level} ${child.name}`, null, null, targetParts, targetSegments);
               const titleSegment = targetSegments[targetSegments.length - 1];
@@ -697,23 +785,24 @@ export async function compile(
             targetSegments.push(...folderSegments);
           }
         } else if (role === "partie") {
-          if (P.folderTitles && !isFrontFolder && titleAllowed) { push(`${level} ${child.name}`, null, null); Object.assign(segments[segments.length - 1], { startsWithGeneratedTitle: true, structuralType: "part" }); }
+          if (composition.folderTitles && !isFrontFolder && titleAllowed) { push(`${level} ${child.name}`, null, null); Object.assign(segments[segments.length - 1], { startsWithGeneratedTitle: true, structuralType: "part" }); }
           await walk(child, depth + 1);
         } else {
-          if (P.chapterTitles && !isFrontFolder && titleAllowed) { push(`${level} ${child.name}`, null, null); segments[segments.length - 1].startsWithGeneratedTitle = true; }
+          if (composition.chapterTitles && !isFrontFolder && titleAllowed) { push(`${level} ${child.name}`, null, null); segments[segments.length - 1].startsWithGeneratedTitle = true; }
           await pushSceneSequence(flattenFiles(app, settings, child), depth + 1);
         }
       } else {
-        await pushFile(child, roleOfFile(app, settings, child, editorialRoot), depth, targetParts, targetSegments);
+        await pushFile(child, roleOfFile(app, settings, child, editorialRoot, composition.level1Role), depth, targetParts, targetSegments);
       }
     }
   };
-  /* `meta` : lu une seule fois, avant tout parcours — sert à la fois à
-     décider si les annexes doivent être compilées à part (ci-dessous, DANS
-     le même filet try/catch que le reste) et, plus bas, à Sommaire/TDM/
-     Tables/Bibliographie. */
-  const meta = compilationScope.type === "project" ? projectMetaFor(settings, globalRoot) : null;
-  const wantAnnexes = meta ? readGeneratedIncluded(meta, ANNEXES) ?? false : false;
+  /* `composition.annexes` : lu une seule fois, avant tout parcours — sert à
+     la fois à décider si les annexes doivent être compilées à part
+     (ci-dessous, DANS le même filet try/catch que le reste) et, plus bas, à
+     Sommaire/TDM/Tables/Bibliographie. Sommaire/Tables/TDM/Bibliographie/
+     Annexes n'ont de sens qu'en portée `project` (aucun sens sur un simple
+     feuillet/dossier/sélection) — comportement historique inchangé. */
+  const wantAnnexes = compilationScope.type === "project" ? composition.annexes : false;
   try {
     // Compiler en respectant la structure du projet. Une portée fichier
     // explicite peut viser un brouillon, physiquement hors de l'arborescence
@@ -781,11 +870,11 @@ export async function compile(
      `parts` et `segments` reçoivent exactement les mêmes inserts, aux mêmes
      index, pour rester synchronisés (voir le commentaire juste en dessous
      sur cette contrainte). */
-  if (compilationScope.type === "project" && meta) {
-    const wantSummary = readGeneratedIncluded(meta, SUMMARY) ?? false;
-    const wantTables = readGeneratedIncluded(meta, TABLES) ?? false;
-    const wantToc = readGeneratedIncluded(meta, TOC) ?? false;
-    const wantBibliography = readGeneratedIncluded(meta, BIBLIOGRAPHY) ?? false;
+  if (compilationScope.type === "project") {
+    const wantSummary = composition.summary;
+    const wantTables = composition.tables;
+    const wantToc = composition.toc;
+    const wantBibliography = composition.bibliography;
     const bodySegments = segments.slice();
     const tocSourceSegments = wantAnnexes ? bodySegments.concat(annexSegments) : bodySegments;
 
@@ -861,7 +950,7 @@ export async function compile(
      leur propre markdown à partir de `segments`, pas de la chaîne jointe —
      renuméroter l'un sans l'autre romprait la numérotation vue par
      l'utilisatrice selon le format exporté. */
-  if (settings.footnoteRenumberOnCompile !== false) {
+  if (composition.footnoteRenumberOnCompile) {
     const renumberedParts = renumberFootnotesAcrossTexts(parts);
     const renderTexts = segments.map((segment) => segment.renderText ?? segment.text);
     const renumberedRenderTexts = renumberFootnotesAcrossTexts(renderTexts);
@@ -871,11 +960,11 @@ export async function compile(
     parts.length = 0;
     parts.push(...renumberedParts);
   }
-  const manuscript = joinCompiledSegments(segments, P.separator);
+  const manuscript = joinCompiledSegments(segments, composition.separator);
   if (options?.writeOutput === false) {
     return { outPath: "", manuscript, segments };
   }
-  const fileName = resolveOutputBaseName(settings, outputFileName);
+  const fileName = resolveOutputBaseName(outputFileName, composition.fileName);
   const outputFolder = await getOutputFolder(app, settings);
   const realOutBase = outputFolder ? outputFolder.path : globalRoot.path;
   const realOutPath = normalizePath(`${realOutBase}/${fileName}.md`);
@@ -898,7 +987,7 @@ export async function compile(
     return null;
   }
   new Notice(
-    `Compilé (${P.name}) : ${count} feuillets → ${fileName}.md`
+    `Compilé (${activePresetConfig(settings).name}) : ${count} feuillets → ${fileName}.md`
   );
   /** @type {CompileResult} */
   return { outPath: writtenOutPath, manuscript, segments };
@@ -1116,6 +1205,15 @@ async function exportViaNative(
     );
     if (!result) return undefined;
 
+    /* Même racine éditoriale que celle que compile() vient d'utiliser pour
+       CE MÊME appel (scopePath/scope identiques, voir
+       resolveEditorialRootFor) : la composition effective ci-dessous ne
+       peut donc jamais diverger de celle déjà appliquée par compile() —
+       Markdown, PDF, DOCX, EPUB et ODT partagent ainsi toujours strictement
+       la même composition. */
+    const editorialRootForExport = resolveEditorialRootFor(app, folder, scopePath, scope);
+    const composition = effectiveComposition(settings, folder, editorialRootForExport);
+
     const { title, author } = resolveExportIdentity(app, settings, folder, result.segments);
     /* Le fichier compilé réel (result.outPath) plutôt que le dossier projet :
        la résolution des embeds (![[image.png]]) par Obsidian a besoin d'un
@@ -1135,12 +1233,12 @@ async function exportViaNative(
         : folder.path;
     const outputFolder = await getOutputFolder(app, settings);
     const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
-    const baseName = resolveOutputBaseName(settings, baseNameOverride);
+    const baseName = resolveOutputBaseName(baseNameOverride, composition.fileName);
     const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType, sceneBreakBefore }) =>
       frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) } : { path, text, frontType, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) }
     );
     const contentVariant = await selectedContentVariant(app, settings);
-    const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments, contentVariant, separator: activePresetConfig(settings).separator };
+    const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments, contentVariant, separator: composition.separator };
 
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);

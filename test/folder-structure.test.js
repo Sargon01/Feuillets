@@ -421,3 +421,89 @@ test("editorialRoot : un nœud hors de NEFES a une profondeur 0 avec NEFES comme
   assert.equal(roleOfFolder(app, settings, nefes, nefes), "partie");
   assert.equal(roleOfFolder(app, settings, otherFolder, nefes), "partie");
 });
+
+/* ===================== RECTIFICATION LOT 5A — level1RoleOverride ===================== */
+
+test("roleOfFolder/roleOfFile : sans level1RoleOverride, résolution historique strictement inchangée", () => {
+  const warpi = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const niveau1 = new TFolder("WARPI/NEFES/Niveau1");
+  const scene = new TFile("WARPI/NEFES/Niveau1/Scène.md");
+  warpi.children = [nefes];
+  nefes.parent = warpi;
+  nefes.children = [niveau1];
+  niveau1.parent = nefes;
+  niveau1.children = [scene];
+  scene.parent = niveau1;
+
+  const { vault } = createFakeVault([warpi, nefes, niveau1, scene]);
+  const app = { vault };
+
+  const settingsParties = { projectFolder: "WARPI", level1Role: "parties" };
+  const settingsChapitres = { projectFolder: "WARPI", level1Role: "chapitres" };
+
+  // Appel à 4 arguments (comme avant l'ajout du paramètre) ou à 5 avec
+  // `undefined` explicite : rigoureusement le même résultat.
+  assert.equal(roleOfFolder(app, settingsParties, niveau1, nefes), "partie");
+  assert.equal(roleOfFolder(app, settingsParties, niveau1, nefes, undefined), "partie");
+  assert.equal(roleOfFolder(app, settingsChapitres, niveau1, nefes), "chapitre");
+  assert.equal(roleOfFolder(app, settingsChapitres, niveau1, nefes, undefined), "chapitre");
+  assert.equal(roleOfFile(app, settingsParties, scene, nefes), "chapitre");
+  assert.equal(roleOfFile(app, settingsParties, scene, nefes, undefined), "chapitre");
+  assert.equal(roleOfFile(app, settingsChapitres, scene, nefes), "scene");
+  assert.equal(roleOfFile(app, settingsChapitres, scene, nefes, undefined), "scene");
+});
+
+test("roleOfFolder/roleOfFile : level1RoleOverride prime sur le réglage global, dans les deux sens", () => {
+  const warpi = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const niveau1 = new TFolder("WARPI/NEFES/Niveau1");
+  const scene = new TFile("WARPI/NEFES/Niveau1/Scène.md");
+  warpi.children = [nefes];
+  nefes.parent = warpi;
+  nefes.children = [niveau1];
+  niveau1.parent = nefes;
+  niveau1.children = [scene];
+  scene.parent = niveau1;
+
+  const { vault } = createFakeVault([warpi, nefes, niveau1, scene]);
+  const app = { vault };
+
+  // Réglage global "parties" — l'override "chapitres" l'emporte pourtant.
+  const settingsParties = { projectFolder: "WARPI", level1Role: "parties" };
+  assert.equal(roleOfFolder(app, settingsParties, niveau1, nefes, "chapitres"), "chapitre");
+  assert.equal(roleOfFile(app, settingsParties, scene, nefes, "chapitres"), "scene");
+
+  // Réglage global "chapitres" — l'override "parties" l'emporte pourtant.
+  const settingsChapitres = { projectFolder: "WARPI", level1Role: "chapitres" };
+  assert.equal(roleOfFolder(app, settingsChapitres, niveau1, nefes, "parties"), "partie");
+  assert.equal(roleOfFile(app, settingsChapitres, scene, nefes, "parties"), "chapitre");
+
+  // Une profondeur ≥ 2 ou ≤ 0 reste PRIORITAIRE sur l'override : ni l'une
+  // ni l'autre de ces règles ne sont contournées par level1RoleOverride.
+  const chapDirect = new TFolder("WARPI/NEFES/Niveau1/SousDossier");
+  niveau1.children.push(chapDirect);
+  chapDirect.parent = niveau1;
+  assert.equal(roleOfFolder(app, settingsParties, chapDirect, nefes, "parties"), "chapitre");
+  assert.equal(roleOfFolder(app, settingsParties, nefes, nefes, "chapitres"), "partie");
+});
+
+test("roleOfFolder : level1RoleOverride prime aussi sur un level1Role posé dans projectMeta", () => {
+  const warpi = new TFolder("WARPI");
+  const part1 = new TFolder("WARPI/Partie 1");
+  warpi.children = [part1];
+  part1.parent = warpi;
+  const { vault } = createFakeVault([warpi, part1]);
+  const app = { vault };
+  const settings = {
+    projectFolder: "WARPI",
+    level1Role: "parties",
+    projectMeta: { WARPI: { level1Role: "chapitres" } },
+  };
+
+  // Sans override : projectMeta prime sur le réglage global — comportement
+  // historique, inchangé.
+  assert.equal(roleOfFolder(app, settings, part1), "chapitre");
+  // Avec override : il prime sur projectMeta ET sur le réglage global.
+  assert.equal(roleOfFolder(app, settings, part1, undefined, "parties"), "partie");
+});

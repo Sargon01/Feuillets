@@ -2,8 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { MarkdownRenderer, TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { compile, activePresetConfig, getOutputFolder, joinCompiledSegments, listCompiledFilePaths, projectMetaFor } from "../src/services/compile-export.js";
+import { compile, activePresetConfig, effectiveComposition, getOutputFolder, joinCompiledSegments, listCompiledFilePaths, projectMetaFor } from "../src/services/compile-export.js";
 import { writeGeneratedIncluded } from "../src/services/book-composition.js";
+import { updateOuvrageComposition, clearOuvrageComposition } from "../src/services/ouvrage-composition.js";
 
 test("compile : respecte l'ordre, les pages Front et compile: false", async () => {
   const volume = new TFolder("Projet");
@@ -2227,6 +2228,447 @@ test("compile : un feuillet direct d'une partie d'ouvrage garde son rôle de cha
      et Ouverture une scène sans titre. */
   assert.equal(result.manuscript, "## Ouverture\n\nOUVERTURE_NEFES");
   assert.equal(writeCount(), 0);
+});
+
+/* ===================== LOT 5A — composition propre à chaque ouvrage ===================== */
+
+test("effectiveComposition : sans composition locale sur NEFES, héritage exact de la composition globale, sans mutation", () => {
+  const { app, settings } = createNestedOuvrageFixture();
+  const root = app.vault.getAbstractFileByPath("WARPI");
+  const nefes = app.vault.getAbstractFileByPath("WARPI/NEFES");
+
+  const global = effectiveComposition(settings, root, root);
+  const nefesComposition = effectiveComposition(settings, root, nefes);
+
+  assert.deepEqual(nefesComposition, global);
+  assert.equal(
+    settings.projectMeta["WARPI"].folderWorkspaces["NEFES"].ouvrage.composition,
+    undefined,
+    "une simple lecture ne doit jamais matérialiser de composition locale"
+  );
+});
+
+test("effectiveComposition : une composition locale rend NEFES indépendant de WARPI (portées project, folder et file)", async () => {
+  const { app, settings, scene1 } = createNestedOuvrageFixture({}, {});
+  const root = app.vault.getAbstractFileByPath("WARPI");
+  const nefes = app.vault.getAbstractFileByPath("WARPI/NEFES");
+  const chapter = app.vault.getAbstractFileByPath("WARPI/NEFES/Subhanallah/Chapitre 1");
+
+  const global = effectiveComposition(settings, root, root);
+  assert.equal(global.folderTitles, true);
+  const changed = updateOuvrageComposition(settings, root, nefes, global, {
+    folderTitles: false,
+    separator: "\n\n***\n\n",
+  });
+  assert.equal(changed, true);
+
+  // Portée project sur NEFES : composition LOCALE appliquée (pas de titre
+  // de partie « Subhanallah », séparateur « *** »).
+  const nefesProject = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+  assert.ok(nefesProject);
+  assert.doesNotMatch(nefesProject.manuscript, /Subhanallah/);
+  assert.match(nefesProject.manuscript, /\n\n\*\*\*\n\n/);
+
+  // Portée folder toujours DANS NEFES : même composition locale.
+  const nefesFolder = await compile(app, settings, null, { type: "folder", projectRoot: nefes.path, path: chapter.path }, null, { writeOutput: false });
+  assert.ok(nefesFolder);
+  assert.match(nefesFolder.manuscript, /\n\n\*\*\*\n\n/);
+
+  // Portée file toujours DANS NEFES : même composition locale (séparateur
+  // sans effet ici — un seul segment — mais la RÉSOLUTION reste celle de
+  // NEFES, jamais celle de WARPI).
+  const nefesFile = await compile(app, settings, null, { type: "file", projectRoot: nefes.path, path: scene1.path }, null, { writeOutput: false });
+  assert.ok(nefesFile);
+  assert.equal(effectiveComposition(settings, root, nefes).folderTitles, false);
+
+  // Portée project sur WARPI : SA PROPRE composition globale, inchangée —
+  // le titre de partie « Subhanallah » (calculé depuis WARPI, `folderTitles`
+  // global toujours vrai) et le séparateur global (« \n\n ») réapparaissent,
+  // même si WARPI parcourt aussi le contenu de NEFES.
+  const warpiProject = await compile(app, settings, null, { type: "project", projectRoot: root.path }, null, { writeOutput: false });
+  assert.ok(warpiProject);
+  assert.match(warpiProject.manuscript, /Subhanallah/);
+  assert.doesNotMatch(warpiProject.manuscript, /\*\*\*/);
+  assert.equal(activePresetConfig(settings).separator, "\n\n", "les réglages globaux (WARPI) restent inchangés");
+});
+
+test("updateOuvrageComposition : appliquer un preset à NEFES ne modifie ni le preset actif ni la composition de WARPI", async () => {
+  const { app, settings } = createNestedOuvrageFixture();
+  const root = app.vault.getAbstractFileByPath("WARPI");
+  const nefes = app.vault.getAbstractFileByPath("WARPI/NEFES");
+  const global = effectiveComposition(settings, root, root);
+
+  // « Application d'un preset » = copier son sous-ensemble de champs
+  // (exactement ceux de PresetConfig) dans la composition de NEFES — le
+  // catalogue de presets (compilePresets/activePreset) reste, lui, global.
+  const preset = { name: "Poche", fileName: "Poche.md", folderTitles: false, chapterTitles: false, sceneTitles: true, separator: "\n\n* * *\n\n" };
+  updateOuvrageComposition(settings, root, nefes, global, {
+    fileName: preset.fileName,
+    folderTitles: preset.folderTitles,
+    chapterTitles: preset.chapterTitles,
+    sceneTitles: preset.sceneTitles,
+    separator: preset.separator,
+  });
+
+  assert.equal(settings.activePreset, -1, "le preset actif de WARPI reste inchangé");
+  assert.deepEqual(settings.compilePresets, [], "le catalogue de presets reste global, jamais dupliqué");
+  assert.deepEqual(effectiveComposition(settings, root, root), global, "la composition de WARPI reste inchangée");
+
+  const nefesComposition = effectiveComposition(settings, root, nefes);
+  assert.equal(nefesComposition.fileName, "Poche.md");
+  assert.equal(nefesComposition.folderTitles, false);
+  assert.equal(nefesComposition.chapterTitles, false);
+  assert.equal(nefesComposition.sceneTitles, true);
+  assert.equal(nefesComposition.separator, "\n\n* * *\n\n");
+  // Les champs hors preset (hérités à la matérialisation) restent ceux de
+  // la composition globale — jamais réinitialisés par l'application du preset.
+  assert.equal(nefesComposition.footnoteRenumberOnCompile, global.footnoteRenumberOnCompile);
+  assert.equal(nefesComposition.annexes, global.annexes);
+});
+
+test("clearOuvrageComposition : « Utiliser les réglages du projet » retire uniquement la composition, NEFES recolle immédiatement à WARPI", async () => {
+  const { app, settings } = createNestedOuvrageFixture();
+  const root = app.vault.getAbstractFileByPath("WARPI");
+  const nefes = app.vault.getAbstractFileByPath("WARPI/NEFES");
+  const global = effectiveComposition(settings, root, root);
+  updateOuvrageComposition(settings, root, nefes, global, { folderTitles: false, separator: "\n\n***\n\n" });
+
+  const beforeClear = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+  assert.doesNotMatch(beforeClear.manuscript, /Subhanallah/);
+
+  const removed = clearOuvrageComposition(settings, root, nefes);
+  assert.equal(removed, true);
+  assert.equal(settings.projectMeta["WARPI"].folderWorkspaces["NEFES"].ouvrage.version, 1, "le statut d'ouvrage lui-même reste enregistré");
+
+  const afterClear = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+  assert.ok(afterClear);
+  assert.match(afterClear.manuscript, /Subhanallah/, "NEFES retrouve immédiatement le titre de partie de la composition globale");
+  assert.deepEqual(effectiveComposition(settings, root, nefes), effectiveComposition(settings, root, root));
+});
+
+test("effectiveComposition : la Mise en page globale (hors Composition) n'est jamais affectée", () => {
+  const { app, settings } = createNestedOuvrageFixture({ exportTemplate: "classique", pdfPageSize: "A5" });
+  const root = app.vault.getAbstractFileByPath("WARPI");
+  const nefes = app.vault.getAbstractFileByPath("WARPI/NEFES");
+  const global = effectiveComposition(settings, root, root);
+
+  updateOuvrageComposition(settings, root, nefes, global, { separator: "***" });
+  clearOuvrageComposition(settings, root, nefes);
+
+  assert.equal(settings.exportTemplate, "classique");
+  assert.equal(settings.pdfPageSize, "A5");
+});
+
+test("exportWithScope : Markdown, DOCX, EPUB et ODT reflètent tous la même composition NEFES (jamais celle de WARPI)", async () => {
+  const JSZip = (await import("jszip")).default;
+  const { exportWithScope } = await import("../src/services/compile-export.js");
+
+  function makeEl(tag, textContent = "") {
+    const node = {
+      tagName: tag.toUpperCase(),
+      _text: textContent,
+      _attrs: new Map(),
+      parentElement: null,
+      children: [],
+      get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join("") : this._text; },
+      set textContent(v) { this.children = []; this._text = v; },
+      get childNodes() {
+        if (this.children.length) return this.children;
+        if (this._text) return [{ nodeType: 3, nodeValue: this._text, textContent: this._text }];
+        return [];
+      },
+      get nodeType() { return 1; },
+      get attributes() { return Array.from(this._attrs, ([name, value]) => ({ name, value })); },
+      get className() { return this._attrs.get("class") || ""; },
+      set className(value) { this._attrs.set("class", value); },
+      get classList() {
+        return {
+          contains: (name) => (node._attrs.get("class") || "").split(/\s+/).includes(name),
+          add: (...names) => node._attrs.set("class", [...new Set(`${node._attrs.get("class") || ""} ${names.join(" ")}`.trim().split(/\s+/))].join(" ")),
+          remove: (...names) => node._attrs.set("class", (node._attrs.get("class") || "").split(/\s+/).filter((n) => !names.includes(n)).join(" ")),
+        };
+      },
+      get innerHTML() { return this.children.length ? this.children.map((c) => c.outerHTML).join("") : this._text; },
+      get outerHTML() {
+        const attrs = Array.from(this._attrs, ([k, v]) => ` ${k}="${v}"`).join("");
+        return `<${tag.toLowerCase()}${attrs}>${this.innerHTML}</${tag.toLowerCase()}>`;
+      },
+      setAttribute(name, value) { this._attrs.set(name, String(value)); },
+      getAttribute(name) { return this._attrs.get(name) ?? null; },
+      appendChild(child) { if (child.remove) child.remove(); child.parentElement = this; this.children.push(child); return child; },
+      insertBefore(child, referenceNode) {
+        if (child.remove) child.remove();
+        child.parentElement = node;
+        const i = referenceNode ? node.children.indexOf(referenceNode) : -1;
+        if (i >= 0) node.children.splice(i, 0, child);
+        else node.children.push(child);
+        return child;
+      },
+      remove() {
+        if (!this.parentElement) return;
+        const i = this.parentElement.children.indexOf(this);
+        if (i >= 0) this.parentElement.children.splice(i, 1);
+        this.parentElement = null;
+      },
+      querySelectorAll(sel) {
+        const found = [];
+        const visit = (n) => {
+          for (const child of n.children || []) {
+            const tag = child.tagName?.toLowerCase() || "";
+            const cls = child.getAttribute?.("class") || "";
+            if (sel.startsWith(".") ? cls.split(/\s+/).includes(sel.slice(1)) : tag === sel.toLowerCase()) found.push(child);
+            visit(child);
+          }
+        };
+        visit(node);
+        return found;
+      },
+      querySelector(sel) { return node.querySelectorAll(sel)[0] || null; },
+    };
+    return node;
+  }
+  function fakeRender(markdown, container) {
+    for (const block of markdown.split(/\n\n+/)) {
+      if (!block.trim()) continue;
+      const headingMatch = block.match(/^(#{1,6})\s+(.*)$/);
+      if (headingMatch) { container.appendChild(makeEl(`h${headingMatch[1].length}`, headingMatch[2])); continue; }
+      container.appendChild(makeEl("p", block));
+    }
+  }
+  const previousDom = { document: globalThis.document, Node: globalThis.Node, XMLSerializer: globalThis.XMLSerializer, createEl: globalThis.createEl, createDiv: globalThis.createDiv };
+  globalThis.document = { createElement: (tag) => makeEl(tag) };
+  globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+  globalThis.XMLSerializer = class { serializeToString(n) { return n && typeof n.outerHTML === "string" ? n.outerHTML : String(n?.textContent ?? ""); } };
+  globalThis.createEl = (tag, options = {}) => makeEl(tag, options.text || "");
+  globalThis.createDiv = (options = {}) => globalThis.createEl("div", options);
+  const previousRenderer = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => fakeRender(markdown, container);
+
+  try {
+    const { app, settings, vault } = createNestedOuvrageFixture();
+    const root = app.vault.getAbstractFileByPath("WARPI");
+    const nefes = app.vault.getAbstractFileByPath("WARPI/NEFES");
+    const global = effectiveComposition(settings, root, root);
+    // folderTitles désactivé UNIQUEMENT pour NEFES : "Subhanallah" ne doit
+    // apparaître dans AUCUN format tant que la portée cible NEFES.
+    updateOuvrageComposition(settings, root, nefes, global, { folderTitles: false });
+
+    const nefesScope = { type: "project", projectRoot: nefes.path };
+    const mdPath = await exportWithScope(app, settings, nefesScope, "md", "NefesMd");
+    const mdText = vault.getAbstractFileByPath(mdPath).content;
+    assert.doesNotMatch(mdText, /Subhanallah/);
+    assert.match(mdText, /SCENE_NEFES_1/);
+
+    const docxPath = await exportWithScope(app, settings, nefesScope, "docx", "NefesDocx");
+    const docxBytes = vault.getAbstractFileByPath(docxPath).content;
+    const docxXml = await (await JSZip.loadAsync(docxBytes)).file("word/document.xml").async("string");
+    assert.doesNotMatch(docxXml, /Subhanallah/);
+    assert.match(docxXml, /SCENE_NEFES_1/);
+
+    const epubPath = await exportWithScope(app, settings, nefesScope, "epub", "NefesEpub");
+    const epubBytes = vault.getAbstractFileByPath(epubPath).content;
+    const epubXml = await (await JSZip.loadAsync(epubBytes)).file("OEBPS/chapitres.xhtml").async("string");
+    assert.doesNotMatch(epubXml, /Subhanallah/);
+    assert.match(epubXml, /SCENE_NEFES_1/);
+
+    const odtPath = await exportWithScope(app, settings, nefesScope, "odt", "NefesOdt");
+    const odtBytes = vault.getAbstractFileByPath(odtPath).content;
+    const odtXml = await (await JSZip.loadAsync(odtBytes)).file("content.xml").async("string");
+    assert.doesNotMatch(odtXml, /Subhanallah/);
+    assert.match(odtXml, /SCENE_NEFES_1/);
+
+    // WARPI, lui, garde son titre de partie dans tous les formats : la
+    // composition locale de NEFES ne l'atteint jamais.
+    const warpiScope = { type: "project", projectRoot: root.path };
+    const warpiMdPath = await exportWithScope(app, settings, warpiScope, "md", "WarpiMd");
+    const warpiMdText = vault.getAbstractFileByPath(warpiMdPath).content;
+    assert.match(warpiMdText, /Subhanallah/);
+  } finally {
+    MarkdownRenderer.render = previousRenderer;
+    Object.assign(globalThis, previousDom);
+  }
+});
+
+/* ===================== COMPLÉMENT LOT 5A — inventaire exhaustif de Composition ===================== */
+
+test("effectiveComposition : WARPI et NEFES aux valeurs opposées pour CHAQUE groupe de réglages — la compilation NEFES n'utilise aucune valeur de WARPI", async () => {
+  const link = (parent, children) => {
+    parent.children = children;
+    for (const child of children) child.parent = parent;
+  };
+  const root = new TFolder("WARPI");
+  const globalFront = new TFolder("WARPI/Front");
+  const globalTitle = new TFile("WARPI/Front/Page de titre.md", "---\ntype: titre\n---\n:::titre: TITRE_WARPI\n");
+  const nefes = new TFolder("WARPI/NEFES");
+  const nefesFront = new TFolder("WARPI/NEFES/Front");
+  const nefesTitle = new TFile("WARPI/NEFES/Front/Page de titre.md", "---\ntype: titre\n---\n:::titre: TITRE_NEFES\n");
+  /* PartieA est un enfant DIRECT de NEFES (profondeur 1) : c'est exactement
+     le niveau que tranche `level1Role` (ni profondeur ≥ 2 → toujours
+     "chapitre", ni la racine éditoriale elle-même) — voir
+     folderCompositionRole() dans compile-export.ts. Scene1/Scene2 sont
+     DIRECTEMENT dans PartieA (pas de sous-dossier) : leur propre rôle
+     (scène si PartieA est un chapitre, chapitre sinon) dépend ainsi
+     ENTIÈREMENT de la résolution de `level1Role` pour NEFES. */
+  const partieA = new TFolder("WARPI/NEFES/PartieA");
+  const scene1 = new TFile("WARPI/NEFES/PartieA/Scene1.md", "Texte un[^1].\n\n[^1]: Note un.");
+  const scene2 = new TFile("WARPI/NEFES/PartieA/Scene2.md", "Texte deux[^1].\n\n[^1]: Note deux.");
+  const annexes = new TFolder("WARPI/NEFES/Annexes");
+  const annexeFile = new TFile("WARPI/NEFES/Annexes/AnnexeScene.md", "Contenu annexe.");
+
+  link(root, [globalFront, nefes]);
+  link(globalFront, [globalTitle]);
+  link(nefes, [nefesFront, partieA, annexes]);
+  link(nefesFront, [nefesTitle]);
+  link(partieA, [scene1, scene2]);
+  link(annexes, [annexeFile]);
+
+  const { vault } = createFakeVault([
+    root, globalFront, globalTitle, nefes, nefesFront, nefesTitle, partieA, scene1, scene2, annexes, annexeFile,
+  ]);
+  vault.cachedRead = vault.read;
+  const frontmatter = new Map([
+    [globalTitle.path, { type: "titre" }],
+    [nefesTitle.path, { type: "titre" }],
+    [scene1.path, { title: "Scene1" }],
+    [scene2.path, { title: "Scene2" }],
+  ]);
+  const app = { vault, metadataCache: { getFileCache: (f) => ({ frontmatter: frontmatter.get(f.path) || {} }) } };
+
+  const settings = {
+    projectFolder: root.path,
+    level1Role: "parties",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    autoRename: true,
+    renamePrefix: "chapitre",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    footnoteRenumberOnCompile: true,
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: { [root.path]: { folderWorkspaces: { NEFES: { version: 1, ouvrage: { version: 1 } } } } },
+  };
+
+  const warpi = app.vault.getAbstractFileByPath("WARPI");
+  const nefesFolder = app.vault.getAbstractFileByPath("WARPI/NEFES");
+  const globalComposition = effectiveComposition(settings, warpi, warpi);
+
+  /* Valeurs strictement OPPOSÉES à WARPI pour les 16 champs de
+     OuvrageCompositionConfig, un par un — voir la liste exacte dans
+     types.d.ts. */
+  const nefesOverride = {
+    fileName: "NefesSortie.md",
+    level1Role: "chapitres",
+    chapterNumbering: "parPartie",
+    sceneNumbering: "continue",
+    autoRename: false,
+    renamePrefix: "partie",
+    folderTitles: false,
+    chapterTitles: false,
+    sceneTitles: true,
+    separator: "\n\n>>>NEFES<<<\n\n",
+    footnoteRenumberOnCompile: false,
+    summary: true,
+    tables: true,
+    toc: true,
+    bibliography: true,
+    annexes: true,
+  };
+
+  // Le patch de test couvre EXACTEMENT les 16 champs du type, chacun
+  // effectivement opposé à la valeur de WARPI — sinon ce test ne prouve
+  // rien pour le champ oublié.
+  const fields = Object.keys(globalComposition);
+  assert.deepEqual([...fields].sort(), Object.keys(nefesOverride).sort());
+  for (const key of fields) {
+    assert.notDeepEqual(nefesOverride[key], globalComposition[key], `valeur de test non opposée pour ${key}`);
+  }
+
+  const changed = updateOuvrageComposition(settings, warpi, nefesFolder, globalComposition, nefesOverride);
+  assert.equal(changed, true);
+
+  // 1. Au niveau de la composition résolue : chaque champ de NEFES est
+  // exactement celui du patch, jamais celui de WARPI — et WARPI reste
+  // rigoureusement intact.
+  const nefesComposition = effectiveComposition(settings, warpi, nefesFolder);
+  for (const key of fields) {
+    assert.equal(nefesComposition[key], nefesOverride[key], `composition NEFES : ${key} doit venir de NEFES`);
+    assert.notDeepEqual(nefesComposition[key], globalComposition[key], `composition NEFES : ${key} ne doit jamais provenir de WARPI`);
+  }
+  assert.deepEqual(effectiveComposition(settings, warpi, warpi), globalComposition, "la composition de WARPI reste inchangée");
+
+  // 2. Au niveau de la compilation réelle : chaque champ observable dans le
+  // texte compilé reflète bien NEFES, jamais WARPI.
+  const result = await compile(app, settings, null, { type: "project", projectRoot: nefesFolder.path }, null, { writeOutput: false });
+  assert.ok(result);
+
+  // folderTitles/chapterTitles désactivés chez NEFES : aucun TITRE de
+  // dossier « PartieA » n'apparaît (les identifiants de notes de bas de
+  // page dérivés du CHEMIN du feuillet contiennent, eux, littéralement
+  // "PartieA" — ce n'est pas un titre, exclu explicitement ici).
+  assert.doesNotMatch(result.manuscript, /^#{1,6} .*PartieA/m);
+  /* level1Role = "chapitres" chez NEFES : PartieA (profondeur 1) devient un
+     CHAPITRE, ses feuillets deviennent des SCÈNES — sceneTitles (vrai chez
+     NEFES) affiche donc leur titre, TOUJOURS en H4 absolu (LOT 4). Si
+     level1Role avait fui la valeur de WARPI ("parties"), PartieA serait
+     resté une partie, ses feuillets un rôle CHAPITRE — titre masqué,
+     chapterTitles étant faux chez NEFES : cette assertion échouerait. */
+  assert.match(result.manuscript, /#### Scene1/);
+  assert.match(result.manuscript, /#### Scene2/);
+  // separator NEFES, jamais celui de WARPI (« \n\n » n'aurait rien de
+  // reconnaissable, le marqueur NEFES, lui, est sans ambiguïté).
+  assert.match(result.manuscript, /\n\n>>>NEFES<<<\n\n/);
+  // footnoteRenumberOnCompile désactivé chez NEFES : jamais de
+  // renumérotation croisée en [^2] (chaque feuillet garde son propre
+  // espace de numérotation interne).
+  assert.doesNotMatch(result.manuscript, /\[\^2\]/);
+  // annexes incluses chez NEFES.
+  assert.match(result.manuscript, /# Annexes/);
+  assert.match(result.manuscript, /Contenu annexe/);
+  // sommaire et table des matières inclus chez NEFES — seule l'inclusion
+  // nous intéresse ici (le texte exact relève de contents-generator.ts,
+  // déjà testé ailleurs).
+  assert.ok(result.segments.some((s) => s.generatedType === "summary"), "Sommaire absent alors que la composition NEFES l'inclut");
+  assert.ok(result.segments.some((s) => s.generatedType === "toc"), "Table des matières absente alors que la composition NEFES l'inclut");
+
+  // Contre-épreuve pour footnoteRenumberOnCompile : la même portée NEFES,
+  // composition locale retirée (retour à l'héritage global, WARPI
+  // renumérote), DOIT cette fois produire un [^2] — sans quoi l'absence
+  // observée ci-dessus ne prouverait rien.
+  const removed = clearOuvrageComposition(settings, warpi, nefesFolder);
+  assert.equal(removed, true);
+  const resultAfterClear = await compile(app, settings, null, { type: "project", projectRoot: nefesFolder.path }, null, { writeOutput: false });
+  assert.ok(resultAfterClear);
+  assert.match(resultAfterClear.manuscript, /\[\^2\]/, "avec la composition globale de WARPI (renumérotation activée), [^2] doit apparaître");
+  // Restaure la composition locale pour la suite du test.
+  updateOuvrageComposition(settings, warpi, nefesFolder, globalComposition, nefesOverride);
+
+  // 3. Nom de fichier : une compilation ÉCRITE (pas writeOutput:false)
+  // utilise le fileName de NEFES, jamais « Manuscrit.md ».
+  const written = await compile(app, settings, null, { type: "project", projectRoot: nefesFolder.path }, null);
+  assert.ok(written);
+  assert.match(written.outPath, /NefesSortie\.md$/);
+
+  // 4. WARPI, lui, garde strictement sa propre composition : aucune trace
+  // du marqueur de séparateur de NEFES dans sa propre compilation.
+  const warpiResult = await compile(app, settings, null, { type: "project", projectRoot: warpi.path }, null, { writeOutput: false });
+  assert.ok(warpiResult);
+  assert.doesNotMatch(warpiResult.manuscript, />>>NEFES<<</);
+});
+
+test("compile-export.ts : aucune fonction parallèle de calcul des rôles — roleOfFolder/roleOfFile de folder-structure.ts, jamais une copie locale", async () => {
+  const { readFileSync } = await import("node:fs");
+  const source = readFileSync("src/services/compile-export.ts", "utf8");
+  assert.doesNotMatch(source, /folderCompositionRole/);
+  assert.doesNotMatch(source, /fileCompositionRole/);
+  assert.match(source, /roleOfFolder\(app, settings, child, editorialRoot, composition\.level1Role\)/);
+  assert.match(source, /roleOfFile\(app, settings, child, editorialRoot, composition\.level1Role\)/);
 });
 
 test("compile : les portées folder et file hors ouvrage restent calculées depuis la racine globale", async () => {
