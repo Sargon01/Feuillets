@@ -50,3 +50,31 @@ test("refreshBinderViews rafraîchit toutes les vues Binder et ignore le panneau
   assert.equal(sidebarCalls.render, 0);
   assert.equal(sidebarCalls.renderAllSubViews, 0);
 });
+
+test("buildNumbering replie de manière sûre sur chaîne vide sans sérialiser d'objet en [object Object]", async () => {
+  const { TFolder, TFile } = await import(compiledPath(isCompiledTest ? "node_modules/obsidian/index.js" : ".test-dist/node_modules/obsidian/index.js"));
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  plugin.settings = {
+    chapterNumbering: { unexpected: "object" },
+    sceneNumbering: { unexpected: "object" },
+  };
+  plugin.getProjectFolder = () => null;
+  plugin.getOrderedChildren = (f) => f.children || [];
+  plugin.roleOfFolder = () => "chapitre";
+  plugin.isFrontMatter = () => false;
+
+  const root = new TFolder("Roman");
+  const chap1 = new TFolder("Roman/Chapitre 1");
+  const s1 = new TFile("Roman/Chapitre 1/Scene 1.md");
+  chap1.children = [s1];
+  root.children = [chap1];
+
+  const map = plugin.buildNumbering(root);
+  assert.equal(map.get("Roman/Chapitre 1"), "1.");
+  assert.equal(map.get("Roman/Chapitre 1/Scene 1.md"), "1.1");
+
+  // Vérifie également qu'une vraie chaîne est bien conservée
+  plugin.settings.sceneNumbering = "continue";
+  const mapContinuous = plugin.buildNumbering(root);
+  assert.equal(mapContinuous.get("Roman/Chapitre 1/Scene 1.md"), "1");
+});

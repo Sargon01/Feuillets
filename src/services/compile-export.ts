@@ -30,7 +30,7 @@ import { type CompileScope, resolveCompileScopeFiles, createProjectScope } from 
 import { generateSummary, generateTableOfContents } from "./contents-generator.js";
 import type { GeneratedContentsKind } from "./generated-contents.js";
 import { generateTableOfIllustrations } from "./tables-generator.js";
-import { bibliographyEntries, bibliographyEntriesForEditorialRoot, bibliographyEntriesForFiles, generateBibliography } from "./bibliography-generator.js";
+import { bibliographyEntriesForEditorialRoot, bibliographyEntriesForFiles, generateBibliography } from "./bibliography-generator.js";
 import { resolveCitedSourceFilesForCompileFiles } from "./citation-registry.js";
 import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "./layout-store.js";
 import { injectDocumentLayoutMarkers } from "./document-layout.js";

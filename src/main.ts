@@ -4218,9 +4218,13 @@ class FeuilletsPlugin extends Plugin {
   buildNumbering(root: TFolder): Map<string, string> {
     const globalRoot = this.getProjectFolder();
     const composition = globalRoot ? effectiveComposition(this.settings, globalRoot, root) : null;
+    const rawChapter = this.settings.chapterNumbering;
+    const rawScene = this.settings.sceneNumbering;
+    const fallbackChapter = typeof rawChapter === "string" ? rawChapter : "";
+    const fallbackScene = typeof rawScene === "string" ? rawScene : "";
     const numberingSettings: { chapterNumbering?: string; sceneNumbering?: string } = {
-      chapterNumbering: composition?.chapterNumbering ?? String(this.settings.chapterNumbering || ""),
-      sceneNumbering: composition?.sceneNumbering ?? String(this.settings.sceneNumbering || ""),
+      chapterNumbering: composition?.chapterNumbering ?? fallbackChapter,
+      sceneNumbering: composition?.sceneNumbering ?? fallbackScene,
     };
     /* numbering.ts est volontairement pur (testable sans coffre) : son
        NumberingNode est une forme générique, pas TFile/TFolder — d'où les
