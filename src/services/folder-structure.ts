@@ -298,10 +298,20 @@ export function internalResourcesFolderPath(app: App, root: TFolder): string {
   );
 }
 
-export function depthOf(app: App, settings: FeuilletsSettings, node: ProjectNode): number {
-  const root = getProjectFolder(app, settings);
+export function depthOf(
+  app: App,
+  settings: FeuilletsSettings,
+  node: ProjectNode,
+  editorialRoot?: TFolder | null
+): number {
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root) return 0;
   if (node.path === root.path) return 0;
+  if (editorialRoot) {
+    const prefix = `${root.path}/`;
+    if (!node.path.startsWith(prefix)) return 0;
+    return node.path.slice(prefix.length).split("/").length;
+  }
   return node.path.slice(root.path.length + 1).split("/").length;
 }
 
@@ -317,26 +327,42 @@ export function depthOf(app: App, settings: FeuilletsSettings, node: ProjectNode
  * (mise en forme propre au format). */
 export const FRONT_PAGE_TYPES = ["titre", "dedicace", "epigraphe"];
 
-export function isFrontMatter(app: App, settings: FeuilletsSettings, node: ProjectNode): boolean {
-  const root = getProjectFolder(app, settings);
+export function isFrontMatter(
+  app: App,
+  settings: FeuilletsSettings,
+  node: ProjectNode,
+  editorialRoot?: TFolder | null
+): boolean {
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root) return false;
   const p = normalizePath(`${root.path}/${FRONT_FOLDER_NAME}`);
   return node.path === p || node.path.startsWith(`${p}/`);
 }
 
-export function roleOfFolder(app: App, settings: FeuilletsSettings, folder: TFolder): "chapitre" | "partie" {
-  const d = depthOf(app, settings, folder);
+export function roleOfFolder(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder,
+  editorialRoot?: TFolder | null
+): "chapitre" | "partie" {
+  const d = depthOf(app, settings, folder, editorialRoot);
   if (d >= 2) return "chapitre";
+  if (editorialRoot && d <= 0) return "partie";
   const root = getProjectFolder(app, settings);
   const level1Role = root && settings.projectMeta?.[root.path]?.level1Role;
   return (level1Role === "chapitres" || (!level1Role && settings.level1Role === "chapitres")) ? "chapitre" : "partie";
 }
 
-export function roleOfFile(app: App, settings: FeuilletsSettings, file: TFile): "chapitre" | "scene" {
+export function roleOfFile(
+  app: App,
+  settings: FeuilletsSettings,
+  file: TFile,
+  editorialRoot?: TFolder | null
+): "chapitre" | "scene" {
   const parent = file.parent;
-  const root = getProjectFolder(app, settings);
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root || !parent || parent.path === root.path) return "chapitre";
-  return roleOfFolder(app, settings, parent) === "chapitre" ? "scene" : "chapitre";
+  return roleOfFolder(app, settings, parent, editorialRoot) === "chapitre" ? "scene" : "chapitre";
 }
 
 /** Un dossier préfixé « _ » (recherche, fiches, chronologie…) est exclu

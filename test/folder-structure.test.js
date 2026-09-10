@@ -15,6 +15,10 @@ import {
   EDITION_FOLDER_NAME,
   RESEARCH_FOLDER_NAME,
   RESOURCES_FOLDER_NAME,
+  depthOf,
+  isFrontMatter,
+  roleOfFolder,
+  roleOfFile,
 } from "../src/services/folder-structure.js";
 
 function newProjectFixture() {
@@ -260,4 +264,160 @@ test("Phase 1A : Dossier adopté imbriqué (Collection/Mes textes) ne remonte ja
   assert.equal(getProjectRoot(app, settings)?.path, "Collection/Mes textes");
   assert.notEqual(getProjectRoot(app, settings)?.path, "Collection");
   assert.equal(feuilletsAuxiliaryRootPath(adopted), "Collection/Mes textes/_Feuillets");
+});
+
+test("depthOf, isFrontMatter, roleOfFolder, roleOfFile : appels historiques sans editorialRoot", () => {
+  const warpi = new TFolder("WARPI");
+  const front = new TFolder("WARPI/Front");
+  const part1 = new TFolder("WARPI/Partie 1");
+  const chap1 = new TFolder("WARPI/Partie 1/Chapitre 1");
+  const scene1 = new TFile("WARPI/Partie 1/Chapitre 1/Scène 1.md");
+  const rootScene = new TFile("WARPI/Scène Racine.md");
+
+  warpi.children = [front, part1, rootScene];
+  front.parent = warpi;
+  part1.parent = warpi;
+  part1.children = [chap1];
+  chap1.parent = part1;
+  chap1.children = [scene1];
+  scene1.parent = chap1;
+  rootScene.parent = warpi;
+
+  const { vault } = createFakeVault([warpi, front, part1, chap1, scene1, rootScene]);
+  const app = { vault };
+  const settings = { projectFolder: "WARPI", level1Role: "parties" };
+
+  // depthOf sans editorialRoot
+  assert.equal(depthOf(app, settings, warpi), 0);
+  assert.equal(depthOf(app, settings, part1), 1);
+  assert.equal(depthOf(app, settings, chap1), 2);
+  assert.equal(depthOf(app, settings, scene1), 3);
+
+  // isFrontMatter sans editorialRoot
+  assert.equal(isFrontMatter(app, settings, front), true);
+  assert.equal(isFrontMatter(app, settings, part1), false);
+
+  // roleOfFolder sans editorialRoot
+  assert.equal(roleOfFolder(app, settings, part1), "partie");
+  assert.equal(roleOfFolder(app, settings, chap1), "chapitre");
+  const settingsChapitres = { projectFolder: "WARPI", level1Role: "chapitres" };
+  assert.equal(roleOfFolder(app, settingsChapitres, warpi), "chapitre");
+
+  // roleOfFile sans editorialRoot
+  assert.equal(roleOfFile(app, settings, scene1), "scene");
+  assert.equal(roleOfFile(app, settings, rootScene), "chapitre");
+  const orphanFile = new TFile("SansParent.md");
+  orphanFile.parent = null;
+  assert.equal(roleOfFile(app, settings, orphanFile), "chapitre");
+});
+
+test("editorialRoot : WARPI comme projet global et WARPI/NEFES comme racine explicite (premier niveau parties)", () => {
+  const warpi = new TFolder("WARPI");
+  const warpiFront = new TFolder("WARPI/Front");
+  const nefes = new TFolder("WARPI/NEFES");
+  const nefesFront = new TFolder("WARPI/NEFES/Front");
+  const subhanallah = new TFolder("WARPI/NEFES/Subhanallah");
+  const chap1 = new TFolder("WARPI/NEFES/Subhanallah/Chapitre 1");
+  const scene1 = new TFile("WARPI/NEFES/Subhanallah/Chapitre 1/Scène 1.md");
+
+  warpi.children = [warpiFront, nefes];
+  warpiFront.parent = warpi;
+  nefes.parent = warpi;
+  nefes.children = [nefesFront, subhanallah];
+  nefesFront.parent = nefes;
+  subhanallah.parent = nefes;
+  subhanallah.children = [chap1];
+  chap1.parent = subhanallah;
+  chap1.children = [scene1];
+  scene1.parent = chap1;
+
+  const { vault } = createFakeVault([warpi, warpiFront, nefes, nefesFront, subhanallah, chap1, scene1]);
+  const app = { vault };
+  const settings = { projectFolder: "WARPI", level1Role: "parties" };
+
+  // NEFES/Front est Front pour NEFES
+  assert.equal(isFrontMatter(app, settings, nefesFront, nefes), true);
+
+  // WARPI/Front ne l'est pas pour NEFES
+  assert.equal(isFrontMatter(app, settings, warpiFront, nefes), false);
+
+  // NEFES/Subhanallah est une partie si le premier niveau est parties
+  assert.equal(roleOfFolder(app, settings, subhanallah, nefes), "partie");
+
+  // NEFES/Subhanallah/Chapitre 1 est un chapitre
+  assert.equal(roleOfFolder(app, settings, chap1, nefes), "chapitre");
+
+  // un fichier dans Chapitre 1 est une scène
+  assert.equal(roleOfFile(app, settings, scene1, nefes), "scene");
+});
+
+test("editorialRoot : premier niveau chapitres", () => {
+  const warpi = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const chapDirect = new TFolder("WARPI/NEFES/Chapitre Direct");
+  const sceneInChap = new TFile("WARPI/NEFES/Chapitre Direct/Scène A.md");
+
+  warpi.children = [nefes];
+  nefes.parent = warpi;
+  nefes.children = [chapDirect];
+  chapDirect.parent = nefes;
+  chapDirect.children = [sceneInChap];
+  sceneInChap.parent = chapDirect;
+
+  const { vault } = createFakeVault([warpi, nefes, chapDirect, sceneInChap]);
+  const app = { vault };
+  const settings = { projectFolder: "WARPI", level1Role: "chapitres" };
+
+  // un dossier enfant direct de NEFES est un chapitre
+  assert.equal(roleOfFolder(app, settings, chapDirect, nefes), "chapitre");
+
+  // son fichier est une scène
+  assert.equal(roleOfFile(app, settings, sceneInChap, nefes), "scene");
+});
+
+test("editorialRoot : un fichier posé directement dans NEFES est un chapitre", () => {
+  const warpi = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const directFile = new TFile("WARPI/NEFES/Texte Direct.md");
+
+  warpi.children = [nefes];
+  nefes.parent = warpi;
+  nefes.children = [directFile];
+  directFile.parent = nefes;
+
+  const { vault } = createFakeVault([warpi, nefes, directFile]);
+  const app = { vault };
+  const settings = { projectFolder: "WARPI", level1Role: "parties" };
+
+  assert.equal(roleOfFile(app, settings, directFile, nefes), "chapitre");
+});
+
+test("editorialRoot : un nœud hors de NEFES a une profondeur 0 avec NEFES comme racine", () => {
+  const warpi = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const otherFolder = new TFolder("WARPI/Autre Dossier");
+  const otherFile = new TFile("WARPI/Note.md");
+  const externalFolder = new TFolder("EXTERNE");
+
+  warpi.children = [nefes, otherFolder, otherFile];
+  nefes.parent = warpi;
+  otherFolder.parent = warpi;
+  otherFile.parent = warpi;
+
+  const { vault } = createFakeVault([warpi, nefes, otherFolder, otherFile, externalFolder]);
+  const app = { vault };
+  const settings = { projectFolder: "WARPI" };
+
+  // Nœuds hors de NEFES : profondeur 0
+  assert.equal(depthOf(app, settings, otherFolder, nefes), 0);
+  assert.equal(depthOf(app, settings, otherFile, nefes), 0);
+  assert.equal(depthOf(app, settings, warpi, nefes), 0);
+  assert.equal(depthOf(app, settings, externalFolder, nefes), 0);
+
+  // NEFES elle-même : profondeur 0
+  assert.equal(depthOf(app, settings, nefes, nefes), 0);
+
+  // roleOfFolder avec profondeur <= 0 (racine ou hors racine) -> "partie"
+  assert.equal(roleOfFolder(app, settings, nefes, nefes), "partie");
+  assert.equal(roleOfFolder(app, settings, otherFolder, nefes), "partie");
 });
