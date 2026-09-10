@@ -23,6 +23,7 @@ import {
   clampBinderPreviewLines,
   resolveBinderPreviewField,
 } from "../utils/binder-preview.js";
+import { RESEARCH_FOLDERS, translatedResearchFolderName } from "../utils/project-modes.js";
 
 type ProjectNode = TFile | TFolder;
 
@@ -1999,7 +2000,10 @@ export class FeuilletsView extends BaseFeuilletsView {
       menu.showAtMouseEvent(e);
     };
 
-    const researchLabel = researchRoot.name.replace(/^_/, "");
+    const strippedRootName = researchRoot.name.replace(/^_/, "");
+    const researchLabel = strippedRootName === "Recherche" || strippedRootName === "Research"
+      ? t("research.displayText")
+      : strippedRootName;
     const rootRow = renderRow(container, researchLabel, 0, true);
     // Séparateur visuel avec l'arborescence du manuscrit juste au-dessus —
     // trop proche sinon, on pouvait croire que "Recherche" faisait partie
@@ -2020,7 +2024,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       for (const child of this.plugin.getOrderedChildren(folder)) {
         if (child instanceof TFolder) {
           if (excludedRootPaths.has(child.path)) continue;
-          const row = renderRow(host, child.name, depth, true);
+          const row = renderRow(host, translatedResearchFolderName(RESEARCH_FOLDERS, child.name), depth, true);
           const isCollapsed = !!S.collapsed[child.path];
           row.addEventListener("click", () => {
             void (async () => {
