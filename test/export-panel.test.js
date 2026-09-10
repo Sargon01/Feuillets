@@ -7,7 +7,7 @@ import { t } from "../src/i18n/index.js";
 import { contentExtractionsFilePath } from "../src/services/content-extractions.js";
 import { contentCollectionsFilePath } from "../src/services/content-collections.js";
 import { currentExportDerivation, rememberExportDerivation, rememberExportScope } from "../src/services/export-workflow.js";
-import { createFileScope } from "../src/services/compile-scope.js";
+import { createFileScope, createFolderScope } from "../src/services/compile-scope.js";
 
 /* Même petit DOM factice que test/preview-view.test.js (convention du
  * dépôt : dupliqué, pas partagé), réduit à ce qu'ExportPanel utilise
@@ -130,6 +130,8 @@ function buildFixture() {
     collapsed: {},
     projectMeta: {},
     orders: {},
+    folderPositions: {},
+    folderGoals: {},
     manuscriptTitle: "",
     manuscriptAuthor: "",
   };
@@ -608,6 +610,235 @@ test("ExportPanel.renderQuickBar : une collection active utilise un indicateur c
     const content = bar.querySelector(".feuillets-edition-quickexport-content");
     assert.ok(content);
     assert.equal(content.getAttribute("title"), "Collection : Sources longues");
+  } finally {
+    restore();
+  }
+});
+
+/* ===================== Portée de la barre d’export (Quickbar) ===================== */
+
+test("ExportPanel.renderQuickBar : Continu sur dossier → menu exactement Projet/Dossier", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript } = buildFixture();
+    const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+    chapter.parent = manuscript;
+    chapter.children = [];
+    app.vault.files.set(chapter.path, chapter);
+
+    plugin.getCentralContinuView = () => ({
+      compileScope: createFolderScope(manuscript.path, chapter.path),
+    });
+
+    const bar = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, bar);
+    panel.renderQuickBar(bar);
+
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    scopeBtn.click();
+    const titles = Menu.lastShown.items.map((i) => i.title);
+    assert.deepEqual(titles, ["Projet", "Dossier"]);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : clic Dossier → portée exacte du dossier", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript } = buildFixture();
+    const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+    chapter.parent = manuscript;
+    chapter.children = [];
+    app.vault.files.set(chapter.path, chapter);
+
+    plugin.getCentralContinuView = () => ({
+      compileScope: createFolderScope(manuscript.path, chapter.path),
+    });
+
+    const bar = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, bar);
+    panel.renderQuickBar(bar);
+
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    scopeBtn.click();
+    const dossierItem = Menu.lastShown.items.find((i) => i.title === "Dossier");
+    assert.ok(dossierItem, "L’option Dossier doit être présente dans le menu");
+    dossierItem.callback();
+
+    assert.deepEqual(plugin.activeExportScope, {
+      type: "folder",
+      projectRoot: manuscript.path,
+      path: chapter.path,
+    });
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : export → contenu du dossier courant, pas d’un ancien fichier", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript, scene, setActiveFile, settings } = buildFixture();
+    settings.exportFormat = "md";
+    setActiveFile(scene); // Fichier actif obsolète contenant Texte A
+
+    const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+    const chapterScene = new TFile("Projet/Manuscrit/Chapitre 1/Scène C.md", "---\ntitle: Scène C\ncompile: true\n---\nTexte du dossier courant.");
+    chapter.children = [chapterScene];
+    chapter.parent = manuscript;
+    chapterScene.parent = chapter;
+    manuscript.children.push(chapter);
+    app.vault.files.set(chapter.path, chapter);
+    app.vault.files.set(chapterScene.path, chapterScene);
+
+    plugin.getCentralContinuView = () => ({
+      compileScope: createFolderScope(manuscript.path, chapter.path),
+    });
+    rememberExportScope(plugin, createFolderScope(manuscript.path, chapter.path));
+
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+
+    bar.querySelector(".feuillets-edition-quickexport-cta").click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const output = app.vault.getFiles().find((file) => file.path.includes("/_Feuillets/Sortie/") && file.extension === "md");
+    assert.ok(output, "Un fichier compilé doit être écrit");
+    assert.match(output.content, /Texte du dossier courant/);
+    assert.doesNotMatch(output.content, /Texte A/);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : Continu sur fichier → Projet/Dossier/Feuillet", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript } = buildFixture();
+    const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+    const sceneInChapter = new TFile("Projet/Manuscrit/Chapitre 1/Scène 1.md", "Texte");
+    chapter.children = [sceneInChapter];
+    chapter.parent = manuscript;
+    sceneInChapter.parent = chapter;
+    app.vault.files.set(chapter.path, chapter);
+    app.vault.files.set(sceneInChapter.path, sceneInChapter);
+
+    plugin.getCentralContinuView = () => ({
+      compileScope: createFileScope(manuscript.path, sceneInChapter.path),
+    });
+
+    const bar = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, bar);
+    panel.renderQuickBar(bar);
+
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    scopeBtn.click();
+    const titles = Menu.lastShown.items.map((i) => i.title);
+    assert.deepEqual(titles, ["Projet", "Dossier", "Feuillet"]);
+
+    // Au clic sur Dossier en contexte fichier : mémoriser son dossier parent
+    const dossierItem = Menu.lastShown.items.find((i) => i.title === "Dossier");
+    assert.ok(dossierItem);
+    dossierItem.callback();
+    assert.deepEqual(plugin.activeExportScope, {
+      type: "folder",
+      projectRoot: manuscript.path,
+      path: chapter.path,
+    });
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : contexte projet → Projet seulement", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript, setActiveFile } = buildFixture();
+    setActiveFile(null);
+    plugin.getCentralContinuView = () => null;
+
+    const bar = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, bar);
+    panel.renderQuickBar(bar);
+
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    scopeBtn.click();
+    const titles = Menu.lastShown.items.map((i) => i.title);
+    assert.deepEqual(titles, ["Projet"]);
+
+    // Continu sur la racine du projet -> son chemin est exactement la racine -> Projet seulement
+    plugin.getCentralContinuView = () => ({
+      compileScope: createFolderScope(manuscript.path, manuscript.path),
+    });
+    scopeBtn.click();
+    const titlesRoot = Menu.lastShown.items.map((i) => i.title);
+    assert.deepEqual(titlesRoot, ["Projet"]);
+
+    // Fichier actif à la racine du projet -> son dossier est la racine -> pas de Dossier séparé
+    plugin.getCentralContinuView = () => null;
+    const rootFile = new TFile("Projet/Manuscrit/Scène Racine.md", "Texte");
+    rootFile.parent = manuscript;
+    app.vault.files.set(rootFile.path, rootFile);
+    setActiveFile(rootFile);
+    scopeBtn.click();
+    const titlesRootFile = Menu.lastShown.items.map((i) => i.title);
+    assert.deepEqual(titlesRootFile, ["Projet", "Feuillet"]);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : fichier actif obsolète + Continu dossier → aucun Feuillet proposé", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript, scene, setActiveFile } = buildFixture();
+    setActiveFile(scene); // Fichier actif obsolète présent
+
+    const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+    chapter.parent = manuscript;
+    chapter.children = [];
+    app.vault.files.set(chapter.path, chapter);
+
+    plugin.getCentralContinuView = () => ({
+      compileScope: createFolderScope(manuscript.path, chapter.path),
+    });
+
+    const bar = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, bar);
+    panel.renderQuickBar(bar);
+
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    scopeBtn.click();
+    const titles = Menu.lastShown.items.map((i) => i.title);
+    assert.deepEqual(titles, ["Projet", "Dossier"]);
+    assert.equal(titles.includes("Feuillet"), false);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : si la cible attendue n’existe plus, annuler proprement", async () => {
+  const restore = installDom();
+  try {
+    const { app, plugin, manuscript, settings } = buildFixture();
+    settings.exportFormat = "md";
+    const chapterPath = `${manuscript.path}/Chapitre Supprimé`;
+    plugin.getCentralContinuView = () => ({
+      compileScope: createFolderScope(manuscript.path, chapterPath),
+    });
+    rememberExportScope(plugin, createFolderScope(manuscript.path, chapterPath));
+
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+
+    await assert.doesNotReject(async () => {
+      bar.querySelector(".feuillets-edition-quickexport-cta").click();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+
+    const output = app.vault.getFiles().find((file) => file.path.includes("/_Feuillets/Sortie/") && file.extension === "md");
+    assert.equal(output, undefined, "Aucun export ne doit être produit pour une cible manquante");
   } finally {
     restore();
   }

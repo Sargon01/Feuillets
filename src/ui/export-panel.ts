@@ -51,6 +51,7 @@ export type ExportPanelPlugin = ExportWorkflowPlugin & {
   getProjectFolder(): TFolder | null;
   getLeafForOpeningFile?(): WorkspaceLeaf;
   saveSettings?(): Promise<void>;
+  getCentralContinuView?(): { compileScope: CompileScope | null } | null;
 };
 
 /** Phase 1 : le panneau ne dépend plus d'aucun callback obligatoire vers
@@ -286,18 +287,34 @@ export class ExportPanel {
 
   private showQuickScopeMenu(event: MouseEvent, button: HTMLButtonElement): void {
     const current = this.resolveScope();
-    const active = this.activeProjectFile();
+    const context = this.resolveContextScope();
+    const root = this.plugin.getProjectFolder();
     const menu = new Menu();
     const addScope = (value: string, title: string): void => {
       menu.addItem((item) => item.setTitle(title).setChecked((current?.type || "project") === value).onClick(() => {
-        this.setEditionScope(value, active, current);
+        this.setEditionScope(value, context);
         void this.updateQuickScopeButton(button);
       }));
     };
+
     addScope("project", t("preview.scope.project"));
-    if (active?.parent) addScope("folder", t("preview.scope.folder"));
-    if (active) addScope("file", t("preview.scope.file"));
-    if (current?.type === "selection") addScope("selection", t("preview.scope.selection", { count: String(current.paths.length) }));
+
+    if (context && root) {
+      if (context.type === "folder") {
+        if (context.path !== root.path) {
+          addScope("folder", t("preview.scope.folder"));
+        }
+      } else if (context.type === "file") {
+        const parentFolder = this.resolveParentFolder(context.path);
+        if (parentFolder && parentFolder.path !== root.path) {
+          addScope("folder", t("preview.scope.folder"));
+        }
+        addScope("file", t("preview.scope.file"));
+      } else if (context.type === "selection") {
+        addScope("selection", t("preview.scope.selection", { count: String(context.paths.length) }));
+      }
+    }
+
     this.showQuickMenu(menu, event, button);
   }
 
@@ -494,14 +511,58 @@ export class ExportPanel {
     return file;
   }
 
-  private setEditionScope(value: string, active: TFile | null, current: CompileScope | null): void {
+  private resolveContextScope(): CompileScope | null {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return null;
+    const continuScope = this.plugin.getCentralContinuView?.()?.compileScope;
+    if (continuScope && continuScope.projectRoot === root.path) {
+      return continuScope;
+    }
+    const active = this.activeProjectFile();
+    if (active) {
+      return createFileScope(root.path, active.path);
+    }
+    return createProjectScope(root.path);
+  }
+
+  private resolveParentFolder(filePath: string): TFolder | null {
+    const file = this.app.vault.getAbstractFileByPath(filePath);
+    if (file instanceof TFile && file.parent instanceof TFolder) {
+      return file.parent;
+    }
+    const lastSlash = filePath.lastIndexOf("/");
+    if (lastSlash > 0) {
+      const candidate = this.app.vault.getAbstractFileByPath(filePath.slice(0, lastSlash));
+      if (candidate instanceof TFolder) return candidate;
+    }
+    return null;
+  }
+
+  private setEditionScope(value: string, context: CompileScope | null): void {
     const root = this.plugin.getProjectFolder();
     if (!root) return;
     let scope: CompileScope;
-    if (value === "selection" && current?.type === "selection") scope = current;
-    else if (value === "file" && active) scope = createFileScope(root.path, active.path);
-    else if (value === "folder" && active?.parent) scope = createFolderScope(root.path, active.parent.path);
-    else scope = createProjectScope(root.path);
+    if (value === "selection" && context?.type === "selection") {
+      scope = context;
+    } else if (value === "file" && context?.type === "file") {
+      const file = this.app.vault.getAbstractFileByPath(context.path);
+      if (!(file instanceof TFile)) return;
+      scope = createFileScope(root.path, file.path);
+    } else if (value === "folder") {
+      if (context?.type === "folder") {
+        const folder = this.app.vault.getAbstractFileByPath(context.path);
+        if (!(folder instanceof TFolder)) return;
+        scope = createFolderScope(root.path, folder.path);
+      } else if (context?.type === "file") {
+        const parentFolder = this.resolveParentFolder(context.path);
+        if (!(parentFolder instanceof TFolder)) return;
+        scope = createFolderScope(root.path, parentFolder.path);
+      } else {
+        return;
+      }
+    } else {
+      scope = createProjectScope(root.path);
+    }
     rememberExportScope(this.plugin, scope);
     this.scopeLabelEl = null;
   }
@@ -523,27 +584,68 @@ export class ExportPanel {
     await runExportWorkflow(this.app, this.plugin, this.resolveScope());
   }
 
-  /** Recalcule les portées dépendantes du feuillet actif au moment du clic.
+  /** Recalcule les portées dépendantes du contexte au moment du clic.
    * La quickbar d'Édition n'a pas le callback de portée explicite de l'Aperçu
    * : elle ne doit donc jamais réutiliser un ancien fichier ou dossier si
-   * l'auteur a changé de feuillet entre deux clics. Les portées Projet et
+   * l'auteur a changé de contexte entre deux clics. Les portées Projet et
    * Sélection restent, elles, inchangées. */
   private async launchQuickBarExport(): Promise<void> {
     const current = this.resolveScope();
-    if (!current || this.callbacks.getScope || (current.type !== "file" && current.type !== "folder")) {
+    if (!current || this.callbacks.getScope) {
       await runExportWorkflow(this.app, this.plugin, current);
       return;
     }
-    const active = this.activeProjectFile();
-    if (!active) return;
+    if (current.type === "project" || current.type === "selection") {
+      await runExportWorkflow(this.app, this.plugin, current);
+      return;
+    }
+
     const root = this.plugin.getProjectFolder();
     if (!root) return;
-    const scope = current.type === "file"
-      ? createFileScope(root.path, active.path)
-      : active.parent
-        ? createFolderScope(root.path, active.parent.path)
-        : null;
-    if (scope) await runExportWorkflow(this.app, this.plugin, scope);
+
+    const continuScope = this.plugin.getCentralContinuView?.()?.compileScope;
+    const hasValidContinu = Boolean(continuScope && continuScope.projectRoot === root.path);
+
+    if (hasValidContinu && continuScope) {
+      if (current.type === "folder") {
+        let folderPath: string | null = null;
+        if (continuScope.type === "folder") {
+          folderPath = continuScope.path;
+        } else if (continuScope.type === "file") {
+          const parent = this.resolveParentFolder(continuScope.path);
+          folderPath = parent?.path || null;
+        }
+        if (!folderPath) return;
+        const folder = this.app.vault.getAbstractFileByPath(folderPath);
+        if (!(folder instanceof TFolder)) return;
+        const scope = createFolderScope(root.path, folder.path);
+        await runExportWorkflow(this.app, this.plugin, scope);
+      } else if (current.type === "file") {
+        if (continuScope.type !== "file") {
+          return;
+        }
+        const file = this.app.vault.getAbstractFileByPath(continuScope.path);
+        if (!(file instanceof TFile)) return;
+        const scope = createFileScope(root.path, file.path);
+        await runExportWorkflow(this.app, this.plugin, scope);
+      }
+      return;
+    }
+
+    const active = this.activeProjectFile();
+    if (!active) return;
+
+    if (current.type === "file") {
+      const file = this.app.vault.getAbstractFileByPath(active.path);
+      if (!(file instanceof TFile)) return;
+      const scope = createFileScope(root.path, file.path);
+      await runExportWorkflow(this.app, this.plugin, scope);
+    } else if (current.type === "folder") {
+      const parent = this.resolveParentFolder(active.path);
+      if (!(parent instanceof TFolder)) return;
+      const scope = createFolderScope(root.path, parent.path);
+      await runExportWorkflow(this.app, this.plugin, scope);
+    }
   }
 
   /** Reconstruit le panneau ENTIER (les valeurs affichées viennent des
