@@ -1,4 +1,5 @@
 import { normalizePath, TFile, TFolder, type App, type TAbstractFile } from "obsidian";
+import { isFolderWorkspaceConfigEmpty } from "./folder-workspaces.js";
 
 function cleanPath(path: string): string {
   return normalizePath(path.trim()).replace(/\/+$/, "");
@@ -31,7 +32,7 @@ export function ouvrageRelativePath(projectRootPath: string, folderPath: string)
 
 /** Vérifie si un dossier est une racine d'ouvrage enregistrée et existante.
  * Ne renvoie true que pour un dossier existant dans le coffre, descendant strict
- * de la racine globale, et inscrit dans ouvrageRoots. */
+ * de la racine globale, et portant folderWorkspaces[relatif].ouvrage. */
 export function isOuvrageRoot(
   app: App,
   settings: FeuilletsSettings,
@@ -48,10 +49,8 @@ export function isOuvrageRoot(
   const rootKey = settings.projectMeta?.[projectRoot.path]
     ? projectRoot.path
     : cleanPath(projectRoot.path);
-  const roots = settings.projectMeta?.[rootKey]?.ouvrageRoots;
-  if (!roots) return false;
-
-  return Boolean(roots[rel]);
+  const config = settings.projectMeta?.[rootKey]?.folderWorkspaces?.[rel];
+  return Boolean(config?.ouvrage);
 }
 
 /** Résout la racine éditoriale pour un nœud donné (fichier ou dossier).
@@ -98,7 +97,9 @@ export function resolveEditorialRoot(
   return projectRoot;
 }
 
-/** Enregistre un dossier comme racine d'ouvrage sous la racine globale.
+/** Enregistre un dossier comme racine d'ouvrage sous la racine globale, en
+ * posant folderWorkspaces[relatif].ouvrage — crée l'entrée FolderWorkspaceConfig
+ * si nécessaire, sans toucher aux autres réglages qu'elle porte déjà.
  * Idempotente : renvoie false si l'ouvrage est déjà enregistré. */
 export function registerOuvrage(
   settings: FeuilletsSettings,
@@ -119,21 +120,29 @@ export function registerOuvrage(
     settings.projectMeta[rootKey] = {};
   }
   const meta = settings.projectMeta[rootKey];
-  if (!meta.ouvrageRoots) {
-    meta.ouvrageRoots = {};
+  if (!meta.folderWorkspaces) {
+    meta.folderWorkspaces = {};
   }
+  if (!meta.folderWorkspaces[rel]) {
+    meta.folderWorkspaces[rel] = { version: 1 };
+  }
+  const config = meta.folderWorkspaces[rel];
 
-  if (meta.ouvrageRoots[rel]) {
+  if (config.ouvrage) {
     return false;
   }
 
-  meta.ouvrageRoots[rel] = { version: 1 };
+  config.ouvrage = { version: 1 };
   return true;
 }
 
-/** Désenregistre un dossier d'ouvrage.
- * Ne supprime que l'entrée exacte, conserve les ouvrages descendants,
- * et supprime la map ouvrageRoots si elle devient vide. */
+/** Désenregistre un dossier d'ouvrage : supprime uniquement le champ
+ * `ouvrage` de sa FolderWorkspaceConfig, en préservant tous les autres
+ * réglages qu'elle porte (préréglage, objectifs, typographie…). L'entrée
+ * folderWorkspaces[relatif] n'est retirée que si elle ne porte plus aucun
+ * réglage ; la map folderWorkspaces elle-même n'est retirée que si elle
+ * devient vide. Les ouvrages descendants (ex. NEFES/Volume annexe) ne sont
+ * jamais affectés par le désenregistrement d'un ancêtre. */
 export function unregisterOuvrage(
   settings: FeuilletsSettings,
   projectRoot: TFolder,
@@ -147,81 +156,18 @@ export function unregisterOuvrage(
     ? projectRoot.path
     : cleanPath(projectRoot.path);
   const meta = settings.projectMeta?.[rootKey];
-  if (!meta || !meta.ouvrageRoots) return false;
+  const workspaces = meta?.folderWorkspaces;
+  const config = workspaces?.[rel];
+  if (!meta || !workspaces || !config?.ouvrage) return false;
 
-  if (!(rel in meta.ouvrageRoots)) return false;
+  delete config.ouvrage;
 
-  delete meta.ouvrageRoots[rel];
-
-  if (Object.keys(meta.ouvrageRoots).length === 0) {
-    delete meta.ouvrageRoots;
+  if (isFolderWorkspaceConfigEmpty(config)) {
+    delete workspaces[rel];
+    if (Object.keys(workspaces).length === 0) {
+      delete meta.folderWorkspaces;
+    }
   }
 
   return true;
-}
-
-/** Remappe les clés d'ouvrages après renommage ou déplacement d'un dossier.
- * Déplace la clé exacte et tous les ouvrages descendants.
- * Conserve l'entrée cible existante en cas de collision et ignore la clé déplacée.
- * Renvoie true uniquement si au moins une clé a été modifiée. */
-export function remapOuvrageRoots(
-  settings: FeuilletsSettings,
-  projectRootPath: string,
-  oldPath: string,
-  newPath: string
-): boolean {
-  if (!settings || !projectRootPath || !oldPath || !newPath) return false;
-  if (cleanPath(oldPath) === cleanPath(newPath)) return false;
-
-  const rootKey = settings.projectMeta?.[projectRootPath]
-    ? projectRootPath
-    : cleanPath(projectRootPath);
-  const meta = settings.projectMeta?.[rootKey];
-  if (!meta || !meta.ouvrageRoots) return false;
-  const roots = meta.ouvrageRoots;
-
-  const oldRel = ouvrageRelativePath(projectRootPath, oldPath);
-  if (!oldRel) return false;
-
-  const newRel = ouvrageRelativePath(projectRootPath, newPath);
-  if (!newRel) {
-    let changed = false;
-    for (const key of Object.keys(roots)) {
-      if (key === oldRel || key.startsWith(`${oldRel}/`)) {
-        delete roots[key];
-        changed = true;
-      }
-    }
-    if (changed && Object.keys(roots).length === 0) {
-      delete meta.ouvrageRoots;
-    }
-    return changed;
-  }
-
-  const toMove: Array<{ from: string; to: string; config: OuvrageConfig }> = [];
-  for (const key of Object.keys(roots)) {
-    if (key === oldRel) {
-      toMove.push({ from: key, to: newRel, config: roots[key] });
-    } else if (key.startsWith(`${oldRel}/`)) {
-      const suffix = key.slice(oldRel.length);
-      toMove.push({ from: key, to: `${newRel}${suffix}`, config: roots[key] });
-    }
-  }
-
-  if (toMove.length === 0) return false;
-
-  let changed = false;
-  for (const item of toMove) {
-    if (item.to in roots) {
-      // Collision : conserver strictement roots[item.to] et supprimer roots[item.from]
-      delete roots[item.from];
-      changed = true;
-      continue;
-    }
-    roots[item.to] = item.config;
-    delete roots[item.from];
-    changed = true;
-  }
-
-  return changed;
 }

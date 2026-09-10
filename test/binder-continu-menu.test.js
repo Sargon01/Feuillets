@@ -65,8 +65,8 @@ function buildProject() {
     statuses: [],
     projectMeta: {
       "Roman/Manuscrit": {
-        ouvrageRoots: {
-          "NEFES": true,
+        folderWorkspaces: {
+          "NEFES": { version: 1, ouvrage: { version: 1 } },
         },
       },
     },
@@ -447,7 +447,7 @@ function buildWarpiPlugin() {
   plugin.app = { vault };
   plugin.settings = {
     projectFolder: root.path,
-    projectMeta: { [root.path]: { ouvrageRoots: { NEFES: { version: 1 } } } },
+    projectMeta: { [root.path]: { folderWorkspaces: { NEFES: { version: 1, ouvrage: { version: 1 } } } } },
   };
   plugin.getProjectFolder = () => root;
   return { plugin, root, nefes, part, chapter, scene, sibling, siblingScene };

@@ -1,6 +1,7 @@
-import { App, Modal, Setting, TFolder, setIcon } from "obsidian";
+import { App, Modal, Setting, TFolder, normalizePath, setIcon } from "obsidian";
 import { PROJECT_MODES, projectBoardDefaults } from "../utils/project-modes.js";
 import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType } from "../services/project-settings.js";
+import { isOuvrageRoot, ouvrageRelativePath, registerOuvrage, unregisterOuvrage } from "../services/editorial-roots.js";
 import {
   folderPathToWorkspaceScope,
   workspaceDeadline,
@@ -91,6 +92,8 @@ export class FolderWorkspaceModal extends Modal {
       cls: "feuillets-notes-sub",
     });
 
+    this.renderOuvrageOption(contentEl, projectRoot);
+
     const saveLocalPreset = async (preset: FolderWorkspacePreset): Promise<void> => {
       const boardDefaults = projectBoardDefaults(preset);
       const mode = PROJECT_MODES[preset];
@@ -151,6 +154,39 @@ export class FolderWorkspaceModal extends Modal {
     const typography = contentEl.createDiv({ cls: "feuillets-notes-section" });
     typography.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.typography") });
     this.renderTypography(typography, projectRoot.path, relativeScope);
+  }
+
+  /** Option « Définir ce dossier comme ouvrage » — statut lu et écrit via
+   *  services/editorial-roots.ts (isOuvrageRoot/registerOuvrage/
+   *  unregisterOuvrage), seuls points d'accès légitimes à
+   *  folderWorkspaces[relatif].ouvrage. Absente pour la racine globale, pour
+   *  Front et ses descendants, et pour un dossier préfixé par "_" — mêmes
+   *  exclusions que l'ancienne entrée de menu contextuel du Binder.
+   *  Applique le changement immédiatement, comme tous les autres champs de
+   *  cette modale (voir saveLocalField, renderTypographyToggle…) : pas
+   *  d'état local ni de validation séparée. */
+  private renderOuvrageOption(container: HTMLElement, projectRoot: TFolder): void {
+    const rel = ouvrageRelativePath(projectRoot.path, this.folder.path);
+    if (!rel) return;
+    if (this.folder.name.startsWith("_")) return;
+    const frontPath = normalizePath(`${projectRoot.path}/Front`);
+    if (this.folder.path === frontPath || this.folder.path.startsWith(`${frontPath}/`)) return;
+    if (this.folder.name === "Front" || this.folder.path.split("/").includes("Front")) return;
+
+    new Setting(container)
+      .setName(t("modal.folderWorkspace.defineAsOuvrage"))
+      .addToggle((toggle) => toggle
+        .setValue(isOuvrageRoot(this.app, this.plugin.settings, projectRoot, this.folder))
+        .onChange(async (value) => {
+          const changed = value
+            ? registerOuvrage(this.plugin.settings, projectRoot, this.folder)
+            : unregisterOuvrage(this.plugin.settings, projectRoot, this.folder);
+          if (changed) {
+            await this.plugin.saveSettings();
+            this.plugin.renderAllViews(true);
+            this.rerenderContent();
+          }
+        }));
   }
 
   private renderViews(container: HTMLElement, projectRootPath: string, relativeScope: string): void {

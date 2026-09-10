@@ -98,6 +98,10 @@ declare type FolderWorkspacePreset = "free" | "fiction" | "nonfiction";
 
 declare type FolderWorkspaceConfig = {
   version: 1;
+  /** Statut d'ouvrage (racine éditoriale imbriquée) de CE dossier — voir
+   *  services/editorial-roots.ts isOuvrageRoot/registerOuvrage/
+   *  unregisterOuvrage, seuls lecteurs/écrivains légitimes de ce champ. */
+  ouvrage?: OuvrageConfig;
   preset?: FolderWorkspacePreset;
   statuses?: ProjectStatusEntry[];
   labels?: Label[];
@@ -146,9 +150,10 @@ declare type PandocCitationPreviewStyle = "off" | "author-date";
  * Écrit champ par champ par ui/project-modals.ts — TOUT est optionnel,
  * `{}` est un état normal (voir `S.projectMeta[path] = {}`). */
 declare type ProjectMeta = {
-  ouvrageRoots?: Record<string, OuvrageConfig>;
   folderCarnets?: Record<string, import("./carnet/core/folder-carnets.js").FolderCarnetRegistration>;
-  /** Préférences locales par dossier, indexées par chemin relatif au manuscrit. */
+  /** Préférences locales par dossier, indexées par chemin relatif au manuscrit.
+   *  Porte aussi, depuis la fusion avec les anciennes racines d'ouvrage, le
+   *  statut d'ouvrage de chaque dossier (FolderWorkspaceConfig.ouvrage). */
   folderWorkspaces?: Record<string, FolderWorkspaceConfig>;
   /** Nom d'affichage personnalisé ; sinon le nom du dossier. */
   name?: string;

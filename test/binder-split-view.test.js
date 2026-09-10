@@ -1277,7 +1277,6 @@ test("FeuilletsView rendue : déclaration d'ouvrage et calcul des rôles partie/
     projectMeta: {
       "WARPI": {
         level1Role: "parties",
-        ouvrageRoots: {},
       },
     },
     collapsed: {},
@@ -1287,7 +1286,7 @@ test("FeuilletsView rendue : déclaration d'ouvrage et calcul des rôles partie/
 
   // Déclarer WARPI/NEFES comme ouvrage
   registerOuvrage(settings, warpi, nefes);
-  assert.equal(Boolean(settings.projectMeta["WARPI"].ouvrageRoots["NEFES"]), true);
+  assert.equal(Boolean(settings.projectMeta["WARPI"].folderWorkspaces["NEFES"].ouvrage), true);
 
   const contentEl = new FakeElement();
   const app = {

@@ -42,6 +42,16 @@ export function getFolderWorkspaceConfig(
   return meta.folderWorkspaces[relativeScope];
 }
 
+/** Vrai si une configuration ne porte plus aucun réglage au-delà du champ
+ *  `version`, toujours présent — le seuil en dessous duquel une entrée
+ *  `folderWorkspaces[relativeScope]` doit être supprimée plutôt que
+ *  conservée vide. Partagé par editorial-roots.ts (unregisterOuvrage) et
+ *  ui/folder-workspace-modal.ts (reset d'un champ local). */
+export function isFolderWorkspaceConfigEmpty(config: FolderWorkspaceConfig | undefined): boolean {
+  if (!config) return true;
+  return Object.keys(config).every((key) => key === "version");
+}
+
 /** Retourne la configuration exacte du dossier ciblé pour une écriture locale.
  * Ne résout jamais l'héritage et ne crée rien pendant une lecture. */
 export function ensureExactFolderWorkspaceConfig(

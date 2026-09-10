@@ -46,3 +46,23 @@ test("workspace reset removes only the configured folder entry", () => {
   assert.match(modalSource, /delete meta\.folderWorkspaces/);
   assert.doesNotMatch(modalSource, /for \(const .*folderWorkspaces/);
 });
+
+/* REFACTORISATION — statut d'ouvrage intégré à l'espace de travail : l'ancien
+ * menu contextuel Binder (« Définir comme ouvrage » / « Retirer le statut
+ * d'ouvrage ») est remplacé par une option dans cette modale, exclusivement
+ * lue et écrite via services/editorial-roots.ts. */
+test("workspace modal expose l'option ouvrage via les API editorial-roots existantes", () => {
+  assert.match(modalSource, /import \{ isOuvrageRoot, ouvrageRelativePath, registerOuvrage, unregisterOuvrage \} from "\.\.\/services\/editorial-roots\.js";/);
+  assert.match(modalSource, /renderOuvrageOption/);
+  assert.match(modalSource, /t\("modal\.folderWorkspace\.defineAsOuvrage"\)/);
+  assert.match(modalSource, /isOuvrageRoot\(this\.app, this\.plugin\.settings, projectRoot, this\.folder\)/);
+  assert.match(modalSource, /registerOuvrage\(this\.plugin\.settings, projectRoot, this\.folder\)/);
+  assert.match(modalSource, /unregisterOuvrage\(this\.plugin\.settings, projectRoot, this\.folder\)/);
+});
+
+test("workspace modal : l'option ouvrage exclut la racine globale, Front et ses descendants, et les dossiers préfixés par _", () => {
+  assert.match(modalSource, /const rel = ouvrageRelativePath\(projectRoot\.path, this\.folder\.path\);\s*if \(!rel\) return;/);
+  assert.match(modalSource, /this\.folder\.name\.startsWith\("_"\)/);
+  assert.match(modalSource, /normalizePath\(`\$\{projectRoot\.path\}\/Front`\)/);
+  assert.match(modalSource, /this\.folder\.name === "Front" \|\| this\.folder\.path\.split\("\/"\)\.includes\("Front"\)/);
+});

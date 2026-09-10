@@ -5418,8 +5418,8 @@ test("PreviewView : portée projet sur un ouvrage — en-tête 'Aperçu — NEFE
     projectFolder: "WARPI",
     projectMeta: {
       "WARPI": {
-        ouvrageRoots: {
-          "NEFES": true,
+        folderWorkspaces: {
+          "NEFES": { version: 1, ouvrage: { version: 1 } },
         },
       },
     },
@@ -5495,7 +5495,7 @@ test("PreviewView : fil d'Ariane sur un ouvrage imbriqué — la portée dossier
     activePreset: -1,
     compilePresets: [],
     exportFrenchTypography: false,
-    projectMeta: { WARPI: { ouvrageRoots: { NEFES: { version: 1 } } } },
+    projectMeta: { WARPI: { folderWorkspaces: { NEFES: { version: 1, ouvrage: { version: 1 } } } } },
   };
 
   /* Les VRAIS résolveurs du plugin (main.ts) — jamais une copie locale — pour
@@ -5667,7 +5667,7 @@ test("PreviewView : dans un ouvrage imbriqué, le titre automatique d'une scène
     activePreset: -1,
     compilePresets: [],
     exportFrenchTypography: false,
-    projectMeta: { WARPI: { ouvrageRoots: { NEFES: { version: 1 } } } },
+    projectMeta: { WARPI: { folderWorkspaces: { NEFES: { version: 1, ouvrage: { version: 1 } } } } },
   };
   const plugin = {
     app,

@@ -872,8 +872,8 @@ function setupOuvrage(fixture) {
 
   settings.projectMeta = {
     [manuscript.path]: {
-      ouvrageRoots: {
-        "NEFES": true,
+      folderWorkspaces: {
+        "NEFES": { version: 1, ouvrage: { version: 1 } },
       },
     },
   };

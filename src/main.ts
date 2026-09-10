@@ -60,7 +60,7 @@ import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
 import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
-import { resolveEditorialRoot, remapOuvrageRoots, isOuvrageRoot } from "./services/editorial-roots.js";
+import { resolveEditorialRoot, isOuvrageRoot } from "./services/editorial-roots.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
 import { workspaceIndentParagraphs, workspaceLabelColor, workspaceLineHeight, workspaceLiveEmptyLines, workspaceLiveHyphenation, workspaceLiveJustify, workspaceReadingFontSize, workspaceStatusColor, workspaceTextWidth, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
@@ -1589,13 +1589,10 @@ class FeuilletsPlugin extends Plugin {
          suivre le dossier déplacé, sans toucher aux chemins voisins. */
       if (oldPath && file.path && oldPath !== file.path) {
         let settingsChanged = false;
-        if (file instanceof TFolder) {
-          const root = this.getProjectFolder();
-          if (root) {
-            const remappedRoots = remapOuvrageRoots(this.settings, root.path, oldPath, file.path);
-            if (remappedRoots) settingsChanged = true;
-          }
-        }
+        /* Le statut d'ouvrage vit désormais dans folderWorkspaces[relatif]
+           .ouvrage (services/editorial-roots.ts) : son déplacement suit le
+           mécanisme existant de remappage des folderWorkspaces, ci-dessous,
+           sans traitement séparé. */
         const remapped = remapFeuilletsPathReferences(this.settings, oldPath, file.path);
         if (remapped.changed) settingsChanged = true;
         if (settingsChanged) void this.saveSettings();

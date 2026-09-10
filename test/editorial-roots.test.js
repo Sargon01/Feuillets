@@ -6,7 +6,6 @@ import {
   isOuvrageRoot,
   ouvrageRelativePath,
   registerOuvrage,
-  remapOuvrageRoots,
   resolveEditorialRoot,
   unregisterOuvrage,
 } from "../src/services/editorial-roots.js";
@@ -23,23 +22,23 @@ test("ouvrageRelativePath : chemin relatif valide, racine identique refusée, do
   assert.equal(ouvrageRelativePath("WARPI/", "/WARPI/NEFES/"), "NEFES");
 });
 
-test("registerOuvrage : enregistrement idempotent", () => {
+test("registerOuvrage : enregistrement idempotent, statut porté par folderWorkspaces[relatif].ouvrage", () => {
   const projectRoot = new TFolder("WARPI");
   const nefes = new TFolder("WARPI/NEFES");
   const settings = { projectMeta: {} };
 
-  // Premier enregistrement
+  // Premier enregistrement : crée l'entrée FolderWorkspaceConfig
   const first = registerOuvrage(settings, projectRoot, nefes);
   assert.equal(first, true);
-  assert.deepEqual(settings.projectMeta["WARPI"].ouvrageRoots, {
-    "NEFES": { version: 1 },
+  assert.deepEqual(settings.projectMeta["WARPI"].folderWorkspaces, {
+    "NEFES": { version: 1, ouvrage: { version: 1 } },
   });
 
   // Deuxième enregistrement identique : idempotent, renvoie false et ne modifie rien
   const second = registerOuvrage(settings, projectRoot, nefes);
   assert.equal(second, false);
-  assert.deepEqual(settings.projectMeta["WARPI"].ouvrageRoots, {
-    "NEFES": { version: 1 },
+  assert.deepEqual(settings.projectMeta["WARPI"].folderWorkspaces, {
+    "NEFES": { version: 1, ouvrage: { version: 1 } },
   });
 
   // Tentative sur la racine globale : refusée
@@ -50,35 +49,81 @@ test("registerOuvrage : enregistrement idempotent", () => {
   assert.equal(registerOuvrage(settings, projectRoot, externe), false);
 });
 
-test("unregisterOuvrage : désenregistrement exact sans suppression d’un ouvrage enfant", () => {
+test("registerOuvrage : préserve les réglages d'espace de travail déjà présents sur ce dossier", () => {
+  const projectRoot = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const settings = {
+    projectMeta: {
+      "WARPI": {
+        folderWorkspaces: {
+          "NEFES": { version: 1, preset: "fiction", wordGoal: 50000 },
+        },
+      },
+    },
+  };
+
+  const changed = registerOuvrage(settings, projectRoot, nefes);
+  assert.equal(changed, true);
+  assert.deepEqual(settings.projectMeta["WARPI"].folderWorkspaces["NEFES"], {
+    version: 1,
+    preset: "fiction",
+    wordGoal: 50000,
+    ouvrage: { version: 1 },
+  });
+});
+
+test("unregisterOuvrage : désenregistrement exact, réglages voisins et ascendants préservés", () => {
   const projectRoot = new TFolder("WARPI");
   const nefes = new TFolder("WARPI/NEFES");
   const volumeAnnexe = new TFolder("WARPI/NEFES/Volume annexe");
   const settings = {
     projectMeta: {
       "WARPI": {
-        ouvrageRoots: {
-          "NEFES": { version: 1 },
-          "NEFES/Volume annexe": { version: 1 },
+        folderWorkspaces: {
+          "NEFES": { version: 1, ouvrage: { version: 1 }, preset: "fiction" },
+          "NEFES/Volume annexe": { version: 1, ouvrage: { version: 1 } },
         },
       },
     },
   };
 
-  // Désenregistrement de NEFES : NEFES/Volume annexe reste intact
+  // Désenregistrement de NEFES : le statut d'ouvrage disparaît, le reste
+  // de sa configuration (preset) est préservé, NEFES/Volume annexe intact
   const removed = unregisterOuvrage(settings, projectRoot, nefes);
   assert.equal(removed, true);
-  assert.deepEqual(settings.projectMeta["WARPI"].ouvrageRoots, {
-    "NEFES/Volume annexe": { version: 1 },
+  assert.deepEqual(settings.projectMeta["WARPI"].folderWorkspaces, {
+    "NEFES": { version: 1, preset: "fiction" },
+    "NEFES/Volume annexe": { version: 1, ouvrage: { version: 1 } },
   });
 
   // Tentative de désenregistrer à nouveau NEFES : renvoie false
   assert.equal(unregisterOuvrage(settings, projectRoot, nefes), false);
 
-  // Désenregistrement du dernier ouvrage : supprime la map ouvrageRoots
+  // Désenregistrement du dernier ouvrage : NEFES/Volume annexe n'a plus
+  // aucun réglage, son entrée est supprimée ; NEFES (preset) reste
   const removedChild = unregisterOuvrage(settings, projectRoot, volumeAnnexe);
   assert.equal(removedChild, true);
-  assert.equal("ouvrageRoots" in settings.projectMeta["WARPI"], false);
+  assert.deepEqual(settings.projectMeta["WARPI"].folderWorkspaces, {
+    "NEFES": { version: 1, preset: "fiction" },
+  });
+});
+
+test("unregisterOuvrage : supprime folderWorkspaces devenue vide", () => {
+  const projectRoot = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const settings = {
+    projectMeta: {
+      "WARPI": {
+        folderWorkspaces: {
+          "NEFES": { version: 1, ouvrage: { version: 1 } },
+        },
+      },
+    },
+  };
+
+  const removed = unregisterOuvrage(settings, projectRoot, nefes);
+  assert.equal(removed, true);
+  assert.equal("folderWorkspaces" in settings.projectMeta["WARPI"], false);
 });
 
 test("resolveEditorialRoot : résolution sur la racine globale lorsqu’aucun ouvrage n’est déclaré", () => {
@@ -119,8 +164,8 @@ test("resolveEditorialRoot : résolution de WARPI/NEFES depuis un fichier profon
   const settings = {
     projectMeta: {
       "WARPI": {
-        ouvrageRoots: {
-          "NEFES": { version: 1 },
+        folderWorkspaces: {
+          "NEFES": { version: 1, ouvrage: { version: 1 } },
         },
       },
     },
@@ -161,9 +206,9 @@ test("resolveEditorialRoot : priorité de l’ouvrage le plus proche avec NEFES 
   const settings = {
     projectMeta: {
       "WARPI": {
-        ouvrageRoots: {
-          "NEFES": { version: 1 },
-          "NEFES/Volume annexe": { version: 1 },
+        folderWorkspaces: {
+          "NEFES": { version: 1, ouvrage: { version: 1 } },
+          "NEFES/Volume annexe": { version: 1, ouvrage: { version: 1 } },
         },
       },
     },
@@ -201,9 +246,9 @@ test("isOuvrageRoot et resolveEditorialRoot : entrée obsolète ignorée", () =>
   const settings = {
     projectMeta: {
       "WARPI": {
-        ouvrageRoots: {
-          "Supprimé": { version: 1 },
-          "NEFES": { version: 1 },
+        folderWorkspaces: {
+          "Supprimé": { version: 1, ouvrage: { version: 1 } },
+          "NEFES": { version: 1, ouvrage: { version: 1 } },
         },
       },
     },
@@ -218,118 +263,4 @@ test("isOuvrageRoot et resolveEditorialRoot : entrée obsolète ignorée", () =>
   orphanScene.parent = deletedFolder;
   const resolved = resolveEditorialRoot(app, settings, projectRoot, orphanScene);
   assert.equal(resolved, projectRoot);
-});
-
-test("remapOuvrageRoots : remappage lors du renommage d’un ouvrage", () => {
-  const settings = {
-    projectMeta: {
-      "WARPI": {
-        ouvrageRoots: {
-          "NEFES": { version: 1 },
-        },
-      },
-    },
-  };
-
-  const changed = remapOuvrageRoots(settings, "WARPI", "WARPI/NEFES", "WARPI/TOME_1");
-  assert.equal(changed, true);
-  assert.deepEqual(settings.projectMeta["WARPI"].ouvrageRoots, {
-    "TOME_1": { version: 1 },
-  });
-
-  // Ancien chemin hors de la racine globale : ne modifie rien
-  const noChangeOutside = remapOuvrageRoots(settings, "WARPI", "AUTRE/Dossier", "WARPI/Dossier");
-  assert.equal(noChangeOutside, false);
-
-  // Aucune clé correspondante : ne modifie rien
-  const noChangeUnknown = remapOuvrageRoots(settings, "WARPI", "WARPI/Inconnu", "WARPI/Autre");
-  assert.equal(noChangeUnknown, false);
-});
-
-test("remapOuvrageRoots : remappage de ses ouvrages descendants", () => {
-  const settings = {
-    projectMeta: {
-      "WARPI": {
-        ouvrageRoots: {
-          "NEFES": { version: 1 },
-          "NEFES/Volume annexe": { version: 1 },
-          "NEFES/Hors-série": { version: 1 },
-        },
-      },
-    },
-  };
-
-  const changed = remapOuvrageRoots(settings, "WARPI", "WARPI/NEFES", "WARPI/CYCLE_1");
-  assert.equal(changed, true);
-  assert.deepEqual(settings.projectMeta["WARPI"].ouvrageRoots, {
-    "CYCLE_1": { version: 1 },
-    "CYCLE_1/Volume annexe": { version: 1 },
-    "CYCLE_1/Hors-série": { version: 1 },
-  });
-});
-
-test("remapOuvrageRoots : collision de clé cible préservée", () => {
-  const settings = {
-    projectMeta: {
-      "WARPI": {
-        ouvrageRoots: {
-          "Tome 1": { version: 1 },
-          "Tome 2": { version: 1 },
-          "Tome 1/Annexe": { version: 1 },
-        },
-      },
-    },
-  };
-
-  // Renommer Tome 1 vers Tome 2 : Tome 2 existe déjà (collision), il est conservé
-  // Tome 1 est supprimé, et Tome 1/Annexe est bien déplacé vers Tome 2/Annexe
-  const changed = remapOuvrageRoots(settings, "WARPI", "WARPI/Tome 1", "WARPI/Tome 2");
-  assert.equal(changed, true);
-  assert.deepEqual(settings.projectMeta["WARPI"].ouvrageRoots, {
-    "Tome 2": { version: 1 },
-    "Tome 2/Annexe": { version: 1 },
-  });
-
-  // Collision totale : deux ouvrages sans descendant libre
-  const settingsCollision = {
-    projectMeta: {
-      "WARPI": {
-        ouvrageRoots: {
-          "A": { version: 1 },
-          "B": { version: 1 },
-        },
-      },
-    },
-  };
-  const changedTotal = remapOuvrageRoots(settingsCollision, "WARPI", "WARPI/A", "WARPI/B");
-  assert.equal(changedTotal, true);
-  assert.deepEqual(settingsCollision.projectMeta["WARPI"].ouvrageRoots, {
-    "B": { version: 1 },
-  });
-});
-
-test("remapOuvrageRoots : déplacement de WARPI/NEFES hors de WARPI supprime l’entrée et ses descendants sans toucher aux voisins", () => {
-  const settings = {
-    projectMeta: {
-      "WARPI": {
-        ouvrageRoots: {
-          "NEFES": { version: 1 },
-          "NEFES/Volume annexe": { version: 1 },
-          "AUTRE": { version: 1 },
-        },
-      },
-    },
-  };
-
-  // Déplacement de WARPI/NEFES vers un dossier hors de WARPI
-  const changed = remapOuvrageRoots(settings, "WARPI", "WARPI/NEFES", "ARCHIVES/NEFES");
-  assert.equal(changed, true);
-  assert.deepEqual(settings.projectMeta["WARPI"].ouvrageRoots, {
-    "AUTRE": { version: 1 },
-  });
-
-  // Déplacement du dernier ouvrage restant hors de la racine : supprime la map ouvrageRoots
-  const removedLast = remapOuvrageRoots(settings, "WARPI", "WARPI/AUTRE", "AUTRE");
-  assert.equal(removedLast, true);
-  assert.equal("ouvrageRoots" in settings.projectMeta["WARPI"], false);
 });

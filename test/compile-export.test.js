@@ -2114,7 +2114,7 @@ function createNestedOuvrageFixture(settingsOverrides = {}, { withOpening = fals
     activePreset: -1,
     compilePresets: [],
     exportFrenchTypography: false,
-    projectMeta: { [root.path]: { ouvrageRoots: { NEFES: { version: 1 } } } },
+    projectMeta: { [root.path]: { folderWorkspaces: { NEFES: { version: 1, ouvrage: { version: 1 } } } } },
     ...settingsOverrides,
   };
   return { app, settings, vault, writeCount: () => writes, globalTitle, nefesTitle, scene1, scene2, siblingScene, opening };
@@ -2297,7 +2297,7 @@ function createTitleBumpFixture({ withOuvrage = true, insertSceneTitles = true, 
     activePreset: -1,
     compilePresets: [],
     exportFrenchTypography: false,
-    projectMeta: withOuvrage ? { [root.path]: { ouvrageRoots: { NEFES: { version: 1 } } } } : {},
+    projectMeta: withOuvrage ? { [root.path]: { folderWorkspaces: { NEFES: { version: 1, ouvrage: { version: 1 } } } } } : {},
   };
   return { app, settings, root, nefes, part, chapter, scene };
 }
@@ -2369,7 +2369,7 @@ test("compile : une scène plus profondément nichée reste en H4, jamais H5 —
     activePreset: -1,
     compilePresets: [],
     exportFrenchTypography: false,
-    projectMeta: { [root.path]: { ouvrageRoots: { NEFES: { version: 1 } } } },
+    projectMeta: { [root.path]: { folderWorkspaces: { NEFES: { version: 1, ouvrage: { version: 1 } } } } },
   };
 
   const result = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
