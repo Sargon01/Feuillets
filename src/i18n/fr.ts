@@ -145,6 +145,8 @@ export const fr = {
   "binder.quickDraft.create": "Nouveau brouillon rapide",
   "binder.drafts": "Brouillons",
   "binder.isolateFolder": "Isoler ce dossier",
+  "binder.defineAsOuvrage": "Définir comme ouvrage",
+  "binder.removeOuvrageStatus": "Retirer le statut d’ouvrage",
   "binder.configureWorkspace": "Configurer cet espace de travail…",
   "binder.openInContinu": "Ouvrir en continu",
   "binder.isolation.backToProject": "Revenir au projet complet",

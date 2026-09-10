@@ -60,6 +60,7 @@ import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
 import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
+import { resolveEditorialRoot, remapOuvrageRoots } from "./services/editorial-roots.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
 import { workspaceIndentParagraphs, workspaceLabelColor, workspaceLineHeight, workspaceLiveEmptyLines, workspaceLiveHyphenation, workspaceLiveJustify, workspaceReadingFontSize, workspaceStatusColor, workspaceTextWidth, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
@@ -1568,8 +1569,17 @@ class FeuilletsPlugin extends Plugin {
          mémorisés des associations Binder→Recherche : on les remappe pour
          suivre le dossier déplacé, sans toucher aux chemins voisins. */
       if (oldPath && file.path && oldPath !== file.path) {
+        let settingsChanged = false;
+        if (file instanceof TFolder) {
+          const root = this.getProjectFolder();
+          if (root) {
+            const remappedRoots = remapOuvrageRoots(this.settings, root.path, oldPath, file.path);
+            if (remappedRoots) settingsChanged = true;
+          }
+        }
         const remapped = remapFeuilletsPathReferences(this.settings, oldPath, file.path);
-        if (remapped.changed) void this.saveSettings();
+        if (remapped.changed) settingsChanged = true;
+        if (settingsChanged) void this.saveSettings();
         void remapAnnotationsAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         void remapWorkNotesAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         void remapCitationRegistryAfterRename(this.app, this.settings, oldPath, file.path).catch((error: unknown) => {
@@ -3932,10 +3942,15 @@ class FeuilletsPlugin extends Plugin {
     return workspaceStatusColor(this.app, this.settings, context, name);
   }
   folderGoal(folder: TFolder): number { return folderGoal(this.settings, folder); }
-  depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node); }
-  isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node); }
-  roleOfFolder(folder: TFolder): "chapitre" | "partie" { return roleOfFolder(this.app, this.settings, folder); }
-  roleOfFile(file: TFile): "chapitre" | "scene" { return roleOfFile(this.app, this.settings, file); }
+  editorialRootFor(node: ProjectNode): TFolder | null {
+    const root = this.getProjectFolder();
+    if (!root) return null;
+    return resolveEditorialRoot(this.app, this.settings, root, node);
+  }
+  depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node, this.editorialRootFor(node)); }
+  isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node, this.editorialRootFor(node)); }
+  roleOfFolder(folder: TFolder): "chapitre" | "partie" { return roleOfFolder(this.app, this.settings, folder, this.editorialRootFor(folder)); }
+  roleOfFile(file: TFile): "chapitre" | "scene" { return roleOfFile(this.app, this.settings, file, this.editorialRootFor(file)); }
   getOrderedChildren(folder: TFolder | null | undefined, includeHidden = false): ProjectNode[] {
     return getOrderedChildren(this.app, this.settings, folder, includeHidden);
   }

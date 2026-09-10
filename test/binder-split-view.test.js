@@ -1220,3 +1220,128 @@ test("double vue : ordre général toujours Manuscrit → Recherche → Versions
   assert.ok(iManuscrit >= 0 && iRecherche >= 0 && iVersions >= 0 && iVault >= 0, "les quatre sections sont présentes");
   assert.ok(iManuscrit < iRecherche && iRecherche < iVersions && iVersions < iVault, "Manuscrit → Recherche → Versions → Coffre");
 });
+
+test("FeuilletsView rendue : déclaration d'ouvrage et calcul des rôles partie/chapitre/scène", async () => {
+  const { default: FeuilletsPlugin } = await import("../src/main.js");
+  const { registerOuvrage } = await import("../src/services/editorial-roots.js");
+
+  const warpi = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const subhanallah = new TFolder("WARPI/NEFES/Subhanallah");
+  const directNefesFile = new TFile("WARPI/NEFES/Subhanallah/Texte.md");
+  const chap1 = new TFolder("WARPI/NEFES/Subhanallah/Chapitre 1");
+  const scene1 = new TFile("WARPI/NEFES/Subhanallah/Chapitre 1/Scène 1.md");
+
+  const horsOuvrage = new TFolder("WARPI/HorsOuvrage");
+  const chapHors = new TFolder("WARPI/HorsOuvrage/Chapitre 1");
+  const sceneHors = new TFile("WARPI/HorsOuvrage/Chapitre 1/Scène 1.md");
+
+  warpi.children = [nefes, horsOuvrage];
+  nefes.parent = warpi;
+  nefes.children = [subhanallah];
+  subhanallah.parent = nefes;
+  subhanallah.children = [directNefesFile, chap1];
+  directNefesFile.parent = subhanallah;
+  chap1.parent = subhanallah;
+  chap1.children = [scene1];
+  scene1.parent = chap1;
+
+  horsOuvrage.parent = warpi;
+  horsOuvrage.children = [chapHors];
+  chapHors.parent = horsOuvrage;
+  chapHors.children = [sceneHors];
+  sceneHors.parent = chapHors;
+
+  const vaultRoot = new TFolder("");
+  vaultRoot.name = "";
+  vaultRoot.children = [warpi];
+
+  const allFiles = new Map([
+    ["", vaultRoot],
+    ["WARPI", warpi],
+    ["WARPI/NEFES", nefes],
+    ["WARPI/NEFES/Subhanallah", subhanallah],
+    ["WARPI/NEFES/Subhanallah/Texte.md", directNefesFile],
+    ["WARPI/NEFES/Subhanallah/Chapitre 1", chap1],
+    ["WARPI/NEFES/Subhanallah/Chapitre 1/Scène 1.md", scene1],
+    ["WARPI/HorsOuvrage", horsOuvrage],
+    ["WARPI/HorsOuvrage/Chapitre 1", chapHors],
+    ["WARPI/HorsOuvrage/Chapitre 1/Scène 1.md", sceneHors],
+  ]);
+
+  const settings = {
+    projectFolder: "WARPI",
+    binderLayout: "tree",
+    binderSelectedPath: "WARPI",
+    level1Role: "parties",
+    projectMeta: {
+      "WARPI": {
+        level1Role: "parties",
+        ouvrageRoots: {},
+      },
+    },
+    collapsed: {},
+    orders: {},
+    folderPositions: {},
+  };
+
+  // Déclarer WARPI/NEFES comme ouvrage
+  registerOuvrage(settings, warpi, nefes);
+  assert.equal(Boolean(settings.projectMeta["WARPI"].ouvrageRoots["NEFES"]), true);
+
+  const contentEl = new FakeElement();
+  const app = {
+    vault: makeVault(allFiles),
+    workspace: {
+      setActiveLeaf: () => {},
+      getLeaf: () => ({ id: "leaf", openFile: async () => {} }),
+      revealLeaf: async () => {},
+      getLeavesOfType: () => [],
+    },
+  };
+
+  const plugin = Object.create(FeuilletsPlugin.prototype);
+  plugin.app = app;
+  plugin.settings = settings;
+  plugin.getProjectFolder = () => warpi;
+  plugin.getResearchRoot = () => null;
+  plugin.getVersionsRoot = () => null;
+  plugin.getOrderedChildren = (folder) => folder?.children || [];
+  plugin.flattenFiles = () => [];
+  plugin.getWordCounts = async () => new Map();
+  plugin.buildNumbering = () => new Map();
+  plugin.fmOf = () => ({});
+  plugin.titleFor = (f) => f.basename;
+  plugin.shortTitleFor = (f) => f.basename;
+  plugin.labelOf = () => "";
+  plugin.labelsOf = () => [];
+  plugin.projectDisplayName = (path) => (path === warpi.path ? "WARPI" : path);
+  plugin.saveSettings = async () => {};
+  plugin.renderAllViews = () => {};
+  plugin.adjustSidebarWidth = () => {};
+
+  const view = new FeuilletsView({ app, contentEl }, plugin);
+  view.attachDragHandlers = () => {};
+  view.updateActiveHighlight = () => {};
+
+  await view.render(true);
+
+  // NEFES/Subhanallah n'est pas rendue comme scène
+  const subhanallahEl = findAll(contentEl, (el) => el.attrs["data-path"] === "WARPI/NEFES/Subhanallah")[0];
+  assert.ok(subhanallahEl, "Subhanallah doit être rendu");
+  assert.equal(subhanallahEl.classes.has("feuillets-scene"), false, "NEFES/Subhanallah n'est pas rendue comme scène");
+
+  const directFileEl = findAll(contentEl, (el) => el.attrs["data-path"] === "WARPI/NEFES/Subhanallah/Texte.md")[0];
+  assert.ok(directFileEl, "le texte direct de Subhanallah doit être rendu");
+  assert.equal(directFileEl.classes.has("feuillets-scene"), false, "un fichier sous une partie d'ouvrage est un chapitre, pas une scène");
+
+  // NEFES/Subhanallah/Chapitre 1/Scène 1.md est rendue avec la classe de scène
+  const sceneEl = findAll(contentEl, (el) => el.attrs["data-path"] === "WARPI/NEFES/Subhanallah/Chapitre 1/Scène 1.md")[0];
+  assert.ok(sceneEl, "la scène d'ouvrage doit être rendue");
+  assert.equal(sceneEl.classes.has("feuillets-scene"), true, "NEFES/Subhanallah/Chapitre 1/Scène 1.md est rendue avec la classe de scène");
+
+  // Un fichier équivalent hors d'un ouvrage conserve son rendu historique
+  const sceneHorsEl = findAll(contentEl, (el) => el.attrs["data-path"] === "WARPI/HorsOuvrage/Chapitre 1/Scène 1.md")[0];
+  assert.ok(sceneHorsEl, "la scène hors ouvrage doit être rendue");
+  assert.equal(sceneHorsEl.classes.has("feuillets-scene"), true, "un fichier équivalent hors ouvrage conserve son rendu historique de scène");
+});

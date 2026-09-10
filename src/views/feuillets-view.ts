@@ -13,6 +13,12 @@ import { t } from "../i18n/index.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { getDraftsFolder, isProjectDraft } from "../services/project-drafts.js";
+import {
+  isOuvrageRoot,
+  ouvrageRelativePath,
+  registerOuvrage,
+  unregisterOuvrage,
+} from "../services/editorial-roots.js";
 import { Menu, MarkdownView, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import { folderPathToWorkspaceScope } from "../services/folder-workspaces.js";
@@ -199,6 +205,49 @@ export class FeuilletsView extends BaseFeuilletsView {
           .setIcon("focus")
           .onClick(() => this.isolateFolder(folder))
       );
+    };
+  }
+
+  /** Entrée pour définir ou retirer le statut d'ouvrage d'un dossier dans le Binder. */
+  binderOuvrageExtras(folder: TFolder): (menu: Menu) => void {
+    return (menu: Menu) => {
+      const projectRoot = this.plugin.getProjectFolder();
+      if (!projectRoot) return;
+      const rel = ouvrageRelativePath(projectRoot.path, folder.path);
+      if (!rel) return;
+      if (folder.name.startsWith("_")) return;
+      const frontPath = normalizePath(`${projectRoot.path}/Front`);
+      if (folder.path === frontPath || folder.path.startsWith(`${frontPath}/`)) return;
+      if (folder.name === "Front" || folder.path.split("/").includes("Front")) return;
+
+      const isOuvrage = isOuvrageRoot(this.app, this.plugin.settings, projectRoot, folder);
+      if (!isOuvrage) {
+        menu.addItem((item) =>
+          item
+            .setTitle(t("binder.defineAsOuvrage"))
+            .setIcon("book-open-check")
+            .onClick(async () => {
+              const changed = registerOuvrage(this.plugin.settings, projectRoot, folder);
+              if (changed) {
+                await this.plugin.saveSettings();
+                void this.render(true);
+              }
+            })
+        );
+      } else {
+        menu.addItem((item) =>
+          item
+            .setTitle(t("binder.removeOuvrageStatus"))
+            .setIcon("book-open")
+            .onClick(async () => {
+              const changed = unregisterOuvrage(this.plugin.settings, projectRoot, folder);
+              if (changed) {
+                await this.plugin.saveSettings();
+                void this.render(true);
+              }
+            })
+        );
+      }
     };
   }
 
@@ -2867,6 +2916,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             this.continuExtras(child)(menu);
             menu.addSeparator();
             this.binderIsolateExtras(child)(menu);
+            this.binderOuvrageExtras(child)(menu);
             this.folderWorkspaceExtras(child)(menu);
           }, true);
         });
@@ -3071,6 +3121,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           this.continuExtras(treeRoot)(menu);
           menu.addSeparator();
           this.binderIsolateExtras(treeRoot)(menu);
+          this.binderOuvrageExtras(treeRoot)(menu);
           this.folderWorkspaceExtras(treeRoot)(menu);
         }, true);
         return;

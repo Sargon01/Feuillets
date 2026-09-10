@@ -307,3 +307,29 @@ test("remapOuvrageRoots : collision de clé cible préservée", () => {
     "B": { version: 1 },
   });
 });
+
+test("remapOuvrageRoots : déplacement de WARPI/NEFES hors de WARPI supprime l’entrée et ses descendants sans toucher aux voisins", () => {
+  const settings = {
+    projectMeta: {
+      "WARPI": {
+        ouvrageRoots: {
+          "NEFES": { version: 1 },
+          "NEFES/Volume annexe": { version: 1 },
+          "AUTRE": { version: 1 },
+        },
+      },
+    },
+  };
+
+  // Déplacement de WARPI/NEFES vers un dossier hors de WARPI
+  const changed = remapOuvrageRoots(settings, "WARPI", "WARPI/NEFES", "ARCHIVES/NEFES");
+  assert.equal(changed, true);
+  assert.deepEqual(settings.projectMeta["WARPI"].ouvrageRoots, {
+    "AUTRE": { version: 1 },
+  });
+
+  // Déplacement du dernier ouvrage restant hors de la racine : supprime la map ouvrageRoots
+  const removedLast = remapOuvrageRoots(settings, "WARPI", "WARPI/AUTRE", "AUTRE");
+  assert.equal(removedLast, true);
+  assert.equal("ouvrageRoots" in settings.projectMeta["WARPI"], false);
+});

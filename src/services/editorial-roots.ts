@@ -181,8 +181,22 @@ export function remapOuvrageRoots(
   const roots = meta.ouvrageRoots;
 
   const oldRel = ouvrageRelativePath(projectRootPath, oldPath);
+  if (!oldRel) return false;
+
   const newRel = ouvrageRelativePath(projectRootPath, newPath);
-  if (!oldRel || !newRel) return false;
+  if (!newRel) {
+    let changed = false;
+    for (const key of Object.keys(roots)) {
+      if (key === oldRel || key.startsWith(`${oldRel}/`)) {
+        delete roots[key];
+        changed = true;
+      }
+    }
+    if (changed && Object.keys(roots).length === 0) {
+      delete meta.ouvrageRoots;
+    }
+    return changed;
+  }
 
   const toMove: Array<{ from: string; to: string; config: OuvrageConfig }> = [];
   for (const key of Object.keys(roots)) {

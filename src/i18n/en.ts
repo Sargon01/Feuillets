@@ -146,6 +146,8 @@ export const en = {
   "binder.quickDraft.create": "New quick draft",
   "binder.drafts": "Drafts",
   "binder.isolateFolder": "Isolate this folder",
+  "binder.defineAsOuvrage": "Define as work",
+  "binder.removeOuvrageStatus": "Remove work status",
   "binder.configureWorkspace": "Configure this workspace…",
   "binder.openInContinu": "Open continuously",
   "binder.isolation.backToProject": "Back to full project",
