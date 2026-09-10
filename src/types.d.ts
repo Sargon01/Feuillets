@@ -90,6 +90,10 @@ declare type ProjectStatusEntry = {
   color: string;
 };
 
+declare type OuvrageConfig = {
+  version: 1;
+};
+
 declare type FolderWorkspacePreset = "free" | "fiction" | "nonfiction";
 
 declare type FolderWorkspaceConfig = {
@@ -142,6 +146,7 @@ declare type PandocCitationPreviewStyle = "off" | "author-date";
  * Écrit champ par champ par ui/project-modals.ts — TOUT est optionnel,
  * `{}` est un état normal (voir `S.projectMeta[path] = {}`). */
 declare type ProjectMeta = {
+  ouvrageRoots?: Record<string, OuvrageConfig>;
   folderCarnets?: Record<string, import("./carnet/core/folder-carnets.js").FolderCarnetRegistration>;
   /** Préférences locales par dossier, indexées par chemin relatif au manuscrit. */
   folderWorkspaces?: Record<string, FolderWorkspaceConfig>;
