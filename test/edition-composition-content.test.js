@@ -8,6 +8,7 @@ import { createContentExtraction, deleteContentExtraction, updateContentExtracti
 import { createContentCollection, deleteContentCollection, updateContentCollection } from "../src/services/content-collections.js";
 import { setLocale, t } from "../src/i18n/index.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { registerOuvrage } from "../src/services/editorial-roots.js";
 
 /* Micro-correctif « ne plus embarquer d'ItemView dans BoardView » :
  * EditionCompositionContent est un composant DOM PUR (app, plugin, container),
@@ -191,6 +192,10 @@ function buildPlugin() {
       activePreset: -1,
     },
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
+    /* LOT 5B : sans Aperçu central ni portée de session dans ces tests, la
+       portée affichée par Composition reste la racine globale — même
+       comportement que « pas d'ouvrage » avant ce lot. */
+    editorialRootForComposition: () => app.vault.getAbstractFileByPath(manuscript.path),
     saveSettings: async () => {},
     /* Réglages déplacés depuis les Paramètres (§20 du chantier « espace
        central ») : Composition rend désormais aussi Structure/Notes/
@@ -927,6 +932,316 @@ test("Structure : aucune ligne ne porte la classe compacte du LayoutEditor (100 
     await view.renderPromise;
 
     assert.equal(contentEl.querySelector(".feuillets-setting-compact"), null, "aucun Setting compact dans Structure");
+  } finally {
+    restoreDom();
+  }
+});
+
+/* ==================================================================
+ * LOT 5B — CÂBLER LA COMPOSITION DES OUVRAGES DANS L'INTERFACE
+ * Fixture avec un ouvrage NEFES imbriqué sous la racine globale WARPI,
+ * et editorialRootForComposition() renvoyant NEFES (simule un Aperçu
+ * central affichant cet ouvrage) — même patron que buildPlugin() mais
+ * avec un second dossier enregistré comme racine d'ouvrage.
+ * ================================================================== */
+function buildPluginWithOuvrage() {
+  const { app, plugin } = buildPlugin();
+  const warpi = app.vault.getAbstractFileByPath("Projet/Manuscrit");
+  const nefes = new TFolder("Projet/Manuscrit/NEFES");
+  nefes.parent = warpi;
+  warpi.children.push(nefes);
+  app.vault.files.set(nefes.path, nefes);
+  registerOuvrage(plugin.settings, warpi, nefes);
+  plugin.editorialRootForComposition = () => nefes;
+  return { app, plugin, warpi, nefes };
+}
+
+test("LOT 5B — Structure : NEFES affiche ses propres valeurs, jamais celles de WARPI", async () => {
+  const restoreDom = installDom();
+  try {
+    const { plugin, app } = buildPluginWithOuvrage();
+    plugin.settings.level1Role = "chapitres";
+    plugin.settings.separator = "WARPI-SEP";
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    openCompositionRow(contentEl, "Le manuscrit");
+    await view.renderPromise;
+    openCompositionRow(contentEl, "Structure du manuscrit");
+    await view.renderPromise;
+
+    const level1Select = [...contentEl.querySelectorAll("select")].find((s) => s.getAttribute("aria-label") === "Rôle du premier niveau");
+    assert.equal(level1Select.value, "chapitres", "NEFES hérite encore de WARPI (pas de composition locale)");
+
+    // 1. Modifier NEFES matérialise et affiche sa propre valeur.
+    level1Select.value = "parties";
+    level1Select.dispatch("change");
+    await Promise.resolve(); await Promise.resolve();
+
+    // 2. WARPI reste rigoureusement inchangé.
+    assert.equal(plugin.settings.level1Role, "chapitres", "le réglage global WARPI n'est jamais modifié par NEFES");
+    const ouvrageComposition = plugin.settings.projectMeta[warpiPath(plugin)].folderWorkspaces["NEFES"].ouvrage.composition;
+    assert.equal(ouvrageComposition.level1Role, "parties", "la composition locale de NEFES porte la nouvelle valeur");
+    assert.equal(ouvrageComposition.separator, "WARPI-SEP", "3. la première modification matérialise une copie COMPLÈTE (16 champs) depuis WARPI");
+  } finally {
+    restoreDom();
+  }
+});
+
+function warpiPath(plugin) {
+  return plugin.getProjectFolder().path;
+}
+
+test("LOT 5B — « Utiliser les réglages du projet » n'apparaît que pour un ouvrage avec composition locale, et restaure l'héritage", async () => {
+  const restoreDom = installDom();
+  try {
+    const { plugin, app } = buildPluginWithOuvrage();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+
+    assert.equal(
+      [...contentEl.querySelectorAll("button")].some((b) => b.textContent.includes("Utiliser les réglages du projet")),
+      false,
+      "absent tant que NEFES n'a pas de composition locale"
+    );
+
+    // Matérialise une composition locale pour NEFES via la sous-page Structure.
+    openCompositionRow(contentEl, "Le manuscrit");
+    await view.renderPromise;
+    openCompositionRow(contentEl, "Structure du manuscrit");
+    await view.renderPromise;
+    const separatorInput = [...contentEl.querySelectorAll("input")].find((i) => i.getAttribute("aria-label") === "Séparateur");
+    separatorInput.value = "NEFES-SEP";
+    separatorInput.dispatch("change");
+    await Promise.resolve(); await Promise.resolve();
+
+    // Retour au sommaire de Composition.
+    contentEl.querySelector(".feuillets-composition-back").click();
+    await view.renderPromise;
+    contentEl.querySelector(".feuillets-composition-back").click();
+    await view.renderPromise;
+
+    const resetButton = [...contentEl.querySelectorAll("button")].find((b) => b.textContent.includes("Utiliser les réglages du projet"));
+    assert.ok(resetButton, "7. le bouton apparaît une fois la composition locale matérialisée");
+
+    resetButton.click();
+    await view.renderPromise;
+
+    assert.equal(
+      plugin.settings.projectMeta[warpiPath(plugin)].folderWorkspaces["NEFES"].ouvrage.composition,
+      undefined,
+      "7. resetToProject supprime la composition locale de l'ouvrage"
+    );
+    assert.equal(
+      [...contentEl.querySelectorAll("button")].some((b) => b.textContent.includes("Utiliser les réglages du projet")),
+      false,
+      "7. le bouton redevient absent : NEFES est de nouveau hérité"
+    );
+  } finally {
+    restoreDom();
+  }
+});
+
+test("LOT 5B — Appliquer un preset sur NEFES copie sa composition locale sans jamais changer le preset actif global", async () => {
+  const restoreDom = installDom();
+  try {
+    const { plugin, app } = buildPluginWithOuvrage();
+    plugin.settings.activePreset = -1;
+    plugin.settings.compilePresets = [
+      { name: "Mon preset", fileName: "PresetOut.md", folderTitles: false, chapterTitles: false, sceneTitles: true, separator: "PRESET-SEP" },
+    ];
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    openCompositionRow(contentEl, "Le manuscrit");
+    await view.renderPromise;
+    openCompositionRow(contentEl, "Structure du manuscrit");
+    await view.renderPromise;
+
+    const applyButton = [...contentEl.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "Appliquer le preset Mon preset");
+    assert.ok(applyButton, "bouton Appliquer présent pour le preset");
+    applyButton.click();
+    await view.renderPromise;
+
+    // 6. Le catalogue global et le preset actif restent intacts.
+    assert.equal(plugin.settings.activePreset, -1, "6. activePreset global n'est JAMAIS modifié pour un ouvrage");
+    assert.equal(plugin.settings.compilePresets[0].fileName, "PresetOut.md", "6. le catalogue global reste inchangé");
+
+    // Mais NEFES a bien reçu la copie normalisée du preset.
+    const ouvrageComposition = plugin.settings.projectMeta[warpiPath(plugin)].folderWorkspaces["NEFES"].ouvrage.composition;
+    assert.equal(ouvrageComposition.fileName, "PresetOut.md");
+    assert.equal(ouvrageComposition.folderTitles, false);
+    assert.equal(ouvrageComposition.sceneTitles, true);
+    assert.equal(ouvrageComposition.separator, "PRESET-SEP");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("LOT 5B — Appliquer un preset sur WARPI garde le comportement historique (activePreset)", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    plugin.settings.activePreset = -1;
+    plugin.settings.compilePresets = [{ name: "Solo", fileName: "Solo.md", folderTitles: true, chapterTitles: true, sceneTitles: false }];
+    let refreshBinderCalls = 0;
+    plugin.refreshBinderViews = () => { refreshBinderCalls += 1; };
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    openCompositionRow(contentEl, "Le manuscrit");
+    await view.renderPromise;
+    openCompositionRow(contentEl, "Structure du manuscrit");
+    await view.renderPromise;
+
+    const applyButton = [...contentEl.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "Appliquer le preset Solo");
+    applyButton.click();
+    await view.renderPromise;
+
+    assert.equal(plugin.settings.activePreset, 0, "WARPI : comportement historique, activePreset est bien positionné");
+    assert.ok(refreshBinderCalls >= 1, "le Binder est rafraîchi");
+  } finally {
+    restoreDom();
+  }
+});
+
+/* ==================================================================
+ * RECTIFICATION UI LOT 5B — bloc de contexte unique (Projet/Ouvrage,
+ * héritée/personnalisée), rendu une seule fois par edition-composition-
+ * content.ts, visible dans toutes les sous-pages.
+ * ================================================================== */
+
+function contextBlocks(container) {
+  return [...container.querySelectorAll(".feuillets-composition-context")];
+}
+
+function resetButtonIn(container) {
+  return [...container.querySelectorAll("button")].find((b) => b.textContent.includes("Utiliser les réglages du projet"));
+}
+
+test("RECTIFICATION UI LOT 5B — 1. portée WARPI : « Projet : Manuscrit », « Réglages du projet », aucun bouton", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPlugin();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+
+    const blocks = contextBlocks(contentEl);
+    assert.equal(blocks.length, 1, "un seul bloc de contexte");
+    assert.ok(blocks[0].textContent.includes("Projet : Manuscrit"), "nom réel du dossier projet, jamais codé en dur");
+    assert.ok(blocks[0].textContent.includes("Réglages du projet"));
+    assert.equal(resetButtonIn(contentEl), undefined, "jamais de bouton de réinitialisation pour WARPI");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("RECTIFICATION UI LOT 5B — 2. portée NEFES héritée : « Ouvrage : NEFES », « Réglages hérités de Manuscrit », aucun bouton", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPluginWithOuvrage();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+
+    const blocks = contextBlocks(contentEl);
+    assert.equal(blocks.length, 1);
+    assert.ok(blocks[0].textContent.includes("Ouvrage : NEFES"), "nom réel du dossier ouvrage");
+    assert.ok(blocks[0].textContent.includes("Réglages hérités de Manuscrit"), "nom réel du projet dans l'héritage");
+    assert.equal(resetButtonIn(contentEl), undefined, "pas de bouton : l'héritage est déjà actif");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("RECTIFICATION UI LOT 5B — 3. première modification dans NEFES : passe immédiatement à « Réglages personnalisés », le bouton apparaît, WARPI inchangé", async () => {
+  const restoreDom = installDom();
+  try {
+    const { plugin, app } = buildPluginWithOuvrage();
+    plugin.settings.separator = "WARPI-SEP";
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    openCompositionRow(contentEl, "Le manuscrit");
+    await view.renderPromise;
+    openCompositionRow(contentEl, "Structure du manuscrit");
+    await view.renderPromise;
+
+    // Toujours hérité avant toute modification.
+    assert.ok(contextBlocks(contentEl)[0].textContent.includes("Réglages hérités de Manuscrit"));
+
+    const separatorInput = [...contentEl.querySelectorAll("input")].find((i) => i.getAttribute("aria-label") === "Séparateur");
+    separatorInput.value = "NEFES-SEP";
+    separatorInput.dispatch("change");
+    await Promise.resolve(); await Promise.resolve();
+
+    // Immédiatement personnalisé, sans fermer/rouvrir le panneau, toujours sur la sous-page Structure.
+    const blocksAfter = contextBlocks(contentEl);
+    assert.equal(blocksAfter.length, 1, "toujours un seul bloc, jamais dupliqué");
+    assert.ok(blocksAfter[0].textContent.includes("Réglages personnalisés"));
+    assert.ok(resetButtonIn(contentEl), "le bouton apparaît immédiatement");
+    assert.equal(plugin.settings.separator, "WARPI-SEP", "WARPI n'est jamais modifié par NEFES");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("RECTIFICATION UI LOT 5B — 4. clic sur « Utiliser les réglages du projet » : retour immédiat à l'héritage, bouton disparu, portée NEFES conservée", async () => {
+  const restoreDom = installDom();
+  try {
+    const { plugin, app, nefes } = buildPluginWithOuvrage();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    openCompositionRow(contentEl, "Le manuscrit");
+    await view.renderPromise;
+    openCompositionRow(contentEl, "Structure du manuscrit");
+    await view.renderPromise;
+    const separatorInput = [...contentEl.querySelectorAll("input")].find((i) => i.getAttribute("aria-label") === "Séparateur");
+    separatorInput.value = "NEFES-SEP";
+    separatorInput.dispatch("change");
+    await Promise.resolve(); await Promise.resolve();
+    assert.ok(resetButtonIn(contentEl), "personnalisé avant le clic");
+
+    resetButtonIn(contentEl).click();
+    await view.renderPromise;
+
+    const blocks = contextBlocks(contentEl);
+    assert.equal(blocks.length, 1);
+    assert.ok(blocks[0].textContent.includes("Réglages hérités de Manuscrit"), "retour immédiat à l'héritage");
+    assert.equal(resetButtonIn(contentEl), undefined, "le bouton disparaît");
+    assert.equal(plugin.editorialRootForComposition(), nefes, "la portée affichée reste NEFES");
+  } finally {
+    restoreDom();
+  }
+});
+
+test("RECTIFICATION UI LOT 5B — 5. le bloc de contexte reste présent et unique dans au moins trois sous-pages", async () => {
+  const restoreDom = installDom();
+  try {
+    const { app, plugin } = buildPluginWithOuvrage();
+    const contentEl = new FakeElement("div");
+    const view = new EditionCompositionContent(app, plugin, contentEl);
+    await view.render();
+    assert.equal(contextBlocks(contentEl).length, 1, "sommaire");
+
+    openCompositionRow(contentEl, "Avant le manuscrit");
+    await view.renderPromise;
+    assert.equal(contextBlocks(contentEl).length, 1, "Avant le manuscrit");
+    assert.ok(contextBlocks(contentEl)[0].textContent.includes("Ouvrage : NEFES"));
+
+    contentEl.querySelector(".feuillets-composition-back").click();
+    await view.renderPromise;
+    openCompositionRow(contentEl, "Le manuscrit");
+    await view.renderPromise;
+    assert.equal(contextBlocks(contentEl).length, 1, "Le manuscrit");
+
+    openCompositionRow(contentEl, "Structure du manuscrit");
+    await view.renderPromise;
+    assert.equal(contextBlocks(contentEl).length, 1, "Structure du manuscrit");
+    assert.ok(contextBlocks(contentEl)[0].textContent.includes("Ouvrage : NEFES"));
   } finally {
     restoreDom();
   }

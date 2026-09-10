@@ -380,6 +380,10 @@ function buildEditionFixture({ withPreviewLeaf = null } = {}) {
     settings,
     async saveSettings() { calls.save += 1; },
     getProjectFolder: () => manuscript,
+    /* LOT 5B : sans Aperçu central de scope différent dans ces tests, la
+       portée affichée par Composition reste la racine globale. */
+    editorialRootForComposition: () => manuscript,
+    refreshBinderViews: () => {},
     projectDisplayName: (path) => `Projet ${path}`,
     updateStatusBar() {},
     renderAllViews() { calls.renderAll += 1; },

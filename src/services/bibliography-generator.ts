@@ -1,5 +1,7 @@
 import { TFile, TFolder, normalizePath, type App } from "obsidian";
 import { getResearchRoot } from "./research.js";
+import { getProjectFolder, feuilletsAuxiliaryPath } from "./folder-structure.js";
+import { resolveWorkspaceResearchFolder } from "./workspace-research.js";
 import { toValue } from "../utils/scene-fields.js";
 
 /** Génération de la Bibliographie (Phase 7).
@@ -107,6 +109,15 @@ export function bibliographyEntriesForFiles(app: App, files: TFile[]): Bibliogra
     .map((file) => bibliographyEntryForFile(app, file));
 }
 
+function filterBibliographyFilesFromFolder(app: App, resolved: { folder: TFolder; canonical: boolean }): BibliographyEntry[] {
+  const files = (resolved.folder.children || []).filter(
+    (child): child is TFile => child instanceof TFile
+      && child.extension === "md"
+      && (!resolved.canonical || Number(app.metadataCache.getFileCache(child)?.frontmatter?.cite_count) > 0)
+  );
+  return bibliographyEntriesForFiles(app, files);
+}
+
 /** Fiches de la bibliothèque résolue (`resolveBibliographySource`), dans
  * l'ordre où le dossier les liste — le TRI RÉEL de la bibliographie générée
  * (par auteur, puis par titre) est décidé par `generateBibliography`, pas
@@ -116,12 +127,57 @@ export function bibliographyEntriesForFiles(app: App, files: TFile[]): Bibliogra
 export function bibliographyEntries(app: App, settings: FeuilletsSettings): BibliographyEntry[] {
   const resolved = resolveBibliographySource(app, settings);
   if (!resolved) return [];
-  const files = (resolved.folder.children || []).filter(
-    (child): child is TFile => child instanceof TFile
-      && child.extension === "md"
-      && (!resolved.canonical || Number(app.metadataCache.getFileCache(child)?.frontmatter?.cite_count) > 0)
-  );
-  return bibliographyEntriesForFiles(app, files);
+  return filterBibliographyFilesFromFolder(app, resolved);
+}
+
+/** Résout la bibliothèque de fiches d'une racine éditoriale donnée.
+ * Pour la racine globale (ou si editorialRoot est omis / égal à la racine globale) :
+ * - comportement historique inchangé (appelle bibliographyEntries(app, settings)).
+ * Pour un ouvrage (editorialRoot !== globalRoot) :
+ * - cherche uniquement dans la zone Recherche appartenant à cet ouvrage :
+ *   1. sources directement sous editorialRoot (resolveBibliographySourceInResearchRoot) ;
+ *   2. dossier de recherche auxiliaire canonique de l'ouvrage (feuilletsAuxiliaryPath(editorialRoot, "research")) ;
+ *   3. dossier de recherche lié dans les métadonnées pour cet ouvrage (resolveWorkspaceResearchFolder) ;
+ *   4. sous-dossier de recherche enfant d'editorialRoot ;
+ * - si aucune source n'appartient à cet ouvrage : retourne [] (AUCUN repli vers WARPI).
+ */
+export function bibliographyEntriesForEditorialRoot(
+  app: App,
+  settings: FeuilletsSettings,
+  editorialRoot?: TFolder | null
+): BibliographyEntry[] {
+  const globalRoot = getProjectFolder(app, settings);
+  if (!editorialRoot || !globalRoot || editorialRoot.path === globalRoot.path) {
+    return bibliographyEntries(app, settings);
+  }
+
+  // 1. Directement sous editorialRoot
+  const direct = resolveBibliographySourceInResearchRoot(app, editorialRoot);
+  if (direct) return filterBibliographyFilesFromFolder(app, direct);
+
+  // 2. Dossier de recherche auxiliaire canonique de l'ouvrage
+  const canonicalAux = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(editorialRoot, "research"));
+  if (canonicalAux instanceof TFolder) {
+    const fromAux = resolveBibliographySourceInResearchRoot(app, canonicalAux);
+    if (fromAux) return filterBibliographyFilesFromFolder(app, fromAux);
+  }
+
+  // 3. Dossier de recherche lié dans les métadonnées pour cet ouvrage
+  const linked = resolveWorkspaceResearchFolder(app, settings, editorialRoot);
+  if (linked.folder && (linked.sourceKind === "exact" || linked.sourceKind === "ancestor")) {
+    const fromLinked = resolveBibliographySourceInResearchRoot(app, linked.folder);
+    if (fromLinked) return filterBibliographyFilesFromFolder(app, fromLinked);
+  }
+
+  // 4. Sous-dossier de recherche enfant d'editorialRoot
+  for (const child of editorialRoot.children || []) {
+    if (child instanceof TFolder) {
+      const fromChild = resolveBibliographySourceInResearchRoot(app, child);
+      if (fromChild) return filterBibliographyFilesFromFolder(app, fromChild);
+    }
+  }
+
+  return [];
 }
 
 /** Une référence formatée : `Auteur. *Titre*. Éditeur, Date.` — chaque

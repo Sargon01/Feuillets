@@ -22,8 +22,8 @@ export function manuscriptBodyFiles(app: App, settings: FeuilletsSettings, root:
   const files: TFile[] = [];
   const walk = (folder: TFolder) => {
     for (const child of getOrderedChildren(app, settings, folder, false)) {
-      if (child instanceof TFile && child.extension === "md" && !isFrontMatter(app, settings, child)) files.push(child);
-      else if (child instanceof TFolder && !EXCLUDED_BODY_FOLDERS.has(child.name) && !child.name.startsWith("_") && !isFrontMatter(app, settings, child)) walk(child);
+      if (child instanceof TFile && child.extension === "md" && !isFrontMatter(app, settings, child, root)) files.push(child);
+      else if (child instanceof TFolder && !EXCLUDED_BODY_FOLDERS.has(child.name) && !child.name.startsWith("_") && !isFrontMatter(app, settings, child, root)) walk(child);
     }
   };
   walk(root);
@@ -32,10 +32,12 @@ export function manuscriptBodyFiles(app: App, settings: FeuilletsSettings, root:
 
 export class CompileSelectionModal extends Modal {
   plugin: SelectionPlugin;
+  private editorialRoot?: TFolder | null;
 
-  constructor(app: App, plugin: SelectionPlugin) {
+  constructor(app: App, plugin: SelectionPlugin, editorialRoot?: TFolder | null) {
     super(app);
     this.plugin = plugin;
+    this.editorialRoot = editorialRoot;
   }
 
   onOpen() {
@@ -48,7 +50,7 @@ export class CompileSelectionModal extends Modal {
       t("modal.compileSelection.desc")
     );
 
-    const root = this.plugin.getProjectFolder();
+    const root = this.editorialRoot ?? this.plugin.getProjectFolder();
     if (!root) {
       infoEl.createDiv({ text: t("main.notice.projectFolderNotFound") });
       return;
@@ -63,10 +65,10 @@ export class CompileSelectionModal extends Modal {
     const renderFolder = (folder: TFolder, depth: number) => {
       for (const child of getOrderedChildren(this.app, this.plugin.settings, folder, false)) {
         if (child instanceof TFolder) {
-          if (EXCLUDED_BODY_FOLDERS.has(child.name) || child.name.startsWith("_") || isFrontMatter(this.app, this.plugin.settings, child)) continue;
+          if (EXCLUDED_BODY_FOLDERS.has(child.name) || child.name.startsWith("_") || isFrontMatter(this.app, this.plugin.settings, child, root)) continue;
           listEl.createDiv({ cls: "feuillets-manuscript-selection-folder", text: child.name }).style.paddingLeft = `${depth * 16}px`;
           renderFolder(child, depth + 1);
-        } else if (child instanceof TFile && child.extension === "md" && !isFrontMatter(this.app, this.plugin.settings, child)) {
+        } else if (child instanceof TFile && child.extension === "md" && !isFrontMatter(this.app, this.plugin.settings, child, root)) {
           const row = listEl.createDiv({ cls: "feuillets-read-selection-row" });
           row.style.paddingLeft = `${depth * 16}px`;
           const cb = row.createEl("input", { type: "checkbox" });

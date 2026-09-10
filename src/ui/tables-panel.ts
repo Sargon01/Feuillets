@@ -1,6 +1,6 @@
 import { type App, type TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
-import { TABLES, defaultComposition, readGeneratedIncluded, writeGeneratedIncluded } from "../services/book-composition.js";
+import type { OuvrageCompositionBinding } from "../services/ouvrage-composition.js";
 
 /** Sous-ensemble de plugin réellement utilisé par ce composant — même
  * contrat que ContentsPanelPlugin (ui/contents-panel.ts) : ni PreviewView
@@ -18,30 +18,14 @@ export type TablesPanelCallbacks = {
   onPresentationChanged?: () => Promise<void> | void;
 };
 
-const DEFAULT_INCLUDED = defaultComposition().find((item) => item.id === TABLES)?.included ?? false;
-
-/** Métadonnées du projet courant, créées si absentes — même mécanisme que
- * ContentsPanel.currentProjectMeta : un seul conteneur par projet
- * (`settings.projectMeta`), jamais un second système de réglages. Retourne
- * `null` sans projet actif. */
-function currentProjectMeta(plugin: TablesPanelPlugin): ProjectMeta | null {
-  const folder = plugin.getProjectFolder();
-  if (!folder) return null;
-  if (!plugin.settings.projectMeta) plugin.settings.projectMeta = {};
-  const meta = plugin.settings.projectMeta[folder.path] || {};
-  plugin.settings.projectMeta[folder.path] = meta;
-  return meta;
-}
-
 /**
  * Sous-section « Tables » (Phase 7) : aujourd'hui un seul élément généré,
  * la Table des illustrations (services/tables-generator.ts) — ni son
- * contenu ni sa légende ne sont modifiables ici, seulement son inclusion,
- * persistée dans `ProjectMeta` via `writeGeneratedIncluded` sous le même
- * identifiant `tables` que le modèle commun de composition (services/
- * book-composition.ts). D'autres tables (tableaux, figures séparées…)
- * pourront rejoindre cette même sous-section plus tard, sans changer son
- * inclusion — une seule case pour tout « Tables », comme demandé.
+ * contenu ni sa légende ne sont modifiables ici, seulement son inclusion.
+ *
+ * LOT 5B — SOURCE UNIQUE : l'inclusion vient de `binding.value.tables`
+ * (services/ouvrage-composition.ts effectiveComposition()), jamais un
+ * second calcul via `ProjectMeta` ici.
  *
  * Même contrat que FirstPagePanel/FrontMatterPanel/ContentsPanel : callback
  * `onPresentationChanged` facultatif, fonctionne parfaitement sans
@@ -52,13 +36,12 @@ export class TablesPanel {
     private app: App,
     private plugin: TablesPanelPlugin,
     private container: HTMLElement,
+    private binding: OuvrageCompositionBinding,
     private callbacks: TablesPanelCallbacks = {}
   ) {}
 
   includedState(): boolean {
-    const meta = currentProjectMeta(this.plugin);
-    const stored = meta ? readGeneratedIncluded(meta, TABLES) : undefined;
-    return stored ?? DEFAULT_INCLUDED;
+    return this.binding.value.tables;
   }
 
   /** Une ligne latérale compacte pour les tables générées. */
@@ -76,12 +59,9 @@ export class TablesPanel {
     input.addEventListener("change", () => void this.setIncluded(input.checked));
   }
 
-  /** Bascule l'inclusion — écrit immédiatement dans `ProjectMeta`, sans
-   * jamais toucher au contenu (généré, jamais stocké). */
+  /** Bascule l'inclusion via le binding — jamais `ProjectMeta` directement. */
   private async setIncluded(included: boolean): Promise<void> {
-    const meta = currentProjectMeta(this.plugin);
-    if (meta) writeGeneratedIncluded(meta, TABLES, included);
-    await this.plugin.saveSettings?.();
+    await this.binding.update({ tables: included });
     await this.callbacks.onPresentationChanged?.();
   }
 }

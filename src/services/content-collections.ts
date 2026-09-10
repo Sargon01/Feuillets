@@ -1,4 +1,4 @@
-import { TFile, normalizePath } from "obsidian";
+import { TFile, normalizePath, type TFolder } from "obsidian";
 import type { App } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
@@ -57,8 +57,8 @@ function newId(): string {
   });
 }
 
-export function contentCollectionsFilePath(app: App, settings: FeuilletsSettings | null | undefined): string | null {
-  const root = getProjectFolder(app, settings);
+export function contentCollectionsFilePath(app: App, settings: FeuilletsSettings | null | undefined, editorialRoot?: TFolder | null): string | null {
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root) return null;
   const resources = resourcesFolderPath(app, root);
   const exportsPath = resourcesSubfolderPath(app, resources, "Exports", "Export");
@@ -114,6 +114,7 @@ function normalizeStore(store: ContentCollectionsStore): ContentCollectionsStore
   return {
     version: 1,
     collections: store.collections.map((collection) => ({
+      ...collection,
       id: collection.id,
       name: collection.name.trim(),
       roles: SEMANTIC_ROLES.filter((role) => collection.roles.includes(role)),
@@ -121,11 +122,11 @@ function normalizeStore(store: ContentCollectionsStore): ContentCollectionsStore
   };
 }
 
-async function saveContentCollections(app: App, settings: FeuilletsSettings | null | undefined, store: ContentCollectionsStore): Promise<void> {
+export async function saveContentCollections(app: App, settings: FeuilletsSettings | null | undefined, store: ContentCollectionsStore, editorialRoot?: TFolder | null): Promise<void> {
   if (!isValidStore(store)) throw new ContentCollectionsError("invalid-store");
-  const root = getProjectFolder(app, settings);
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root) throw new ContentCollectionsError("no-project");
-  const path = contentCollectionsFilePath(app, settings);
+  const path = contentCollectionsFilePath(app, settings, editorialRoot);
   if (!path) throw new ContentCollectionsError("no-project");
   await ensureFolder(app, path.slice(0, path.lastIndexOf("/")));
   const existing = app.vault.getAbstractFileByPath(path);
@@ -134,8 +135,8 @@ async function saveContentCollections(app: App, settings: FeuilletsSettings | nu
   else await app.vault.create(path, json);
 }
 
-export async function loadContentCollections(app: App, settings: FeuilletsSettings | null | undefined): Promise<ContentCollectionsStore> {
-  const path = contentCollectionsFilePath(app, settings);
+export async function loadContentCollections(app: App, settings: FeuilletsSettings | null | undefined, editorialRoot?: TFolder | null): Promise<ContentCollectionsStore> {
+  const path = contentCollectionsFilePath(app, settings, editorialRoot);
   if (!path) return emptyStore();
   const file = app.vault.getAbstractFileByPath(path);
   if (!(file instanceof TFile)) return emptyStore();
@@ -155,8 +156,9 @@ export async function createContentCollection(
   settings: FeuilletsSettings | null | undefined,
   name: string,
   roles: readonly SemanticRole[],
+  editorialRoot?: TFolder | null,
 ): Promise<ContentCollection> {
-  const store = await loadContentCollections(app, settings);
+  const store = await loadContentCollections(app, settings, editorialRoot);
   const collection: ContentCollection = {
     id: newId(),
     name: validateName(name, store.collections),
@@ -164,7 +166,7 @@ export async function createContentCollection(
   };
   while (store.collections.some((item) => item.id === collection.id)) collection.id = newId();
   store.collections.push(collection);
-  await saveContentCollections(app, settings, store);
+  await saveContentCollections(app, settings, store, editorialRoot);
   return collection;
 }
 
@@ -173,25 +175,27 @@ export async function updateContentCollection(
   settings: FeuilletsSettings | null | undefined,
   id: string,
   changes: { name: string; roles: readonly SemanticRole[] },
+  editorialRoot?: TFolder | null,
 ): Promise<ContentCollection> {
-  const store = await loadContentCollections(app, settings);
+  const store = await loadContentCollections(app, settings, editorialRoot);
   const index = store.collections.findIndex((item) => item.id === id);
   if (index < 0) throw new ContentCollectionsError("collection-not-found");
   const collection: ContentCollection = {
+    ...store.collections[index],
     id,
     name: validateName(changes.name, store.collections, id),
     roles: normalizedRoles(changes.roles),
   };
   store.collections[index] = collection;
-  await saveContentCollections(app, settings, store);
+  await saveContentCollections(app, settings, store, editorialRoot);
   return collection;
 }
 
-export async function deleteContentCollection(app: App, settings: FeuilletsSettings | null | undefined, id: string): Promise<boolean> {
-  const store = await loadContentCollections(app, settings);
+export async function deleteContentCollection(app: App, settings: FeuilletsSettings | null | undefined, id: string, editorialRoot?: TFolder | null): Promise<boolean> {
+  const store = await loadContentCollections(app, settings, editorialRoot);
   const index = store.collections.findIndex((item) => item.id === id);
   if (index < 0) return false;
   store.collections.splice(index, 1);
-  await saveContentCollections(app, settings, store);
+  await saveContentCollections(app, settings, store, editorialRoot);
   return true;
 }

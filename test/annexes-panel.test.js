@@ -4,6 +4,7 @@ import { TFile, TFolder } from "obsidian";
 import { AnnexesPanel } from "../src/ui/annexes-panel.js";
 import { readGeneratedIncluded } from "../src/services/book-composition.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { createCompositionBinding } from "../src/services/ouvrage-composition.js";
 
 /* Même petit DOM factice que test/bibliography-panel.test.js (convention du
  * dépôt : dupliqué, pas partagé). Compatible avec la vraie classe Setting du
@@ -122,16 +123,24 @@ function buildFixture({ folderName = null, fileCount = 0 } = {}) {
     settings,
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
     saveSettings: async () => {},
+    refreshBinderViews: () => {},
   };
   return { app, plugin, manuscript };
+}
+
+function testBinding(plugin) {
+  const root = plugin.getProjectFolder();
+  return createCompositionBinding(plugin, root, root);
 }
 
 test("AnnexesPanel : une seule ligne latérale « Annexes »", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     const names = container.querySelectorAll(".feuillets-properties-key").map((n) => n.textContent);
@@ -146,8 +155,10 @@ test("AnnexesPanel : dossier Annexes présent — décompte en description, bout
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture({ folderName: "Annexes", fileCount: 3 });
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     assert.equal(container.querySelector(".feuillets-edition-count").textContent, "3 annexe(s)");
@@ -162,8 +173,10 @@ test("AnnexesPanel : dossier Appendices reconnu comme Annexes", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture({ folderName: "Appendices", fileCount: 2 });
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     assert.equal(container.querySelector(".feuillets-edition-count").textContent, "2 annexe(s)");
@@ -176,8 +189,10 @@ test("AnnexesPanel : aucun dossier — état vide, bouton Créer le dossier Anne
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     assert.equal(container.querySelector(".feuillets-edition-count").textContent, "Aucune annexe");
@@ -192,8 +207,10 @@ test("AnnexesPanel : le bouton Créer crée UNIQUEMENT <Manuscrit>/Annexes, sans
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture();
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     const createBtn = container.querySelector('[aria-label="Créer le dossier Annexes"]');
@@ -214,8 +231,10 @@ test("AnnexesPanel : exclues par défaut (defaultComposition), case décochée",
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture({ folderName: "Annexes", fileCount: 1 });
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     assert.equal(container.querySelector('[aria-label="Inclure les annexes"]').checked, false);
@@ -228,8 +247,10 @@ test("AnnexesPanel : cocher Inclure écrit l'inclusion dans ProjectMeta sous l'i
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture({ folderName: "Annexes", fileCount: 1 });
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les annexes"]');
@@ -247,8 +268,10 @@ test("AnnexesPanel : décocher rétablit l'exclusion", async () => {
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture({ folderName: "Annexes", fileCount: 1 });
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les annexes"]');
@@ -269,8 +292,10 @@ test("AnnexesPanel : fonctionne parfaitement SANS callback onPresentationChanged
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture({ folderName: "Annexes", fileCount: 1 });
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container); // pas de callbacks
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot); // pas de callbacks
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les annexes"]');
@@ -288,9 +313,11 @@ test("AnnexesPanel : callback onPresentationChanged, fourni, est appelé après 
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture({ folderName: "Annexes", fileCount: 1 });
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
     let calls = 0;
-    const panel = new AnnexesPanel(app, plugin, container, { onPresentationChanged: () => { calls++; } });
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot, { onPresentationChanged: () => { calls++; } });
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les annexes"]');
@@ -308,9 +335,11 @@ test("AnnexesPanel : callback appelé après création du dossier", async () => 
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
+    const editorialRoot = plugin.getProjectFolder();
     const container = new FakeElement("div");
     let calls = 0;
-    const panel = new AnnexesPanel(app, plugin, container, { onPresentationChanged: () => { calls++; } });
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot, { onPresentationChanged: () => { calls++; } });
     await panel.render();
 
     const createBtn = container.querySelector('[aria-label="Créer le dossier Annexes"]');
@@ -329,8 +358,10 @@ test("AnnexesPanel : sans projet actif, ne lève pas et le toggle reste utilisab
   try {
     const app = { vault: createFakeVault([]).vault, internalPlugins: { getPluginById: () => undefined } };
     const plugin = { settings: { projectMeta: {}, orders: {}, folderPositions: {} }, getProjectFolder: () => null, saveSettings: async () => {} };
+    const binding = { value: { annexes: false }, isOuvrage: false, isInherited: false, update: async () => {}, resetToProject: async () => {} };
+    const editorialRoot = null;
     const container = new FakeElement("div");
-    const panel = new AnnexesPanel(app, plugin, container);
+    const panel = new AnnexesPanel(app, plugin, container, binding, editorialRoot);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les annexes"]');

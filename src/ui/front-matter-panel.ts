@@ -20,28 +20,32 @@ export type FrontMatterPanelCallbacks = {
   onPresentationChanged?: () => Promise<void> | void;
 };
 
-/** Dossier Front du projet, s'il existe — même emplacement que celui que
- * lisent isFrontMatter()/FirstPagePanel (services/folder-structure.ts). */
-function frontFolder(app: App, plugin: FrontMatterPanelPlugin): TFolder | null {
-  const root = plugin.getProjectFolder();
+/** Dossier Front d'une racine — même emplacement que celui que lisent
+ * isFrontMatter()/FirstPagePanel (services/folder-structure.ts).
+ * `editorialRoot` absent = comportement historique (racine globale). */
+function frontFolder(app: App, plugin: FrontMatterPanelPlugin, editorialRoot?: TFolder | null): TFolder | null {
+  const root = editorialRoot ?? plugin.getProjectFolder();
   if (!root) return null;
   const path = `${root.path}/${FRONT_FOLDER_NAME}`;
   const folder = app.vault.getAbstractFileByPath(path);
   return folder instanceof TFolder ? folder : null;
 }
 
-/** Pages liminaires : tous les feuillets Markdown du dossier Front, DANS
- * L'ORDRE DU PROJET — `getOrderedChildren()` (services/folder-structure.ts),
- * le même service que le Binder et la compilation, aucun second système
- * d'ordre — à l'exclusion du feuillet `type: titre`, déjà géré par
- * FirstPagePanel (Première page).
+/** Pages liminaires : tous les feuillets Markdown du dossier Front DE
+ * `editorialRoot` (WARPI ou un ouvrage — absent = racine globale,
+ * comportement historique inchangé), DANS L'ORDRE DU PROJET —
+ * `getOrderedChildren()` (services/folder-structure.ts), le même service
+ * que le Binder et la compilation, aucun second système d'ordre — à
+ * l'exclusion du feuillet `type: titre`, déjà géré par FirstPagePanel
+ * (Première page). LOT 5B : le Front d'un ouvrage lui reste PROPRE, jamais
+ * copié dans OuvrageConfig — seule sa RACINE DE RECHERCHE change ici.
  *
  * Fonction libre, pas une méthode : comme `frontTitleCandidates`
  * (ui/first-page-panel.ts), un futur appelant qui n'a pas besoin de
  * monter le panneau (ex. compilation, décompte) peut l'utiliser sans
  * instancier FrontMatterPanel. */
-export function frontMatterPages(app: App, plugin: FrontMatterPanelPlugin): TFile[] {
-  const folder = frontFolder(app, plugin);
+export function frontMatterPages(app: App, plugin: FrontMatterPanelPlugin, editorialRoot?: TFolder | null): TFile[] {
+  const folder = frontFolder(app, plugin, editorialRoot);
   if (!folder) return [];
   const out: TFile[] = [];
   for (const child of getOrderedChildren(app, plugin.settings, folder)) {
@@ -81,11 +85,16 @@ export class FrontMatterPanel {
     private app: App,
     private plugin: FrontMatterPanelPlugin,
     private container: HTMLElement,
-    private callbacks: FrontMatterPanelCallbacks = {}
+    private callbacks: FrontMatterPanelCallbacks = {},
+    /** Racine éditoriale dont le Front est affiché — absente = racine
+     *  globale, comportement historique inchangé. Transmise par
+     *  edition-composition-content.ts depuis la portée réellement
+     *  affichée (LOT 5B). */
+    private editorialRoot?: TFolder | null
   ) {}
 
   pages(): TFile[] {
-    return frontMatterPages(this.app, this.plugin);
+    return frontMatterPages(this.app, this.plugin, this.editorialRoot);
   }
 
   async render(): Promise<void> {

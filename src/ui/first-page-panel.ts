@@ -51,14 +51,14 @@ export type FirstPagePanelCallbacks = {
  * d'exécution (décider si une page de titre générique doit être ajoutée au
  * rendu, voir preview-view.ts) indépendant de tout FirstPagePanel monté —
  * elle l'appelle directement plutôt que de dépendre d'une instance. */
-export function frontTitleCandidates(app: App, plugin: FirstPagePanelPlugin): TFile[] {
-  const root = plugin.getProjectFolder();
+export function frontTitleCandidates(app: App, plugin: FirstPagePanelPlugin, editorialRoot?: TFolder | null): TFile[] {
+  const root = editorialRoot ?? plugin.getProjectFolder();
   if (!root) return [];
   const out: TFile[] = [];
   const walk = (folder: TFolder): void => {
     for (const child of folder.children || []) {
       if (child instanceof TFolder) walk(child);
-      else if (child instanceof TFile && child.extension === "md" && isFrontMatter(app, plugin.settings, child)) {
+      else if (child instanceof TFile && child.extension === "md" && isFrontMatter(app, plugin.settings, child, root)) {
         const type = fmOf(app, child).type;
         if (typeof type === "string" && type.trim().toLowerCase() === "titre") out.push(child);
       }
@@ -96,11 +96,12 @@ export class FirstPagePanel {
     private app: App,
     private plugin: FirstPagePanelPlugin,
     private container: HTMLElement,
-    private callbacks: FirstPagePanelCallbacks = {}
+    private callbacks: FirstPagePanelCallbacks = {},
+    private editorialRoot?: TFolder | null
   ) {}
 
   frontTitleCandidates(): TFile[] {
-    return frontTitleCandidates(this.app, this.plugin);
+    return frontTitleCandidates(this.app, this.plugin, this.editorialRoot);
   }
 
   /** État de la première page, lu à chaque rendu : le feuillet retenu par la

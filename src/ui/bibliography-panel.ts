@@ -1,7 +1,7 @@
 import { type App, type TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
-import { BIBLIOGRAPHY, defaultComposition, readGeneratedIncluded, writeGeneratedIncluded } from "../services/book-composition.js";
-import { bibliographyEntries, bibliographyReferenceCount } from "../services/bibliography-generator.js";
+import { bibliographyEntriesForEditorialRoot, bibliographyReferenceCount } from "../services/bibliography-generator.js";
+import type { OuvrageCompositionBinding } from "../services/ouvrage-composition.js";
 
 /** Sous-ensemble de plugin réellement utilisé par ce composant — même
  * contrat que TablesPanelPlugin (ui/tables-panel.ts) : ni PreviewView ni
@@ -19,31 +19,19 @@ export type BibliographyPanelCallbacks = {
   onPresentationChanged?: () => Promise<void> | void;
 };
 
-const DEFAULT_INCLUDED = defaultComposition().find((item) => item.id === BIBLIOGRAPHY)?.included ?? false;
-
-/** Métadonnées du projet courant, créées si absentes — même mécanisme que
- * TablesPanel.currentProjectMeta : un seul conteneur par projet
- * (`settings.projectMeta`), jamais un second système de réglages. Retourne
- * `null` sans projet actif. */
-function currentProjectMeta(plugin: BibliographyPanelPlugin): ProjectMeta | null {
-  const folder = plugin.getProjectFolder();
-  if (!folder) return null;
-  if (!plugin.settings.projectMeta) plugin.settings.projectMeta = {};
-  const meta = plugin.settings.projectMeta[folder.path] || {};
-  plugin.settings.projectMeta[folder.path] = meta;
-  return meta;
-}
-
 /**
  * Sous-section « Bibliographie » (Phase 8) : la bibliographie FINALE de
  * l'ouvrage, assemblée depuis les fiches déjà présentes dans
  * Recherche → Bibliographie/Bibliography (services/bibliography-
  * generator.ts) — ni son contenu ni ses références ne sont modifiables ici,
- * seulement son inclusion, persistée dans `ProjectMeta` via
- * `writeGeneratedIncluded` sous l'identifiant `bibliography` du modèle
- * commun de composition (services/book-composition.ts). Les fiches
- * elles-mêmes continuent d'être éditées dans Recherche — aucun second
- * système bibliographique, aucun nouveau fichier source.
+ * seulement son inclusion.
+ *
+ * LOT 5B — SOURCE UNIQUE : l'inclusion vient de `binding.value.bibliography`
+ * (services/ouvrage-composition.ts effectiveComposition()), jamais un
+ * second calcul via `ProjectMeta` ici. Le décompte est résolu via la
+ * fonction partagée unique bibliographyEntriesForEditorialRoot(), restreinte
+ * à la zone Recherche propre de l'ouvrage (ou vide si absente, sans aucun
+ * repli sur WARPI).
  *
  * Même contrat que FirstPagePanel/FrontMatterPanel/ContentsPanel/
  * TablesPanel : callback `onPresentationChanged` facultatif, fonctionne
@@ -54,17 +42,19 @@ export class BibliographyPanel {
     private app: App,
     private plugin: BibliographyPanelPlugin,
     private container: HTMLElement,
-    private callbacks: BibliographyPanelCallbacks = {}
+    private binding: OuvrageCompositionBinding,
+    private callbacks: BibliographyPanelCallbacks = {},
+    private editorialRoot?: TFolder | null
   ) {}
 
   includedState(): boolean {
-    const meta = currentProjectMeta(this.plugin);
-    const stored = meta ? readGeneratedIncluded(meta, BIBLIOGRAPHY) : undefined;
-    return stored ?? DEFAULT_INCLUDED;
+    return this.binding.value.bibliography;
   }
 
   referenceCount(): number {
-    return bibliographyReferenceCount(bibliographyEntries(this.app, this.plugin.settings));
+    return bibliographyReferenceCount(
+      bibliographyEntriesForEditorialRoot(this.app, this.plugin.settings, this.editorialRoot)
+    );
   }
 
   /** Une ligne latérale compacte : nom, décompte et inclusion. */
@@ -82,12 +72,9 @@ export class BibliographyPanel {
     input.addEventListener("change", () => void this.setIncluded(input.checked));
   }
 
-  /** Bascule l'inclusion — écrit immédiatement dans `ProjectMeta`, sans
-   * jamais toucher aux fiches de Recherche (source, jamais copiée). */
+  /** Bascule l'inclusion via le binding — jamais `ProjectMeta` directement. */
   private async setIncluded(included: boolean): Promise<void> {
-    const meta = currentProjectMeta(this.plugin);
-    if (meta) writeGeneratedIncluded(meta, BIBLIOGRAPHY, included);
-    await this.plugin.saveSettings?.();
+    await this.binding.update({ bibliography: included });
     await this.callbacks.onPresentationChanged?.();
   }
 }

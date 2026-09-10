@@ -4,6 +4,7 @@ import { TFolder } from "obsidian";
 import { TablesPanel } from "../src/ui/tables-panel.js";
 import { readGeneratedIncluded } from "../src/services/book-composition.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { createCompositionBinding } from "../src/services/ouvrage-composition.js";
 
 /* Même petit DOM factice que test/contents-panel.test.js (convention du
  * dépôt : dupliqué, pas partagé). Compatible avec la vraie classe Setting du
@@ -102,16 +103,23 @@ function buildFixture() {
     settings,
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
     saveSettings: async () => {},
+    refreshBinderViews: () => {},
   };
   return { app, plugin, manuscript };
+}
+
+function testBinding(plugin) {
+  const root = plugin.getProjectFolder();
+  return createCompositionBinding(plugin, root, root);
 }
 
 test("TablesPanel : une seule ligne latérale « Tables »", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new TablesPanel(app, plugin, container);
+    const panel = new TablesPanel(app, plugin, container, binding);
     await panel.render();
 
     const names = container.querySelectorAll(".feuillets-properties-key").map((n) => n.textContent);
@@ -126,8 +134,9 @@ test("TablesPanel : case Inclure simple, sans description permanente", async () 
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new TablesPanel(app, plugin, container);
+    const panel = new TablesPanel(app, plugin, container, binding);
     await panel.render();
 
     assert.ok(container.querySelector('[aria-label="Inclure les tables"]'));
@@ -142,8 +151,9 @@ test("TablesPanel : exclu par défaut (defaultComposition), case décochée", as
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new TablesPanel(app, plugin, container);
+    const panel = new TablesPanel(app, plugin, container, binding);
     await panel.render();
 
     assert.equal(container.querySelector('[aria-label="Inclure les tables"]').checked, false);
@@ -156,8 +166,9 @@ test("TablesPanel : cocher Inclure écrit l'inclusion dans ProjectMeta sous l'id
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new TablesPanel(app, plugin, container);
+    const panel = new TablesPanel(app, plugin, container, binding);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les tables"]');
@@ -175,8 +186,9 @@ test("TablesPanel : décocher rétablit l'exclusion", async () => {
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new TablesPanel(app, plugin, container);
+    const panel = new TablesPanel(app, plugin, container, binding);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les tables"]');
@@ -197,15 +209,16 @@ test("TablesPanel : relit l'état persisté au rendu suivant", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new TablesPanel(app, plugin, container);
+    const panel = new TablesPanel(app, plugin, container, binding);
     await panel.render();
 
     container.querySelector('[aria-label="Inclure les tables"]').click();
     await Promise.resolve();
     await Promise.resolve();
 
-    const second = new TablesPanel(app, plugin, container);
+    const second = new TablesPanel(app, plugin, container, testBinding(plugin));
     await second.render();
     assert.equal(container.querySelector('[aria-label="Inclure les tables"]').checked, true);
   } finally {
@@ -217,8 +230,9 @@ test("TablesPanel : fonctionne parfaitement SANS callback onPresentationChanged"
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new TablesPanel(app, plugin, container); // pas de callbacks
+    const panel = new TablesPanel(app, plugin, container, binding); // pas de callbacks
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les tables"]');
@@ -236,9 +250,10 @@ test("TablesPanel : callback onPresentationChanged, fourni, est appelé après u
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
     let calls = 0;
-    const panel = new TablesPanel(app, plugin, container, { onPresentationChanged: () => { calls++; } });
+    const panel = new TablesPanel(app, plugin, container, binding, { onPresentationChanged: () => { calls++; } });
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les tables"]');
@@ -257,8 +272,9 @@ test("TablesPanel : sans projet actif, ne lève pas et le toggle reste utilisabl
   try {
     const app = { vault: createFakeVault([]).vault };
     const plugin = { settings: { projectMeta: {} }, getProjectFolder: () => null, saveSettings: async () => {} };
+    const binding = { value: { tables: false }, isOuvrage: false, isInherited: false, update: async () => {}, resetToProject: async () => {} };
     const container = new FakeElement("div");
-    const panel = new TablesPanel(app, plugin, container);
+    const panel = new TablesPanel(app, plugin, container, binding);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure les tables"]');

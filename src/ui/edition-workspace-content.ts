@@ -50,6 +50,10 @@ function isRefreshableView(view: unknown): view is RefreshableView {
   );
 }
 
+function isSameView(a: unknown, b: unknown): boolean {
+  return a !== null && a !== undefined && a === b;
+}
+
 /** Contenu partagé des sous-pages Composition / Mise en page de la sidebar
  * Édition. Ce composant ne crée aucune leaf et ne possède aucun chrome central :
  * la barre Aperçu / Portée / Format / Exporter appartient à
@@ -116,7 +120,13 @@ export class EditionWorkspaceContent {
     if (this.mode === "composition") {
       const surface = body.createDiv({ cls: "feuillets-edition-mode-surface" });
       const content = new EditionCompositionContent(this.app, this.plugin, surface, {
-        onChange: () => void this.refreshLinkedPreview(),
+        onChange: () => {
+          const central = this.plugin.getCentralPreviewView?.();
+          if (isSameView(this.previewLeaf?.view, central)) {
+            return;
+          }
+          void this.refreshLinkedPreview();
+        },
         /* même contrat que la Mise en page : la notification de racine n'est
            transmise qu'en chrome embedded (panneau droit) — le mode central
            historique ne transmet jamais cette option. */
@@ -260,6 +270,12 @@ export class EditionWorkspaceContent {
       return;
     }
     const view = leaf.view;
+    if (this.mode === "composition") {
+      const central = this.plugin.getCentralPreviewView?.();
+      if (isSameView(view, central)) {
+        return;
+      }
+    }
     if (isRefreshableView(view)) await view.refreshForLayoutChange();
   }
 }

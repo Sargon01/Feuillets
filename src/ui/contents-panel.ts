@@ -1,6 +1,6 @@
 import { type App, type TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
-import { SUMMARY, TOC, defaultComposition, readGeneratedIncluded, writeGeneratedIncluded } from "../services/book-composition.js";
+import type { OuvrageCompositionBinding } from "../services/ouvrage-composition.js";
 
 /** Sous-ensemble de plugin réellement utilisé par ce composant — même
  * contrat que FirstPagePanelPlugin/FrontMatterPanelPlugin : ni PreviewView
@@ -18,29 +18,20 @@ export type ContentsPanelCallbacks = {
   onPresentationChanged?: () => Promise<void> | void;
 };
 
-const DEFAULT_INCLUDED: Record<string, boolean> = Object.fromEntries(
-  defaultComposition().map((item) => [item.id, item.included])
-);
-
-/** Métadonnées du projet courant, créées si absentes — même conteneur par
- * projet que le reste de `settings.projectMeta` (voir project-modals.ts) :
- * jamais un second système de réglages. Retourne `null` sans projet actif. */
-function currentProjectMeta(plugin: ContentsPanelPlugin): ProjectMeta | null {
-  const folder = plugin.getProjectFolder();
-  if (!folder) return null;
-  if (!plugin.settings.projectMeta) plugin.settings.projectMeta = {};
-  const meta = plugin.settings.projectMeta[folder.path] || {};
-  plugin.settings.projectMeta[folder.path] = meta;
-  return meta;
-}
-
 /**
  * Sous-sections « Sommaire » et « Table des matières » (Phase 6) : deux
  * éléments GÉNÉRÉS du modèle commun de composition
  * (services/book-composition.ts) — ce composant ne montre ni ne modifie
  * jamais leur contenu (calculé à la compilation, voir
  * services/contents-generator.ts et compile-export.ts), seulement leur
- * inclusion, persistée dans `ProjectMeta` via `writeGeneratedIncluded`.
+ * inclusion.
+ *
+ * LOT 5B — SOURCE UNIQUE : l'inclusion vient de `binding.value.summary`/
+ * `.toc` (services/ouvrage-composition.ts effectiveComposition()), la
+ * composition EFFECTIVE de la portée affichée (WARPI ou un ouvrage) —
+ * jamais un second calcul via `ProjectMeta` ici. `binding.update()` écrit
+ * au bon endroit (réglages globaux ou composition locale de l'ouvrage)
+ * sans que ce panneau ait besoin de le savoir.
  *
  * Même contrat que FirstPagePanel/FrontMatterPanel : callback
  * `onPresentationChanged` facultatif, fonctionne parfaitement sans
@@ -51,38 +42,37 @@ export class ContentsPanel {
     private app: App,
     private plugin: ContentsPanelPlugin,
     private container: HTMLElement,
+    private binding: OuvrageCompositionBinding,
     private callbacks: ContentsPanelCallbacks = {}
   ) {}
 
-  includedState(id: string): boolean {
-    const meta = currentProjectMeta(this.plugin);
-    const stored = meta ? readGeneratedIncluded(meta, id) : undefined;
-    return stored ?? DEFAULT_INCLUDED[id] ?? false;
+  includedState(id: "summary" | "toc"): boolean {
+    return this.binding.value[id];
   }
 
   async render(): Promise<void> {
     const container = this.container;
     container.empty();
-    this.renderSection(container, SUMMARY, "contents.summary.sectionTitle", "contents.summary.include");
-    this.renderSection(container, TOC, "contents.toc.sectionTitle", "contents.toc.include");
+    this.renderSection(container, "summary", "contents.summary.sectionTitle", "contents.summary.include");
+    this.renderSection(container, "toc", "contents.toc.sectionTitle", "contents.toc.include");
   }
 
   /** Affiche uniquement le Sommaire — utilisé par Composition → Avant → Sommaire. */
   async renderSummary(): Promise<void> {
     const container = this.container;
     container.empty();
-    this.renderSection(container, SUMMARY, "contents.summary.sectionTitle", "contents.summary.include");
+    this.renderSection(container, "summary", "contents.summary.sectionTitle", "contents.summary.include");
   }
 
   /** Affiche uniquement la Table des matières — utilisé par Composition → Après → Table des matières. */
   async renderTableOfContents(): Promise<void> {
     const container = this.container;
     container.empty();
-    this.renderSection(container, TOC, "contents.toc.sectionTitle", "contents.toc.include");
+    this.renderSection(container, "toc", "contents.toc.sectionTitle", "contents.toc.include");
   }
 
   /** Une ligne latérale compacte par élément généré. */
-  private renderSection(parent: HTMLElement, id: string, titleKey: string, includeKey: string): void {
+  private renderSection(parent: HTMLElement, id: "summary" | "toc", titleKey: string, includeKey: string): void {
     const row = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
     row.createSpan({ cls: "feuillets-properties-key", text: t(titleKey) });
     const control = row.createDiv({ cls: "feuillets-edition-row-control" });
@@ -93,12 +83,9 @@ export class ContentsPanel {
     input.addEventListener("change", () => void this.setIncluded(id, input.checked));
   }
 
-  /** Bascule l'inclusion — écrit immédiatement dans `ProjectMeta`, sans
-   * jamais toucher au contenu (généré, jamais stocké). */
-  private async setIncluded(id: string, included: boolean): Promise<void> {
-    const meta = currentProjectMeta(this.plugin);
-    if (meta) writeGeneratedIncluded(meta, id, included);
-    await this.plugin.saveSettings?.();
+  /** Bascule l'inclusion via le binding — jamais `ProjectMeta` directement. */
+  private async setIncluded(id: "summary" | "toc", included: boolean): Promise<void> {
+    await this.binding.update({ [id]: included });
     await this.callbacks.onPresentationChanged?.();
   }
 }

@@ -1,4 +1,4 @@
-import { TFile, normalizePath } from "obsidian";
+import { TFile, normalizePath, type TFolder } from "obsidian";
 import type { App } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
@@ -61,16 +61,16 @@ function newId(): string {
   });
 }
 
-export function contentVariantsFilePath(app: App, settings: FeuilletsSettings | null | undefined): string | null {
-  const root = getProjectFolder(app, settings);
+export function contentVariantsFilePath(app: App, settings: FeuilletsSettings | null | undefined, editorialRoot?: TFolder | null): string | null {
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root) return null;
   const resources = resourcesFolderPath(app, root);
   const exportsPath = resourcesSubfolderPath(app, resources, "Exports", "Export");
   return normalizePath(`${exportsPath}/${CONTENT_VARIANTS_FILE_NAME}`);
 }
 
-export async function loadContentVariants(app: App, settings: FeuilletsSettings | null | undefined): Promise<ContentVariantsStore> {
-  const path = contentVariantsFilePath(app, settings);
+export async function loadContentVariants(app: App, settings: FeuilletsSettings | null | undefined, editorialRoot?: TFolder | null): Promise<ContentVariantsStore> {
+  const path = contentVariantsFilePath(app, settings, editorialRoot);
   if (!path) return emptyStore();
   const file = app.vault.getAbstractFileByPath(path);
   if (!(file instanceof TFile)) return emptyStore();
@@ -133,11 +133,11 @@ function validateName(name: string, variants: ContentVariant[], exceptId?: strin
   return trimmed;
 }
 
-export async function saveContentVariants(app: App, settings: FeuilletsSettings | null | undefined, store: ContentVariantsStore): Promise<void> {
+export async function saveContentVariants(app: App, settings: FeuilletsSettings | null | undefined, store: ContentVariantsStore, editorialRoot?: TFolder | null): Promise<void> {
   if (!isValidStore(store)) throw new ContentVariantsError("invalid-store");
-  const root = getProjectFolder(app, settings);
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root) throw new ContentVariantsError("no-project");
-  const path = contentVariantsFilePath(app, settings);
+  const path = contentVariantsFilePath(app, settings, editorialRoot);
   if (!path) throw new ContentVariantsError("no-project");
   const folderPath = path.slice(0, path.lastIndexOf("/"));
   await ensureFolder(app, folderPath);
@@ -150,52 +150,54 @@ export async function saveContentVariants(app: App, settings: FeuilletsSettings 
 export async function createContentVariant(
   app: App, settings: FeuilletsSettings | null | undefined, name: string,
   excludedRoles: readonly SemanticRole[] = [], questionAnswerSpace: QuestionAnswerSpaceMode = "keep",
+  editorialRoot?: TFolder | null,
 ): Promise<ContentVariant> {
   if (questionAnswerSpace !== "keep" && questionAnswerSpace !== "hide") {
     throw new ContentVariantsError("invalid-question-answer-space");
   }
-  const store = await loadContentVariants(app, settings);
+  const store = await loadContentVariants(app, settings, editorialRoot);
   let id = newId();
   while (store.variants.some((variant) => variant.id === id)) id = newId();
   const variant: ContentVariant = { id, name: validateName(name, store.variants), excludedRoles: normalizedRoles(excludedRoles), questionAnswerSpace };
   store.variants.push(variant);
-  await saveContentVariants(app, settings, store);
+  await saveContentVariants(app, settings, store, editorialRoot);
   return variant;
 }
 
 export async function updateContentVariant(
   app: App, settings: FeuilletsSettings | null | undefined, id: string, changes: { name: string; excludedRoles: readonly SemanticRole[]; questionAnswerSpace: QuestionAnswerSpaceMode },
+  editorialRoot?: TFolder | null,
 ): Promise<ContentVariant> {
-  const store = await loadContentVariants(app, settings);
+  const store = await loadContentVariants(app, settings, editorialRoot);
   const index = store.variants.findIndex((variant) => variant.id === id);
   if (index < 0) throw new ContentVariantsError("variant-not-found");
   if (changes.questionAnswerSpace !== "keep" && changes.questionAnswerSpace !== "hide") {
     throw new ContentVariantsError("invalid-question-answer-space");
   }
-  const updated: ContentVariant = { id, name: validateName(changes.name, store.variants, id), excludedRoles: normalizedRoles(changes.excludedRoles), questionAnswerSpace: changes.questionAnswerSpace };
+  const updated: ContentVariant = { ...store.variants[index], id, name: validateName(changes.name, store.variants, id), excludedRoles: normalizedRoles(changes.excludedRoles), questionAnswerSpace: changes.questionAnswerSpace };
   store.variants[index] = updated;
-  await saveContentVariants(app, settings, store);
+  await saveContentVariants(app, settings, store, editorialRoot);
   return updated;
 }
 
-export async function deleteContentVariant(app: App, settings: FeuilletsSettings | null | undefined, id: string): Promise<boolean> {
-  const store = await loadContentVariants(app, settings);
+export async function deleteContentVariant(app: App, settings: FeuilletsSettings | null | undefined, id: string, editorialRoot?: TFolder | null): Promise<boolean> {
+  const store = await loadContentVariants(app, settings, editorialRoot);
   const index = store.variants.findIndex((variant) => variant.id === id);
   if (index < 0) return false;
   store.variants.splice(index, 1);
   if (store.selectedVariantId === id) store.selectedVariantId = null;
-  await saveContentVariants(app, settings, store);
+  await saveContentVariants(app, settings, store, editorialRoot);
   return true;
 }
 
-export async function selectContentVariant(app: App, settings: FeuilletsSettings | null | undefined, id: string | null): Promise<void> {
-  const store = await loadContentVariants(app, settings);
+export async function selectContentVariant(app: App, settings: FeuilletsSettings | null | undefined, id: string | null, editorialRoot?: TFolder | null): Promise<void> {
+  const store = await loadContentVariants(app, settings, editorialRoot);
   if (id !== null && !store.variants.some((variant) => variant.id === id)) throw new ContentVariantsError("variant-not-found");
   store.selectedVariantId = id;
-  await saveContentVariants(app, settings, store);
+  await saveContentVariants(app, settings, store, editorialRoot);
 }
 
-export async function selectedContentVariant(app: App, settings: FeuilletsSettings | null | undefined): Promise<ContentVariant | null> {
-  const store = await loadContentVariants(app, settings);
+export async function selectedContentVariant(app: App, settings: FeuilletsSettings | null | undefined, editorialRoot?: TFolder | null): Promise<ContentVariant | null> {
+  const store = await loadContentVariants(app, settings, editorialRoot);
   return store.variants.find((variant) => variant.id === store.selectedVariantId) || null;
 }

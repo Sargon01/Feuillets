@@ -40,6 +40,11 @@ import {
 } from "../services/content-collections.js";
 import type { DefaultSettings } from "../default-settings.js";
 import { SEMANTIC_ROLES, type SemanticRole } from "../utils/semantic-roles.js";
+import {
+  createCompositionBinding,
+  type CentralPreviewRefresher,
+  type OuvrageCompositionBinding,
+} from "../services/ouvrage-composition.js";
 
 /* Même intersection que FeuilletsSettingTab (settings/feuillets-setting-tab.ts) :
    `FeuilletsSettings` n'expose qu'une partie des clés, DEFAULT_SETTINGS reste la
@@ -83,6 +88,11 @@ export type EditionCompositionContentPlugin = FirstPagePanelPlugin
     fmOf(file: TFile): { compile?: boolean };
     shortTitleFor(file: TFile): string;
     renderAllViews(force: boolean): void;
+    /** LOT 5B — racine éditoriale de la portée RÉELLEMENT AFFICHÉE (WARPI ou
+     * un ouvrage) : source unique du binding de composition transmis aux
+     * six panneaux — voir main.ts editorialRootForComposition(). */
+    editorialRootForComposition(): TFolder | null;
+    getCentralPreviewView?(): CentralPreviewRefresher | null;
   };
 
 export type EditionCompositionContentOptions = {
@@ -131,6 +141,20 @@ export class EditionCompositionContent {
    * EditionWorkspaceContent.modeRenderPromise. Aucun rôle fonctionnel :
    * jamais lu par le reste du plugin. */
   renderPromise: Promise<void> = Promise.resolve();
+  /** LOT 5B — SOURCE UNIQUE de la composition affichée, reconstruit au
+   * début de chaque renderBody() (une seule fois par rendu, jamais une
+   * résolution séparée par champ ni par panneau) — voir refreshBinding(). */
+  private binding: OuvrageCompositionBinding | null = null;
+  /** Racine éditoriale correspondant à `binding` — nécessaire aux panneaux
+   * qui résolvent un DOSSIER (Pages liminaires, Annexes), pas seulement une
+   * valeur de composition. */
+  private editorialRoot: TFolder | null = null;
+  /** RECTIFICATION UI LOT 5B — bloc de contexte unique (Projet/Ouvrage +
+   * portée héritée ou personnalisée), posé une seule fois par render() en
+   * dehors de `bodyEl` : reste visible dans toutes les sous-pages sans
+   * jamais être recopié dans un panneau, et se recontente à chaque
+   * renderBody() (voir renderContextBlock()), jamais par sous-page. */
+  private contextEl: HTMLElement | null = null;
 
   constructor(
     private app: App,
@@ -152,6 +176,7 @@ export class EditionCompositionContent {
     const container = this.container;
     container.empty();
     container.addClass("feuillets-edition-composition-container");
+    this.contextEl = container.createDiv({ cls: "feuillets-composition-context" });
     this.bodyEl = container.createDiv({ cls: "feuillets-composition-body" });
     await this.renderBody();
   }
@@ -162,7 +187,62 @@ export class EditionCompositionContent {
    * sommaire et sous-page, sauvegarde d'un champ) ne fassent jamais
    * reconstruire l'hôte (EditionWorkspaceContent) qui, lui, ne reconstruit
    * ce composant qu'au changement d'onglet Édition. */
+  /** Reconstruit le binding depuis la portée RÉELLEMENT AFFICHÉE — appelé
+   * une seule fois au début de chaque renderBody(), jamais recalculé
+   * séparément par les 16 contrôles ni par les six panneaux. */
+  private refreshBinding(): void {
+    const globalRoot = this.plugin.getProjectFolder();
+    this.editorialRoot = globalRoot ? (this.plugin.editorialRootForComposition() ?? globalRoot) : null;
+    this.binding = globalRoot && this.editorialRoot
+      ? createCompositionBinding(this.plugin, globalRoot, this.editorialRoot)
+      : null;
+  }
+
+  /** RECTIFICATION UI LOT 5B — un unique bloc de contexte, hors de `body`
+   * (jamais vidé par les sous-pages), reconstruit à chaque renderBody()
+   * depuis `this.binding` : rend toujours visible si la Composition
+   * affichée est celle du projet global ou d'un ouvrage, et si l'ouvrage
+   * hérite encore du projet. Aucun panneau ne recopie ce bloc — voir
+   * refreshBinding() ci-dessus pour la source unique du binding. */
+  private renderContextBlock(): void {
+    const contextEl = this.contextEl;
+    if (!contextEl) return;
+    contextEl.empty();
+    const globalRoot = this.plugin.getProjectFolder();
+    const binding = this.binding;
+    const editorialRoot = this.editorialRoot;
+    if (!globalRoot || !binding || !editorialRoot) return;
+
+    const row = contextEl.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
+    row.createSpan({
+      cls: "feuillets-properties-key",
+      text: binding.isOuvrage
+        ? t("compositionSummary.contextOuvrage", { name: editorialRoot.name })
+        : t("compositionSummary.contextProject", { name: globalRoot.name }),
+    });
+    row.createSpan({
+      cls: "feuillets-edition-count",
+      text: !binding.isOuvrage
+        ? t("compositionSummary.contextProjectSettings")
+        : binding.isInherited
+          ? t("compositionSummary.contextInherited", { name: globalRoot.name })
+          : t("compositionSummary.contextCustom"),
+    });
+
+    /* CAS 3 uniquement : un ouvrage avec composition locale — jamais WARPI,
+       jamais un ouvrage déjà hérité (rien à réinitialiser). Même bouton
+       que l'ancien emplacement (renderSummary) : simplement déplacé ici
+       pour rester visible depuis n'importe quelle sous-page. */
+    if (binding.isOuvrage && !binding.isInherited) {
+      const reset = contextEl.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
+      const button = reset.createEl("button", { text: t("compositionSummary.useProjectSettings") });
+      button.addEventListener("click", () => this.resetCompositionToProject());
+    }
+  }
+
   private async renderBody(): Promise<void> {
+    this.refreshBinding();
+    this.renderContextBlock();
     const body = this.bodyEl;
     if (!body) return;
     body.empty();
@@ -246,6 +326,25 @@ export class EditionCompositionContent {
     this.renderSummaryRow(body, t("compositionSummary.beforeManuscript"), null, () => void this.navigateTo("before"));
     this.renderSummaryRow(body, t("compositionSummary.theManuscript"), null, () => void this.navigateTo("manuscript"));
     this.renderSummaryRow(body, t("compositionSummary.afterManuscript"), null, () => void this.navigateTo("after"));
+    /* RECTIFICATION UI LOT 5B : le retour à l'héritage (« Utiliser les
+       réglages du projet ») vit désormais dans le bloc de contexte commun
+       (renderContextBlock()), visible depuis toutes les sous-pages — plus
+       ici spécifiquement, pour ne jamais le dupliquer. */
+  }
+
+  /** `this.renderPromise` doit être réassigné de façon SYNCHRONE dès le
+   * clic (même contrat que navigateTo()/EditionWorkspaceContent.setMode) —
+   * jamais après un premier `await`, sans quoi un appelant qui lit
+   * `renderPromise` juste après le clic obtiendrait encore l'ancienne
+   * promesse, déjà résolue, et n'attendrait pas le nouveau rendu. */
+  private resetCompositionToProject(): void {
+    this.renderPromise = this.runResetCompositionToProject();
+  }
+
+  private async runResetCompositionToProject(): Promise<void> {
+    await this.binding?.resetToProject();
+    await this.onChangeOpt?.();
+    await this.renderBody();
   }
 
   /** Statut affiché sur la ligne-résumé "Première page" — recalculé via un
@@ -253,7 +352,7 @@ export class EditionCompositionContent {
    * aucun DOM n'est donc requis ni monté ici) : même logique que la
    * sous-page, aucune duplication. */
   private firstPageStatusLabel(): string {
-    return new FirstPagePanel(this.app, this.plugin, null as unknown as HTMLElement, this.panelCallbacks()).statusLabel();
+    return new FirstPagePanel(this.app, this.plugin, null as unknown as HTMLElement, this.panelCallbacks(), this.editorialRoot).statusLabel();
   }
 
   /** Ligne-résumé compacte ouvrant une sous-page — GRAMMAIRE « PAGE DE
@@ -281,11 +380,11 @@ export class EditionCompositionContent {
 
   private renderManuscriptContentRow(parent: HTMLElement): void {
     const label = t("compositionSummary.manuscriptContent");
-    const root = this.plugin.getProjectFolder();
+    const root = this.editorialRoot ?? this.plugin.getProjectFolder();
     const files = manuscriptBodyFiles(this.app, this.plugin.settings, root);
     const included = files.filter((file) => this.plugin.fmOf(file).compile !== false).length;
     this.renderSummaryRow(parent, label, `${included}/${files.length}`, () => {
-      new CompileSelectionModal(this.app, this.plugin).open();
+      new CompileSelectionModal(this.app, this.plugin, this.editorialRoot).open();
     });
   }
 
@@ -298,12 +397,13 @@ export class EditionCompositionContent {
     this.renderSummaryRow(body, t("preview.export.firstPage"), this.firstPageStatusLabel(), () => void this.navigateTo("firstPage"));
     this.renderSummaryRow(body, t("frontMatter.sectionTitle"), null, () => void this.navigateTo("frontMatter"));
 
+    if (!this.binding) return;
     const contentsEl = body.createDiv();
-    this.contentsPanel = new ContentsPanel(this.app, this.plugin, contentsEl, this.panelCallbacks());
+    this.contentsPanel = new ContentsPanel(this.app, this.plugin, contentsEl, this.binding, this.panelCallbacks());
     await this.contentsPanel.renderSummary();
 
     const tablesEl = body.createDiv();
-    this.tablesPanel = new TablesPanel(this.app, this.plugin, tablesEl, this.panelCallbacks());
+    this.tablesPanel = new TablesPanel(this.app, this.plugin, tablesEl, this.binding, this.panelCallbacks());
     await this.tablesPanel.render();
   }
 
@@ -312,7 +412,7 @@ export class EditionCompositionContent {
     this.renderManuscriptContentRow(body);
     let status: string | null = null;
     try {
-      const store = await loadContentVariants(this.app, this.plugin.settings);
+      const store = await loadContentVariants(this.app, this.plugin.settings, this.editorialRoot);
       const selected = store.variants.find((variant) => variant.id === store.selectedVariantId);
       status = selected?.name || null;
     } catch (error) {
@@ -327,7 +427,7 @@ export class EditionCompositionContent {
 
   private async renderVariantsSubpage(body: HTMLElement): Promise<void> {
     body.createDiv({ cls: "feuillets-notes-sub feuillets-content-variants-hint", text: t("contentVariants.optionalHint") });
-    const store = await loadContentVariants(this.app, this.plugin.settings).catch((error: unknown) => {
+    const store = await loadContentVariants(this.app, this.plugin.settings, this.editorialRoot).catch((error: unknown) => {
       if (!(error instanceof ContentVariantsFileCorruptedError)) throw error;
       return null;
     });
@@ -399,7 +499,7 @@ export class EditionCompositionContent {
   private async renderExtractionList(parent: HTMLElement): Promise<void> {
     parent.empty();
     try {
-      const store = await loadContentExtractions(this.app, this.plugin.settings);
+      const store = await loadContentExtractions(this.app, this.plugin.settings, this.editorialRoot);
       if (store.extractions.length === 0) this.renderContentEmptyState(parent, t("contentExtractions.empty"), "feuillets-content-extractions-empty");
       for (const extraction of store.extractions) this.renderExtractionRow(parent, extraction);
     } catch (error) {
@@ -411,7 +511,7 @@ export class EditionCompositionContent {
   private async renderCollectionList(parent: HTMLElement): Promise<void> {
     parent.empty();
     try {
-      const store = await loadContentCollections(this.app, this.plugin.settings);
+      const store = await loadContentCollections(this.app, this.plugin.settings, this.editorialRoot);
       if (store.collections.length === 0) this.renderContentEmptyState(parent, t("contentCollections.empty"), "feuillets-content-collections-empty");
       for (const collection of store.collections) this.renderCollectionRow(parent, collection);
     } catch (error) {
@@ -439,8 +539,8 @@ export class EditionCompositionContent {
 
   private openCollectionModal(collection: ContentCollection | null): void {
     new ContentCollectionModal(this.app, collection, async (draft) => {
-      if (collection) await updateContentCollection(this.app, this.plugin.settings, collection.id, draft);
-      else await createContentCollection(this.app, this.plugin.settings, draft.name, draft.roles);
+      if (collection) await updateContentCollection(this.app, this.plugin.settings, collection.id, draft, this.editorialRoot);
+      else await createContentCollection(this.app, this.plugin.settings, draft.name, draft.roles, this.editorialRoot);
       await this.refreshCurrentSection();
       await this.onChangeOpt?.();
     }).open();
@@ -448,7 +548,7 @@ export class EditionCompositionContent {
 
   private async removeCollection(id: string): Promise<void> {
     try {
-      await deleteContentCollection(this.app, this.plugin.settings, id);
+      await deleteContentCollection(this.app, this.plugin.settings, id, this.editorialRoot);
       await this.refreshCurrentSection();
       await this.onChangeOpt?.();
     } catch (error) {
@@ -475,8 +575,8 @@ export class EditionCompositionContent {
 
   private openExtractionModal(extraction: ContentExtraction | null): void {
     new ContentExtractionModal(this.app, extraction, async (draft) => {
-      if (extraction) await updateContentExtraction(this.app, this.plugin.settings, extraction.id, draft);
-      else await createContentExtraction(this.app, this.plugin.settings, draft.name, draft.triggerRoles);
+      if (extraction) await updateContentExtraction(this.app, this.plugin.settings, extraction.id, draft, this.editorialRoot);
+      else await createContentExtraction(this.app, this.plugin.settings, draft.name, draft.triggerRoles, this.editorialRoot);
       await this.refreshCurrentSection();
       await this.onChangeOpt?.();
     }).open();
@@ -484,7 +584,7 @@ export class EditionCompositionContent {
 
   private async removeExtraction(id: string): Promise<void> {
     try {
-      await deleteContentExtraction(this.app, this.plugin.settings, id);
+      await deleteContentExtraction(this.app, this.plugin.settings, id, this.editorialRoot);
       await this.refreshCurrentSection();
       await this.onChangeOpt?.();
     } catch (error) {
@@ -515,8 +615,8 @@ export class EditionCompositionContent {
 
   private openVariantModal(variant: ContentVariant | null): void {
     new ContentVariantModal(this.app, variant, async (draft) => {
-      if (variant) await updateContentVariant(this.app, this.plugin.settings, variant.id, draft);
-      else await createContentVariant(this.app, this.plugin.settings, draft.name, draft.excludedRoles, draft.questionAnswerSpace);
+      if (variant) await updateContentVariant(this.app, this.plugin.settings, variant.id, draft, this.editorialRoot);
+      else await createContentVariant(this.app, this.plugin.settings, draft.name, draft.excludedRoles, draft.questionAnswerSpace, this.editorialRoot);
       await this.refreshCurrentSection();
       await this.onChangeOpt?.();
     }).open();
@@ -524,7 +624,7 @@ export class EditionCompositionContent {
 
   private async changeSelectedVariant(id: string | null): Promise<void> {
     try {
-      await selectContentVariant(this.app, this.plugin.settings, id);
+      await selectContentVariant(this.app, this.plugin.settings, id, this.editorialRoot);
       const selectedRows = this.bodyEl?.querySelectorAll(".feuillets-content-item") || [];
       for (const row of Array.from(selectedRows)) {
         const isSelected = row.getAttribute("data-content-entry-id") === id;
@@ -541,7 +641,7 @@ export class EditionCompositionContent {
 
   private async removeVariant(id: string): Promise<void> {
     try {
-      await deleteContentVariant(this.app, this.plugin.settings, id);
+      await deleteContentVariant(this.app, this.plugin.settings, id, this.editorialRoot);
       await this.refreshCurrentSection();
       await this.onChangeOpt?.();
     } catch (error) {
@@ -551,7 +651,7 @@ export class EditionCompositionContent {
 
   private async refreshCurrentSection(): Promise<void> {
     if (this.contentListEl && this.selectedSection === "variants") {
-      const store = await loadContentVariants(this.app, this.plugin.settings);
+      const store = await loadContentVariants(this.app, this.plugin.settings, this.editorialRoot);
       this.renderVariantList(this.contentListEl, store);
       return;
     }
@@ -570,16 +670,17 @@ export class EditionCompositionContent {
   /** Composition → Après le manuscrit : Table des matières, Bibliographie,
    * Annexes. Affiche les trois éléments directement sans sous-pages. */
   private async renderAfterSubpage(body: HTMLElement): Promise<void> {
+    if (!this.binding || !this.editorialRoot) return;
     const contentsEl = body.createDiv();
-    this.contentsPanel = new ContentsPanel(this.app, this.plugin, contentsEl, this.panelCallbacks());
+    this.contentsPanel = new ContentsPanel(this.app, this.plugin, contentsEl, this.binding, this.panelCallbacks());
     await this.contentsPanel.renderTableOfContents();
 
     const bibliographyEl = body.createDiv();
-    this.bibliographyPanel = new BibliographyPanel(this.app, this.plugin, bibliographyEl, this.panelCallbacks());
+    this.bibliographyPanel = new BibliographyPanel(this.app, this.plugin, bibliographyEl, this.binding, this.panelCallbacks(), this.editorialRoot);
     await this.bibliographyPanel.render();
 
     const annexesEl = body.createDiv();
-    this.annexesPanel = new AnnexesPanel(this.app, this.plugin, annexesEl, this.panelCallbacks());
+    this.annexesPanel = new AnnexesPanel(this.app, this.plugin, annexesEl, this.binding, this.editorialRoot, this.panelCallbacks());
     await this.annexesPanel.render();
   }
 
@@ -590,7 +691,7 @@ export class EditionCompositionContent {
   private async renderFirstPageSubpage(body: HTMLElement): Promise<void> {
     this.groupLabel(body, t("compositionSummary.firstPageContentGroup"));
     const contentHost = body.createDiv();
-    this.firstPagePanel = new FirstPagePanel(this.app, this.plugin, contentHost, this.panelCallbacks());
+    this.firstPagePanel = new FirstPagePanel(this.app, this.plugin, contentHost, this.panelCallbacks(), this.editorialRoot);
     await this.firstPagePanel.renderExpandedFields(contentHost);
 
     this.groupLabel(body, t("compositionSummary.firstPagePresentationGroup"));
@@ -610,7 +711,7 @@ export class EditionCompositionContent {
    * quel, sans sa propre ligne-résumé (déjà fournie par le sommaire). */
   private async renderFrontMatterSubpage(body: HTMLElement): Promise<void> {
     const host = body.createDiv();
-    this.frontMatterPanel = new FrontMatterPanel(this.app, this.plugin, host, this.panelCallbacks());
+    this.frontMatterPanel = new FrontMatterPanel(this.app, this.plugin, host, this.panelCallbacks(), this.editorialRoot);
     await this.frontMatterPanel.renderExpandedList(host);
   }
 
@@ -680,61 +781,64 @@ export class EditionCompositionContent {
     input.addEventListener("change", () => void onChange(input.checked));
   }
 
+  /** LOT 5B — les 16 champs de Composition viennent de `this.binding.value`
+   * (portée réellement affichée) et s'écrivent via `binding.update()` —
+   * jamais `this.plugin.settings` directement : WARPI ou un ouvrage,
+   * l'emplacement réel de l'écriture est décidé par le binding, pas ici. */
   private renderStructureSection(parent: HTMLElement): void {
-    const S = this.plugin.settings as CompositionSettings;
+    const binding = this.binding;
+    if (!binding) return;
     const unit = this.plugin.unitLabel();
     const unitPlural = this.plugin.unitLabelPlural();
-    const save = async (): Promise<void> => { await this.plugin.saveSettings(); };
-    /* §9 du dernier lot UX avant 2.5 : ce réglage change la numérotation
-       affichée par le Binder — mais ne doit JAMAIS reconstruire la surface
-       Composition active (perte de focus/scroll/sous-page). refreshBinderViews()
-       (main.ts) rafraîchit UNIQUEMENT le Binder, jamais VIEW_BOARD : c'est
-       la différence avec l'ancien `plugin.refreshView()` (→ renderAllViews()
-       → reconstruction globale, y compris cette même sous-page). */
-    const saveAndRefresh = async (): Promise<void> => { await save(); this.plugin.refreshBinderViews(); };
+    const value = binding.value;
 
     this.selectRow(parent, t("settings.level1Role.name"), [
       ["parties", t("settings.level1Role.parts")],
       ["chapitres", t("settings.level1Role.chapters", { unitPlural })],
-    ], S.level1Role, async (v) => { S.level1Role = v as DefaultSettings["level1Role"]; await saveAndRefresh(); });
+    ], value.level1Role, (v) => this.updateBinding({ level1Role: v as OuvrageCompositionConfig["level1Role"] }));
 
     this.selectRow(parent, t("settings.chapterNumbering.name"), [
       ["continu", t("settings.chapterNumbering.continuous")],
       ["parPartie", t("settings.chapterNumbering.perPart")],
       ["aucune", t("settings.chapterNumbering.none")],
-    ], S.chapterNumbering, async (v) => { S.chapterNumbering = v as DefaultSettings["chapterNumbering"]; await saveAndRefresh(); });
+    ], value.chapterNumbering, (v) => this.updateBinding({ chapterNumbering: v as OuvrageCompositionConfig["chapterNumbering"] }));
 
     this.selectRow(parent, t("settings.sceneNumbering.name", { unitPlural }), [
       ["hier", t("settings.sceneNumbering.hierarchical", { unit })],
       ["continue", t("settings.sceneNumbering.continuous")],
       ["aucune", t("settings.chapterNumbering.none")],
-    ], S.sceneNumbering, async (v) => { S.sceneNumbering = v as DefaultSettings["sceneNumbering"]; await saveAndRefresh(); });
+    ], value.sceneNumbering, (v) => this.updateBinding({ sceneNumbering: v as OuvrageCompositionConfig["sceneNumbering"] }));
 
-    this.toggleRow(parent, t("settings.autoRename.name"), S.autoRename,
-      async (v) => { S.autoRename = v; await save(); });
-    this.textRow(parent, t("settings.renamePrefix.name"), S.renamePrefix,
-      async (v) => { S.renamePrefix = v.trim() || "chapitre"; await save(); });
+    this.toggleRow(parent, t("settings.autoRename.name"), value.autoRename,
+      (v) => this.updateBinding({ autoRename: v }));
+    this.textRow(parent, t("settings.renamePrefix.name"), value.renamePrefix,
+      (v) => this.updateBinding({ renamePrefix: v.trim() || "chapitre" }));
 
-    this.toggleRow(parent, t("settings.insertFolderTitles.name"), S.insertFolderTitles,
-      async (v) => { S.insertFolderTitles = v; await save(); });
-    this.toggleRow(parent, t("settings.insertTitles.name"), S.insertTitles,
-      async (v) => { S.insertTitles = v; await save(); });
-    this.toggleRow(parent, t("settings.insertSceneTitles.name", { unitPlural }), S.insertSceneTitles,
-      async (v) => { S.insertSceneTitles = v; await save(); });
+    this.toggleRow(parent, t("settings.insertFolderTitles.name"), value.folderTitles,
+      (v) => this.updateBinding({ folderTitles: v }));
+    this.toggleRow(parent, t("settings.insertTitles.name"), value.chapterTitles,
+      (v) => this.updateBinding({ chapterTitles: v }));
+    this.toggleRow(parent, t("settings.insertSceneTitles.name", { unitPlural }), value.sceneTitles,
+      (v) => this.updateBinding({ sceneTitles: v }));
   }
 
   private renderNotesSection(parent: HTMLElement): void {
-    const S = this.plugin.settings as CompositionSettings;
-    this.toggleRow(parent, t("settings.footnoteRenumberOnCompile.name"), S.footnoteRenumberOnCompile,
-      async (v) => { S.footnoteRenumberOnCompile = v; await this.plugin.saveSettings(); });
+    const binding = this.binding;
+    if (!binding) return;
+    this.toggleRow(parent, t("settings.footnoteRenumberOnCompile.name"), binding.value.footnoteRenumberOnCompile,
+      (v) => this.updateBinding({ footnoteRenumberOnCompile: v }));
   }
 
   private renderCompilationSection(parent: HTMLElement): void {
+    const binding = this.binding;
+    if (!binding) return;
     const S = this.plugin.settings as CompositionSettings;
     const unitPlural = this.plugin.unitLabelPlural();
 
-    this.textRow(parent, t("settings.separator.name"), S.separator,
-      async (v) => { S.separator = v; await this.plugin.saveSettings(); }, "—");
+    this.textRow(parent, t("settings.fileName.name"), binding.value.fileName,
+      (v) => this.updateBinding({ fileName: v.trim() || "Manuscrit.md" }), "Manuscrit.md");
+    this.textRow(parent, t("settings.separator.name"), binding.value.separator,
+      (v) => this.updateBinding({ separator: v }), "—");
 
     this.groupLabel(parent, t("settings.compilePresets.groupLabel"));
 
@@ -746,6 +850,9 @@ export class EditionCompositionContent {
         text: preset.name || t("settings.compilePresets.item", { n: String(index + 1) }),
       });
       const headActions = head.createDiv({ cls: "feuillets-edition-row-control" });
+      const apply = headActions.createEl("button", { text: t("settings.compilePresets.apply") });
+      apply.setAttribute("aria-label", t("settings.compilePresets.applyAria", { name: preset.name || t("settings.compilePresets.item", { n: String(index + 1) }) }));
+      apply.addEventListener("click", () => this.applyPreset(index));
       const del = headActions.createEl("button", { cls: "clickable-icon" });
       setIcon(del, "x");
       del.setAttribute("aria-label", t("settings.compilePresets.deleteAria"));
@@ -769,6 +876,44 @@ export class EditionCompositionContent {
     add.addEventListener("click", () => void this.addPreset());
   }
 
+  /** PRESETS — « Appliquer » : catalogue global TOUJOURS inchangé.
+   * Sur WARPI, active le preset (`settings.activePreset`), comportement
+   * historique de la composition globale. Sur un ouvrage, copie son
+   * sous-ensemble normalisé de champs (fileName/folderTitles/
+   * chapterTitles/sceneTitles/separator) dans SA composition locale via le
+   * binding — le preset actif global et la composition de WARPI ne sont
+   * JAMAIS modifiés dans ce cas.
+   * `this.renderPromise` réassigné de façon SYNCHRONE dès le clic — même
+   * contrat que resetCompositionToProject()/navigateTo() ci-dessus. */
+  private applyPreset(index: number): void {
+    this.renderPromise = this.runApplyPreset(index);
+  }
+
+  private async runApplyPreset(index: number): Promise<void> {
+    const binding = this.binding;
+    if (!binding) return;
+    const S = this.plugin.settings as CompositionSettings;
+    const preset = (S.compilePresets as PresetConfig[])[index];
+    if (!preset) return;
+    if (binding.isOuvrage) {
+      await binding.update({
+        fileName: preset.fileName || "Manuscrit.md",
+        folderTitles: preset.folderTitles !== false,
+        chapterTitles: preset.chapterTitles !== false,
+        sceneTitles: preset.sceneTitles === true,
+        separator: typeof preset.separator === "string" ? preset.separator : binding.value.separator,
+      });
+    } else {
+      S.activePreset = index;
+      await this.plugin.saveSettings();
+      this.plugin.refreshBinderViews();
+      const preview = this.plugin.getCentralPreviewView?.();
+      if (preview) await preview.refreshPreview();
+    }
+    await this.onChangeOpt?.();
+    await this.renderBody();
+  }
+
   private async addPreset(): Promise<void> {
     const S = this.plugin.settings as CompositionSettings;
     (S.compilePresets as PresetConfig[]).push({
@@ -790,10 +935,35 @@ export class EditionCompositionContent {
     await this.renderBody();
   }
 
+  /** RECTIFICATION UI LOT 5B — met à jour la composition via le binding
+   * et rafraîchit localement le bloc de contexte — aucun second
+   * enregistrement, aucune reconstruction de la sous-page active
+   * (préserve le scroll et le focus). */
+  private updateBinding(patch: Partial<OuvrageCompositionConfig>): Promise<void> {
+    const p = this.runUpdateBinding(patch);
+    this.renderPromise = p;
+    return p;
+  }
+
+  private async runUpdateBinding(patch: Partial<OuvrageCompositionConfig>): Promise<void> {
+    const binding = this.binding;
+    if (!binding) return;
+    await binding.update(patch);
+    this.refreshBinding();
+    this.renderContextBlock();
+    await this.onChangeOpt?.();
+  }
+
   /** Callback commun transmis aux panneaux — voir
    * EditionCompositionContentOptions.onChange. Un seul objet recréé à chaque
    * mont (pas de coût notable, cohérent avec le reste du composant). */
   private panelCallbacks(): { onPresentationChanged: () => void | Promise<void> } {
-    return { onPresentationChanged: () => this.onChangeOpt?.() };
+    return {
+      onPresentationChanged: async () => {
+        this.refreshBinding();
+        this.renderContextBlock();
+        await this.onChangeOpt?.();
+      },
+    };
   }
 }

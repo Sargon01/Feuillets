@@ -1,4 +1,4 @@
-import { TFile, normalizePath } from "obsidian";
+import { TFile, normalizePath, type TFolder } from "obsidian";
 import type { App } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
@@ -57,8 +57,8 @@ function newId(): string {
   });
 }
 
-export function contentExtractionsFilePath(app: App, settings: FeuilletsSettings | null | undefined): string | null {
-  const root = getProjectFolder(app, settings);
+export function contentExtractionsFilePath(app: App, settings: FeuilletsSettings | null | undefined, editorialRoot?: TFolder | null): string | null {
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root) return null;
   const resources = resourcesFolderPath(app, root);
   const exportsPath = resourcesSubfolderPath(app, resources, "Exports", "Export");
@@ -114,6 +114,7 @@ function normalizeStore(store: ContentExtractionsStore): ContentExtractionsStore
   return {
     version: 1,
     extractions: store.extractions.map((extraction) => ({
+      ...extraction,
       id: extraction.id,
       name: extraction.name.trim(),
       triggerRoles: SEMANTIC_ROLES.filter((role) => extraction.triggerRoles.includes(role)),
@@ -121,11 +122,11 @@ function normalizeStore(store: ContentExtractionsStore): ContentExtractionsStore
   };
 }
 
-async function saveContentExtractions(app: App, settings: FeuilletsSettings | null | undefined, store: ContentExtractionsStore): Promise<void> {
+export async function saveContentExtractions(app: App, settings: FeuilletsSettings | null | undefined, store: ContentExtractionsStore, editorialRoot?: TFolder | null): Promise<void> {
   if (!isValidStore(store)) throw new ContentExtractionsError("invalid-store");
-  const root = getProjectFolder(app, settings);
+  const root = editorialRoot ?? getProjectFolder(app, settings);
   if (!root) throw new ContentExtractionsError("no-project");
-  const path = contentExtractionsFilePath(app, settings);
+  const path = contentExtractionsFilePath(app, settings, editorialRoot);
   if (!path) throw new ContentExtractionsError("no-project");
   await ensureFolder(app, path.slice(0, path.lastIndexOf("/")));
   const existing = app.vault.getAbstractFileByPath(path);
@@ -134,8 +135,8 @@ async function saveContentExtractions(app: App, settings: FeuilletsSettings | nu
   else await app.vault.create(path, json);
 }
 
-export async function loadContentExtractions(app: App, settings: FeuilletsSettings | null | undefined): Promise<ContentExtractionsStore> {
-  const path = contentExtractionsFilePath(app, settings);
+export async function loadContentExtractions(app: App, settings: FeuilletsSettings | null | undefined, editorialRoot?: TFolder | null): Promise<ContentExtractionsStore> {
+  const path = contentExtractionsFilePath(app, settings, editorialRoot);
   if (!path) return emptyStore();
   const file = app.vault.getAbstractFileByPath(path);
   if (!(file instanceof TFile)) return emptyStore();
@@ -155,8 +156,9 @@ export async function createContentExtraction(
   settings: FeuilletsSettings | null | undefined,
   name: string,
   triggerRoles: readonly SemanticRole[],
+  editorialRoot?: TFolder | null,
 ): Promise<ContentExtraction> {
-  const store = await loadContentExtractions(app, settings);
+  const store = await loadContentExtractions(app, settings, editorialRoot);
   const extraction: ContentExtraction = {
     id: newId(),
     name: validateName(name, store.extractions),
@@ -164,7 +166,7 @@ export async function createContentExtraction(
   };
   while (store.extractions.some((item) => item.id === extraction.id)) extraction.id = newId();
   store.extractions.push(extraction);
-  await saveContentExtractions(app, settings, store);
+  await saveContentExtractions(app, settings, store, editorialRoot);
   return extraction;
 }
 
@@ -173,25 +175,27 @@ export async function updateContentExtraction(
   settings: FeuilletsSettings | null | undefined,
   id: string,
   changes: { name: string; triggerRoles: readonly SemanticRole[] },
+  editorialRoot?: TFolder | null,
 ): Promise<ContentExtraction> {
-  const store = await loadContentExtractions(app, settings);
+  const store = await loadContentExtractions(app, settings, editorialRoot);
   const index = store.extractions.findIndex((item) => item.id === id);
   if (index < 0) throw new ContentExtractionsError("extraction-not-found");
   const extraction: ContentExtraction = {
+    ...store.extractions[index],
     id,
     name: validateName(changes.name, store.extractions, id),
     triggerRoles: normalizedRoles(changes.triggerRoles),
   };
   store.extractions[index] = extraction;
-  await saveContentExtractions(app, settings, store);
+  await saveContentExtractions(app, settings, store, editorialRoot);
   return extraction;
 }
 
-export async function deleteContentExtraction(app: App, settings: FeuilletsSettings | null | undefined, id: string): Promise<boolean> {
-  const store = await loadContentExtractions(app, settings);
+export async function deleteContentExtraction(app: App, settings: FeuilletsSettings | null | undefined, id: string, editorialRoot?: TFolder | null): Promise<boolean> {
+  const store = await loadContentExtractions(app, settings, editorialRoot);
   const index = store.extractions.findIndex((item) => item.id === id);
   if (index < 0) return false;
   store.extractions.splice(index, 1);
-  await saveContentExtractions(app, settings, store);
+  await saveContentExtractions(app, settings, store, editorialRoot);
   return true;
 }

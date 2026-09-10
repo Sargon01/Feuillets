@@ -4,6 +4,7 @@ import { TFile, TFolder } from "obsidian";
 import { BibliographyPanel } from "../src/ui/bibliography-panel.js";
 import { readGeneratedIncluded } from "../src/services/book-composition.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { createCompositionBinding } from "../src/services/ouvrage-composition.js";
 
 /* Même petit DOM factice que test/tables-panel.test.js (convention du dépôt
  * : dupliqué, pas partagé). Compatible avec la vraie classe Setting du stub
@@ -122,16 +123,23 @@ function buildFixture(referenceCount = 0) {
     settings,
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
     saveSettings: async () => {},
+    refreshBinderViews: () => {},
   };
   return { app, plugin, manuscript };
+}
+
+function testBinding(plugin) {
+  const root = plugin.getProjectFolder();
+  return createCompositionBinding(plugin, root, root);
 }
 
 test("BibliographyPanel : une seule ligne latérale « Bibliographie »", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture(0);
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new BibliographyPanel(app, plugin, container);
+    const panel = new BibliographyPanel(app, plugin, container, binding);
     await panel.render();
 
     const names = container.querySelectorAll(".feuillets-properties-key").map((n) => n.textContent);
@@ -146,8 +154,9 @@ test("BibliographyPanel : case Inclure et décompte sur la même ligne", async (
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture(12);
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new BibliographyPanel(app, plugin, container);
+    const panel = new BibliographyPanel(app, plugin, container, binding);
     await panel.render();
 
     assert.ok(container.querySelector('[aria-label="Inclure la bibliographie"]'));
@@ -162,8 +171,9 @@ test("BibliographyPanel : décompte à 0 sans fiche exploitable", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture(0);
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new BibliographyPanel(app, plugin, container);
+    const panel = new BibliographyPanel(app, plugin, container, binding);
     await panel.render();
 
     assert.equal(container.querySelector(".feuillets-edition-count").textContent, "0 référence(s)");
@@ -176,8 +186,9 @@ test("BibliographyPanel : exclue par défaut (defaultComposition), case décoch�
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture(3);
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new BibliographyPanel(app, plugin, container);
+    const panel = new BibliographyPanel(app, plugin, container, binding);
     await panel.render();
 
     assert.equal(container.querySelector('[aria-label="Inclure la bibliographie"]').checked, false);
@@ -194,8 +205,9 @@ test("BibliographyPanel : cocher Inclure écrit l'inclusion dans ProjectMeta sou
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture(1);
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new BibliographyPanel(app, plugin, container);
+    const panel = new BibliographyPanel(app, plugin, container, binding);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure la bibliographie"]');
@@ -213,8 +225,9 @@ test("BibliographyPanel : décocher rétablit l'exclusion", async () => {
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture(1);
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new BibliographyPanel(app, plugin, container);
+    const panel = new BibliographyPanel(app, plugin, container, binding);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure la bibliographie"]');
@@ -235,8 +248,9 @@ test("BibliographyPanel : fonctionne parfaitement SANS callback onPresentationCh
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture(1);
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new BibliographyPanel(app, plugin, container); // pas de callbacks
+    const panel = new BibliographyPanel(app, plugin, container, binding); // pas de callbacks
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure la bibliographie"]');
@@ -254,9 +268,10 @@ test("BibliographyPanel : callback onPresentationChanged, fourni, est appelé ap
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture(1);
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
     let calls = 0;
-    const panel = new BibliographyPanel(app, plugin, container, { onPresentationChanged: () => { calls++; } });
+    const panel = new BibliographyPanel(app, plugin, container, binding, { onPresentationChanged: () => { calls++; } });
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure la bibliographie"]');
@@ -275,8 +290,9 @@ test("BibliographyPanel : sans projet actif, ne lève pas et le toggle reste uti
   try {
     const app = { vault: createFakeVault([]).vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
     const plugin = { settings: { projectMeta: {} }, getProjectFolder: () => null, saveSettings: async () => {} };
+    const binding = { value: { bibliography: false }, isOuvrage: false, isInherited: false, update: async () => {}, resetToProject: async () => {} };
     const container = new FakeElement("div");
-    const panel = new BibliographyPanel(app, plugin, container);
+    const panel = new BibliographyPanel(app, plugin, container, binding);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure la bibliographie"]');

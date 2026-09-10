@@ -4,6 +4,7 @@ import { TFolder } from "obsidian";
 import { ContentsPanel } from "../src/ui/contents-panel.js";
 import { readGeneratedIncluded } from "../src/services/book-composition.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { createCompositionBinding } from "../src/services/ouvrage-composition.js";
 
 /* Même petit DOM factice que test/front-matter-panel.test.js (convention du
  * dépôt : dupliqué, pas partagé). Compatible avec la vraie classe Setting du
@@ -100,16 +101,23 @@ function buildFixture() {
     settings,
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
     saveSettings: async () => {},
+    refreshBinderViews: () => {},
   };
   return { app, plugin, manuscript };
+}
+
+function testBinding(plugin) {
+  const root = plugin.getProjectFolder();
+  return createCompositionBinding(plugin, root, root);
 }
 
 test("ContentsPanel : deux lignes latérales, Sommaire puis Table des matières", async () => {
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container);
+    const panel = new ContentsPanel(app, plugin, container, binding);
     await panel.render();
 
     const names = container.querySelectorAll(".feuillets-properties-key").map((n) => n.textContent);
@@ -124,8 +132,9 @@ test("ContentsPanel : cases Inclure simples, aucune édition manuelle du contenu
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container);
+    const panel = new ContentsPanel(app, plugin, container, binding);
     await panel.render();
 
     assert.ok(container.querySelector('[aria-label="Inclure le sommaire"]'));
@@ -143,8 +152,9 @@ test("ContentsPanel : n'affiche pas de description générée permanente", async
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container);
+    const panel = new ContentsPanel(app, plugin, container, binding);
     await panel.render();
 
     assert.equal(container.querySelectorAll(".setting-item-description").length, 0);
@@ -157,8 +167,9 @@ test("ContentsPanel : exclus par défaut (defaultComposition), cases décochées
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container);
+    const panel = new ContentsPanel(app, plugin, container, binding);
     await panel.render();
 
     assert.equal(container.querySelector('[aria-label="Inclure le sommaire"]').checked, false);
@@ -172,8 +183,9 @@ test("ContentsPanel : cocher Inclure écrit l'inclusion dans ProjectMeta (readGe
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container);
+    const panel = new ContentsPanel(app, plugin, container, binding);
     await panel.render();
 
     const summaryInclude = container.querySelector('[aria-label="Inclure le sommaire"]');
@@ -192,8 +204,9 @@ test("ContentsPanel : décocher après avoir coché rétablit l'exclusion", asyn
   const restore = installDom();
   try {
     const { app, plugin, manuscript } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container);
+    const panel = new ContentsPanel(app, plugin, container, binding);
     await panel.render();
 
     const tocInclude = container.querySelector('[aria-label="Inclure la table des matières"]');
@@ -214,8 +227,9 @@ test("ContentsPanel : relit l'état persisté au rendu suivant (round-trip compl
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container);
+    const panel = new ContentsPanel(app, plugin, container, binding);
     await panel.render();
 
     container.querySelector('[aria-label="Inclure le sommaire"]').click();
@@ -224,7 +238,7 @@ test("ContentsPanel : relit l'état persisté au rendu suivant (round-trip compl
 
     // Nouvelle instance, même plugin (mêmes réglages persistés) — simule un
     // rendu ultérieur (réouverture de l'onglet, par exemple).
-    const second = new ContentsPanel(app, plugin, container);
+    const second = new ContentsPanel(app, plugin, container, testBinding(plugin));
     await second.render();
     assert.equal(container.querySelector('[aria-label="Inclure le sommaire"]').checked, true);
   } finally {
@@ -236,8 +250,9 @@ test("ContentsPanel : fonctionne parfaitement SANS callback onPresentationChange
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container); // pas de callbacks
+    const panel = new ContentsPanel(app, plugin, container, binding); // pas de callbacks
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure le sommaire"]');
@@ -255,9 +270,10 @@ test("ContentsPanel : callback onPresentationChanged, fourni, est appelé après
   const restore = installDom();
   try {
     const { app, plugin } = buildFixture();
+    const binding = testBinding(plugin);
     const container = new FakeElement("div");
     let calls = 0;
-    const panel = new ContentsPanel(app, plugin, container, { onPresentationChanged: () => { calls++; } });
+    const panel = new ContentsPanel(app, plugin, container, binding, { onPresentationChanged: () => { calls++; } });
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure le sommaire"]');
@@ -276,8 +292,9 @@ test("ContentsPanel : sans projet actif, ne lève pas et les toggles restent uti
   try {
     const app = { vault: createFakeVault([]).vault };
     const plugin = { settings: { projectMeta: {} }, getProjectFolder: () => null, saveSettings: async () => {} };
+    const binding = { value: { summary: false, toc: false }, isOuvrage: false, isInherited: false, update: async () => {}, resetToProject: async () => {} };
     const container = new FakeElement("div");
-    const panel = new ContentsPanel(app, plugin, container);
+    const panel = new ContentsPanel(app, plugin, container, binding);
     await panel.render();
 
     const include = container.querySelector('[aria-label="Inclure le sommaire"]');

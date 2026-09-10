@@ -1,8 +1,8 @@
 import { Notice, setIcon, setTooltip, TFolder, type App } from "obsidian";
 import { t } from "../i18n/index.js";
-import { ANNEXES, defaultComposition, readGeneratedIncluded, writeGeneratedIncluded } from "../services/book-composition.js";
 import { annexesFolder, annexesFiles } from "../services/compile-export.js";
 import { ensureFolder } from "../services/project-files.js";
+import type { OuvrageCompositionBinding } from "../services/ouvrage-composition.js";
 
 /** Sous-ensemble de plugin réellement utilisé par ce composant — même
  * contrat que BibliographyPanelPlugin (ui/bibliography-panel.ts) : ni
@@ -19,21 +19,6 @@ export type AnnexesPanelCallbacks = {
    * parfaitement sans lui, y compris sans PreviewView. */
   onPresentationChanged?: () => Promise<void> | void;
 };
-
-const DEFAULT_INCLUDED = defaultComposition().find((item) => item.id === ANNEXES)?.included ?? false;
-
-/** Métadonnées du projet courant, créées si absentes — même mécanisme que
- * BibliographyPanel.currentProjectMeta : un seul conteneur par projet
- * (`settings.projectMeta`), jamais un second système de réglages. Retourne
- * `null` sans projet actif. */
-function currentProjectMeta(plugin: AnnexesPanelPlugin): ProjectMeta | null {
-  const folder = plugin.getProjectFolder();
-  if (!folder) return null;
-  if (!plugin.settings.projectMeta) plugin.settings.projectMeta = {};
-  const meta = plugin.settings.projectMeta[folder.path] || {};
-  plugin.settings.projectMeta[folder.path] = meta;
-  return meta;
-}
 
 /** Sous-ensemble de l'explorateur de fichiers natif réellement utilisé ici
  * — même patron que revealInFileExplorer (ui/edition-docs-content.ts),
@@ -53,13 +38,18 @@ function revealFolderInFileExplorer(app: App, folder: TFolder): boolean {
 
 /**
  * Sous-section « Annexes » (Phase 9) : de VRAIS fichiers Markdown, sous
- * Manuscrit/Annexes (ou Manuscrit/Appendices), édités normalement dans le
+ * <racine éditoriale>/Annexes (ou /Appendices), édités normalement dans le
  * Binder — ce composant ne montre ni ne modifie leur contenu, seulement
- * leur inclusion globale (persistée dans `ProjectMeta` via
- * `writeGeneratedIncluded`, même système que summary/toc/tables/
- * bibliography) et, en confort, un raccourci pour ouvrir ou créer le
- * dossier. `compile: false` sur un fichier individuel reste respecté à la
- * compilation (services/compile-export.ts), sans réglage propre ici.
+ * leur inclusion globale et, en confort, un raccourci pour ouvrir ou créer
+ * le dossier. `compile: false` sur un fichier individuel reste respecté à
+ * la compilation (services/compile-export.ts), sans réglage propre ici.
+ *
+ * LOT 5B — SOURCE UNIQUE : l'inclusion vient de `binding.value.annexes`
+ * (services/ouvrage-composition.ts effectiveComposition()), jamais un
+ * second calcul via `ProjectMeta` ici. Le dossier Annexes, lui, est
+ * cherché sous `editorialRoot` (WARPI ou un ouvrage) — jamais toujours la
+ * racine globale : les pages Front/Annexes d'un ouvrage restent propres à
+ * CET ouvrage.
  *
  * Même contrat que les autres sous-sections de Composition : callback
  * `onPresentationChanged` facultatif, fonctionne parfaitement sans
@@ -70,21 +60,21 @@ export class AnnexesPanel {
     private app: App,
     private plugin: AnnexesPanelPlugin,
     private container: HTMLElement,
+    private binding: OuvrageCompositionBinding,
+    private editorialRoot: TFolder,
     private callbacks: AnnexesPanelCallbacks = {}
   ) {}
 
   includedState(): boolean {
-    const meta = currentProjectMeta(this.plugin);
-    const stored = meta ? readGeneratedIncluded(meta, ANNEXES) : undefined;
-    return stored ?? DEFAULT_INCLUDED;
+    return this.binding.value.annexes;
   }
 
   private folder(): TFolder | null {
-    return annexesFolder(this.app, this.plugin.getProjectFolder());
+    return annexesFolder(this.app, this.editorialRoot);
   }
 
   fileCount(): number {
-    return annexesFiles(this.app, this.plugin.settings, this.plugin.getProjectFolder()).length;
+    return annexesFiles(this.app, this.plugin.settings, this.editorialRoot).length;
   }
 
   /** Une ligne latérale compacte : nom, décompte, inclusion et dossier. */
@@ -118,22 +108,17 @@ export class AnnexesPanel {
     });
   }
 
-  /** Crée UNIQUEMENT `<Manuscrit>/Annexes` — aucun fichier à l'intérieur. */
+  /** Crée UNIQUEMENT `<racine éditoriale>/Annexes` — aucun fichier à l'intérieur. */
   private async createFolder(): Promise<void> {
-    const root = this.plugin.getProjectFolder();
-    if (!root) return;
-    await ensureFolder(this.app, `${root.path}/Annexes`);
+    await ensureFolder(this.app, `${this.editorialRoot.path}/Annexes`);
     new Notice(t("annexes.folderCreated"));
     await this.render();
     await this.callbacks.onPresentationChanged?.();
   }
 
-  /** Bascule l'inclusion — écrit immédiatement dans `ProjectMeta`, sans
-   * jamais toucher aux fichiers d'Annexes (édités dans le Binder). */
+  /** Bascule l'inclusion via le binding — jamais `ProjectMeta` directement. */
   private async setIncluded(included: boolean): Promise<void> {
-    const meta = currentProjectMeta(this.plugin);
-    if (meta) writeGeneratedIncluded(meta, ANNEXES, included);
-    await this.plugin.saveSettings?.();
+    await this.binding.update({ annexes: included });
     await this.callbacks.onPresentationChanged?.();
   }
 }
