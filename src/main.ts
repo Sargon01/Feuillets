@@ -13,7 +13,7 @@
  */
 
 import { DEFAULT_SETTINGS } from "./default-settings.js";
-import type { CompileScope } from "./services/compile-scope.js";
+import { type CompileScope, createProjectScope, createFolderScope, createFileScope, createSelectionScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
 import { migrateLegacyProjectTypes } from "./services/project-settings.js";
@@ -60,7 +60,7 @@ import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
 import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
-import { resolveEditorialRoot, remapOuvrageRoots } from "./services/editorial-roots.js";
+import { resolveEditorialRoot, remapOuvrageRoots, isOuvrageRoot } from "./services/editorial-roots.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
 import { workspaceIndentParagraphs, workspaceLabelColor, workspaceLineHeight, workspaceLiveEmptyLines, workspaceLiveHyphenation, workspaceLiveJustify, workspaceReadingFontSize, workspaceStatusColor, workspaceTextWidth, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
@@ -226,6 +226,25 @@ const RIGHT_SIDEBAR_WIDTH = 280;
 
 export function isFileInsideProject(file: TFile | null, root: TFolder | null): boolean {
   return !!file && !!root && (file.path === root.path || file.path.startsWith(`${root.path}/`));
+}
+
+/** Un Preview déjà ouvert doit accepter un scope résolu pour un OUVRAGE
+ * IMBRIQUÉ qu'il contient — l'égalité stricte des `projectRoot` ne suffit
+ * plus dès qu'il existe des racines éditoriales imbriquées (WARPI/NEFES) :
+ * un Preview WARPI (project) doit suivre un feuillet de NEFES, tandis qu'un
+ * Preview NEFES (project) refuse un feuillet de WARPI ou d'un dossier
+ * frère. Un Preview non-project (folder/file/selection déjà précis) garde
+ * la règle historique d'égalité stricte — sa portée n'a pas de notion de
+ * sous-arbre à englober. Fonction libre (jamais une méthode de
+ * FeuilletsPlugin) : la classe ne déclare aucun membre `private`, une
+ * contrainte structurelle dont dépendent DocxReviewPlugin/NotesViewPlugin
+ * (Omit<ConstructorParameters<...>, …> perd le "brand" nominal des membres
+ * privés et casse leur assignabilité à FeuilletsPlugin). */
+function previewScopeAccepts(current: CompileScope | null | undefined, incoming: CompileScope): boolean {
+  if (!current) return false;
+  if (current.projectRoot === incoming.projectRoot) return true;
+  if (current.type !== "project") return false;
+  return incoming.projectRoot.startsWith(`${current.projectRoot}/`);
 }
 
 export function syncMarkdownViewProjectEditorClass(
@@ -2782,8 +2801,33 @@ class FeuilletsPlugin extends Plugin {
     const view = leaf.view;
     if (!(view instanceof ScriveningsView)) return null;
     if (!view.compileScope) return null;
-    if (view.compileScope.projectRoot !== root.path) return null;
+    if (!this.isValidEditorialRootPath(view.compileScope.projectRoot)) return null;
     return view;
+  }
+
+  /** LOT 4 — panneau Export (barre latérale) : source de vérité pour la
+   * portée affichée/exportée quand un Aperçu (Preview) est ouvert — même
+   * principe que getCentralContinuView() (Preview lui reste la référence,
+   * jamais une seconde copie de portée dans le panneau), mais Preview n'est
+   * pas la surface d'édition centrale : n'importe quelle leaf Preview du
+   * projet actif convient, pas seulement la plus récemment active. Au
+   * maximum le PREMIER Preview dont la portée porte sur ce projet (racine
+   * globale ou ouvrage valide) est retourné ; une leaf différée n'est
+   * jamais chargée pour cette seule vérification. */
+  getCentralPreviewView(): PreviewView | null {
+    const root = this.getProjectFolder();
+    if (!root) return null;
+    const workspace = this.app.workspace;
+    if (typeof workspace.getLeavesOfType !== "function") return null;
+    for (const leaf of workspace.getLeavesOfType(VIEW_PREVIEW)) {
+      if (leaf.isDeferred) continue;
+      const view = leaf.view;
+      if (!(view instanceof PreviewView)) continue;
+      if (!view.compileScope) continue;
+      if (!this.isValidEditorialRootPath(view.compileScope.projectRoot)) continue;
+      return view;
+    }
+    return null;
   }
 
   /**
@@ -2822,8 +2866,9 @@ class FeuilletsPlugin extends Plugin {
    * création, activation, révélation ni déplacement de leaf Preview.
    * Continu ne doit JAMAIS ouvrir automatiquement Preview : sans Preview du
    * même projet déjà ouvert, cette méthode ne fait rigoureusement rien.
-   * Au maximum le PREMIER Preview pertinent (même `projectRoot`) est
-   * touché ; tous les autres restent strictement inchangés. */
+   * Au maximum le PREMIER Preview pertinent (même racine éditoriale, ou
+   * ouvrage descendant — voir previewScopeAccepts) est touché ; tous les
+   * autres restent strictement inchangés. */
   async syncExistingPreviewScope(
     scope: CompileScope,
     anchor?: ScriveningsScrollAnchor | null
@@ -2834,7 +2879,7 @@ class FeuilletsPlugin extends Plugin {
     let target: WorkspaceLeaf | null = null;
     for (const leaf of leaves) {
       const view = leaf.view;
-      if (view instanceof PreviewView && view.compileScope?.projectRoot === scope.projectRoot) {
+      if (view instanceof PreviewView && previewScopeAccepts(view.compileScope, scope)) {
         target = leaf;
         break;
       }
@@ -3946,6 +3991,63 @@ class FeuilletsPlugin extends Plugin {
     const root = this.getProjectFolder();
     if (!root) return null;
     return resolveEditorialRoot(this.app, this.settings, root, node);
+  }
+
+  /** Portée d'un dossier du Binder, rattachée à son ouvrage : la racine
+   * éditoriale elle-même (racine globale ou ouvrage déclaré) devient une
+   * portée project ; tout autre dossier, une portée folder dont projectRoot
+   * est l'ouvrage qui le contient (la racine globale hors ouvrage). */
+  compileScopeForFolder(folder: TFolder): CompileScope | null {
+    const editorialRoot = this.editorialRootFor(folder);
+    if (!editorialRoot) return null;
+    if (folder.path === editorialRoot.path) return createProjectScope(editorialRoot.path);
+    return createFolderScope(editorialRoot.path, folder.path);
+  }
+
+  /** Portée d'un feuillet du Binder, rattachée à son ouvrage (racine globale
+   * hors ouvrage) — même règle que compileScopeForFolder. */
+  compileScopeForFile(file: TFile): CompileScope | null {
+    const editorialRoot = this.editorialRootFor(file);
+    if (!editorialRoot) return null;
+    return createFileScope(editorialRoot.path, file.path);
+  }
+
+  /** Portée d'une multi-sélection du Binder : `editorialRootFor()` est
+   * résolu pour CHAQUE chemin sélectionné. Si tous appartiennent à la même
+   * racine éditoriale (tous dans le même ouvrage, ou tous hors ouvrage), la
+   * portée selection prend CETTE racine comme projectRoot — une sélection
+   * entièrement dans NEFES obtient donc `projectRoot: WARPI/NEFES`. Dès que
+   * la sélection mélange plusieurs racines éditoriales (un fichier de NEFES
+   * et un fichier hors ouvrage, par exemple), on retombe sur la racine
+   * globale, comportement historique. Un chemin introuvable compte comme
+   * racine globale — jamais une exception ici. */
+  compileScopeForSelection(paths: string[]): CompileScope | null {
+    const globalRoot = this.getProjectFolder();
+    if (!globalRoot) return null;
+    let commonRoot: TFolder | null = null;
+    for (const path of paths) {
+      const node = this.app.vault.getAbstractFileByPath(path);
+      const nodeRoot = ((node instanceof TFile || node instanceof TFolder) && this.editorialRootFor(node)) || globalRoot;
+      if (commonRoot === null) {
+        commonRoot = nodeRoot;
+      } else if (commonRoot.path !== nodeRoot.path) {
+        commonRoot = globalRoot;
+        break;
+      }
+    }
+    return createSelectionScope((commonRoot || globalRoot).path, paths);
+  }
+
+  isValidEditorialRootPath(path: string): boolean {
+    if (!path || typeof path !== "string") return false;
+    const globalRoot = this.getProjectFolder();
+    if (!globalRoot) return false;
+    const cleanTargetPath = normalizePath(path.trim()).replace(/\/+$/, "");
+    const cleanGlobalPath = normalizePath(globalRoot.path.trim()).replace(/\/+$/, "");
+    if (cleanTargetPath === cleanGlobalPath) return true;
+    const folder = this.app.vault.getAbstractFileByPath(cleanTargetPath);
+    if (!(folder instanceof TFolder)) return false;
+    return isOuvrageRoot(this.app, this.settings, globalRoot, folder);
   }
   depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node, this.editorialRootFor(node)); }
   isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node, this.editorialRootFor(node)); }

@@ -134,6 +134,13 @@ export type PreviewViewPlugin = {
    * l'UNIQUE définition réutilisée par PreviewView.linkedContinuView() —
    * jamais une seconde résolution ici. */
   getCentralContinuView?(): ContinuSourceView | null;
+  /** LOT 4 — mêmes résolveurs que le Binder (main.ts#compileScopeForFolder/
+   * compileScopeForFile) : un dossier/feuillet DANS un ouvrage imbriqué
+   * obtient une portée dont projectRoot est cet ouvrage, jamais la racine
+   * globale — voir scopeBreadcrumbLevels(), seul consommateur ici. Aucune
+   * reconstruction locale de portée avec la racine globale. */
+  compileScopeForFolder?(folder: TFolder): CompileScope | null;
+  compileScopeForFile?(file: TFile): CompileScope | null;
 };
 
 export type ZoomMode = "fit-width" | "fit-page" | "manual";
@@ -648,7 +655,15 @@ export class PreviewView extends ItemView {
     // Mode document normal
     const scope = this.compileScope;
     if (scope) {
-      if (scope.type === "project") return t("preview.display.manuscript");
+      if (scope.type === "project") {
+        const globalRoot = this.plugin?.getProjectFolder();
+        if (globalRoot && scope.projectRoot !== globalRoot.path) {
+          const folder = this.app.vault.getAbstractFileByPath(scope.projectRoot);
+          const name = folder instanceof TFolder ? folder.name : this.lastPathSegment(scope.projectRoot);
+          return t("preview.display.named", { name });
+        }
+        return t("preview.display.manuscript");
+      }
       if (scope.type === "selection") return t("preview.display.selection");
       if (scope.type === "folder") {
         const folder = this.app.vault.getAbstractFileByPath(scope.path);
@@ -3201,8 +3216,20 @@ export class PreviewView extends ItemView {
     const scope = this.compileScope;
     if (!root || !scope) return null;
 
+    const editorialFolder = this.app.vault.getAbstractFileByPath(scope.projectRoot);
+    const scopeRootFolder = editorialFolder instanceof TFolder ? editorialFolder : root;
+    /* LOT 4 — CORRECTIF FINAL : le niveau racine, comme chaque niveau
+       dossier/feuillet déroulé plus bas, passe par les résolveurs du plugin
+       (mêmes que le Binder) plutôt que de reconstruire la portée à la main.
+       Un ouvrage IMBRIQUÉ (NEFES/SousOuvrage) n'a de sens que détecté par
+       `editorialRootFor()` — jamais par la seule position du segment dans le
+       chemin — d'où l'obligation de repasser par `compileScopeForFolder()`
+       ici plutôt que par un `createProjectScope(scope.projectRoot)` local. */
+    const rootScope = typeof this.plugin.compileScopeForFolder === "function"
+      ? this.plugin.compileScopeForFolder(scopeRootFolder)
+      : null;
     const levels: Array<{ title: string; scope: CompileScope }> = [
-      { title: this.binderProjectTitle(root), scope: createProjectScope(scope.projectRoot) },
+      { title: this.binderProjectTitle(scopeRootFolder), scope: rootScope ?? createProjectScope(scope.projectRoot) },
     ];
 
     if (scope.type === "selection") {
@@ -3244,9 +3271,16 @@ export class PreviewView extends ItemView {
       const node = this.app.vault.getAbstractFileByPath(nodePath);
       const isLeaf = index === rel.length - 1;
       const fileLeaf = isLeaf && node instanceof TFile;
-      const itemScope = fileLeaf
-        ? createFileScope(scope.projectRoot, nodePath)
-        : createFolderScope(scope.projectRoot, nodePath);
+      let itemScope: CompileScope;
+      if (fileLeaf) {
+        itemScope = (typeof this.plugin.compileScopeForFile === "function" ? this.plugin.compileScopeForFile(node) : null)
+          ?? createFileScope(scope.projectRoot, nodePath);
+      } else if (node instanceof TFolder) {
+        itemScope = (typeof this.plugin.compileScopeForFolder === "function" ? this.plugin.compileScopeForFolder(node) : null)
+          ?? createFolderScope(scope.projectRoot, nodePath);
+      } else {
+        itemScope = createFolderScope(scope.projectRoot, nodePath);
+      }
       const title = fileLeaf ? this.binderFileTitle(node) : node instanceof TFolder ? node.name : segment;
       levels.push({ title, scope: itemScope });
     });
@@ -3257,7 +3291,7 @@ export class PreviewView extends ItemView {
     const current = this.compileScope;
     if (!current) return false;
     if (scope.type !== current.type) return false;
-    if (scope.type === "project") return true;
+    if (scope.type === "project") return scope.projectRoot === current.projectRoot;
     if (scope.type === "file" || scope.type === "folder") {
       return (scope as { path: string }).path === (current as { path: string }).path;
     }
@@ -3817,10 +3851,14 @@ export async function openWithPreview(
   const editorLeaf = workspace.getLeaf(false);
   await editorLeaf.openFile(file, { active: true });
 
-  // 2. Résoudre le projectRoot et construire la portée file.
+  // 2. Résoudre le projectRoot et construire la portée file — rattachée à
+  //    l'ouvrage du feuillet (mêmes résolveurs que le Binder), jamais
+  //    reconstruite avec la racine globale quand le feuillet appartient à
+  //    un ouvrage imbriqué.
   const root = plugin.getProjectFolder();
+  const resolvedScope = typeof plugin.compileScopeForFile === "function" ? plugin.compileScopeForFile(file) : null;
   const projectRootPath = root ? root.path : (file.parent ? file.parent.path : file.path);
-  const fileScope = createFileScope(projectRootPath, file.path);
+  const fileScope = resolvedScope ?? createFileScope(projectRootPath, file.path);
 
   // Conservé temporairement pour compatibilité
   plugin.settings.previewMode = "scene";

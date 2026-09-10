@@ -77,6 +77,37 @@ test("les brouillons techniques sont exclus du projet mais exportables par port�
   );
 });
 
+test("une portée project sur un ouvrage imbriqué ne retient que les fichiers de l'ouvrage", () => {
+  const root = new TFolder("WARPI");
+  const rootNote = new TFile("WARPI/WARPI.md");
+  const sibling = new TFolder("WARPI/Autre");
+  const siblingScene = new TFile("WARPI/Autre/Scène A.md");
+  const nefes = new TFolder("WARPI/NEFES");
+  const nefesFront = new TFolder("WARPI/NEFES/Front");
+  const nefesTitle = new TFile("WARPI/NEFES/Front/Page de titre.md");
+  const chapter = new TFolder("WARPI/NEFES/Chapitre 1");
+  const scene = new TFile("WARPI/NEFES/Chapitre 1/Scene 1.md");
+  root.children = [sibling, nefes, rootNote];
+  for (const child of root.children) child.parent = root;
+  sibling.children = [siblingScene];
+  siblingScene.parent = sibling;
+  nefes.children = [nefesFront, chapter];
+  nefesFront.parent = nefes;
+  chapter.parent = nefes;
+  nefesFront.children = [nefesTitle];
+  nefesTitle.parent = nefesFront;
+  chapter.children = [scene];
+  scene.parent = chapter;
+  const { vault } = createFakeVault([root, rootNote, sibling, siblingScene, nefes, nefesFront, nefesTitle, chapter, scene]);
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const settings = { projectFolder: root.path, orders: {}, folderPositions: {}, compileFileName: "Manuscrit.md" };
+
+  assert.deepEqual(
+    resolveCompileScopeFiles(app, settings, { type: "project", projectRoot: "WARPI/NEFES" }).map((file) => file.path).sort(),
+    [nefesTitle.path, scene.path].sort()
+  );
+});
+
 test("sélectionner un dossier et l'un de ses fichiers ne crée pas de doublon", () => {
   const { app, chapter, first, second, settings } = createFixture();
 

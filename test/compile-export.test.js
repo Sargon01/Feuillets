@@ -2041,3 +2041,380 @@ test("Phase 1D : sans auteur dans Page de titre, projectMeta.author prioritaire 
   assert.equal(identity.title, "Titre Sur Mesure", "title de la page de titre prioritaire");
   assert.equal(identity.author, "Auteur Meta", "projectMeta.author prioritaire sur le global");
 });
+
+/* ===================== Ouvrage imbriqué : racine réelle de compilation ===================== */
+
+function createNestedOuvrageFixture(settingsOverrides = {}, { withOpening = false } = {}) {
+  const link = (parent, children) => {
+    parent.children = children;
+    for (const child of children) child.parent = parent;
+  };
+  const root = new TFolder("WARPI");
+  const rootNote = new TFile("WARPI/WARPI.md", "GLOBAL_INTERDIT");
+  const globalFront = new TFolder("WARPI/Front");
+  const globalTitle = new TFile("WARPI/Front/Page de titre.md", "---\ntype: titre\n---\n:::titre: FRONT_GLOBAL_INTERDIT\n");
+  const sibling = new TFolder("WARPI/Autre");
+  const siblingChapter = new TFolder("WARPI/Autre/Chapitre A");
+  const siblingScene = new TFile("WARPI/Autre/Chapitre A/Scène A.md", "FRERE_INTERDIT");
+  const nefes = new TFolder("WARPI/NEFES");
+  const nefesFront = new TFolder("WARPI/NEFES/Front");
+  const nefesTitle = new TFile("WARPI/NEFES/Front/Page de titre.md", "---\ntype: titre\n---\n:::titre: TITRE_NEFES\n");
+  const part = new TFolder("WARPI/NEFES/Subhanallah");
+  const chapter = new TFolder("WARPI/NEFES/Subhanallah/Chapitre 1");
+  const scene1 = new TFile("WARPI/NEFES/Subhanallah/Chapitre 1/Scene 1.md", "SCENE_NEFES_1");
+  const scene2 = new TFile("WARPI/NEFES/Subhanallah/Chapitre 1/Scene 2.md", "SCENE_NEFES_2");
+  /* Feuillet direct de la partie Subhanallah : chapitre sous NEFES, mais
+     scène d'un « chapitre » Subhanallah si l'on comptait depuis WARPI. */
+  const opening = new TFile("WARPI/NEFES/Subhanallah/Ouverture.md", "OUVERTURE_NEFES");
+  link(root, [globalFront, sibling, nefes, rootNote]);
+  link(globalFront, [globalTitle]);
+  link(sibling, [siblingChapter]);
+  link(siblingChapter, [siblingScene]);
+  link(nefes, [nefesFront, part]);
+  link(nefesFront, [nefesTitle]);
+  link(part, withOpening ? [opening, chapter] : [chapter]);
+  link(chapter, [scene1, scene2]);
+
+  const { vault } = createFakeVault([
+    root, rootNote, globalFront, globalTitle, sibling, siblingChapter, siblingScene,
+    nefes, nefesFront, nefesTitle, part, chapter, scene1, scene2,
+    ...(withOpening ? [opening] : []),
+  ]);
+  vault.cachedRead = vault.read;
+  let writes = 0;
+  const origCreate = vault.create.bind(vault);
+  const origModify = vault.modify.bind(vault);
+  const origCreateFolder = vault.createFolder.bind(vault);
+  vault.create = async (...args) => { writes++; return origCreate(...args); };
+  vault.modify = async (...args) => { writes++; return origModify(...args); };
+  vault.createFolder = async (...args) => { writes++; return origCreateFolder(...args); };
+
+  const frontmatter = new Map([
+    [globalTitle.path, { type: "titre" }],
+    [nefesTitle.path, { type: "titre" }],
+    [scene1.path, { title: "Première scène" }],
+    [opening.path, { title: "Ouverture" }],
+  ]);
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }),
+    },
+  };
+  const settings = {
+    projectFolder: root.path,
+    level1Role: "parties",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: { [root.path]: { ouvrageRoots: { NEFES: { version: 1 } } } },
+    ...settingsOverrides,
+  };
+  return { app, settings, vault, writeCount: () => writes, globalTitle, nefesTitle, scene1, scene2, siblingScene, opening };
+}
+
+test("compile : une portée project sur un ouvrage imbriqué part de l'ouvrage, jamais de la racine globale", async () => {
+  const { app, settings, vault, writeCount, nefesTitle, scene1, scene2 } = createNestedOuvrageFixture();
+
+  const result = await compile(app, settings, null, { type: "project", projectRoot: "WARPI/NEFES" }, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.match(result.manuscript, /TITRE_NEFES/);
+  assert.match(result.manuscript, /SCENE_NEFES_1/);
+  assert.match(result.manuscript, /SCENE_NEFES_2/);
+  assert.doesNotMatch(result.manuscript, /GLOBAL_INTERDIT/);
+  assert.doesNotMatch(result.manuscript, /FRONT_GLOBAL_INTERDIT/);
+  assert.doesNotMatch(result.manuscript, /FRERE_INTERDIT/);
+
+  /* NEFES est la profondeur 0 : sa page de titre (son propre Front) ouvre
+     le livre, puis Subhanallah (partie, `#`) et Chapitre 1 (chapitre, `##`).
+     Aucun titre de dossier de WARPI (Front, Autre, NEFES) ne précède. */
+  assert.deepEqual(
+    result.segments.map((s) => s.path),
+    [nefesTitle.path, null, null, scene1.path, scene2.path]
+  );
+  assert.equal(result.segments[0].frontType, "titre");
+  assert.deepEqual(
+    result.segments.filter((s) => s.path === null).map((s) => s.text),
+    ["# Subhanallah", "## Chapitre 1"]
+  );
+  assert.equal(result.segments[1].structuralType, "part");
+  assert.doesNotMatch(result.manuscript, /^#+ (WARPI|NEFES|Autre|Front|Chapitre A)\s*$/m);
+  assert.doesNotMatch(result.manuscript, /^#+\s*$/m);
+
+  assert.equal(result.outPath, "");
+  assert.equal(writeCount(), 0);
+  assert.equal(vault.getAbstractFileByPath("WARPI/_Feuillets/Sortie/Manuscrit.md"), null);
+});
+
+test("compile : une portée project sur la racine globale compile toujours tout le projet", async () => {
+  const { app, settings, writeCount, globalTitle } = createNestedOuvrageFixture();
+
+  const result = await compile(app, settings, null, { type: "project", projectRoot: "WARPI" }, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.match(result.manuscript, /GLOBAL_INTERDIT/);
+  assert.match(result.manuscript, /FRONT_GLOBAL_INTERDIT/);
+  assert.match(result.manuscript, /FRERE_INTERDIT/);
+  assert.match(result.manuscript, /TITRE_NEFES/);
+  assert.match(result.manuscript, /SCENE_NEFES_1/);
+  assert.match(result.manuscript, /^# Autre$/m);
+  assert.match(result.manuscript, /^# NEFES$/m);
+  assert.equal(result.segments.find((s) => s.path === globalTitle.path)?.frontType, "titre");
+  assert.equal(writeCount(), 0);
+});
+
+test("compile : une portée folder rattachée à un ouvrage est calculée relativement à l'ouvrage", async () => {
+  const { app, settings, writeCount, scene1, scene2 } = createNestedOuvrageFixture();
+
+  const result = await compile(
+    app, settings, null,
+    { type: "folder", projectRoot: "WARPI/NEFES", path: "WARPI/NEFES/Subhanallah" },
+    null, { writeOutput: false }
+  );
+
+  assert.ok(result);
+  /* Subhanallah est un enfant direct de NEFES : partie de niveau `#`, et
+     non `##` comme elle le serait sous WARPI. */
+  assert.deepEqual(result.segments.map((s) => s.path), [null, null, scene1.path, scene2.path]);
+  assert.deepEqual(
+    result.segments.filter((s) => s.path === null).map((s) => s.text),
+    ["# Subhanallah", "## Chapitre 1"]
+  );
+  assert.doesNotMatch(result.manuscript, /GLOBAL_INTERDIT|FRONT_GLOBAL_INTERDIT|FRERE_INTERDIT|TITRE_NEFES/);
+  assert.equal(writeCount(), 0);
+});
+
+test("compile : une portée file rattachée à un ouvrage est calculée relativement à l'ouvrage", async () => {
+  const { app, settings, writeCount, scene1 } = createNestedOuvrageFixture({ insertSceneTitles: true });
+
+  const result = await compile(
+    app, settings, null,
+    { type: "file", projectRoot: "WARPI/NEFES", path: scene1.path },
+    null, { writeOutput: false }
+  );
+
+  assert.ok(result);
+  /* Scène de profondeur 2 sous NEFES (Subhanallah/Chapitre 1) : dans un
+     ouvrage déclaré, le titre automatique d'une scène descend d'un niveau
+     supplémentaire — `####`, jamais `###` (CORRECTIF LOT 4, titres
+     automatiques des scènes en H4). */
+  assert.deepEqual(result.segments.map((s) => s.path), [scene1.path]);
+  assert.equal(result.manuscript, "#### Première scène\n\nSCENE_NEFES_1");
+  assert.doesNotMatch(result.manuscript, /GLOBAL_INTERDIT|FRONT_GLOBAL_INTERDIT|FRERE_INTERDIT|TITRE_NEFES|SCENE_NEFES_2/);
+  assert.equal(writeCount(), 0);
+});
+
+test("compile : un feuillet direct d'une partie d'ouvrage garde son rôle de chapitre relatif à l'ouvrage", async () => {
+  const { app, settings, writeCount, opening } = createNestedOuvrageFixture({}, { withOpening: true });
+
+  const result = await compile(
+    app, settings, null,
+    { type: "file", projectRoot: "WARPI/NEFES", path: opening.path },
+    null, { writeOutput: false }
+  );
+
+  assert.ok(result);
+  /* Sous NEFES, Subhanallah est une partie : Ouverture en est un chapitre
+     titré `##`. Calculée depuis WARPI, Subhanallah deviendrait un chapitre
+     et Ouverture une scène sans titre. */
+  assert.equal(result.manuscript, "## Ouverture\n\nOUVERTURE_NEFES");
+  assert.equal(writeCount(), 0);
+});
+
+test("compile : les portées folder et file hors ouvrage restent calculées depuis la racine globale", async () => {
+  const { app, settings, siblingScene } = createNestedOuvrageFixture();
+
+  const folderResult = await compile(
+    app, settings, null,
+    { type: "folder", projectRoot: "WARPI", path: "WARPI/Autre" },
+    null, { writeOutput: false }
+  );
+  assert.ok(folderResult);
+  assert.deepEqual(folderResult.segments.map((s) => s.path), [null, null, siblingScene.path]);
+  assert.deepEqual(
+    folderResult.segments.filter((s) => s.path === null).map((s) => s.text),
+    ["# Autre", "## Chapitre A"]
+  );
+  assert.doesNotMatch(folderResult.manuscript, /GLOBAL_INTERDIT|TITRE_NEFES|SCENE_NEFES/);
+
+  const fileResult = await compile(
+    app, settings, null,
+    { type: "file", projectRoot: "WARPI", path: siblingScene.path },
+    null, { writeOutput: false }
+  );
+  assert.ok(fileResult);
+  assert.equal(fileResult.manuscript, "FRERE_INTERDIT");
+});
+
+/* ===================== CORRECTIF LOT 4 — titres automatiques des scènes en H4 ===================== */
+
+function createTitleBumpFixture({ withOuvrage = true, insertSceneTitles = true, sceneContent = "AL_RAHMAN_TEXTE" } = {}) {
+  const link = (parent, children) => {
+    parent.children = children;
+    for (const child of children) child.parent = parent;
+  };
+  /* Hors ouvrage (withOuvrage: false) : PAS de niveau NEFES intercalaire —
+     `nefes` DÉSIGNE alors la racine globale elle-même, pour comparer les
+     deux scénarios à EXACTEMENT la même profondeur Partie/Chapitre/Scène
+     (jamais une profondeur artificiellement creusée d'un cran par un
+     dossier NEFES resté présent mais non déclaré). */
+  const root = new TFolder("WARPI");
+  const nefes = withOuvrage ? new TFolder("WARPI/NEFES") : root;
+  const part = new TFolder(`${nefes.path}/Subhanallah`);
+  const chapter = new TFolder(`${part.path}/Chapitre 1`);
+  const scene = new TFile(`${chapter.path}/Al-Rahman.md`, sceneContent);
+  if (withOuvrage) link(root, [nefes]);
+  link(nefes, [part]);
+  link(part, [chapter]);
+  link(chapter, [scene]);
+
+  const entries = withOuvrage ? [root, nefes, part, chapter, scene] : [root, part, chapter, scene];
+  const { vault } = createFakeVault(entries);
+  vault.cachedRead = vault.read;
+  const frontmatter = new Map([[scene.path, { title: "Al-Rahman" }]]);
+  const app = {
+    vault,
+    metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }) },
+  };
+  const settings = {
+    projectFolder: root.path,
+    level1Role: "parties",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: withOuvrage ? { [root.path]: { ouvrageRoots: { NEFES: { version: 1 } } } } : {},
+  };
+  return { app, settings, root, nefes, part, chapter, scene };
+}
+
+test("compile : dans un ouvrage déclaré, le titre automatique d'une scène est généré en H4 — identique en portée project, folder et file", async () => {
+  const { app, settings, nefes, chapter, scene } = createTitleBumpFixture();
+
+  const projectResult = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+  assert.ok(projectResult);
+  assert.deepEqual(
+    projectResult.segments.filter((s) => s.path === null).map((s) => s.text),
+    ["# Subhanallah", "## Chapitre 1"],
+    "la partie reste en H1 et le chapitre en H2"
+  );
+  assert.equal(projectResult.manuscript, "# Subhanallah\n\n## Chapitre 1\n\n#### Al-Rahman\n\nAL_RAHMAN_TEXTE");
+
+  const folderResult = await compile(app, settings, null, { type: "folder", projectRoot: nefes.path, path: chapter.path }, null, { writeOutput: false });
+  assert.ok(folderResult);
+  assert.equal(folderResult.manuscript, "## Chapitre 1\n\n#### Al-Rahman\n\nAL_RAHMAN_TEXTE");
+
+  const fileResult = await compile(app, settings, null, { type: "file", projectRoot: nefes.path, path: scene.path }, null, { writeOutput: false });
+  assert.ok(fileResult);
+  assert.equal(fileResult.manuscript, "#### Al-Rahman\n\nAL_RAHMAN_TEXTE");
+});
+
+test("compile : hors ouvrage aussi, le titre automatique d'une scène est généré en H4 (RECTIFICATION LOT 4 — niveau absolu, plus jamais H3)", async () => {
+  const { app, settings, nefes } = createTitleBumpFixture({ withOuvrage: false });
+
+  const result = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.equal(result.manuscript, "# Subhanallah\n\n## Chapitre 1\n\n#### Al-Rahman\n\nAL_RAHMAN_TEXTE");
+});
+
+test("compile : une scène plus profondément nichée reste en H4, jamais H5 — le niveau est absolu, pas depth + 1", async () => {
+  const link = (parent, children) => {
+    parent.children = children;
+    for (const child of children) child.parent = parent;
+  };
+  const root = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const part = new TFolder("WARPI/NEFES/Subhanallah");
+  const subPart = new TFolder("WARPI/NEFES/Subhanallah/Sous-partie");
+  const chapter = new TFolder("WARPI/NEFES/Subhanallah/Sous-partie/Chapitre 1");
+  const scene = new TFile("WARPI/NEFES/Subhanallah/Sous-partie/Chapitre 1/Al-Rahman.md", "AL_RAHMAN_TEXTE");
+  link(root, [nefes]);
+  link(nefes, [part]);
+  link(part, [subPart]);
+  link(subPart, [chapter]);
+  link(chapter, [scene]);
+
+  const { vault } = createFakeVault([root, nefes, part, subPart, chapter, scene]);
+  vault.cachedRead = vault.read;
+  const frontmatter = new Map([[scene.path, { title: "Al-Rahman" }]]);
+  const app = {
+    vault,
+    metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatter.get(file.path) || {} }) },
+  };
+  const settings = {
+    projectFolder: root.path,
+    level1Role: "parties",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: { [root.path]: { ouvrageRoots: { NEFES: { version: 1 } } } },
+  };
+
+  const result = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+
+  assert.ok(result);
+  /* Un niveau de dossier supplémentaire (Sous-partie) avant le chapitre :
+     un calcul dérivé de la profondeur du parcours (depth + 1, ou tout
+     variante qui en dépendrait) pourrait descendre au-delà de H4 selon la
+     façon dont ce niveau intermédiaire est compté. Le niveau du titre de
+     scène est ABSOLU (role === "scene" → 4) : il reste H4, jamais H5 ni
+     davantage, quel que soit le nombre de dossiers traversés. */
+  assert.match(result.manuscript, /#### Al-Rahman\n\nAL_RAHMAN_TEXTE$/);
+  assert.doesNotMatch(result.manuscript, /##### Al-Rahman/);
+});
+
+test("compile : dans un ouvrage, un titre H2 déjà écrit à la main dans le contenu de la scène n'est jamais remplacé par le H4 automatique", async () => {
+  const { app, settings, nefes } = createTitleBumpFixture({
+    sceneContent: "## Titre écrit à la main\n\nTexte de la scène.",
+  });
+
+  const result = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.match(result.manuscript, /## Titre écrit à la main\n\nTexte de la scène\.$/);
+  assert.doesNotMatch(result.manuscript, /####/);
+});
+
+test("compile : dans un ouvrage, un titre composé sur deux lignes (H2 + H3 manuels) est conservé sans modification", async () => {
+  const { app, settings, nefes } = createTitleBumpFixture({
+    sceneContent: "## Titre principal\n\n### Sous-titre\n\nTexte de la scène.",
+  });
+
+  const result = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.match(result.manuscript, /## Titre principal\n\n### Sous-titre\n\nTexte de la scène\.$/);
+  assert.doesNotMatch(result.manuscript, /####/);
+});
+
+test("compile : dans un ouvrage, aucun titre automatique de scène n'est généré quand les titres de scènes sont désactivés", async () => {
+  const { app, settings, nefes } = createTitleBumpFixture({ insertSceneTitles: false });
+
+  const result = await compile(app, settings, null, { type: "project", projectRoot: nefes.path }, null, { writeOutput: false });
+
+  assert.ok(result);
+  assert.equal(result.manuscript, "# Subhanallah\n\n## Chapitre 1\n\nAL_RAHMAN_TEXTE");
+  assert.doesNotMatch(result.manuscript, /#### Al-Rahman/);
+});

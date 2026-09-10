@@ -15,6 +15,7 @@ import { loadContentCollections, type ContentCollection } from "../services/cont
 import { type CompileScope } from "../services/compile-scope.js";
 import { createFileScope, createFolderScope, createProjectScope } from "../services/compile-scope.js";
 import { isProjectDraft } from "../services/project-drafts.js";
+import { isOuvrageRoot, resolveEditorialRoot } from "../services/editorial-roots.js";
 
 type ExportPanelSettings = FeuilletsSettings & {
   exportTemplate: string;
@@ -41,6 +42,17 @@ type DerivationDropdown = {
   selectEl?: HTMLSelectElement;
 };
 
+/** Sous-ensemble de PreviewView réellement utilisé par le panneau Export
+ * pour son hook vers l'Aperçu central (CORRECTIF FINAL LOT 4, §2) — même
+ * principe que le sous-ensemble déjà utilisé pour getCentralContinuView().
+ * `setCompileScope` EST le mécanisme existant de PreviewView qui change la
+ * portée ET relance son rendu (services/../views/preview-view.ts) : le
+ * panneau ne réimplémente jamais ce comportement, il l'appelle. */
+export type CentralPreviewView = {
+  compileScope: CompileScope | null;
+  setCompileScope(scope: CompileScope): Promise<void>;
+};
+
 /** Sous-ensemble de PreviewViewPlugin réellement utilisé par le panneau
  * Export. Un type structurel propre, plutôt qu'un import du plugin de
  * PreviewView : le panneau ne doit connaître ni importer PreviewView. Étend
@@ -52,6 +64,14 @@ export type ExportPanelPlugin = ExportWorkflowPlugin & {
   getLeafForOpeningFile?(): WorkspaceLeaf;
   saveSettings?(): Promise<void>;
   getCentralContinuView?(): { compileScope: CompileScope | null } | null;
+  /** CORRECTIF FINAL LOT 4, §2 : Aperçu (Preview) CENTRAL déjà ouvert sur ce
+   * projet — main.ts#getCentralPreviewView(), même principe que
+   * getCentralContinuView(). Quand il existe, sa `compileScope` EST le
+   * contexte affiché par le panneau (jamais une seconde copie indépendante
+   * de la portée) et tout choix de portée dans ce panneau lui est appliqué
+   * via `setCompileScope`, jamais via `rememberExportScope`. */
+  getCentralPreviewView?(): CentralPreviewView | null;
+  isValidEditorialRootPath?(path: string): boolean;
 };
 
 /** Phase 1 : le panneau ne dépend plus d'aucun callback obligatoire vers
@@ -104,12 +124,59 @@ export class ExportPanel {
      dérive lui-même le libellé, à partir des mêmes clés i18n
      `preview.scope.*` qu'utilisait PreviewView. */
 
-  private resolveScope(): CompileScope | null {
-    return this.callbacks.getScope ? this.callbacks.getScope() : currentExportScope(this.plugin);
+  private isOuvragePath(path: string | undefined | null): boolean {
+    if (!path || typeof path !== "string") return false;
+    const root = this.plugin.getProjectFolder();
+    if (!root) return false;
+    const cleanPath = path.replace(/\/+$/, "");
+    const cleanRoot = root.path.replace(/\/+$/, "");
+    if (cleanPath === cleanRoot) return false;
+    if (typeof this.plugin.isValidEditorialRootPath === "function") {
+      return this.plugin.isValidEditorialRootPath(cleanPath);
+    }
+    const folder = this.app.vault.getAbstractFileByPath(cleanPath);
+    if (!(folder instanceof TFolder)) return false;
+    return isOuvrageRoot(this.app, this.plugin.settings, root, folder);
   }
 
-  private scopeLabel(): string {
-    const scope = this.resolveScope();
+  /** CORRECTIF FINAL LOT 4, §2 : l'Aperçu (Preview) central déjà ouvert sur
+   * ce projet, s'il existe — main.ts#getCentralPreviewView(). `null` sinon,
+   * pour un repli intégral sur le comportement Continu/session existant. */
+  private centralPreview(): CentralPreviewView | null {
+    return this.plugin.getCentralPreviewView?.() ?? null;
+  }
+
+  private resolveScope(): CompileScope | null {
+    if (this.callbacks.getScope) {
+      return this.callbacks.getScope();
+    }
+    /* Un Aperçu central est la SOURCE DE VÉRITÉ absolue de la portée
+       affichée par ce panneau — jamais une seconde copie indépendante
+       (`activeExportScope`) tant qu'il reste ouvert. Sans lui, comportement
+       Continu/session intégralement inchangé (voir plus bas). */
+    const preview = this.centralPreview();
+    if (preview) return preview.compileScope ?? currentExportScope(this.plugin);
+
+    const root = this.plugin.getProjectFolder();
+    if (!root) return null;
+
+    const continuScope = this.plugin.getCentralContinuView?.()?.compileScope;
+    if (continuScope && this.isOuvragePath(continuScope.projectRoot)) {
+      if (!this.plugin.activeExportScope || this.isOuvragePath(this.plugin.activeExportScope.projectRoot)) {
+        return continuScope;
+      }
+    }
+
+    const sessionScope = this.plugin.activeExportScope;
+    if (sessionScope && this.isOuvragePath(sessionScope.projectRoot)) {
+      return sessionScope;
+    }
+
+    return currentExportScope(this.plugin);
+  }
+
+  private scopeLabel(explicitScope?: CompileScope | null): string {
+    const scope = explicitScope !== undefined ? explicitScope : this.resolveScope();
     if (!scope) return t("preview.scope.project");
     switch (scope.type) {
       case "file":
@@ -117,6 +184,9 @@ export class ExportPanel {
       case "folder":
         return t("preview.scope.folder");
       case "project":
+        if (this.isOuvragePath(scope.projectRoot)) {
+          return t("preview.scope.ouvrage");
+        }
         return t("preview.scope.project");
       case "selection":
         return t("preview.scope.selection", { count: String(scope.paths.length) });
@@ -272,11 +342,7 @@ export class ExportPanel {
   }
 
   private quickScopeTooltip(scope: CompileScope | null): string {
-    const label = scope?.type === "selection"
-      ? t("preview.scope.selection", { count: String(scope.paths.length) })
-      : scope?.type === "file" ? t("preview.scope.file")
-      : scope?.type === "folder" ? t("preview.scope.folder")
-      : t("preview.scope.project");
+    const label = this.scopeLabel(scope);
     return t("preview.export.scopeTooltip", { scope: label });
   }
 
@@ -285,33 +351,132 @@ export class ExportPanel {
     return t("preview.export.formatTooltip", { format: label });
   }
 
+  private findContextOuvrageFolder(context: CompileScope | null): TFolder | null {
+    const root = this.plugin.getProjectFolder();
+    if (!root) return null;
+
+    const current = this.resolveScope();
+    if (current && this.isOuvragePath(current.projectRoot)) {
+      const folder = this.app.vault.getAbstractFileByPath(current.projectRoot);
+      if (folder instanceof TFolder) return folder;
+    }
+
+    const continuScope = this.plugin.getCentralContinuView?.()?.compileScope;
+    if (continuScope) {
+      if (this.isOuvragePath(continuScope.projectRoot)) {
+        const folder = this.app.vault.getAbstractFileByPath(continuScope.projectRoot);
+        if (folder instanceof TFolder) return folder;
+      }
+      const pathToCheck =
+        continuScope.type === "selection"
+          ? continuScope.paths[0]
+          : continuScope.type === "project"
+            ? continuScope.projectRoot
+            : continuScope.path;
+      if (pathToCheck) {
+        const file = this.app.vault.getAbstractFileByPath(pathToCheck);
+        if (file) {
+          const editorial = resolveEditorialRoot(this.app, this.plugin.settings, root, file);
+          if (editorial.path !== root.path) return editorial;
+        }
+      }
+    }
+
+    if (context) {
+      if (this.isOuvragePath(context.projectRoot)) {
+        const folder = this.app.vault.getAbstractFileByPath(context.projectRoot);
+        if (folder instanceof TFolder) return folder;
+      }
+      const pathToCheck =
+        context.type === "selection"
+          ? context.paths[0]
+          : context.type === "project"
+            ? context.projectRoot
+            : context.path;
+      if (pathToCheck) {
+        const file = this.app.vault.getAbstractFileByPath(pathToCheck);
+        if (file) {
+          const editorial = resolveEditorialRoot(this.app, this.plugin.settings, root, file);
+          if (editorial.path !== root.path) return editorial;
+        }
+      }
+    }
+
+    return null;
+  }
+
   private showQuickScopeMenu(event: MouseEvent, button: HTMLButtonElement): void {
     const current = this.resolveScope();
     const context = this.resolveContextScope();
     const root = this.plugin.getProjectFolder();
     const menu = new Menu();
-    const addScope = (value: string, title: string): void => {
-      menu.addItem((item) => item.setTitle(title).setChecked((current?.type || "project") === value).onClick(() => {
-        this.setEditionScope(value, context);
-        void this.updateQuickScopeButton(button);
-      }));
-    };
+    const ouvrageFolder = this.findContextOuvrageFolder(context);
 
-    addScope("project", t("preview.scope.project"));
+    const isCurrentOuvrage = Boolean(
+      current?.type === "project" && ouvrageFolder && current.projectRoot === ouvrageFolder.path
+    );
+
+    menu.addItem((item) =>
+      item
+        .setTitle(t("preview.scope.project"))
+        .setChecked(current?.type === "project" && !isCurrentOuvrage)
+        .onClick(() => {
+          void this.setEditionScope("project", context).then(() => this.updateQuickScopeButton(button));
+        })
+    );
+
+    if (ouvrageFolder) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("preview.scope.ouvrage"))
+          .setChecked(isCurrentOuvrage)
+          .onClick(() => {
+            void this.setEditionScope("ouvrage", context, ouvrageFolder.path).then(() => this.updateQuickScopeButton(button));
+          })
+      );
+    }
 
     if (context && root) {
       if (context.type === "folder") {
-        if (context.path !== root.path) {
-          addScope("folder", t("preview.scope.folder"));
+        if (context.path !== root.path && (!ouvrageFolder || context.path !== ouvrageFolder.path)) {
+          menu.addItem((item) =>
+            item
+              .setTitle(t("preview.scope.folder"))
+              .setChecked(current?.type === "folder")
+              .onClick(() => {
+                void this.setEditionScope("folder", context).then(() => this.updateQuickScopeButton(button));
+              })
+          );
         }
       } else if (context.type === "file") {
         const parentFolder = this.resolveParentFolder(context.path);
-        if (parentFolder && parentFolder.path !== root.path) {
-          addScope("folder", t("preview.scope.folder"));
+        if (parentFolder && parentFolder.path !== root.path && (!ouvrageFolder || parentFolder.path !== ouvrageFolder.path)) {
+          menu.addItem((item) =>
+            item
+              .setTitle(t("preview.scope.folder"))
+              .setChecked(current?.type === "folder")
+              .onClick(() => {
+                void this.setEditionScope("folder", context).then(() => this.updateQuickScopeButton(button));
+              })
+          );
         }
-        addScope("file", t("preview.scope.file"));
+        menu.addItem((item) =>
+          item
+            .setTitle(t("preview.scope.file"))
+            .setChecked(current?.type === "file")
+            .onClick(() => {
+              void this.setEditionScope("file", context).then(() => this.updateQuickScopeButton(button));
+            })
+        );
       } else if (context.type === "selection") {
-        addScope("selection", t("preview.scope.selection", { count: String(context.paths.length) }));
+        menu.addItem((item) =>
+          item
+            .setTitle(t("preview.scope.selection", { count: String(context.paths.length) }))
+            .setChecked(current?.type === "selection")
+            .onClick(() => {
+              void this.setEditionScope("selection", context).then(() => this.updateQuickScopeButton(button));
+            })
+        );
       }
     }
 
@@ -514,13 +679,19 @@ export class ExportPanel {
   private resolveContextScope(): CompileScope | null {
     const root = this.plugin.getProjectFolder();
     if (!root) return null;
+    const previewScope = this.centralPreview()?.compileScope;
+    if (previewScope && (previewScope.projectRoot === root.path || this.isOuvragePath(previewScope.projectRoot))) {
+      return previewScope;
+    }
     const continuScope = this.plugin.getCentralContinuView?.()?.compileScope;
-    if (continuScope && continuScope.projectRoot === root.path) {
+    if (continuScope && (continuScope.projectRoot === root.path || this.isOuvragePath(continuScope.projectRoot))) {
       return continuScope;
     }
     const active = this.activeProjectFile();
     if (active) {
-      return createFileScope(root.path, active.path);
+      const activeOuvrage = this.findContextOuvrageFolder(createFileScope(root.path, active.path));
+      const fileRoot = activeOuvrage ? activeOuvrage.path : root.path;
+      return createFileScope(fileRoot, active.path);
     }
     return createProjectScope(root.path);
   }
@@ -538,32 +709,46 @@ export class ExportPanel {
     return null;
   }
 
-  private setEditionScope(value: string, context: CompileScope | null): void {
+  /** CORRECTIF FINAL LOT 4, §2 : Projet/Ouvrage/Dossier/Feuillet sont
+   * toujours calculés relativement à l'ouvrage RÉEL du dossier/feuillet visé
+   * (resolveEditorialRoot), jamais `context.projectRoot` tel quel — puis
+   * appliqués à l'Aperçu central s'il existe (`setCompileScope`, qui change
+   * la portée ET relance le rendu), sinon mémorisés comme avant
+   * (`rememberExportScope`, chemin Continu/session historique). */
+  private async setEditionScope(value: string, context: CompileScope | null, customOuvragePath?: string): Promise<void> {
     const root = this.plugin.getProjectFolder();
     if (!root) return;
     let scope: CompileScope;
-    if (value === "selection" && context?.type === "selection") {
+    if (value === "ouvrage" && customOuvragePath) {
+      scope = createProjectScope(customOuvragePath);
+    } else if (value === "selection" && context?.type === "selection") {
       scope = context;
     } else if (value === "file" && context?.type === "file") {
       const file = this.app.vault.getAbstractFileByPath(context.path);
       if (!(file instanceof TFile)) return;
-      scope = createFileScope(root.path, file.path);
+      const editorialRoot = resolveEditorialRoot(this.app, this.plugin.settings, root, file);
+      scope = createFileScope(editorialRoot.path, file.path);
     } else if (value === "folder") {
+      let folder: TFolder | null = null;
       if (context?.type === "folder") {
-        const folder = this.app.vault.getAbstractFileByPath(context.path);
-        if (!(folder instanceof TFolder)) return;
-        scope = createFolderScope(root.path, folder.path);
+        const candidate = this.app.vault.getAbstractFileByPath(context.path);
+        if (candidate instanceof TFolder) folder = candidate;
       } else if (context?.type === "file") {
-        const parentFolder = this.resolveParentFolder(context.path);
-        if (!(parentFolder instanceof TFolder)) return;
-        scope = createFolderScope(root.path, parentFolder.path);
-      } else {
-        return;
+        folder = this.resolveParentFolder(context.path);
       }
+      if (!folder) return;
+      const editorialRoot = resolveEditorialRoot(this.app, this.plugin.settings, root, folder);
+      scope = createFolderScope(editorialRoot.path, folder.path);
     } else {
       scope = createProjectScope(root.path);
     }
-    rememberExportScope(this.plugin, scope);
+
+    const preview = this.centralPreview();
+    if (preview) {
+      await preview.setCompileScope(scope);
+    } else {
+      rememberExportScope(this.plugin, scope);
+    }
     this.scopeLabelEl = null;
   }
 
@@ -591,7 +776,11 @@ export class ExportPanel {
    * Sélection restent, elles, inchangées. */
   private async launchQuickBarExport(): Promise<void> {
     const current = this.resolveScope();
-    if (!current || this.callbacks.getScope) {
+    /* CORRECTIF FINAL LOT 4, §2 : un Aperçu central déjà ouvert EST la
+       portée à exporter, exactement celle qu'il affiche — jamais un second
+       recalcul par fichier/dossier actif (chemin Continu/session ci-dessous,
+       qui ne s'applique que sans Aperçu central). */
+    if (!current || this.callbacks.getScope || this.centralPreview()) {
       await runExportWorkflow(this.app, this.plugin, current);
       return;
     }
@@ -604,9 +793,12 @@ export class ExportPanel {
     if (!root) return;
 
     const continuScope = this.plugin.getCentralContinuView?.()?.compileScope;
-    const hasValidContinu = Boolean(continuScope && continuScope.projectRoot === root.path);
+    const hasValidContinu = Boolean(
+      continuScope && (continuScope.projectRoot === root.path || this.isOuvragePath(continuScope.projectRoot))
+    );
 
     if (hasValidContinu && continuScope) {
+      const scopeRoot = continuScope.projectRoot || root.path;
       if (current.type === "folder") {
         let folderPath: string | null = null;
         if (continuScope.type === "folder") {
@@ -618,7 +810,7 @@ export class ExportPanel {
         if (!folderPath) return;
         const folder = this.app.vault.getAbstractFileByPath(folderPath);
         if (!(folder instanceof TFolder)) return;
-        const scope = createFolderScope(root.path, folder.path);
+        const scope = createFolderScope(scopeRoot, folder.path);
         await runExportWorkflow(this.app, this.plugin, scope);
       } else if (current.type === "file") {
         if (continuScope.type !== "file") {
@@ -626,7 +818,7 @@ export class ExportPanel {
         }
         const file = this.app.vault.getAbstractFileByPath(continuScope.path);
         if (!(file instanceof TFile)) return;
-        const scope = createFileScope(root.path, file.path);
+        const scope = createFileScope(scopeRoot, file.path);
         await runExportWorkflow(this.app, this.plugin, scope);
       }
       return;

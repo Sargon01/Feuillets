@@ -7,7 +7,7 @@ import { t } from "../src/i18n/index.js";
 import { contentExtractionsFilePath } from "../src/services/content-extractions.js";
 import { contentCollectionsFilePath } from "../src/services/content-collections.js";
 import { currentExportDerivation, rememberExportDerivation, rememberExportScope } from "../src/services/export-workflow.js";
-import { createFileScope, createFolderScope } from "../src/services/compile-scope.js";
+import { createFileScope, createFolderScope, createProjectScope } from "../src/services/compile-scope.js";
 
 /* Même petit DOM factice que test/preview-view.test.js (convention du
  * dépôt : dupliqué, pas partagé), réduit à ce qu'ExportPanel utilise
@@ -852,4 +852,341 @@ test("styles.css : la cause du CTA sur-appliqué (sélecteurs génériques [clas
   const css = readFileSync(join(process.cwd(), "styles.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   assert.doesNotMatch(css, /button\[class\*="export"\]/);
   assert.doesNotMatch(css, /button:not\(\[class\*="export"\]\)/);
+});
+
+/* ===================== Lot 4 — Ouvrage dans la barre latérale ===================== */
+
+function setupOuvrage(fixture) {
+  const { app, plugin, manuscript, settings } = fixture;
+  const nefes = new TFolder("Projet/Manuscrit/NEFES");
+  nefes.parent = manuscript;
+  const nefesScene = new TFile(
+    "Projet/Manuscrit/NEFES/Scène 1.md",
+    "---\ntitle: NEFES Scène 1\ncompile: true\n---\nTexte de NEFES."
+  );
+  nefesScene.parent = nefes;
+  nefes.children = [nefesScene];
+  manuscript.children.push(nefes);
+  app.vault.files.set(nefes.path, nefes);
+  app.vault.files.set(nefesScene.path, nefesScene);
+
+  settings.projectMeta = {
+    [manuscript.path]: {
+      ouvrageRoots: {
+        "NEFES": true,
+      },
+    },
+  };
+
+  plugin.isValidEditorialRootPath = (path) => {
+    if (!path) return false;
+    if (path === manuscript.path) return true;
+    return path === nefes.path;
+  };
+
+  return { nefes, nefesScene };
+}
+
+test("ExportPanel.renderQuickBar : affiche Ouvrage quand le Continu central ou la portée active porte sur un ouvrage", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin } = fixture;
+    const { nefes } = setupOuvrage(fixture);
+
+    // Cas 1 : Continu central porte sur NEFES
+    plugin.getCentralContinuView = () => ({
+      compileScope: createProjectScope(nefes.path),
+    });
+    const bar1 = new FakeElement("div");
+    new ExportPanel(app, plugin, bar1).renderQuickBar(bar1);
+    const scopeBtn1 = bar1.querySelector(".feuillets-edition-quickexport-scope");
+    assert.ok(scopeBtn1);
+    assert.equal(scopeBtn1.getAttribute("aria-label"), "Portée : Ouvrage");
+
+    // Cas 2 : Portée active porte sur NEFES (sans Continu central)
+    plugin.getCentralContinuView = () => null;
+    rememberExportScope(plugin, createProjectScope(nefes.path));
+    const bar2 = new FakeElement("div");
+    new ExportPanel(app, plugin, bar2).renderQuickBar(bar2);
+    const scopeBtn2 = bar2.querySelector(".feuillets-edition-quickexport-scope");
+    assert.ok(scopeBtn2);
+    assert.equal(scopeBtn2.getAttribute("aria-label"), "Portée : Ouvrage");
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : le menu de portée propose Projet et Ouvrage", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin } = fixture;
+    const { nefes } = setupOuvrage(fixture);
+
+    plugin.getCentralContinuView = () => ({
+      compileScope: createProjectScope(nefes.path),
+    });
+
+    const bar = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, bar);
+    panel.renderQuickBar(bar);
+
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    scopeBtn.click();
+    const titles = Menu.lastShown.items.map((i) => i.title);
+    assert.deepEqual(titles, ["Projet", "Ouvrage"]);
+
+    // Vérifie que l'item Ouvrage est coché
+    const ouvrageItem = Menu.lastShown.items.find((i) => i.title === "Ouvrage");
+    assert.ok(ouvrageItem);
+    assert.equal(ouvrageItem.checked, true);
+
+    const projetItem = Menu.lastShown.items.find((i) => i.title === "Projet");
+    assert.ok(projetItem);
+    assert.equal(projetItem.checked, false);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel.renderQuickBar : l'export rapide sur NEFES exporte la portée projet de l'ouvrage sans la remplacer par la racine globale ni par le fichier actif", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin, scene, setActiveFile, settings } = fixture;
+    const { nefes } = setupOuvrage(fixture);
+    settings.exportFormat = "md";
+    setActiveFile(scene); // Fichier actif contenant Texte A, hors de NEFES
+
+    plugin.getCentralContinuView = () => ({
+      compileScope: createProjectScope(nefes.path),
+    });
+
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+
+    bar.querySelector(".feuillets-edition-quickexport-cta").click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // L'export doit contenir le texte de NEFES, pas celui de la scène active 'Texte A'
+    const output = app.vault.getFiles().find((file) => file.path.includes("/_Feuillets/Sortie/") && file.extension === "md");
+    assert.ok(output, "Un fichier compilé doit être généré");
+    assert.match(output.content, /Texte de NEFES/);
+    assert.doesNotMatch(output.content, /Texte A/);
+    assert.deepEqual(plugin.activeExportScope, { type: "project", projectRoot: nefes.path });
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : les portées issues d'autres projets sont refusées et retombent sur le projet actif", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin, manuscript } = fixture;
+    setupOuvrage(fixture);
+
+    // Portée d'un autre projet
+    plugin.activeExportScope = { type: "project", projectRoot: "AUTRE_PROJET/NEFES" };
+    plugin.getCentralContinuView = () => null;
+
+    const container = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, container);
+    await panel.render();
+
+    // La portée de session d'un autre projet a été refusée et réinitialisée au projet courant
+    assert.deepEqual(plugin.activeExportScope, { type: "project", projectRoot: manuscript.path });
+
+    // Continu d'un autre projet est également ignoré
+    plugin.getCentralContinuView = () => ({
+      compileScope: { type: "project", projectRoot: "AUTRE_PROJET/NEFES" },
+    });
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    assert.equal(scopeBtn.getAttribute("aria-label"), "Portée : Projet");
+  } finally {
+    restore();
+  }
+});
+
+/* ===================== CORRECTIF FINAL LOT 4 — panneau droit synchronisé avec l'Aperçu ===================== */
+
+/** Fausse PreviewView minimale : `compileScope` + `setCompileScope` sont
+ * EXACTEMENT le sous-ensemble que le panneau a le droit d'utiliser (voir
+ * CentralPreviewView, ui/export-panel.ts) — `setCompileScope` change la
+ * portée ET la mémorise, comme le ferait la VRAIE PreviewView. */
+function fakeCentralPreview(initialScope) {
+  const calls = [];
+  const preview = {
+    compileScope: initialScope,
+    setCompileScope: async (scope) => {
+      calls.push(scope);
+      preview.compileScope = scope;
+    },
+  };
+  return { preview, calls };
+}
+
+test("ExportPanel : un Aperçu central est la source de vérité — choisir Projet lui applique setCompileScope, jamais une copie locale", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin, manuscript } = fixture;
+    const { nefes } = setupOuvrage(fixture);
+    const { preview, calls } = fakeCentralPreview(createProjectScope(nefes.path));
+    plugin.getCentralPreviewView = () => preview;
+
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    assert.equal(scopeBtn.getAttribute("aria-label"), "Portée : Ouvrage", "le libellé suit l'Aperçu central, pas une copie locale");
+
+    scopeBtn.click();
+    const projetItem = Menu.lastShown.items.find((i) => i.title === "Projet");
+    assert.ok(projetItem);
+    projetItem.callback();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(calls.length, 1, "setCompileScope doit avoir été appelé sur l'Aperçu central");
+    assert.deepEqual(calls[0], { type: "project", projectRoot: manuscript.path });
+    assert.equal(plugin.activeExportScope, null, "aucune seconde copie indépendante de la portée n'est créée");
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : un Aperçu central est la source de vérité — choisir Ouvrage lui applique setCompileScope", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin } = fixture;
+    const { nefes } = setupOuvrage(fixture);
+    const { preview, calls } = fakeCentralPreview(createProjectScope(nefes.path));
+    plugin.getCentralPreviewView = () => preview;
+
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+    const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+    scopeBtn.click();
+    const ouvrageItem = Menu.lastShown.items.find((i) => i.title === "Ouvrage");
+    assert.ok(ouvrageItem);
+    assert.equal(ouvrageItem.checked, true);
+    ouvrageItem.callback();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0], { type: "project", projectRoot: nefes.path });
+    assert.equal(plugin.activeExportScope, null);
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : Dossier et Feuillet, choisis depuis un Aperçu central positionné dans NEFES, obtiennent projectRoot NEFES", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin } = fixture;
+    const { nefes, nefesScene } = setupOuvrage(fixture);
+    const subFolder = new TFolder(`${nefes.path}/Sous-dossier`);
+    subFolder.parent = nefes;
+    nefes.children.push(subFolder);
+    app.vault.files.set(subFolder.path, subFolder);
+
+    // 1. Dossier : l'Aperçu central est positionné sur un sous-dossier de
+    //    NEFES — jamais sur NEFES lui-même (indiscernable d'Ouvrage).
+    {
+      const { preview, calls } = fakeCentralPreview(createFolderScope(nefes.path, subFolder.path));
+      plugin.getCentralPreviewView = () => preview;
+      const bar = new FakeElement("div");
+      new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+      const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+      scopeBtn.click();
+      const folderItem = Menu.lastShown.items.find((i) => i.title === "Dossier");
+      assert.ok(folderItem, "l'option Dossier doit être proposée");
+      folderItem.callback();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0], { type: "folder", projectRoot: nefes.path, path: subFolder.path });
+    }
+
+    // 2. Feuillet : l'Aperçu central est positionné sur un feuillet de NEFES.
+    {
+      const { preview, calls } = fakeCentralPreview(createFileScope(nefes.path, nefesScene.path));
+      plugin.getCentralPreviewView = () => preview;
+      const bar = new FakeElement("div");
+      new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+      const scopeBtn = bar.querySelector(".feuillets-edition-quickexport-scope");
+      scopeBtn.click();
+      const fileItem = Menu.lastShown.items.find((i) => i.title === "Feuillet");
+      assert.ok(fileItem, "l'option Feuillet doit être proposée");
+      fileItem.callback();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      assert.equal(calls.length, 1);
+      assert.deepEqual(calls[0], { type: "file", projectRoot: nefes.path, path: nefesScene.path });
+    }
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : actualiser le panneau (bouton du panneau) ne rétablit jamais une ancienne portée quand un Aperçu central est actif", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin, manuscript } = fixture;
+    const { nefes } = setupOuvrage(fixture);
+    const { preview } = fakeCentralPreview(createProjectScope(manuscript.path));
+    plugin.getCentralPreviewView = () => preview;
+
+    const container = new FakeElement("div");
+    const panel = new ExportPanel(app, plugin, container);
+    await panel.render();
+    assert.equal(container.querySelector('[aria-label="Portée de l’export"]').textContent, "Projet");
+
+    // La portée change AILLEURS dans l'Aperçu (fil d'Ariane), jamais via ce
+    // panneau — setCompileScope() direct, comme un vrai clic de fil d'Ariane.
+    await preview.setCompileScope(createProjectScope(nefes.path));
+
+    // Actualiser (bouton du panneau, icône refresh-cw) reconstruit tout le
+    // panneau à partir de l'Aperçu — jamais une portée figée avant l'appel.
+    const refreshBtn = container.querySelectorAll("button").find((b) => b.getAttribute("aria-label") === "Actualiser l’aperçu");
+    assert.ok(refreshBtn);
+    refreshBtn.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(container.querySelector('[aria-label="Portée de l’export"]').textContent, "Ouvrage");
+  } finally {
+    restore();
+  }
+});
+
+test("ExportPanel : l'export utilise exactement la portée affichée par l'Aperçu central, jamais la racine globale ni le fichier actif", async () => {
+  const restore = installDom();
+  try {
+    const fixture = buildFixture();
+    const { app, plugin, scene, setActiveFile, settings } = fixture;
+    const { nefes } = setupOuvrage(fixture);
+    settings.exportFormat = "md";
+    setActiveFile(scene); // Fichier actif hors de NEFES : ne doit influencer aucun export ici.
+
+    const { preview } = fakeCentralPreview(createProjectScope(nefes.path));
+    plugin.getCentralPreviewView = () => preview;
+
+    const bar = new FakeElement("div");
+    new ExportPanel(app, plugin, bar).renderQuickBar(bar);
+    bar.querySelector(".feuillets-edition-quickexport-cta").click();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const output = app.vault.getFiles().find((file) => file.path.includes("/_Feuillets/Sortie/") && file.extension === "md");
+    assert.ok(output, "un fichier compilé doit être généré");
+    assert.match(output.content, /Texte de NEFES/);
+    assert.doesNotMatch(output.content, /Texte A/);
+  } finally {
+    restore();
+  }
 });

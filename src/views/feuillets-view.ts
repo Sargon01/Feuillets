@@ -278,7 +278,12 @@ export class FeuilletsView extends BaseFeuilletsView {
     if (!projectRoot) return null;
     const groupSel = this.plugin._binderMultiSelect;
     if (groupSel && groupSel.size > 1 && groupSel.has(folder.path)) {
-      return createSelectionScope(projectRoot.path, Array.from(groupSel));
+      return typeof this.plugin.compileScopeForSelection === "function"
+        ? this.plugin.compileScopeForSelection(Array.from(groupSel))
+        : createSelectionScope(projectRoot.path, Array.from(groupSel));
+    }
+    if (typeof this.plugin.compileScopeForFolder === "function") {
+      return this.plugin.compileScopeForFolder(folder);
     }
     return createFolderScope(projectRoot.path, folder.path);
   }
@@ -317,10 +322,11 @@ export class FeuilletsView extends BaseFeuilletsView {
    * Markdown admissible (§14) : ne construit jamais un Continu vide, la vue
    * centrale actuelle reste strictement inchangée. */
   async openFolderInContinu(folder: TFolder): Promise<void> {
-    const projectRoot = this.getProjectFolder();
-    if (!projectRoot) return;
+    const scope = typeof this.plugin.compileScopeForFolder === "function"
+      ? this.plugin.compileScopeForFolder(folder)
+      : (this.plugin.getProjectFolder() ? createFolderScope(this.plugin.getProjectFolder()!.path, folder.path) : null);
+    if (!scope) return;
 
-    const scope = createFolderScope(projectRoot.path, folder.path);
     const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
     if (files.length === 0) return;
 
@@ -507,7 +513,11 @@ export class FeuilletsView extends BaseFeuilletsView {
     if (!isContinuMembershipView(view)) return null;
     if (view.getViewType() !== VIEW_SCRIVENINGS) return null;
     if (!view.compileScope) return null;
-    if (view.compileScope.projectRoot !== root.path) return null;
+    if (typeof this.plugin.isValidEditorialRootPath === "function") {
+      if (!this.plugin.isValidEditorialRootPath(view.compileScope.projectRoot)) return null;
+    } else {
+      if (view.compileScope.projectRoot !== root.path) return null;
+    }
     return view;
   }
 
@@ -558,7 +568,10 @@ export class FeuilletsView extends BaseFeuilletsView {
     // §3 : le résolveur existant reste seul responsable (dossiers,
     // descendants, doublons, ordre Binder) — jamais `sel.size` comme
     // nombre réel de feuillets.
-    const scope = createSelectionScope(root.path, [...sel]);
+    const scope = typeof this.plugin.compileScopeForSelection === "function"
+      ? this.plugin.compileScopeForSelection([...sel])
+      : createSelectionScope(root.path, [...sel]);
+    if (!scope) return;
     const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
     if (files.length < 2) return;
 
@@ -624,7 +637,10 @@ export class FeuilletsView extends BaseFeuilletsView {
     if (!central) return false;
     if (central.file.path === file.path) return false;
 
-    const scope = createSelectionScope(root.path, [central.file.path, file.path]);
+    const scope = typeof this.plugin.compileScopeForSelection === "function"
+      ? this.plugin.compileScopeForSelection([central.file.path, file.path])
+      : createSelectionScope(root.path, [central.file.path, file.path]);
+    if (!scope) return false;
     const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
     if (files.length < 2) return false;
 
@@ -1509,7 +1525,10 @@ export class FeuilletsView extends BaseFeuilletsView {
           const sel = this.plugin._binderMultiSelect;
           const root = this.getProjectFolder();
           if (!sel || sel.size === 0 || !root) return;
-          const scope = createSelectionScope(root.path, [...sel]);
+          const scope = typeof this.plugin.compileScopeForSelection === "function"
+            ? this.plugin.compileScopeForSelection([...sel])
+            : createSelectionScope(root.path, [...sel]);
+          if (!scope) return;
           const files = resolveCompileScopeFiles(this.app, this.plugin.settings, scope);
           const paths = files.map((f) => f.path);
           void continu.setMembers(paths).then(() => {
@@ -1561,7 +1580,9 @@ export class FeuilletsView extends BaseFeuilletsView {
         // ScriveningsView.openScope() (voir main.ts#syncExistingPreviewScope,
         // qui ne fait rien sans Preview déjà ouvert sur ce projet).
         if (folder) {
-          void this.plugin.syncExistingPreviewScope?.(createFileScope(folder.path, file.path), null);
+          const fileScope = (typeof this.plugin.compileScopeForFile === "function" ? this.plugin.compileScopeForFile(file) : null)
+            ?? createFileScope(folder.path, file.path);
+          void this.plugin.syncExistingPreviewScope?.(fileScope, null);
         }
         /* openFileActivating déplace le focus DOM vers l'éditeur — sans le
            reprendre ici, la 1ère flèche haut/bas après un simple clic ne

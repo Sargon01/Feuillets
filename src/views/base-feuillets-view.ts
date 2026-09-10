@@ -2641,8 +2641,9 @@ export abstract class BaseFeuilletsView extends ItemView {
     const continuScopeForFile =
       centralContinu &&
       centralContinu.compileScope &&
-      continuProjectRoot &&
-      centralContinu.compileScope.projectRoot === continuProjectRoot.path &&
+      (typeof plugin.isValidEditorialRootPath === "function"
+        ? plugin.isValidEditorialRootPath(centralContinu.compileScope.projectRoot)
+        : (continuProjectRoot && centralContinu.compileScope.projectRoot === continuProjectRoot.path)) &&
       centralContinu.getMemberPaths().includes(file.path)
         ? centralContinu.compileScope
         : null;
@@ -2664,7 +2665,11 @@ export abstract class BaseFeuilletsView extends ItemView {
           .onClick(async () => {
             const projectRoot = plugin.getProjectFolder();
             if (!projectRoot) return;
-            const scope = createSelectionScope(projectRoot.path, Array.from(groupSel || []));
+            const paths = Array.from(groupSel || []);
+            const scope = typeof plugin.compileScopeForSelection === "function"
+              ? plugin.compileScopeForSelection(paths)
+              : createSelectionScope(projectRoot.path, paths);
+            if (!scope) return;
             await this.openScopeWithContinuAndPreview(scope);
           })
       );
@@ -2684,7 +2689,11 @@ export abstract class BaseFeuilletsView extends ItemView {
           .onClick(async () => {
             const projectRoot = plugin.getProjectFolder();
             if (!projectRoot) return;
-            const scope = createSelectionScope(projectRoot.path, Array.from(groupSel || []));
+            const paths = Array.from(groupSel || []);
+            const scope = typeof plugin.compileScopeForSelection === "function"
+              ? plugin.compileScopeForSelection(paths)
+              : createSelectionScope(projectRoot.path, paths);
+            if (!scope) return;
             await openScopeInContinu(this.app, scope);
           })
       );
@@ -2885,7 +2894,9 @@ export abstract class BaseFeuilletsView extends ItemView {
               files: selectedFiles,
             });
             modal.setOnSubmit(async (format: string, name: string) => {
-              const scope = createSelectionScope(projectRoot.path, selectedFiles.map((f) => f.path));
+              const paths = selectedFiles.map((f) => f.path);
+              const scope = (typeof plugin.compileScopeForSelection === "function" ? plugin.compileScopeForSelection(paths) : null)
+                ?? createSelectionScope(projectRoot.path, paths);
               await runExportWorkflow(this.app, plugin, scope, format, name);
             });
             modal.open();
@@ -2902,7 +2913,8 @@ export abstract class BaseFeuilletsView extends ItemView {
               files: [file],
             });
             modal.setOnSubmit(async (format: string, name: string) => {
-              const scope = createFileScope(projectRoot.path, file.path);
+              const scope = (typeof plugin.compileScopeForFile === "function" ? plugin.compileScopeForFile(file) : null)
+                ?? createFileScope(projectRoot.path, file.path);
               await runExportWorkflow(this.app, plugin, scope, format, name);
             });
             modal.open();
@@ -2939,9 +2951,10 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.contextMenu.openWithPreview"))
         .setIcon("eye")
         .onClick(async () => {
-          const projectRoot = plugin.getProjectFolder();
-          if (!projectRoot) return;
-          const scope = createFolderScope(projectRoot.path, folder.path);
+          const scope = typeof plugin.compileScopeForFolder === "function"
+            ? plugin.compileScopeForFolder(folder)
+            : (plugin.getProjectFolder() ? createFolderScope(plugin.getProjectFolder()!.path, folder.path) : null);
+          if (!scope) return;
           await this.openScopeWithContinuAndPreview(scope);
         })
     );
@@ -3089,9 +3102,10 @@ export abstract class BaseFeuilletsView extends ItemView {
         .onClick(async () => {
           const { ExportModal } = await import("../ui/export-modal.js");
           const { runExportWorkflow } = await import("../services/export-workflow.js");
-          const { createFolderScope } = await import("../services/compile-scope.js");
-          const projectRoot = plugin.getProjectFolder();
-          if (!projectRoot) {
+          const scope = typeof plugin.compileScopeForFolder === "function"
+            ? plugin.compileScopeForFolder(folder)
+            : (plugin.getProjectFolder() ? createFolderScope(plugin.getProjectFolder()!.path, folder.path) : null);
+          if (!scope) {
             new Notice(t("main.notice.projectFolderNotFound"));
             return;
           }
@@ -3101,7 +3115,6 @@ export abstract class BaseFeuilletsView extends ItemView {
             folderPath: folder.path,
           });
           modal.setOnSubmit(async (format: string, name: string) => {
-            const scope = createFolderScope(projectRoot.path, folder.path);
             await runExportWorkflow(this.app, plugin, scope, format, name);
           });
           modal.open();

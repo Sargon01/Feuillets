@@ -312,8 +312,10 @@ export async function compile(
   if (options?.contentExtraction && options.contentCollection) {
     throw new Error("contentExtraction et contentCollection sont des modes de dérivation alternatifs et ne peuvent pas être utilisés ensemble.");
   }
-  const folder = getProjectFolder(app, settings);
-  if (!folder) {
+  /* Racine GLOBALE Feuillets : réglages, presets, mise en page, brouillons
+     globaux et dossier de sortie restent toujours rattachés à elle. */
+  const globalRoot = getProjectFolder(app, settings);
+  if (!globalRoot) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return null;
   }
@@ -326,23 +328,34 @@ export async function compile(
     // Comportement legacy: convertir scopePath en portée
     const scoped = app.vault.getAbstractFileByPath(normalizePath(scopePath));
     if (scoped instanceof TFile && scoped.extension === "md") {
-      compilationScope = { type: "file", projectRoot: folder.path, path: scoped.path };
+      compilationScope = { type: "file", projectRoot: globalRoot.path, path: scoped.path };
     } else if (scoped instanceof TFolder) {
-      compilationScope = { type: "folder", projectRoot: folder.path, path: scoped.path };
+      compilationScope = { type: "folder", projectRoot: globalRoot.path, path: scoped.path };
     } else {
       new Notice("Portée d’export introuvable.");
       return null;
     }
   } else {
     // Portée par défaut: projet complet
-    compilationScope = createProjectScope(folder.path);
+    compilationScope = createProjectScope(globalRoot.path);
+  }
+
+  /* Racine ÉDITORIALE : point de départ du parcours et référence des rôles
+     (profondeur, Front, Annexes), lue dans `projectRoot` quelle que soit la
+     portée (project, folder, file, selection). Une portée rattachée à un
+     ouvrage imbriqué (WARPI/NEFES) est ainsi calculée relativement à CET
+     ouvrage, jamais à la racine globale qui le contient. */
+  const editorialRoot = app.vault.getAbstractFileByPath(normalizePath(compilationScope.projectRoot));
+  if (!(editorialRoot instanceof TFolder)) {
+    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    return null;
   }
 
   // Résoudre la portée en liste de fichiers
   const resolvedFiles = resolveCompileScopeFiles(app, settings, compilationScope);
   const filesToCompile = compilationScope.type === "file"
     ? resolvedFiles
-    : resolvedFiles.filter((file) => !isProjectDraft(folder, file));
+    : resolvedFiles.filter((file) => !isProjectDraft(globalRoot, file));
   if (filesToCompile.length === 0) {
     new Notice("Aucun feuillet à compiler.");
     return null;
@@ -379,7 +392,7 @@ export async function compile(
        c'était le défaut où l'aperçu affichait un YAML absent de l'export.
        Il corrige au passage le frontmatter VIDE (`---` suivi de `---`), que
        l'expression locale précédente laissait fuir dans le texte compilé. */
-    const relativeLayoutPath = relativeLayoutFilePath(folder.path, file.path) || file.path;
+    const relativeLayoutPath = relativeLayoutFilePath(globalRoot.path, file.path) || file.path;
     let renderSource = injectDocumentLayoutMarkers(content, layoutOverridesForFile(layoutStore, relativeLayoutPath));
     if (options?.contentExtraction) {
       const extracted = extractSectionsByRoles(content, options.contentExtraction.triggerRoles);
@@ -524,7 +537,7 @@ export async function compile(
        chapitre ni de numérotation — juste le corps, avec sa propre mise en
        forme dédiée appliquée par chaque export-*.js à partir de frontType. */
     const normalizedFrontType = typeof fm.type === "string" ? fm.type.trim().toLowerCase() : "";
-    const isFront = isFrontMatter(app, settings, file) && FRONT_PAGE_TYPES.includes(normalizedFrontType);
+    const isFront = isFrontMatter(app, settings, file, editorialRoot) && FRONT_PAGE_TYPES.includes(normalizedFrontType);
     const body = await readBody(file, isFront ? normalizedFrontType : undefined);
     if (!body) return false;
     const sourceTitle = compiledTitleFor(app, file) || null;
@@ -539,7 +552,19 @@ export async function compile(
     }
 
     const wantTitle = role === "scene" ? P.sceneTitles : P.chapterTitles;
-    const title = resolvedFileTitleMarkdown(app, file, body.text, wantTitle, depth + 1);
+    /* RECTIFICATION LOT 4 — le titre automatique d'une SCÈNE est TOUJOURS
+       généré en H4, niveau ABSOLU (jamais depth + 1, jamais dépendant d'un
+       ouvrage) : projet global ou ouvrage, portée project/folder/file,
+       scène peu ou très profondément nichée — toujours H4. Un rôle
+       "chapitre" (roleOfFile() peut aussi le renvoyer ici, pour un feuillet
+       posé directement sous une partie) garde le calcul historique
+       `depth + 1`, comme les titres de dossier (parties/chapitres,
+       inchangés ailleurs dans ce fichier). Ni P.sceneTitles/P.chapterTitles
+       (réglage d'affichage, seul maître de wantTitle) ni un titre déjà
+       écrit à la main dans le contenu (resolvedFileTitleMarkdown lui donne
+       toujours la priorité par rapport à `level`) ne sont affectés. */
+    const titleLevel = role === "scene" ? 4 : depth + 1;
+    const title = resolvedFileTitleMarkdown(app, file, body.text, wantTitle, titleLevel);
     if (title) {
       push(`${title}\n\n${body.text}`, file.path, null, targetParts, targetSegments);
       targetSegments[targetSegments.length - 1].renderText = `${title}\n\n${body.renderText}`;
@@ -632,7 +657,7 @@ export async function compile(
      `null` pour toute autre portée : walk() ne les traite alors pas
      différemment d'un dossier ordinaire — comportement inchangé pour
      file/folder/selection, exactement comme demandé. */
-  const annexesFolderRef = compilationScope.type === "project" ? annexesFolder(app, folder) : null;
+  const annexesFolderRef = compilationScope.type === "project" ? annexesFolder(app, editorialRoot) : null;
 
   /**
    * @param {TFolder} f
@@ -645,8 +670,8 @@ export async function compile(
         /* Le dossier Front lui-même n'est jamais un titre de partie/chapitre
            à afficher — ses pages (titre/dédicace/épigraphe) précèdent le
            roman, elles n'en font pas narrativement partie. */
-        const isFrontFolder = isFrontMatter(app, settings, child);
-        const role = roleOfFolder(app, settings, child);
+        const isFrontFolder = isFrontMatter(app, settings, child, editorialRoot);
+        const role = roleOfFolder(app, settings, child, editorialRoot);
         const level = "#".repeat(Math.min(depth + 1, 6));
         /* N'émettre le titre du dossier que si :
            - la portée ne restreint pas les titres (allowedTitleFolders === null), OU
@@ -679,7 +704,7 @@ export async function compile(
           await pushSceneSequence(flattenFiles(app, settings, child), depth + 1);
         }
       } else {
-        await pushFile(child, roleOfFile(app, settings, child), depth, targetParts, targetSegments);
+        await pushFile(child, roleOfFile(app, settings, child, editorialRoot), depth, targetParts, targetSegments);
       }
     }
   };
@@ -687,17 +712,17 @@ export async function compile(
      décider si les annexes doivent être compilées à part (ci-dessous, DANS
      le même filet try/catch que le reste) et, plus bas, à Sommaire/TDM/
      Tables/Bibliographie. */
-  const meta = compilationScope.type === "project" ? projectMetaFor(settings, folder) : null;
+  const meta = compilationScope.type === "project" ? projectMetaFor(settings, globalRoot) : null;
   const wantAnnexes = meta ? readGeneratedIncluded(meta, ANNEXES) ?? false : false;
   try {
     // Compiler en respectant la structure du projet. Une portée fichier
     // explicite peut viser un brouillon, physiquement hors de l'arborescence
     // du manuscrit ; ce cas passe directement par le même pushFile().
     // La vérification fileSet dans pushFile() respecte la portée résolue.
-    if (compilationScope.type === "file" && filesToCompile.length === 1 && isProjectDraft(folder, filesToCompile[0])) {
+    if (compilationScope.type === "file" && filesToCompile.length === 1 && isProjectDraft(globalRoot, filesToCompile[0])) {
       await pushFile(filesToCompile[0], roleOfFile(app, settings, filesToCompile[0]), 0);
     } else {
-      await walk(folder, 0);
+      await walk(editorialRoot, 0);
     }
 
     /* Annexes, compilées À PART (jamais dans `parts`/`segments` tant
@@ -852,7 +877,7 @@ export async function compile(
   }
   const fileName = resolveOutputBaseName(settings, outputFileName);
   const outputFolder = await getOutputFolder(app, settings);
-  const realOutBase = outputFolder ? outputFolder.path : folder.path;
+  const realOutBase = outputFolder ? outputFolder.path : globalRoot.path;
   const realOutPath = normalizePath(`${realOutBase}/${fileName}.md`);
   let writtenOutPath = realOutPath;
   try {

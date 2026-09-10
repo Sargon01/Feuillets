@@ -1813,6 +1813,7 @@ export const en = {
   "preview.scope.file": "Sheet",
   "preview.scope.folder": "Folder",
   "preview.scope.project": "Project",
+  "preview.scope.ouvrage": "Work",
   "preview.scope.selection": "Selection ({count})",
   "preview.breadcrumb.show": "Show {title}",
 

@@ -1815,6 +1815,7 @@ export const fr = {
   "preview.scope.file": "Feuillet",
   "preview.scope.folder": "Dossier",
   "preview.scope.project": "Projet",
+  "preview.scope.ouvrage": "Ouvrage",
   "preview.scope.selection": "Sélection ({count})",
   "preview.breadcrumb.show": "Afficher {title}",
 

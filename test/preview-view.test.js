@@ -14,10 +14,12 @@ import {
   previewNaturalSurface,
 } from "../src/views/preview-view.js";
 import { resolveCompileScopeFiles, createProjectScope } from "../src/services/compile-scope.js";
+import { compile } from "../src/services/compile-export.js";
 import { mountTemplatePreview } from "../src/ui/template-preview.js";
 import { TextPromptModal } from "../src/ui/basic-modals.js";
 import { setLocale, t } from "../src/i18n/index.js";
 import { readFile } from "node:fs/promises";
+import FeuilletsPlugin from "../src/main.js";
 
 test("PreviewView : les libellés de modes, états, zoom et première page sont traduits", async () => {
   try {
@@ -5386,4 +5388,312 @@ test("parité exacte compile() vs assembleFolder() sur chapitres avec sous-dossi
     previewSegments.map((s) => s.titleBlockCount ?? 0),
     "titleBlockCount doit être strictement identique sur chaque segment"
   );
+});
+
+test("PreviewView : portée projet sur un ouvrage — en-tête 'Aperçu — NEFES', fil d'Ariane 'NEFES' et export sur WARPI/NEFES", async () => {
+  const globalRoot = new TFolder("WARPI");
+  globalRoot.path = "WARPI";
+  globalRoot.name = "WARPI";
+
+  const nefes = new TFolder("WARPI/NEFES");
+  nefes.path = "WARPI/NEFES";
+  nefes.name = "NEFES";
+  nefes.parent = globalRoot;
+
+  const files = new Map([
+    ["WARPI", globalRoot],
+    ["WARPI/NEFES", nefes],
+  ]);
+
+  const app = {
+    vault: {
+      getAbstractFileByPath: (p) => files.get(p) || null,
+      getFiles: () => [],
+      read: async () => "",
+    },
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+
+  const settings = {
+    projectFolder: "WARPI",
+    projectMeta: {
+      "WARPI": {
+        ouvrageRoots: {
+          "NEFES": true,
+        },
+      },
+    },
+  };
+
+  const plugin = {
+    settings,
+    getProjectFolder: () => globalRoot,
+    activeExportScope: null,
+    flushContinuWritesForProject: async () => false,
+  };
+
+  const leaf = { contentEl: element("div") };
+  const view = new PreviewView(leaf, plugin);
+  view.app = app;
+  await view.setCompileScope(createProjectScope("WARPI/NEFES"));
+
+  // 1. En-tête / titre de vue : Aperçu — NEFES
+  assert.equal(view.getDisplayText(), "Aperçu — NEFES");
+
+  // 2. Fil d'Ariane : le premier niveau s'appelle NEFES et non WARPI
+  const levels = view.scopeBreadcrumbLevels();
+  assert.ok(levels);
+  assert.equal(levels[0].title, "NEFES");
+  assert.deepEqual(levels[0].scope, { type: "project", projectRoot: "WARPI/NEFES" });
+
+  // 3. Bouton d'export : exporte bien la portée projet avec projectRoot = WARPI/NEFES
+  await view.exportPreview();
+  assert.deepEqual(plugin.activeExportScope, { type: "project", projectRoot: "WARPI/NEFES" });
+});
+
+/* ===================== CORRECTIF FINAL LOT 4 — fil d'Ariane de l'Aperçu ===================== */
+
+test("PreviewView : fil d'Ariane sur un ouvrage imbriqué — la portée dossier reste rattachée à l'ouvrage, jamais reconstruite avec la racine globale", async () => {
+  const link = (parent, children) => { parent.children = children; for (const child of children) child.parent = parent; };
+  const globalRoot = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const part = new TFolder("WARPI/NEFES/Subhanallah");
+  const chapter = new TFolder("WARPI/NEFES/Subhanallah/Chapitre 1");
+  const scene1 = new TFile("WARPI/NEFES/Subhanallah/Chapitre 1/Scene 1.md", "SCENE_NEFES_1");
+  link(globalRoot, [nefes]);
+  link(nefes, [part]);
+  link(part, [chapter]);
+  link(chapter, [scene1]);
+
+  const walkFor = (node, targetPath) => {
+    if (node.path === targetPath) return node;
+    for (const child of node.children || []) {
+      const found = walkFor(child, targetPath);
+      if (found) return found;
+    }
+    return null;
+  };
+  const app = {
+    vault: {
+      read: async (f) => f.content || "",
+      cachedRead: async (f) => f.content || "",
+      getAbstractFileByPath: (p) => walkFor(globalRoot, p),
+      getFiles: () => [scene1],
+    },
+    metadataCache: { getFileCache: () => ({ frontmatter: {} }) },
+  };
+  const settings = {
+    projectFolder: "WARPI",
+    level1Role: "parties",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: { WARPI: { ouvrageRoots: { NEFES: { version: 1 } } } },
+  };
+
+  /* Les VRAIS résolveurs du plugin (main.ts) — jamais une copie locale — pour
+     que ce test exerce exactement ce que le Binder et le fil d'Ariane
+     appellent réellement en usage réel. */
+  const plugin = {
+    app,
+    settings,
+    getProjectFolder: () => globalRoot,
+    activeExportScope: null,
+    flushContinuWritesForProject: async () => false,
+    editorialRootFor: FeuilletsPlugin.prototype.editorialRootFor,
+    compileScopeForFolder: FeuilletsPlugin.prototype.compileScopeForFolder,
+    compileScopeForFile: FeuilletsPlugin.prototype.compileScopeForFile,
+  };
+
+  const leaf = { contentEl: element("div") };
+  const view = new PreviewView(leaf, plugin);
+  view.app = app;
+
+  // 1. Ouverture Binder de NEFES (compileScopeForFolder, comme un clic réel
+  //    sur le dossier ouvrage dans le Binder) → scope project NEFES.
+  const nefesScope = plugin.compileScopeForFolder(nefes);
+  assert.deepEqual(nefesScope, { type: "project", projectRoot: "WARPI/NEFES" });
+  await view.setCompileScope(nefesScope);
+
+  // 2. Navigation vers Subhanallah (même résolveur, comme un clic Binder sur
+  //    ce dossier) → scope folder, projectRoot NEFES — jamais WARPI.
+  const partScope = plugin.compileScopeForFolder(part);
+  assert.deepEqual(partScope, { type: "folder", projectRoot: "WARPI/NEFES", path: "WARPI/NEFES/Subhanallah" });
+  await view.setCompileScope(partScope);
+  assert.deepEqual(view.compileScope, partScope);
+
+  // 3. Le fil d'Ariane, reconstruit à partir de CETTE portée, retrouve
+  //    exactement la même portée pour Subhanallah — aucune reconstruction
+  //    locale avec la racine globale WARPI.
+  const levelsAtPart = view.scopeBreadcrumbLevels();
+  assert.ok(levelsAtPart);
+  const subhanallahLevel = levelsAtPart.find((l) => l.title === "Subhanallah");
+  assert.ok(subhanallahLevel, "Subhanallah doit apparaître dans le fil d'Ariane");
+  assert.deepEqual(subhanallahLevel.scope, partScope);
+
+  // 4. Compilé avec cette portée, l'Aperçu garde les titres de partie et de
+  //    chapitre relatifs à NEFES (`#`/`##`) — jamais des titres de scène
+  //    comme le donnerait un calcul de profondeur relatif à WARPI.
+  const result = await compile(app, settings, null, view.compileScope, null, { writeOutput: false });
+  assert.ok(result);
+  assert.equal(result.manuscript, "# Subhanallah\n\n## Chapitre 1\n\nSCENE_NEFES_1");
+
+  // 5. Retour sur NEFES via le premier niveau du fil d'Ariane → scope
+  //    project NEFES, jamais WARPI.
+  const rootLevel = levelsAtPart[0];
+  assert.deepEqual(rootLevel.scope, nefesScope);
+  await view.setCompileScope(rootLevel.scope);
+  assert.deepEqual(view.compileScope, nefesScope);
+
+  // 6. Un « Actualiser » (nouveau refreshPreview(), sans reposer de portée)
+  //    ne rétablit jamais une ancienne portée : compileScope reste NEFES.
+  await view.refreshPreview();
+  assert.deepEqual(view.compileScope, nefesScope);
+});
+
+test("PreviewView : un Aperçu WARPI (project, racine globale) suit un feuillet situé dans l'ouvrage descendant NEFES", async () => {
+  const globalRoot = new TFolder("WARPI");
+  const plugin = {
+    app: { vault: { getAbstractFileByPath: () => null } },
+    settings: {},
+    getProjectFolder: () => globalRoot,
+  };
+  const leaf = { contentEl: element("div") };
+  const view = new PreviewView(leaf, plugin);
+  Object.defineProperty(view, "compileScope", {
+    value: { type: "project", projectRoot: "WARPI" },
+    enumerable: true,
+    configurable: true,
+  });
+  const calls = [];
+  view.followCompileScope = async (scope, anchor) => { calls.push({ scope, anchor }); };
+
+  const workspace = { getLeavesOfType: (type) => (type === VIEW_PREVIEW ? [{ view, isDeferred: false }] : []) };
+  const pluginWithWorkspace = Object.create(FeuilletsPlugin.prototype);
+  pluginWithWorkspace.app = { workspace };
+
+  const nefesFileScope = { type: "file", projectRoot: "WARPI/NEFES", path: "WARPI/NEFES/Scène 1.md" };
+  await pluginWithWorkspace.syncExistingPreviewScope(nefesFileScope, null);
+
+  assert.equal(calls.length, 1, "l'Aperçu WARPI doit suivre un feuillet descendant de NEFES");
+  assert.deepEqual(calls[0].scope, nefesFileScope);
+});
+
+test("PreviewView : un Aperçu NEFES (project, ouvrage) refuse un feuillet extérieur (frère ou autre projet)", async () => {
+  const nefes = new TFolder("WARPI/NEFES");
+  const plugin = {
+    app: { vault: { getAbstractFileByPath: () => null } },
+    settings: {},
+    getProjectFolder: () => nefes,
+  };
+  const leaf = { contentEl: element("div") };
+  const view = new PreviewView(leaf, plugin);
+  Object.defineProperty(view, "compileScope", {
+    value: { type: "project", projectRoot: "WARPI/NEFES" },
+    enumerable: true,
+    configurable: true,
+  });
+  const calls = [];
+  view.followCompileScope = async (scope, anchor) => { calls.push({ scope, anchor }); };
+
+  const workspace = { getLeavesOfType: (type) => (type === VIEW_PREVIEW ? [{ view, isDeferred: false }] : []) };
+  const pluginWithWorkspace = Object.create(FeuilletsPlugin.prototype);
+  pluginWithWorkspace.app = { workspace };
+
+  // Frère de NEFES, même racine globale WARPI.
+  await pluginWithWorkspace.syncExistingPreviewScope(
+    { type: "file", projectRoot: "WARPI", path: "WARPI/Autre/Scène A.md" },
+    null
+  );
+  assert.equal(calls.length, 0, "un Aperçu NEFES ne doit jamais suivre un feuillet frère hors de NEFES");
+
+  // Un tout autre projet.
+  await pluginWithWorkspace.syncExistingPreviewScope(
+    { type: "project", projectRoot: "AUTRE_PROJET" },
+    null
+  );
+  assert.equal(calls.length, 0, "un Aperçu NEFES ne doit jamais suivre un autre projet");
+});
+
+/* ===================== CORRECTIF LOT 4 — titres automatiques des scènes en H4 ===================== */
+
+test("PreviewView : dans un ouvrage imbriqué, le titre automatique d'une scène est rendu en H4 (jamais H3), quelle que soit la portée affichée", async () => {
+  const link = (parent, children) => { parent.children = children; for (const child of children) child.parent = parent; };
+  const globalRoot = new TFolder("WARPI");
+  const nefes = new TFolder("WARPI/NEFES");
+  const part = new TFolder("WARPI/NEFES/Subhanallah");
+  const chapter = new TFolder("WARPI/NEFES/Subhanallah/Chapitre 1");
+  const scene = new TFile("WARPI/NEFES/Subhanallah/Chapitre 1/Al-Rahman.md", "AL_RAHMAN_TEXTE");
+  link(globalRoot, [nefes]);
+  link(nefes, [part]);
+  link(part, [chapter]);
+  link(chapter, [scene]);
+
+  const walkFor = (node, targetPath) => {
+    if (node.path === targetPath) return node;
+    for (const child of node.children || []) {
+      const found = walkFor(child, targetPath);
+      if (found) return found;
+    }
+    return null;
+  };
+  const frontmatter = new Map([[scene.path, { title: "Al-Rahman" }]]);
+  const app = {
+    vault: {
+      read: async (f) => f.content || "",
+      cachedRead: async (f) => f.content || "",
+      getAbstractFileByPath: (p) => walkFor(globalRoot, p),
+      getFiles: () => [scene],
+    },
+    metadataCache: { getFileCache: (f) => ({ frontmatter: frontmatter.get(f.path) || {} }) },
+  };
+  const settings = {
+    projectFolder: "WARPI",
+    level1Role: "parties",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: { WARPI: { ouvrageRoots: { NEFES: { version: 1 } } } },
+  };
+  const plugin = {
+    app,
+    settings,
+    getProjectFolder: () => globalRoot,
+    activeExportScope: null,
+    flushContinuWritesForProject: async () => false,
+    editorialRootFor: FeuilletsPlugin.prototype.editorialRootFor,
+    compileScopeForFolder: FeuilletsPlugin.prototype.compileScopeForFolder,
+    compileScopeForFile: FeuilletsPlugin.prototype.compileScopeForFile,
+  };
+  const leaf = { contentEl: element("div") };
+  const view = new PreviewView(leaf, plugin);
+  view.app = app;
+
+  // La même portée que PreviewView utilise réellement pour compiler
+  // (collectSource() → compile(app, settings, null, this.compileScope, …)).
+  await view.setCompileScope(plugin.compileScopeForFolder(nefes));
+  let result = await compile(app, settings, null, view.compileScope, null, { writeOutput: false });
+  assert.equal(result.manuscript, "# Subhanallah\n\n## Chapitre 1\n\n#### Al-Rahman\n\nAL_RAHMAN_TEXTE");
+
+  await view.setCompileScope(plugin.compileScopeForFolder(chapter));
+  result = await compile(app, settings, null, view.compileScope, null, { writeOutput: false });
+  assert.equal(result.manuscript, "## Chapitre 1\n\n#### Al-Rahman\n\nAL_RAHMAN_TEXTE");
+
+  await view.setCompileScope(plugin.compileScopeForFile(scene));
+  result = await compile(app, settings, null, view.compileScope, null, { writeOutput: false });
+  assert.equal(result.manuscript, "#### Al-Rahman\n\nAL_RAHMAN_TEXTE");
 });
