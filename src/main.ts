@@ -134,7 +134,7 @@ import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFo
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { RESEARCH_FOLDERS, matchesResearchLabel } from "./utils/project-modes.js";
 import { setLocale, detectLocale, t } from "./i18n/index.js";
-import { reconcileAllDefaultStatusNames } from "./utils/default-statuses.js";
+import { reconcileAllDefaultStatusNames, migrateStatusFrontmatterValues } from "./utils/default-statuses.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
@@ -618,7 +618,15 @@ class FeuilletsPlugin extends Plugin {
     await this.loadSettings();
     setLocale(detectLocale(this.settings as { language?: string }));
     // (atendev) Auto-rename default statuses (Idée/Brouillon/... <-> Idea/Draft/...) to match the resolved locale.
-    if (reconcileAllDefaultStatusNames(this.settings)) await this.saveSettings();
+    const statusRenames = reconcileAllDefaultStatusNames(this.settings);
+    if (statusRenames.length > 0) {
+      await this.saveSettings();
+      // Deferred to onLayoutReady: at this point in onload() the metadata cache isn't
+      // guaranteed to be populated yet, so reading notes' frontmatter here would miss some.
+      this.app.workspace.onLayoutReady(() => {
+        void migrateStatusFrontmatterValues(this.app, this.settings, statusRenames);
+      });
+    }
     this.initializeProjectDraftAutoRenamer();
 
     this.registerViews();

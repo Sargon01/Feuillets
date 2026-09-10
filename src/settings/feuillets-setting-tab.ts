@@ -9,7 +9,7 @@ import {
   clampBinderPreviewLines,
   resolveBinderPreviewField,
 } from "../utils/binder-preview.js";
-import { reconcileAllDefaultStatusNames } from "../utils/default-statuses.js";
+import { reconcileAllDefaultStatusNames, migrateStatusFrontmatterValues } from "../utils/default-statuses.js";
 import type { DefaultSettings } from "../default-settings.js";
 import { renderCategoryTabBar } from "./settings-category-tabs.js";
 import {
@@ -476,9 +476,11 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .onChange(async (v) => {
             S.language = v as DefaultSettings["language"];
             setLocale(detectLocale(S));
-            // (atendev) Auto-rename default statuses to match the newly resolved locale.
-            reconcileAllDefaultStatusNames(S);
+            // (atendev) Auto-rename default statuses to match the newly resolved locale, then migrate
+            // any note frontmatter still holding one of the old names (see default-statuses.ts).
+            const statusRenames = reconcileAllDefaultStatusNames(S);
             await this.plugin.saveSettings();
+            if (statusRenames.length > 0) await migrateStatusFrontmatterValues(this.app, S, statusRenames);
             this.plugin.renderAllViews(true);
             this.plugin.refreshRibbonIcons();
             this.update();
