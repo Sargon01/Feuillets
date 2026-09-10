@@ -9,6 +9,7 @@ import {
   clampBinderPreviewLines,
   resolveBinderPreviewField,
 } from "../utils/binder-preview.js";
+import { reconcileAllDefaultStatusNames } from "../utils/default-statuses.js";
 import type { DefaultSettings } from "../default-settings.js";
 import { renderCategoryTabBar } from "./settings-category-tabs.js";
 import {
@@ -474,8 +475,10 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           .setValue(S.language || "auto")
           .onChange(async (v) => {
             S.language = v as DefaultSettings["language"];
-            await this.plugin.saveSettings();
             setLocale(detectLocale(S));
+            // (atendev) Auto-rename default statuses to match the newly resolved locale.
+            reconcileAllDefaultStatusNames(S);
+            await this.plugin.saveSettings();
             this.plugin.renderAllViews(true);
             this.plugin.refreshRibbonIcons();
             this.update();
