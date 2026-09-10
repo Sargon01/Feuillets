@@ -61,6 +61,7 @@ import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js
 import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
 import { resolveEditorialRoot, isOuvrageRoot } from "./services/editorial-roots.js";
+import { effectiveComposition } from "./services/ouvrage-composition.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
 import { workspaceIndentParagraphs, workspaceLabelColor, workspaceLineHeight, workspaceLiveEmptyLines, workspaceLiveHyphenation, workspaceLiveJustify, workspaceReadingFontSize, workspaceStatusColor, workspaceTextWidth, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
@@ -1007,9 +1008,18 @@ class FeuilletsPlugin extends Plugin {
           await this.app.fileManager.renameFile(node, backPath);
           await this.writeOrder(srcParent, this.orderFromSnapshot(srcParent, snap.srcOrder));
           await this.writeOrder(destFolder, this.orderFromSnapshot(destFolder, snap.destOrder));
-          if (this.settings.autoRename) {
-            const root = this.getProjectFolder();
-            if (root) await this.renumberTitles(root);
+          /* LOT 5B — confinement à l'ouvrage : la renumérotation ne part
+             jamais de la racine globale mais de la racine éditoriale de
+             `destFolder`, et son déclenchement (`autoRename`) comme son
+             préfixe/mode suivent la composition de CETTE racine — jamais
+             une renumérotation qui déborderait sur un ouvrage voisin. */
+          {
+            const editorialRoot = this.editorialRootFor(destFolder);
+            const globalRoot = this.getProjectFolder();
+            const autoRename = globalRoot && editorialRoot
+              ? effectiveComposition(this.settings, globalRoot, editorialRoot).autoRename
+              : this.settings.autoRename;
+            if (autoRename && editorialRoot) await this.renumberTitles(editorialRoot);
           }
           this.renderAllViews(true);
           new Notice(t("main.notice.crossFolderMoveUndone"));
@@ -3990,6 +4000,22 @@ class FeuilletsPlugin extends Plugin {
     return resolveEditorialRoot(this.app, this.settings, root, node);
   }
 
+  /** LOT 5B — racine éditoriale de la portée RÉELLEMENT AFFICHÉE par
+   * Édition → Composition : même source de vérité que le panneau Export
+   * (CORRECTIF FINAL LOT 4, §2) — l'Aperçu central déjà ouvert sur ce
+   * projet prime (`getCentralPreviewView()`), sinon la portée de session
+   * (`activeExportScope`), sinon le projet global entier. Ne renvoie jamais
+   * null tant qu'un projet est configuré ; jamais une seconde résolution de
+   * portée indépendante ailleurs dans l'UI. */
+  editorialRootForComposition(): TFolder | null {
+    const globalRoot = this.getProjectFolder();
+    if (!globalRoot) return null;
+    const scope = this.getCentralPreviewView()?.compileScope ?? this.activeExportScope;
+    if (!scope) return globalRoot;
+    const resolved = this.app.vault.getAbstractFileByPath(normalizePath(scope.projectRoot));
+    return resolved instanceof TFolder ? resolved : globalRoot;
+  }
+
   /** Portée d'un dossier du Binder, rattachée à son ouvrage : la racine
    * éditoriale elle-même (racine globale ou ouvrage déclaré) devient une
    * portée project ; tout autre dossier, une portée folder dont projectRoot
@@ -4048,8 +4074,28 @@ class FeuilletsPlugin extends Plugin {
   }
   depthOf(node: ProjectNode): number { return depthOf(this.app, this.settings, node, this.editorialRootFor(node)); }
   isFrontMatter(node: ProjectNode): boolean { return isFrontMatter(this.app, this.settings, node, this.editorialRootFor(node)); }
-  roleOfFolder(folder: TFolder): "chapitre" | "partie" { return roleOfFolder(this.app, this.settings, folder, this.editorialRootFor(folder)); }
-  roleOfFile(file: TFile): "chapitre" | "scene" { return roleOfFile(this.app, this.settings, file, this.editorialRootFor(file)); }
+  /** Rôle du dossier — LOT 5B : le niveau 1 (parties/chapitres) suit
+   *  désormais `effectiveComposition(...).level1Role` de sa racine
+   *  éditoriale, la MÊME source que compile-export.ts, jamais un second
+   *  calcul : un ouvrage (NEFES) avec son propre `level1Role` affiche donc
+   *  dans le Binder exactement les rôles qu'il compile. */
+  roleOfFolder(folder: TFolder): "chapitre" | "partie" {
+    const editorialRoot = this.editorialRootFor(folder);
+    const globalRoot = this.getProjectFolder();
+    const level1RoleOverride = globalRoot && editorialRoot
+      ? effectiveComposition(this.settings, globalRoot, editorialRoot).level1Role
+      : undefined;
+    return roleOfFolder(this.app, this.settings, folder, editorialRoot, level1RoleOverride);
+  }
+  /** Même principe que roleOfFolder() ci-dessus. */
+  roleOfFile(file: TFile): "chapitre" | "scene" {
+    const editorialRoot = this.editorialRootFor(file);
+    const globalRoot = this.getProjectFolder();
+    const level1RoleOverride = globalRoot && editorialRoot
+      ? effectiveComposition(this.settings, globalRoot, editorialRoot).level1Role
+      : undefined;
+    return roleOfFile(this.app, this.settings, file, editorialRoot, level1RoleOverride);
+  }
   getOrderedChildren(folder: TFolder | null | undefined, includeHidden = false): ProjectNode[] {
     return getOrderedChildren(this.app, this.settings, folder, includeHidden);
   }
@@ -4163,7 +4209,19 @@ class FeuilletsPlugin extends Plugin {
   listCompiledFilePaths() { return listCompiledFilePaths(this.app, this.settings); }
   parseStoryDate(raw: unknown, file: TFile | null = null) { return parseStoryDate(raw, file); }
 
+  /** LOT 5B — `root` est la racine ACTUELLEMENT AFFICHÉE par le Binder
+   * (projet global, ou le dossier isolé) : sa composition effective fournit
+   * `chapterNumbering`/`sceneNumbering`, jamais les réglages globaux bruts
+   * — un ouvrage isolé (NEFES) affiche donc sa propre numérotation. Les
+   * rôles (helpers.roleOfFolder) restent this.roleOfFolder(), déjà
+   * editorial-root-aware pour CHAQUE nœud (voir plus haut). */
   buildNumbering(root: TFolder): Map<string, string> {
+    const globalRoot = this.getProjectFolder();
+    const composition = globalRoot ? effectiveComposition(this.settings, globalRoot, root) : null;
+    const numberingSettings: { chapterNumbering?: string; sceneNumbering?: string } = {
+      chapterNumbering: composition?.chapterNumbering ?? String(this.settings.chapterNumbering || ""),
+      sceneNumbering: composition?.sceneNumbering ?? String(this.settings.sceneNumbering || ""),
+    };
     /* numbering.ts est volontairement pur (testable sans coffre) : son
        NumberingNode est une forme générique, pas TFile/TFolder — d'où les
        casts, seul point de jonction entre les deux mondes. */
@@ -4174,7 +4232,7 @@ class FeuilletsPlugin extends Plugin {
       isFolder: (node: unknown) => node instanceof TFolder,
     };
     return buildNumbering(
-      this.settings,
+      numberingSettings,
       root as unknown as Parameters<typeof buildNumbering>[1],
       helpers as unknown as Parameters<typeof buildNumbering>[2]
     );
@@ -4277,9 +4335,14 @@ class FeuilletsPlugin extends Plugin {
       });
     }
     await this.writeOrder(parent, orderedChildren);
-    if (this.settings.autoRename) {
-      const root = this.getProjectFolder();
-      if (root) await this.renumberTitles(root);
+    /* LOT 5B — confinement à l'ouvrage : voir moveNode() plus bas. */
+    {
+      const editorialRoot = this.editorialRootFor(parent);
+      const globalRoot = this.getProjectFolder();
+      const autoRename = globalRoot && editorialRoot
+        ? effectiveComposition(this.settings, globalRoot, editorialRoot).autoRename
+        : this.settings.autoRename;
+      if (autoRename && editorialRoot) await this.renumberTitles(editorialRoot);
     }
   }
 
@@ -4314,9 +4377,18 @@ class FeuilletsPlugin extends Plugin {
     destChildren.splice(at, 0, movedNow as ProjectNode);
     await this.writeOrder(destFolder, destChildren);
     await this.writeOrder(srcParent, srcRemaining);
-    if (this.settings.autoRename) {
-      const root = this.getProjectFolder();
-      if (root) await this.renumberTitles(root);
+    /* LOT 5B — confinement à l'ouvrage : la renumérotation part de la
+       racine éditoriale de LA DESTINATION (où le nœud déplacé vit
+       désormais), avec le déclenchement (`autoRename`), le mode et le
+       préfixe de CETTE racine — jamais de la racine globale, jamais celle
+       d'un ouvrage voisin. */
+    {
+      const editorialRoot = this.editorialRootFor(destFolder);
+      const globalRoot = this.getProjectFolder();
+      const autoRename = globalRoot && editorialRoot
+        ? effectiveComposition(this.settings, globalRoot, editorialRoot).autoRename
+        : this.settings.autoRename;
+      if (autoRename && editorialRoot) await this.renumberTitles(editorialRoot);
     }
     /* Un fichier qui porte EXACTEMENT le nom de son nouveau dossier parent
        devient sa "note de dossier" (synopsis/description, convention
@@ -4341,11 +4413,20 @@ class FeuilletsPlugin extends Plugin {
     return new RegExp(`^${prefix}\\s*\\d+$`, "i");
   }
 
+  /** LOT 5B — `root` est la racine ÉDITORIALE à renuméroter (racine
+   * globale ou ouvrage, voir applySiblingOrder()/moveNode() ci-dessus) :
+   * mode, préfixe ET rôles (via this.roleOfFolder/roleOfFile, déjà
+   * editorial-root-aware) suivent tous la composition effective de CETTE
+   * racine — jamais celle d'un ouvrage voisin ni de la racine globale par
+   * défaut. Comportement historique strictement inchangé quand `root` est
+   * la racine globale elle-même (composition globale = réglages bruts). */
   async renumberTitles(root: TFolder): Promise<number> {
-    const chapMode = this.settings.chapterNumbering || "continu";
+    const globalRoot = this.getProjectFolder();
+    const composition = globalRoot ? effectiveComposition(this.settings, globalRoot, root) : null;
+    const chapMode = composition?.chapterNumbering || "continu";
     if (chapMode === "aucune") return 0;
-    const pattern = this.chapterPattern();
-    const prefix = this.settings.renamePrefix || "chapitre";
+    const prefix = composition?.renamePrefix || "chapitre";
+    const pattern = new RegExp(`^${escapeRegExp(prefix)}\\s*\\d+$`, "i");
     let n = 0;
     let changed = 0;
     const concernsFile = (f: TFile): boolean => {
