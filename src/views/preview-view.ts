@@ -16,6 +16,7 @@ import { composeDocumentMedia, renderManuscriptHtml, renderManuscriptHtmlWithFro
 import { hasRemainingDocumentLayoutMarker } from "../services/document-layout.js";
 import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "../services/layout-store.js";
 import { applyPandocCitationPreview } from "../services/pandoc-citation-preview.js";
+import { resolveWorkspaceCitationResources } from "../services/workspace-citations.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, joinCompiledSegments, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { selectedContentVariant } from "../services/content-variants.js";
@@ -141,6 +142,7 @@ export type PreviewViewPlugin = {
    * reconstruction locale de portée avec la racine globale. */
   compileScopeForFolder?(folder: TFolder): CompileScope | null;
   compileScopeForFile?(file: TFile): CompileScope | null;
+  getWorkspaceFolder?(): TFolder | null;
 };
 
 export type ZoomMode = "fit-width" | "fit-page" | "manual";
@@ -1692,7 +1694,14 @@ export class PreviewView extends ItemView {
     }
     const projectMeta = projectPath ? settings.projectMeta?.[projectPath] : null;
     const pandocPreviewStyle = (projectMeta?.pandocCitationPreviewStyle as PandocCitationPreviewStyle) || "off";
-    const pandocBibliographyPath = (projectMeta?.pandocBibliographyPath as string) || "";
+    let pandocBibliographyPath = "";
+    if (projectRoot) {
+      const workspaceFolder = typeof this.plugin?.getWorkspaceFolder === "function"
+        ? this.plugin.getWorkspaceFolder()
+        : null;
+      const resolution = resolveWorkspaceCitationResources(this.app, settings, projectRoot, workspaceFolder);
+      pandocBibliographyPath = resolution.bibliography.file ? resolution.bibliography.file.path : "";
+    }
 
     // Create afterVariant callback that chains applySourceMarkers and applyPandocCitationPreview
     const createAfterVariantCallback = (hasSourceMarkers: boolean) => async (container: HTMLElement) => {

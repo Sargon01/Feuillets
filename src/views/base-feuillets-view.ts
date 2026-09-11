@@ -34,6 +34,10 @@ export type ResearchRenderOptions = {
   researchRoot?: TFolder | null;
   associatedResearchFolder?: TFolder | null;
   onScopeModeChange?: (mode: ResearchScopeMode) => void;
+  activeBranchResearchFolders?: {
+    folder: TFolder;
+    binderNodes: TAbstractFile[];
+  }[];
 };
 
 function getResearchSectionIcon(key: string): string {
@@ -1060,10 +1064,19 @@ export abstract class BaseFeuilletsView extends ItemView {
         )
       );
       if (options.workspaceFolder) {
+        const fileFolders = this.workspaceFileResearchFolders(options.workspaceFolder);
+        const branchFolders = options.activeBranchResearchFolders ?? [];
+        const mergedFolders = this.mergeWorkspaceResearchFolders(
+          branchFolders,
+          fileFolders
+        ).filter(({ folder }) =>
+          folder.path !== associatedWorkspaceFolder.path &&
+          !folder.path.startsWith(`${associatedWorkspaceFolder.path}/`)
+        );
         this.renderAssociatedResearchFolders(
           body,
           associatedWorkspaceFolder,
-          this.workspaceFileResearchFolders(options.workspaceFolder),
+          mergedFolders,
           false,
           false
         );
@@ -1229,6 +1242,29 @@ export abstract class BaseFeuilletsView extends ItemView {
         const bIndex = Math.min(...b.binderNodes.map((node) => order.get(node.path) ?? Number.MAX_SAFE_INTEGER));
         return aIndex - bIndex;
       });
+  }
+
+  private mergeWorkspaceResearchFolders(
+    primary: { folder: TFolder; binderNodes: TAbstractFile[] }[],
+    secondary: { folder: TFolder; binderNodes: TAbstractFile[] }[]
+  ): { folder: TFolder; binderNodes: TAbstractFile[] }[] {
+    const byPath = new Map<string, { folder: TFolder; binderNodes: TAbstractFile[] }>();
+    for (const item of [...primary, ...secondary]) {
+      const existing = byPath.get(item.folder.path);
+      if (existing) {
+        for (const node of item.binderNodes) {
+          if (!existing.binderNodes.some((n) => n.path === node.path)) {
+            existing.binderNodes.push(node);
+          }
+        }
+      } else {
+        byPath.set(item.folder.path, {
+          folder: item.folder,
+          binderNodes: [...item.binderNodes],
+        });
+      }
+    }
+    return Array.from(byPath.values());
   }
 
   private renderAssociatedResearchFolders(
@@ -1681,6 +1717,10 @@ export abstract class BaseFeuilletsView extends ItemView {
     const header = subItem.createDiv({
       cls: "feuillets-research-item-header",
     });
+    if (typeof header.setAttribute === "function") {
+      header.setAttribute("data-research-folder-path", folder.path);
+    }
+    header.setAttr("data-research-folder-path", folder.path);
 
     /* Chevron d'état + icône dossier + nom : toute la ligne bascule
        l'état replié/déplié du contenu. */

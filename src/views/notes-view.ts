@@ -50,6 +50,15 @@ type NotesFrontmatter = Record<string, unknown> & {
 };
 type StoryDate = { sort: number; display: string; y: number; mo: number; d: number };
 type Footnote = { label: string; text: string };
+export interface CursorParagraph {
+  text: string;
+  startLine: number;
+  endLine: number;
+  startOffset: number;
+  endOffset: number;
+  identity: string;
+}
+
 /** Page actuellement affichée dans le panneau Feuillet — état PUREMENT en
  * mémoire, jamais persisté dans settings (voir `notesPage`) : "home" est la
  * vue principale du Feuillet, les trois autres sont des pages secondaires
@@ -229,6 +238,8 @@ export class NotesView extends BaseFeuilletsView {
    * envoyée à matchContext() — permet de ne PAS redéclencher un rendu quand
    * le curseur bouge sans changer de paragraphe (règle 5 du chantier). */
   private lastCursorContextText: string | null = null;
+  /** Tracked paragraph identity (position and content) for cursor-based Related documents. */
+  private lastCursorParagraphIdentity: string | null = null;
   private closed = false;
 
   /** Cache Lot 5 (recherche dans le contenu des documents associés) — voir
@@ -520,26 +531,86 @@ export class NotesView extends BaseFeuilletsView {
    * priorité la plus forte (la plus précise) — buildContextIndex() fait
    * déjà ce choix par DOCUMENT, cette déduplication porte sur la liste des
    * SOURCES elle-même, avant même de la lui passer. */
+  /**
+   * Resolves context sources for the active file through its ancestor hierarchy:
+   * 1. Research explicitly linked to the current file.
+   * 2. Research linked to each parent folder walking upward through the physical
+   *    hierarchy until and including plugin.getProjectFolder().
+   *
+   * Ancestors above the project root are never inspected, and paths are
+   * deduplicated while preserving the highest-priority (first) occurrence.
+   */
   private contextSourcesFor(file: TFile): ContextSource[] {
     const candidates: Array<{ path: string; kind: keyof typeof CONTEXT_SOURCE_PRIORITY }> = [];
 
-    const linkedToFile = this.plugin.getLinkedResearchFolder(file);
-    if (linkedToFile) candidates.push({ path: linkedToFile.path, kind: "feuillet" });
-
-    const root = this.plugin.getProjectFolder();
-    if (root) {
-      let folder: TFolder | null = file.parent;
-      while (folder && folder.path !== root.path) {
-        const linkedToFolder = this.plugin.getLinkedResearchFolder(folder);
-        if (linkedToFolder) {
-          candidates.push({ path: linkedToFolder.path, kind: "chapter" });
-        }
-        folder = folder.parent;
-      }
+    const linkedToFile = typeof this.plugin.getLinkedResearchFolder === "function"
+      ? this.plugin.getLinkedResearchFolder(file)
+      : null;
+    if (linkedToFile) {
+      candidates.push({ path: linkedToFile.path, kind: "feuillet" });
     }
 
-    const researchRoot = this.plugin.getResearchRoot();
-    if (researchRoot) candidates.push({ path: researchRoot.path, kind: "project-research" });
+    const projectRoot = typeof this.plugin.getProjectFolder === "function"
+      ? this.plugin.getProjectFolder()
+      : null;
+
+    if (projectRoot) {
+      const configuredLinks = this.plugin?.settings?.projectMeta?.[projectRoot.path]?.researchFolderLinks;
+      const isAssociationBased =
+        configuredLinks != null &&
+        typeof configuredLinks === "object" &&
+        Object.keys(configuredLinks).length > 0;
+
+      let currentFolder: TFolder | null = file.parent ?? null;
+      if (!currentFolder && file.path.includes("/")) {
+        const parentPath = file.path.slice(0, file.path.lastIndexOf("/"));
+        const fromVault = this.app?.vault?.getAbstractFileByPath?.(parentPath);
+        if (fromVault instanceof TFolder) {
+          currentFolder = fromVault;
+        }
+      }
+
+      while (currentFolder) {
+        let linkedToFolder = typeof this.plugin.getLinkedResearchFolder === "function"
+          ? this.plugin.getLinkedResearchFolder(currentFolder)
+          : null;
+
+        // Fall back to historical research root only in legacy projects without configured associations.
+        if (!linkedToFolder && currentFolder.path === projectRoot.path && !isAssociationBased) {
+          const researchRoot = typeof this.plugin.getResearchRoot === "function"
+            ? this.plugin.getResearchRoot()
+            : null;
+          if (
+            researchRoot &&
+            (researchRoot.name === "_Recherche" ||
+              researchRoot.name === "_Research" ||
+              researchRoot.name === "Recherche" ||
+              researchRoot.name === "Research")
+          ) {
+            linkedToFolder = researchRoot;
+          }
+        }
+
+        if (linkedToFolder) {
+          candidates.push({
+            path: linkedToFolder.path,
+            kind: currentFolder.path === projectRoot.path ? "project-research" : "chapter",
+          });
+        }
+        if (currentFolder.path === projectRoot.path) {
+          break;
+        }
+        let nextParent: TFolder | null = currentFolder.parent ?? null;
+        if (!nextParent && currentFolder.path.includes("/")) {
+          const parentPath = currentFolder.path.slice(0, currentFolder.path.lastIndexOf("/"));
+          const fromVault = this.app?.vault?.getAbstractFileByPath?.(parentPath);
+          if (fromVault instanceof TFolder) {
+            nextParent = fromVault;
+          }
+        }
+        currentFolder = nextParent;
+      }
+    }
 
     const byPath = new Map<string, { path: string; kind: keyof typeof CONTEXT_SOURCE_PRIORITY }>();
     for (const candidate of candidates) {
@@ -712,6 +783,23 @@ export class NotesView extends BaseFeuilletsView {
     );
     btn.addClass("feuillets-pin-btn");
     if (pinned) btn.addClass("is-active");
+  }
+
+  /**
+   * Checks whether a candidate file path belongs to one of the given context sources:
+   * exact folder path match or candidate path starts with sourceFolderPath + "/".
+   * Never performs a bare prefix comparison without a trailing slash.
+   */
+  private isCandidateInSources(candidatePath: string, sources: ContextSource[]): boolean {
+    const cleanCandidate = normalizePath(candidatePath);
+    for (const source of sources) {
+      const cleanSource = normalizePath(source.path);
+      if (!cleanSource) continue;
+      if (cleanCandidate === cleanSource || cleanCandidate.startsWith(`${cleanSource}/`)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /** Provenance affichable d'un chemin (Lot 6) — « Feuillet »/« Chapitre »/
@@ -1074,6 +1162,106 @@ export class NotesView extends BaseFeuilletsView {
     }
   }
 
+  /**
+   * Resolves the current Markdown paragraph containing the real cursor from the
+   * active source editor for the exact file. Returns null when no active source
+   * editor exists, in Reading mode, when the cursor is on a blank line, when the
+   * trimmed paragraph is empty, or if editor access fails.
+   */
+  private cursorParagraph(file: TFile): CursorParagraph | null {
+    const source = this.activeSourceEditorFor(file);
+    if (!source) return null;
+
+    try {
+      const text = source.editor.getValue();
+      if (typeof text !== "string") return null;
+
+      const cursor = source.editor.getCursor();
+      const rawOffset = source.editor.posToOffset(cursor);
+      if (!Number.isFinite(rawOffset)) return null;
+
+      const lines = text.split(/\r?\n/);
+      if (lines.length === 0) return null;
+
+      const lineOffsets: Array<{ start: number; end: number }> = [];
+      let cur = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const len = lines[i].length;
+        lineOffsets.push({ start: cur, end: cur + len });
+        cur += len + 1;
+      }
+
+      const offset = Math.max(0, Math.min(rawOffset, text.length));
+      let cursorLine = -1;
+      if (typeof cursor?.line === "number" && cursor.line >= 0 && cursor.line < lines.length &&
+          offset >= lineOffsets[cursor.line].start && offset <= lineOffsets[cursor.line].end) {
+        cursorLine = cursor.line;
+      } else {
+        for (let i = 0; i < lineOffsets.length; i++) {
+          if (offset >= lineOffsets[i].start && offset <= lineOffsets[i].end) {
+            cursorLine = i;
+            break;
+          }
+        }
+      }
+      if (cursorLine === -1) {
+        cursorLine = lineOffsets.length - 1;
+      }
+
+      // Detect YAML frontmatter header
+      let bodyStartLine = 0;
+      if (lines[0]?.trim() === "---") {
+        for (let i = 1; i < lines.length; i++) {
+          if (lines[i].trim() === "---") {
+            bodyStartLine = i + 1;
+            break;
+          }
+        }
+      }
+
+      if (cursorLine < bodyStartLine) {
+        return null;
+      }
+
+      // Blank line under cursor returns null
+      if (lines[cursorLine].trim().length === 0) {
+        return null;
+      }
+
+      // Expand upwards and downwards across contiguous non-empty lines
+      let startLine = cursorLine;
+      while (startLine > bodyStartLine && lines[startLine - 1].trim().length > 0) {
+        startLine--;
+      }
+
+      let endLine = cursorLine;
+      while (endLine < lines.length - 1 && lines[endLine + 1].trim().length > 0) {
+        endLine++;
+      }
+
+      const paragraphLines = lines.slice(startLine, endLine + 1);
+      const textContent = paragraphLines.join("\n").trim();
+      if (textContent.length === 0) {
+        return null;
+      }
+
+      const startOffset = lineOffsets[startLine].start;
+      const endOffset = lineOffsets[endLine].end;
+      const identity = `${startLine}:${endLine}:${startOffset}:${endOffset}:${textContent}`;
+
+      return {
+        text: textContent,
+        startLine,
+        endLine,
+        startOffset,
+        endOffset,
+        identity,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /** (Ré)accroche l'écoute clavier/souris sur l'éditeur Markdown actif du
    * feuillet affiché — seul moyen de détecter un déplacement du curseur
    * SANS frappe (clic, flèches) : l'API Obsidian n'expose aucun événement
@@ -1106,19 +1294,23 @@ export class NotesView extends BaseFeuilletsView {
     }
   }
 
-  /** Débounce (~300 ms) avant de recalculer la section « Contexte » — et,
-   * règle 5 du chantier, un rafraîchissement complet (render(), avec tout
-   * ce qu'il recalcule) n'est déclenché que si la fenêtre de contexte a
-   * RÉELLEMENT changé depuis la dernière fois : un simple déplacement du
-   * curseur qui reste dans le même paragraphe ne provoque aucun rendu. */
+  /** Débounce (~300 ms) avant de recalculer la section « Contexte » —
+   * un rafraîchissement complet (render()) n'est déclenché que si la fenêtre
+   * de contexte ou l'identité du paragraphe courant a RÉELLEMENT changé. */
   private scheduleContextWindowRefresh(file: TFile): void {
     if (this.closed || typeof window === "undefined") return;
     if (this.contextWindowTimer !== null) window.clearTimeout(this.contextWindowTimer);
     this.contextWindowTimer = window.setTimeout(() => {
       this.contextWindowTimer = null;
       if (this.closed) return;
-      const nextText = this.cursorContextWindow(file);
-      if (nextText !== null && nextText === this.lastCursorContextText) return;
+      const nextWindowText = this.cursorContextWindow(file);
+      const nextParagraph = this.cursorParagraph(file);
+      const nextParagraphIdentity = nextParagraph ? nextParagraph.identity : null;
+
+      const windowChanged = nextWindowText !== null && nextWindowText !== this.lastCursorContextText;
+      const paragraphChanged = nextParagraphIdentity !== this.lastCursorParagraphIdentity;
+
+      if (!windowChanged && !paragraphChanged) return;
       void this.render();
     }, CONTEXT_WINDOW_DEBOUNCE_MS);
   }
@@ -1449,7 +1641,10 @@ export class NotesView extends BaseFeuilletsView {
        projet (sous-dossiers compris), voir contextSourcesFor(). Réutilisée
        aussi pour la pastille de provenance (Lot 6, provenanceLabelFor). */
     const sources = this.contextSourcesFor(file);
-    if (sources.length === 0 && jalons.length === 0 && pinnedPaths.length === 0) return;
+    const allowedJalons = jalons.filter((jalon) =>
+      this.isCandidateInSources(jalon.path, sources)
+    );
+    if (sources.length === 0 && allowedJalons.length === 0 && pinnedPaths.length === 0) return;
 
     const documents = this.collectContextDocuments(sources);
     const index = buildContextIndex(documents, sources);
@@ -1471,13 +1666,24 @@ export class NotesView extends BaseFeuilletsView {
     // rendu, quel que soit son déclencheur, pour rester une référence fiable.
     this.lastCursorContextText = contextText;
 
+    // Contexte strictement limité au paragraphe sous le curseur réel pour
+    // « Documents associés » (Lot 5) — null sans éditeur actif, en mode
+    // Lecture ou sur une ligne vide (voir cursorParagraph). Jamais de repli
+    // sur le feuillet complet ni sur les paragraphes voisins.
+    const currentParagraph = this.cursorParagraph(file);
+    const contentContextText = currentParagraph ? currentParagraph.text : null;
+    this.lastCursorParagraphIdentity = currentParagraph ? currentParagraph.identity : null;
+
     // Le texte retenu (fenêtre autour du curseur, ou corps complet en
     // repli) est envoyé tel quel au moteur — buildContextIndex() puis
-    // matchContext(), rien d'autre. Algorithme Lot 3/4 inchangé.
-    const matches = matchContext(contextText, index);
+    // matchContext(), avec filtrage strict des résultats sur les sources autorisées.
+    const rawMatches = matchContext(contextText, index);
+    const matches = rawMatches.filter((match) =>
+      this.isCandidateInSources(match.candidate.path, sources)
+    );
 
     const citedSet = new Set<TFile>();
-    for (const jalon of jalons) citedSet.add(jalon);
+    for (const jalon of allowedJalons) citedSet.add(jalon);
     for (const match of matches) {
       const found = this.app.vault.getAbstractFileByPath(match.candidate.path);
       if (found instanceof TFile) citedSet.add(found);
@@ -1490,9 +1696,9 @@ export class NotesView extends BaseFeuilletsView {
     /* Lot 5 — second niveau, distinct des correspondances fiables
        ci-dessus : recherche dans le CONTENU des documents associés au
        feuillet/chapitre UNIQUEMENT (contentSourcesFor exclut
-       project-research, voir sa documentation), sur le MÊME contextText
-       que le moteur fiable (jamais un retour au feuillet entier). Toute
-       fiche déjà remontée par matchContext() ci-dessus OU déjà épinglée est
+       project-research, voir sa documentation), sur le paragraphe sous le
+       curseur réel (contentContextText, jamais un retour au feuillet entier).
+       Toute fiche déjà remontée par matchContext() ci-dessus OU déjà épinglée est
        exclue par path (excludePaths) : jamais de doublon entre les trois
        sections. Limite relevée à 10 (au lieu de 5) : SEULE adaptation de
        l'appel Lot 5 pour ce chantier, afin d'alimenter un vivier pour
@@ -1500,14 +1706,17 @@ export class NotesView extends BaseFeuilletsView {
        (context-content-matcher.ts) n'est pas modifié. */
     const contentSources = this.contentSourcesFor(file);
     let contentMatches: ContentMatch[] = [];
-    if (contentSources.length > 0) {
+    if (contentContextText && contentContextText.length > 0 && contentSources.length > 0) {
       const excludePaths = new Set(matches.map((m) => m.candidate.path));
       for (const p of pinnedPathSet) excludePaths.add(p);
       const contentCandidates = await this.collectContentCandidates(contentSources);
-      contentMatches = matchContent(contextText, contentCandidates, {
+      const rawContentMatches = matchContent(contentContextText, contentCandidates, {
         limit: 10,
         excludePaths,
       });
+      contentMatches = rawContentMatches.filter((match) =>
+        this.isCandidateInSources(match.path, sources)
+      );
     }
 
     // Fiches épinglées résolues en TFile, dans leur ORDRE D'ÉPINGLAGE —
@@ -1520,7 +1729,7 @@ export class NotesView extends BaseFeuilletsView {
 
     if (pinnedFiles.length === 0 && entities.length === 0 && contentMatches.length === 0) return;
 
-    const jalonSet = new Set(jalons);
+    const jalonSet = new Set(allowedJalons);
     const getRank = (ent: TFile): number => {
       const isJalon = jalonSet.has(ent);
       const kind = this.entityKind(ent);

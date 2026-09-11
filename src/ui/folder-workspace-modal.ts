@@ -29,6 +29,11 @@ import {
   workspaceScopeToFolderPath,
 } from "../services/folder-workspaces.js";
 import { t } from "../i18n/index.js";
+import {
+  listWorkspaceCitationCandidates,
+  resolveWorkspaceCitationResources,
+  type ResolvedWorkspaceCitationResource,
+} from "../services/workspace-citations.js";
 
 type FolderWorkspacePlugin = {
   settings: FeuilletsSettings;
@@ -146,6 +151,10 @@ export class FolderWorkspaceModal extends Modal {
     this.renderStatuses(workflow, projectRoot.path, relativeScope);
     this.renderLabels(workflow, projectRoot.path, relativeScope);
     this.renderFavoriteTags(workflow, projectRoot.path, relativeScope);
+
+    const citations = contentEl.createDiv({ cls: "feuillets-notes-section" });
+    citations.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.citations") });
+    this.renderCitations(citations, projectRoot.path, relativeScope);
 
     const goals = contentEl.createDiv({ cls: "feuillets-notes-section" });
     goals.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.goals") });
@@ -661,5 +670,169 @@ export class FolderWorkspaceModal extends Modal {
     await this.plugin.saveSettings();
     this.plugin.renderAllViews(true);
     this.rerenderContent();
+  }
+
+  private citationSourceDescription(
+    projectRootPath: string,
+    relativeScope: string,
+    res: ResolvedWorkspaceCitationResource,
+    localConfig: FolderWorkspaceConfig | undefined,
+    fieldKey: "citekeyBibliographyPath" | "citekeyCslPath",
+  ): string {
+    const hasLocal = this.hasLocalField(localConfig, fieldKey);
+
+    if (res.status === "not_configured") {
+      return t("modal.folderWorkspace.notConfigured");
+    }
+
+    if (res.status === "disabled") {
+      if (hasLocal) {
+        return `${t("modal.folderWorkspace.local")} — ${t("modal.folderWorkspace.disabled")}`;
+      }
+      if (res.sourceScope && res.sourceScope.path === projectRootPath) {
+        return `${t("modal.folderWorkspace.inheritedFromProject")} — ${t("modal.folderWorkspace.disabled")}`;
+      }
+      const name = res.sourceScope ? res.sourceScope.name : "";
+      return `${t("modal.folderWorkspace.inheritedFromParent", { name })} — ${t("modal.folderWorkspace.disabled")}`;
+    }
+
+    let provenance: string;
+    if (hasLocal) {
+      provenance = t("modal.folderWorkspace.local");
+    } else if (res.source === "ancestor" && res.sourceScope) {
+      provenance = t("modal.folderWorkspace.inheritedFromParent", { name: res.sourceScope.name });
+    } else if (res.source === "legacy") {
+      provenance = t("modal.folderWorkspace.inheritedFromLegacy");
+    } else {
+      provenance = t("modal.folderWorkspace.inheritedFromProject");
+    }
+
+    if (res.status === "valid") {
+      return provenance;
+    }
+    if (res.status === "missing_file") {
+      return `${provenance} — ${t("modal.folderWorkspace.missingFile")}`;
+    }
+    if (res.status === "invalid_path") {
+      return `${provenance} — ${t("modal.folderWorkspace.invalidPath")}`;
+    }
+    if (res.status === "unbound_research") {
+      return `${provenance} — ${t("modal.folderWorkspace.unboundResearch")}`;
+    }
+
+    return provenance;
+  }
+
+  private renderCitations(container: HTMLElement, projectRootPath: string, relativeScope: string): void {
+    const projectFolder = this.app.vault.getAbstractFileByPath(projectRootPath);
+    if (!(projectFolder instanceof TFolder)) return;
+
+    const resolution = resolveWorkspaceCitationResources(
+      this.app,
+      this.plugin.settings,
+      projectFolder,
+      this.folder,
+    );
+
+    const selectionResearchFolder = resolution.selectionResearchFolder;
+    const local = getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope);
+
+    // --- Bibliography (.bib) ---
+    const bibDesc = this.citationSourceDescription(
+      projectRootPath,
+      relativeScope,
+      resolution.bibliography,
+      local,
+      "citekeyBibliographyPath",
+    );
+    const bibCandidates = selectionResearchFolder
+      ? listWorkspaceCitationCandidates(this.app, selectionResearchFolder, "bib")
+      : [];
+    const hasLocalBib = this.hasLocalField(local, "citekeyBibliographyPath");
+    const localBibVal = local?.citekeyBibliographyPath ?? "";
+
+    new Setting(container)
+      .setName(t("modal.folderWorkspace.bibliography"))
+      .setDesc(bibDesc)
+      .addDropdown((d) => {
+        if (!hasLocalBib && resolution.bibliography.source !== "none" && resolution.bibliography.relativePath) {
+          const inheritedLabel = `${resolution.bibliography.relativePath} (${bibDesc})`;
+          d.addOption("__inherited__", inheritedLabel);
+        }
+        d.addOption("", t("modal.folderWorkspace.noFile"));
+        for (const c of bibCandidates) {
+          d.addOption(c.relativePath, c.relativePath);
+        }
+        if (hasLocalBib && localBibVal !== "" && !bibCandidates.some((c) => c.relativePath === localBibVal)) {
+          d.addOption(localBibVal, `${localBibVal} (${t("modal.folderWorkspace.missing")})`);
+        }
+
+        if (hasLocalBib) {
+          d.setValue(localBibVal);
+        } else if (resolution.bibliography.source !== "none" && resolution.bibliography.relativePath) {
+          d.setValue("__inherited__");
+        } else {
+          d.setValue("");
+        }
+
+        if (!selectionResearchFolder) {
+          d.setDisabled(true);
+        } else {
+          d.onChange((value) => {
+            if (value === "__inherited__") return;
+            void this.saveLocalField(projectRootPath, relativeScope, "citekeyBibliographyPath", value, true);
+          });
+        }
+      });
+    this.addFieldReset(container, projectRootPath, relativeScope, "citekeyBibliographyPath");
+
+    // --- Citation style (.csl) ---
+    const cslDesc = this.citationSourceDescription(
+      projectRootPath,
+      relativeScope,
+      resolution.csl,
+      local,
+      "citekeyCslPath",
+    );
+    const cslCandidates = selectionResearchFolder
+      ? listWorkspaceCitationCandidates(this.app, selectionResearchFolder, "csl")
+      : [];
+    const hasLocalCsl = this.hasLocalField(local, "citekeyCslPath");
+    const localCslVal = local?.citekeyCslPath ?? "";
+
+    new Setting(container)
+      .setName(t("modal.folderWorkspace.csl"))
+      .setDesc(cslDesc)
+      .addDropdown((d) => {
+        if (!hasLocalCsl && resolution.csl.source !== "none" && resolution.csl.relativePath) {
+          const inheritedLabel = `${resolution.csl.relativePath} (${cslDesc})`;
+          d.addOption("__inherited__", inheritedLabel);
+        }
+        d.addOption("", t("modal.folderWorkspace.noFile"));
+        for (const c of cslCandidates) {
+          d.addOption(c.relativePath, c.relativePath);
+        }
+        if (hasLocalCsl && localCslVal !== "" && !cslCandidates.some((c) => c.relativePath === localCslVal)) {
+          d.addOption(localCslVal, `${localCslVal} (${t("modal.folderWorkspace.missing")})`);
+        }
+
+        if (hasLocalCsl) {
+          d.setValue(localCslVal);
+        } else if (resolution.csl.source !== "none" && resolution.csl.relativePath) {
+          d.setValue("__inherited__");
+        } else {
+          d.setValue("");
+        }
+
+        if (!selectionResearchFolder) {
+          d.setDisabled(true);
+        } else {
+          d.onChange((value) => {
+            if (value === "__inherited__") return;
+            void this.saveLocalField(projectRootPath, relativeScope, "citekeyCslPath", value, true);
+          });
+        }
+      });
+    this.addFieldReset(container, projectRootPath, relativeScope, "citekeyCslPath");
   }
 }

@@ -45,30 +45,39 @@ export function getChronoFolder(app: App, settings: FeuilletsSettings): TFolder 
   return null;
 }
 
-/** Dossier racine de la recherche (parent du dossier de chronologie) —
- * sert à reconnaître qu'un lien pointe vers une fiche personnage/lieu. */
-export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder | null {
-  const root = getProjectFolder(app, settings);
-  if (!root) return null;
-  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "research"));
+/** Research root folder for an explicit project. */
+export function getResearchRootForProject(
+  app: App,
+  settings: FeuilletsSettings,
+  projectRoot: TFolder,
+): TFolder | null {
+  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(projectRoot, "research"));
   if (canonical instanceof TFolder) return canonical;
   for (const name of UNDERSCORED_RESEARCH_ROOT_NAMES) {
-    const f = app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${name}`));
+    const f = app.vault.getAbstractFileByPath(normalizePath(`${projectRoot.path}/${name}`));
     if (f instanceof TFolder) return f;
   }
-  /* « Recherche »/« Research » sans underscore : reconnu UNIQUEMENT à côté
-     du dossier projet, jamais à l'intérieur — dedans, l'absence de préfixe
-     le ferait apparaître comme une fausse Partie dans le manuscrit,
-     exactement ce que l'underscore existe pour empêcher. */
-  if (root.parent) {
+  /* "Recherche"/"Research" without underscore: recognized ONLY next to
+     the project folder, never inside it — inside, the absence of a prefix
+     would make it appear as a false Part in the manuscript,
+     which is exactly what the underscore exists to prevent. */
+  if (projectRoot.parent) {
     for (const name of SIBLING_RESEARCH_ROOT_NAMES) {
       const f = app.vault.getAbstractFileByPath(
-        normalizePath(`${root.parent.path}/${name}`)
+        normalizePath(`${projectRoot.parent.path}/${name}`)
       );
       if (f instanceof TFolder) return f;
     }
   }
   return null;
+}
+
+/** Dossier racine de la recherche (parent du dossier de chronologie) —
+ * sert à reconnaître qu'un lien pointe vers une fiche personnage/lieu. */
+export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder | null {
+  const root = getProjectFolder(app, settings);
+  if (!root) return null;
+  return getResearchRootForProject(app, settings, root);
 }
 
 /** Chemin du dossier de recherche à utiliser pour une ÉCRITURE (création) :

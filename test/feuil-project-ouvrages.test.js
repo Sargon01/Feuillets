@@ -12,6 +12,8 @@ import { materializeFeuilProjectImport } from "../src/services/feuil-project-imp
 import { applyFeuilProjectImportSettings } from "../src/services/feuil-project-import-settings.js";
 import { resolveEditorialRoot } from "../src/services/editorial-roots.js";
 import { effectiveComposition, createCompositionBinding } from "../src/services/ouvrage-composition.js";
+import { resolveWorkspaceCitationResources } from "../src/services/workspace-citations.js";
+
 
 function makeVaultFixture(initialPaths = []) {
   const entries = new Map();
@@ -471,4 +473,675 @@ test("cloneMeta ne copie jamais projectComposition dans manifest.project.meta", 
 
   const plan = await buildFeuilProjectExportPlan(app, sourceSettings, "2.9.0", "pkg-meta", "2026-09-10T12:00:00.000Z");
   assert.equal("projectComposition" in plan.manifest.project.meta, false);
+});
+
+test("Export/import round-trip: preserves distinct .bib and .csl per workspace, manifest contains only relative paths", async () => {
+  const { app: sourceApp, entries } = makeVaultFixture();
+
+  const projectA = new TFolder("Project-A");
+  const workA = new TFolder("Project-A/Work-A");
+  const chap = new TFolder("Project-A/Work-A/Chapter");
+  const scene = new TFile("Project-A/Work-A/Chapter/Scene.md");
+  scene.bytes = new TextEncoder().encode("# Scene");
+  const workB = new TFolder("Project-A/Work-B");
+  const workBChap = new TFolder("Project-A/Work-B/Chapter");
+  const workBScene = new TFile("Project-A/Work-B/Chapter/Scene.md");
+  workBScene.bytes = new TextEncoder().encode("# Work-B Scene");
+
+  const projectResearch = new TFolder("Project-A/Research");
+  const projectBib = new TFile("Project-A/Research/project.bib");
+  projectBib.bytes = new TextEncoder().encode("@article{p1, author={P}, year={2020}}");
+  const defaultCsl = new TFile("Project-A/Research/default.csl");
+  defaultCsl.bytes = new TextEncoder().encode("<style>default</style>");
+
+  const workAResearch = new TFolder("Project-A/Work-A/Research");
+  const workABib = new TFile("Project-A/Work-A/Research/workA.bib");
+  workABib.bytes = new TextEncoder().encode("@article{n1, author={N}, year={2021}}");
+  const workACsl = new TFile("Project-A/Work-A/Research/workA.csl");
+  workACsl.bytes = new TextEncoder().encode("<style>workA</style>");
+
+  const workBResearch = new TFolder("Project-A/Work-B/Research");
+  const workBBib = new TFile("Project-A/Work-B/Research/workB.bib");
+  workBBib.bytes = new TextEncoder().encode("@article{t1, author={T}, year={2022}}");
+  const workBCsl = new TFile("Project-A/Work-B/Research/workB.csl");
+  workBCsl.bytes = new TextEncoder().encode("<style>workB</style>");
+
+  chap.children = [scene];
+  scene.parent = chap;
+  workA.children = [chap, workAResearch];
+  chap.parent = workA;
+  workAResearch.parent = workA;
+  workAResearch.children = [workABib, workACsl];
+  workABib.parent = workAResearch;
+  workACsl.parent = workAResearch;
+
+  workBChap.children = [workBScene];
+  workBScene.parent = workBChap;
+  workB.children = [workBChap, workBResearch];
+  workBChap.parent = workB;
+  workBResearch.parent = workB;
+  workBResearch.children = [workBBib, workBCsl];
+  workBBib.parent = workBResearch;
+  workBCsl.parent = workBResearch;
+
+  projectResearch.children = [projectBib, defaultCsl];
+  projectBib.parent = projectResearch;
+  defaultCsl.parent = projectResearch;
+
+  projectA.children = [workA, workB, projectResearch];
+  workA.parent = projectA;
+  workB.parent = projectA;
+  projectResearch.parent = projectA;
+
+  for (const entry of [
+    projectA, workA, chap, scene, workB, workBChap, workBScene,
+    projectResearch, projectBib, defaultCsl,
+    workAResearch, workABib, workACsl,
+    workBResearch, workBBib, workBCsl,
+  ]) {
+    entries.set(entry.path, entry);
+  }
+
+  const sourceSettings = {
+    projectFolder: "Project-A",
+    projects: ["Project-A"],
+    compileFileName: "Manuscript.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    autoRename: true,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: true,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    projectMeta: {
+      "Project-A": {
+        name: "Project-A",
+        type: "fiction",
+        researchFolderLinks: {
+          "Project-A": "Project-A/Research",
+          "Project-A/Work-A": "Project-A/Work-A/Research",
+          "Project-A/Work-B": "Project-A/Work-B/Research",
+        },
+        citekeyBibliographyPath: "project.bib",
+        citekeyCslPath: "default.csl",
+        folderWorkspaces: {
+          "Work-A": {
+            version: 1,
+            citekeyBibliographyPath: "workA.bib",
+            citekeyCslPath: "workA.csl",
+          },
+          "Work-B": {
+            version: 1,
+            citekeyBibliographyPath: "workB.bib",
+            citekeyCslPath: "workB.csl",
+          },
+        },
+      },
+    },
+  };
+
+  const exportPlan = await buildFeuilProjectExportPlan(
+    sourceApp,
+    sourceSettings,
+    "2.9.0",
+    "pkg-citations",
+    "2026-09-10T12:00:00.000Z"
+  );
+
+  const manifestMeta = exportPlan.manifest.project.meta;
+  assert.equal("pandocBibliographyPath" in manifestMeta, false, "pandocBibliographyPath must be absent from manifest");
+  assert.equal(manifestMeta.citekeyBibliographyPath, "project.bib");
+  assert.equal(manifestMeta.citekeyCslPath, "default.csl");
+  assert.equal(manifestMeta.folderWorkspaces["Work-A"].citekeyBibliographyPath, "workA.bib");
+  assert.equal(manifestMeta.folderWorkspaces["Work-A"].citekeyCslPath, "workA.csl");
+  assert.equal(manifestMeta.folderWorkspaces["Work-B"].citekeyBibliographyPath, "workB.bib");
+  assert.equal(manifestMeta.folderWorkspaces["Work-B"].citekeyCslPath, "workB.csl");
+
+  // Manifest JSON must not contain absolute paths
+  const manifestJson = JSON.stringify(exportPlan.manifest);
+  assert.doesNotMatch(manifestJson, /"\/Users\//);
+  assert.doesNotMatch(manifestJson, /"[A-Za-z]:\\\\/);
+
+  // Package archive
+  const archiveBytes = await createFeuilProjectPackage(
+    exportPlan.manifest,
+    exportPlan.files,
+    exportPlan.directories
+  );
+
+  // Destination vault
+  const { app: destApp } = makeVaultFixture(["Imports"]);
+  const destSettings = {
+    projectFolder: "Other",
+    projects: ["Other"],
+    compileFileName: "Default.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: true,
+    autoRename: false,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: false,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    projectMeta: {},
+  };
+
+  const importPlan = await buildFeuilProjectImportPlan(archiveBytes);
+  const importResult = await materializeFeuilProjectImport(destApp, importPlan, "Imports/Project-A");
+  applyFeuilProjectImportSettings(destSettings, importResult);
+
+  const importedProjectA = destApp.vault.getAbstractFileByPath("Imports/Project-A");
+  const importedWorkA = destApp.vault.getAbstractFileByPath("Imports/Project-A/Work-A");
+  const importedWorkB = destApp.vault.getAbstractFileByPath("Imports/Project-A/Work-B");
+
+  // Post-import resolver checks:
+  const rootRes = resolveWorkspaceCitationResources(destApp, destSettings, importedProjectA, null);
+  assert.equal(rootRes.bibliography.relativePath, "project.bib");
+  assert.equal(rootRes.bibliography.file?.path, "Imports/Project-A/Research/project.bib");
+  assert.equal(rootRes.csl.relativePath, "default.csl");
+  assert.equal(rootRes.csl.file?.path, "Imports/Project-A/Research/default.csl");
+
+  const workARes = resolveWorkspaceCitationResources(destApp, destSettings, importedProjectA, importedWorkA);
+  assert.equal(workARes.bibliography.relativePath, "workA.bib");
+  assert.equal(workARes.bibliography.file?.path, "Imports/Project-A/Work-A/Research/workA.bib");
+  assert.equal(workARes.csl.relativePath, "workA.csl");
+  assert.equal(workARes.csl.file?.path, "Imports/Project-A/Work-A/Research/workA.csl");
+
+  const workBRes = resolveWorkspaceCitationResources(destApp, destSettings, importedProjectA, importedWorkB);
+  assert.equal(workBRes.bibliography.relativePath, "workB.bib");
+  assert.equal(workBRes.bibliography.file?.path, "Imports/Project-A/Work-B/Research/workB.bib");
+  assert.equal(workBRes.csl.relativePath, "workB.csl");
+  assert.equal(workBRes.csl.file?.path, "Imports/Project-A/Work-B/Research/workB.csl");
+});
+
+test("Export: legacy pandocBibliographyPath exported as relative citekeyBibliographyPath without modifying source settings", async () => {
+  const { app: sourceApp, entries } = makeVaultFixture();
+
+  const projectA = new TFolder("Project-A");
+  const chap = new TFolder("Project-A/Chapter");
+  const scene = new TFile("Project-A/Chapter/Scene.md");
+  scene.bytes = new TextEncoder().encode("# Scene");
+  const research = new TFolder("Project-A/Research");
+  const legacyBib = new TFile("Project-A/Research/legacy.bib");
+  legacyBib.bytes = new TextEncoder().encode("@article{leg, author={L}, year={2018}}");
+
+  chap.children = [scene];
+  scene.parent = chap;
+  research.children = [legacyBib];
+  legacyBib.parent = research;
+  projectA.children = [chap, research];
+  chap.parent = projectA;
+  research.parent = projectA;
+
+  for (const entry of [projectA, chap, scene, research, legacyBib]) {
+    entries.set(entry.path, entry);
+  }
+
+  const sourceSettings = {
+    projectFolder: "Project-A",
+    projects: ["Project-A"],
+    compileFileName: "Manuscript.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    autoRename: true,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: true,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    projectMeta: {
+      "Project-A": {
+        name: "Project-A",
+        type: "fiction",
+        pandocBibliographyPath: "Project-A/Research/legacy.bib",
+        researchFolderLinks: {
+          "Project-A": "Project-A/Research",
+        },
+      },
+    },
+  };
+
+  const snapshotBefore = JSON.stringify(sourceSettings);
+
+  const exportPlan = await buildFeuilProjectExportPlan(
+    sourceApp,
+    sourceSettings,
+    "2.9.0",
+    "pkg-legacy",
+    "2026-09-10T12:00:00.000Z"
+  );
+
+  // Manifest has converted to relative citekeyBibliographyPath
+  assert.equal(exportPlan.manifest.project.meta.citekeyBibliographyPath, "legacy.bib");
+  assert.equal("pandocBibliographyPath" in exportPlan.manifest.project.meta, false);
+
+  // Source settings are strictly unmodified
+  assert.equal(JSON.stringify(sourceSettings), snapshotBefore);
+});
+
+test("Export: citekeyBibliographyPath: \"\" takes precedence over valid pandocBibliographyPath", async () => {
+  const { app: sourceApp, entries } = makeVaultFixture();
+
+  const projectA = new TFolder("Project-A");
+  const chap = new TFolder("Project-A/Chapter");
+  const scene = new TFile("Project-A/Chapter/Scene.md");
+  scene.bytes = new TextEncoder().encode("# Scene");
+  const research = new TFolder("Project-A/Research");
+  const legacyBib = new TFile("Project-A/Research/legacy.bib");
+  legacyBib.bytes = new TextEncoder().encode("@article{leg, author={L}, year={2018}}");
+
+  chap.children = [scene];
+  scene.parent = chap;
+  research.children = [legacyBib];
+  legacyBib.parent = research;
+  projectA.children = [chap, research];
+  chap.parent = projectA;
+  research.parent = projectA;
+
+  for (const entry of [projectA, chap, scene, research, legacyBib]) {
+    entries.set(entry.path, entry);
+  }
+
+  const sourceSettings = {
+    projectFolder: "Project-A",
+    projects: ["Project-A"],
+    compileFileName: "Manuscript.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    autoRename: true,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: true,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    projectMeta: {
+      "Project-A": {
+        name: "Project-A",
+        type: "fiction",
+        citekeyBibliographyPath: "",
+        pandocBibliographyPath: "Project-A/Research/legacy.bib",
+        researchFolderLinks: {
+          "Project-A": "Project-A/Research",
+        },
+      },
+    },
+  };
+
+  const snapshotBefore = JSON.stringify(sourceSettings);
+
+  const exportPlan = await buildFeuilProjectExportPlan(
+    sourceApp,
+    sourceSettings,
+    "2.9.0",
+    "pkg-disabled-priority",
+    "2026-09-10T12:00:00.000Z"
+  );
+
+  assert.equal(exportPlan.manifest.project.meta.citekeyBibliographyPath, "", "explicit empty string takes precedence over valid pandocBibliographyPath");
+  assert.equal("pandocBibliographyPath" in exportPlan.manifest.project.meta, false);
+  assert.equal(JSON.stringify(sourceSettings), snapshotBefore, "source settings must remain strictly unmodified");
+});
+
+test("Export: invalid legacy pandocBibliographyPath is not converted to citekeyBibliographyPath", async () => {
+  const { app: sourceApp, entries } = makeVaultFixture();
+
+  const projectA = new TFolder("Project-A");
+  const chap = new TFolder("Project-A/Chapter");
+  const scene = new TFile("Project-A/Chapter/Scene.md");
+  scene.bytes = new TextEncoder().encode("# Scene");
+  const research = new TFolder("Project-A/Research");
+  const legacyBib = new TFile("Project-A/Research/legacy.bib");
+  legacyBib.bytes = new TextEncoder().encode("@article{leg, author={L}, year={2018}}");
+
+  chap.children = [scene];
+  scene.parent = chap;
+  research.children = [legacyBib];
+  legacyBib.parent = research;
+  projectA.children = [chap, research];
+  chap.parent = projectA;
+  research.parent = projectA;
+
+  for (const entry of [projectA, chap, scene, research, legacyBib]) {
+    entries.set(entry.path, entry);
+  }
+
+  const sourceSettings = {
+    projectFolder: "Project-A",
+    projects: ["Project-A"],
+    compileFileName: "Manuscript.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    autoRename: true,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: true,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    projectMeta: {
+      "Project-A": {
+        name: "Project-A",
+        type: "fiction",
+        pandocBibliographyPath: "Project-A/Research/../Research/legacy.bib",
+        researchFolderLinks: {
+          "Project-A": "Project-A/Research",
+        },
+      },
+    },
+  };
+
+  const exportPlan = await buildFeuilProjectExportPlan(
+    sourceApp,
+    sourceSettings,
+    "2.9.0",
+    "pkg-invalid-legacy",
+    "2026-09-10T12:00:00.000Z"
+  );
+
+  assert.equal(exportPlan.manifest.project.meta.citekeyBibliographyPath, undefined, "invalid legacy path does not create citekeyBibliographyPath");
+  assert.equal("pandocBibliographyPath" in exportPlan.manifest.project.meta, false);
+});
+
+test("Export/import round-trip: sibling historical research outside adopted project root is packaged and imported as linked external research", async () => {
+  const { app: sourceApp, entries } = makeVaultFixture();
+
+  const parent = new TFolder("Parent");
+  const projectA = new TFolder("Parent/Project-A");
+  projectA.parent = parent;
+  const chap = new TFolder("Parent/Project-A/Chapter");
+  const scene = new TFile("Parent/Project-A/Chapter/Scene.md");
+  scene.bytes = new TextEncoder().encode("# Scene");
+  chap.children = [scene];
+  scene.parent = chap;
+  projectA.children = [chap];
+  chap.parent = projectA;
+
+  // Sibling folder outside Project-A: Parent/Research
+  const siblingResearch = new TFolder("Parent/Research");
+  siblingResearch.parent = parent;
+  const bibFile = new TFile("Parent/Research/sibling.bib");
+  bibFile.bytes = new TextEncoder().encode("@article{sib, author={S}, year={2019}}");
+  siblingResearch.children = [bibFile];
+  bibFile.parent = siblingResearch;
+
+  parent.children = [projectA, siblingResearch];
+
+  for (const entry of [parent, projectA, chap, scene, siblingResearch, bibFile]) {
+    entries.set(entry.path, entry);
+  }
+
+  const sourceSettings = {
+    projectFolder: "Parent/Project-A",
+    projects: ["Parent/Project-A"],
+    compileFileName: "Manuscript.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    autoRename: true,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: true,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    pandocBibliographyPath: "Parent/Research/sibling.bib",
+    projectMeta: {
+      "Parent/Project-A": {
+        name: "Project-A",
+        type: "fiction",
+        pandocBibliographyPath: "Parent/Research/sibling.bib",
+      },
+    },
+  };
+
+  const snapshotBefore = JSON.stringify(sourceSettings);
+
+  const exportPlan = await buildFeuilProjectExportPlan(
+    sourceApp,
+    sourceSettings,
+    "2.9.0",
+    "pkg-sibling",
+    "2026-09-10T12:00:00.000Z"
+  );
+
+  assert.equal(JSON.stringify(sourceSettings), snapshotBefore, "source settings must remain strictly unmodified");
+
+  const manifestJson = JSON.stringify(exportPlan.manifest);
+  assert.ok(!manifestJson.includes("Parent/"), "manifest JSON must not contain source vault ancestor paths");
+  assert.ok(!manifestJson.includes("/Parent"), "manifest JSON must not contain root-slashed paths");
+
+  function assertNoAbsolutePaths(obj, path = "manifest") {
+    if (typeof obj === "string") {
+      assert.ok(!obj.startsWith("/"), `Manifest string at ${path} must not start with /: ${obj}`);
+      assert.ok(!obj.startsWith("\\"), `Manifest string at ${path} must not start with \\: ${obj}`);
+      assert.ok(!/^[a-zA-Z]:/.test(obj), `Manifest string at ${path} must not start with drive letter: ${obj}`);
+      assert.ok(!obj.includes("Parent/"), `Manifest string at ${path} must not include source vault path: ${obj}`);
+    } else if (Array.isArray(obj)) {
+      obj.forEach((item, index) => assertNoAbsolutePaths(item, `${path}[${index}]`));
+    } else if (obj !== null && typeof obj === "object") {
+      for (const [k, v] of Object.entries(obj)) {
+        assert.ok(!k.startsWith("/"), `Manifest key at ${path} must not start with /: ${k}`);
+        assertNoAbsolutePaths(v, `${path}.${k}`);
+      }
+    }
+  }
+  assertNoAbsolutePaths(exportPlan.manifest);
+
+  const externalLinks = exportPlan.manifest.project.linkedResearch.filter((l) => l.target.kind === "external");
+  assert.ok(externalLinks.length > 0, "sibling research linked as external");
+  const externalFileKeys = Object.keys(exportPlan.files).filter((k) => k.startsWith("external/research/"));
+  assert.ok(externalFileKeys.some((k) => k.endsWith("sibling.bib")), "sibling.bib is included in export package files");
+
+  // Round-trip into destination vault
+  const archiveBytes = await createFeuilProjectPackage(
+    exportPlan.manifest,
+    exportPlan.files,
+    exportPlan.directories
+  );
+
+  const { app: destApp } = makeVaultFixture(["Imports"]);
+  const destSettings = {
+    projectFolder: "Other",
+    projects: ["Other"],
+    compileFileName: "Default.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: true,
+    autoRename: false,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: false,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    projectMeta: {},
+  };
+
+  const importPlan = await buildFeuilProjectImportPlan(archiveBytes);
+  const importResult = await materializeFeuilProjectImport(destApp, importPlan, "Imports/Project-A");
+  applyFeuilProjectImportSettings(destSettings, importResult);
+
+  const importedProject = destApp.vault.getAbstractFileByPath("Imports/Project-A");
+  assert.ok(importedProject instanceof TFolder, "imported project folder exists");
+
+  const res = resolveWorkspaceCitationResources(destApp, destSettings, importedProject, null);
+  assert.equal(res.bibliography.status, "valid");
+  assert.equal(res.bibliography.relativePath, "sibling.bib");
+  assert.ok(res.bibliography.file?.path.endsWith("sibling.bib"));
+});
+
+test("Export/import round-trip: preserves explicit bibliography disablement across export and import", async () => {
+  const { app: sourceApp, entries } = makeVaultFixture();
+
+  const projectA = new TFolder("Project-A");
+  const workA = new TFolder("Project-A/Work-A");
+  const chap = new TFolder("Project-A/Work-A/Chapter");
+  const scene = new TFile("Project-A/Work-A/Chapter/Scene.md");
+  scene.bytes = new TextEncoder().encode("# Scene");
+
+  const research = new TFolder("Project-A/Research");
+  const bib = new TFile("Project-A/Research/project.bib");
+  bib.bytes = new TextEncoder().encode("@article{p1, author={P}, year={2020}}");
+
+  chap.children = [scene];
+  scene.parent = chap;
+  workA.children = [chap];
+  chap.parent = workA;
+  research.children = [bib];
+  bib.parent = research;
+  projectA.children = [workA, research];
+  workA.parent = projectA;
+  research.parent = projectA;
+
+  for (const entry of [projectA, workA, chap, scene, research, bib]) {
+    entries.set(entry.path, entry);
+  }
+
+  const sourceSettings = {
+    projectFolder: "Project-A",
+    projects: ["Project-A"],
+    compileFileName: "Manuscript.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: true,
+    insertTitles: true,
+    insertSceneTitles: true,
+    autoRename: true,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: true,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    projectMeta: {
+      "Project-A": {
+        name: "Project-A",
+        type: "fiction",
+        researchFolderLinks: {
+          "Project-A": "Project-A/Research",
+        },
+        // Explicitly disabled at project level
+        citekeyBibliographyPath: "",
+        folderWorkspaces: {
+          "Work-A": {
+            version: 1,
+            // Explicitly disabled at workspace level
+            citekeyBibliographyPath: "",
+          },
+        },
+      },
+    },
+  };
+
+  const exportPlan = await buildFeuilProjectExportPlan(
+    sourceApp,
+    sourceSettings,
+    "2.9.0",
+    "pkg-disabled",
+    "2026-09-10T12:00:00.000Z"
+  );
+
+  assert.equal(exportPlan.manifest.project.meta.citekeyBibliographyPath, "", "project-level explicit disablement preserved in manifest");
+  assert.equal(exportPlan.manifest.project.meta.folderWorkspaces["Work-A"].citekeyBibliographyPath, "", "workspace-level explicit disablement preserved in manifest");
+
+  const archiveBytes = await createFeuilProjectPackage(
+    exportPlan.manifest,
+    exportPlan.files,
+    exportPlan.directories
+  );
+
+  const { app: destApp } = makeVaultFixture(["Imports"]);
+  const destSettings = {
+    projectFolder: "Other",
+    projects: ["Other"],
+    compileFileName: "Default.md",
+    chapterNumbering: "continu",
+    sceneNumbering: "hier",
+    level1Role: "chapitres",
+    separator: "\n\n",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: true,
+    autoRename: false,
+    renamePrefix: "chapter",
+    footnoteRenumberOnCompile: false,
+    orders: {},
+    folderPositions: {},
+    folderGoals: {},
+    filPlaceholders: {},
+    filOrigins: {},
+    filResolved: [],
+    projectMeta: {},
+  };
+
+  const importPlan = await buildFeuilProjectImportPlan(archiveBytes);
+  const importResult = await materializeFeuilProjectImport(destApp, importPlan, "Imports/Project-A");
+  applyFeuilProjectImportSettings(destSettings, importResult);
+
+  const importedProject = destApp.vault.getAbstractFileByPath("Imports/Project-A");
+  const importedWorkA = destApp.vault.getAbstractFileByPath("Imports/Project-A/Work-A");
+
+  const rootRes = resolveWorkspaceCitationResources(destApp, destSettings, importedProject, null);
+  assert.equal(rootRes.bibliography.status, "disabled", "root bibliography remains disabled after import");
+  assert.equal(rootRes.bibliography.file, null);
+
+  const workARes = resolveWorkspaceCitationResources(destApp, destSettings, importedProject, importedWorkA);
+  assert.equal(workARes.bibliography.status, "disabled", "workspace bibliography remains disabled after import");
+  assert.equal(workARes.bibliography.file, null);
 });

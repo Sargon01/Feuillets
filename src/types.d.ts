@@ -170,6 +170,8 @@ declare type FolderWorkspaceConfig = {
   readingFontSize?: number;
   lineHeight?: number;
   textWidth?: number;
+  citekeyBibliographyPath?: string;
+  citekeyCslPath?: string;
 };
 
 /** Champs frontmatter dont la clé YAML réelle peut être remappée par projet
@@ -223,6 +225,8 @@ declare type ProjectMeta = {
   pandocCitationPreviewStyle?: PandocCitationPreviewStyle;
   /** Chemin relatif au fichier .bib / Pandoc bibliography (ex. "Bibliographie/references.bib"). */
   pandocBibliographyPath?: string;
+  citekeyBibliographyPath?: string;
+  citekeyCslPath?: string;
   /** Filtres Recherche sauvegardés — ui/entity-modals.ts ManageSavedFiltersModal. */
   savedResearchFilters?: SavedResearchFilter[];
   /** Association dossier Binder (clé : chemin du dossier manuscrit) → dossier

@@ -10,6 +10,11 @@ import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType } fro
 import { openFileActivatingWithCursor } from "../utils/dom.js";
 import { t } from "../i18n/index.js";
 import { ProjectConfigContent, type ProjectConfigPage } from "./project-config-content.js";
+import {
+  citationRelativePath,
+  listWorkspaceCitationCandidates,
+  resolveWorkspaceCitationResearchFolder,
+} from "../services/workspace-citations.js";
 
 type ProjectModalsPlugin = {
   /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
@@ -729,13 +734,105 @@ export class ManageProjectsModal extends Modal {
           void this.plugin.saveSettings();
         });
       });
+
+    const projectFolder = this.app.vault.getAbstractFileByPath(path);
+    const projectResearch = projectFolder instanceof TFolder
+      ? resolveWorkspaceCitationResearchFolder(this.app, S, projectFolder, null)
+      : null;
+
+    if (!projectResearch) {
+      new Setting(section)
+        .setName(t("project.pandocCitationPreview.bibliographyLabel"))
+        .setDesc(t("project.pandocCitationPreview.noResearch"))
+        .addDropdown((d) => {
+          d.addOption("", t("project.pandocCitationPreview.noFile"));
+          d.setValue("");
+          d.setDisabled(true);
+        });
+
+      new Setting(section)
+        .setName(t("project.pandocCitationPreview.cslLabel"))
+        .setDesc(t("project.pandocCitationPreview.noResearch"))
+        .addDropdown((d) => {
+          d.addOption("", t("project.pandocCitationPreview.noFile"));
+          d.setValue("");
+          d.setDisabled(true);
+        });
+      return;
+    }
+
+    const bibCandidates = listWorkspaceCitationCandidates(this.app, projectResearch, "bib");
+    let currentBibValue = "";
+    let isBibOrphan = false;
+
+    if (meta()?.citekeyBibliographyPath !== undefined) {
+      currentBibValue = meta()?.citekeyBibliographyPath || "";
+      if (currentBibValue !== "" && !bibCandidates.some((c) => c.relativePath === currentBibValue)) {
+        isBibOrphan = true;
+      }
+    } else if (meta()?.pandocBibliographyPath) {
+      const rawLegacy = meta()?.pandocBibliographyPath?.trim() || "";
+      if (rawLegacy !== "") {
+        const legacyFile = this.app.vault.getAbstractFileByPath(normalizePath(rawLegacy));
+        if (legacyFile instanceof TFile && legacyFile.extension.toLowerCase() === "bib") {
+          const rel = citationRelativePath(projectResearch, legacyFile);
+          if (rel !== null) {
+            currentBibValue = rel;
+          } else {
+            currentBibValue = rawLegacy;
+            isBibOrphan = true;
+          }
+        } else {
+          currentBibValue = rawLegacy;
+          isBibOrphan = true;
+        }
+      }
+    }
+
     new Setting(section)
       .setName(t("project.pandocCitationPreview.bibliographyLabel"))
-      .addText((text) => {
-        text.setPlaceholder(t("project.pandocCitationPreview.bibliographyPlaceholder"));
-        text.setValue(meta()?.pandocBibliographyPath || "");
-        text.onChange((value) => {
-          ensureMeta().pandocBibliographyPath = value.trim();
+      .addDropdown((d) => {
+        d.addOption("", t("project.pandocCitationPreview.noFile"));
+        for (const c of bibCandidates) {
+          d.addOption(c.relativePath, c.relativePath);
+        }
+        if (isBibOrphan && currentBibValue !== "") {
+          d.addOption(currentBibValue, `${currentBibValue} (${t("project.pandocCitationPreview.missingFile")})`);
+        }
+        d.setValue(currentBibValue);
+        d.onChange((value) => {
+          const m = ensureMeta();
+          m.citekeyBibliographyPath = value;
+          delete m.pandocBibliographyPath;
+          void this.plugin.saveSettings();
+        });
+      });
+
+    const cslCandidates = listWorkspaceCitationCandidates(this.app, projectResearch, "csl");
+    let currentCslValue = "";
+    let isCslOrphan = false;
+
+    if (meta()?.citekeyCslPath !== undefined) {
+      currentCslValue = meta()?.citekeyCslPath || "";
+      if (currentCslValue !== "" && !cslCandidates.some((c) => c.relativePath === currentCslValue)) {
+        isCslOrphan = true;
+      }
+    }
+
+    new Setting(section)
+      .setName(t("project.pandocCitationPreview.cslLabel"))
+      .addDropdown((d) => {
+        d.addOption("", t("project.pandocCitationPreview.noFile"));
+        for (const c of cslCandidates) {
+          d.addOption(c.relativePath, c.relativePath);
+        }
+        if (isCslOrphan && currentCslValue !== "") {
+          d.addOption(currentCslValue, `${currentCslValue} (${t("project.pandocCitationPreview.missingFile")})`);
+        }
+        d.setValue(currentCslValue);
+        d.onChange((value) => {
+          const m = ensureMeta();
+          m.citekeyCslPath = value;
           void this.plugin.saveSettings();
         });
       });

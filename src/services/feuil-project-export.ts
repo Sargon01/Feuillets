@@ -1,4 +1,4 @@
-import { TFile, TFolder } from "obsidian";
+import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { flattenFiles, getManuscriptRoot, getProjectRoot, isFrontMatter, isStructuredManuscriptRoot } from "./folder-structure.js";
 import { fmOf } from "./frontmatter.js";
@@ -7,6 +7,8 @@ import { validateFeuilProjectManifest } from "./feuil-project-package.js";
 import type { FeuilProjectLinkedResearch, FeuilProjectManifest } from "./feuil-project-package.js";
 import { filsOf } from "../utils/arc-fields.js";
 import { effectiveComposition } from "./ouvrage-composition.js";
+import { getResearchRootForProject } from "./research.js";
+import { citationRelativePath, isValidCitationRelativePath, resolveWorkspaceCitationResearchFolder } from "./workspace-citations.js";
 
 export type FeuilProjectExportPlan = {
   manifest: FeuilProjectManifest;
@@ -43,12 +45,46 @@ function relativePath(path: string, root: string): string {
   return path === root ? "." : path.slice(root.length + 1);
 }
 
-function cloneMeta(meta: ProjectMeta | undefined): Record<string, unknown> {
+function cloneMeta(
+  app: App,
+  settings: FeuilletsSettings,
+  manuscriptRoot: TFolder,
+  meta: ProjectMeta | undefined,
+): Record<string, unknown> {
   const clone = JSON.parse(JSON.stringify(meta || {})) as Record<string, unknown>;
   delete clone.researchFolderLinks;
   delete clone.level1Role;
   delete clone.narrativeState;
   delete clone.projectComposition;
+  delete clone.pandocBibliographyPath;
+
+  if (clone.citekeyBibliographyPath === undefined && meta?.pandocBibliographyPath) {
+    const rawLegacy = meta.pandocBibliographyPath.trim();
+    if (rawLegacy !== "" && isValidCitationRelativePath(rawLegacy)) {
+      const projectResearch = resolveWorkspaceCitationResearchFolder(app, settings, manuscriptRoot, null);
+      if (projectResearch) {
+        let legacyFile: TFile | null = null;
+        const targetPath = normalizePath(`${projectResearch.path}/${normalizePath(rawLegacy)}`);
+        const candidate = app.vault.getAbstractFileByPath(targetPath);
+        if (candidate instanceof TFile && candidate.extension.toLowerCase() === "bib") {
+          legacyFile = candidate;
+        }
+        if (!legacyFile) {
+          const candidateRoot = app.vault.getAbstractFileByPath(normalizePath(rawLegacy));
+          if (candidateRoot instanceof TFile && candidateRoot.extension.toLowerCase() === "bib") {
+            legacyFile = candidateRoot;
+          }
+        }
+        if (legacyFile) {
+          const rel = citationRelativePath(projectResearch, legacyFile);
+          if (rel !== null) {
+            clone.citekeyBibliographyPath = rel;
+          }
+        }
+      }
+    }
+  }
+
   return clone;
 }
 
@@ -96,8 +132,20 @@ function level1RoleOf(meta: ProjectMeta | undefined, settings: FeuilletsSettings
   return fail("level1Role invalide.");
 }
 
-function linkedResearch(meta: ProjectMeta | undefined, manuscriptRoot: TFolder, projectRoot: TFolder): LinkedResearchResolution {
-  const links = meta?.researchFolderLinks || {};
+function linkedResearch(
+  app: App,
+  settings: FeuilletsSettings,
+  meta: ProjectMeta | undefined,
+  manuscriptRoot: TFolder,
+  projectRoot: TFolder,
+): LinkedResearchResolution {
+  const links: Record<string, string> = { ...(meta?.researchFolderLinks || {}) };
+  if (Object.keys(links).length === 0) {
+    const historical = getResearchRootForProject(app, settings, manuscriptRoot);
+    if (historical && !isInside(historical.path, projectRoot.path)) {
+      links[manuscriptRoot.path] = historical.path;
+    }
+  }
   const compare = (left: string, right: string): number => left < right ? -1 : left > right ? 1 : 0;
   const candidates = Object.entries(links);
   for (const [binderPath] of candidates) if (!isInside(binderPath, manuscriptRoot.path)) fail("Lien Recherche hors manuscrit.");
@@ -170,7 +218,7 @@ export async function buildFeuilProjectExportPlan(
 
   const meta = settings.projectMeta?.[manuscriptRoot.path];
   const isStructured = isStructuredManuscriptRoot(manuscriptRoot) && projectRoot.path !== manuscriptRoot.path;
-  const research = linkedResearch(meta, manuscriptRoot, projectRoot);
+  const research = linkedResearch(app, settings, meta, manuscriptRoot, projectRoot);
   const threadNames = projectThreadNames(app, settings, manuscriptRoot);
   const narrativeState = narrativeStateOf(meta, settings);
   const manifest: FeuilProjectManifest = {
@@ -185,7 +233,7 @@ export async function buildFeuilProjectExportPlan(
       manuscriptPath: isStructured ? relativePath(manuscriptRoot.path, projectRoot.path) : ".",
       structure: { level1Role: level1RoleOf(meta, settings) },
       composition: effectiveComposition(settings, manuscriptRoot, manuscriptRoot),
-      meta: cloneMeta(meta),
+      meta: cloneMeta(app, settings, manuscriptRoot, meta),
       pathSettings: {
         orders: exportSettings(settings.orders, projectRoot.path, (value) => [...value]),
         folderPositions: exportSettings(settings.folderPositions, projectRoot.path, (value) => value),

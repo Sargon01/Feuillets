@@ -1025,3 +1025,234 @@ test("ManageProjectsModal — Style citation : le type reste inchangé et la pag
   modal.render();
   assert.equal(findCitationSelects(modal.contentEl).length, 1, "la page Citations affiche le contrôle");
 });
+
+test("ManageProjectsModal — Citations page renders bibliography and csl candidate dropdowns without mutating settings", async () => {
+  const project = new TFolder("Test/Manuscript");
+  const research = new TFolder("Test/Research");
+  const refsBib = new TFile("Test/Research/refs.bib");
+  refsBib.extension = "bib";
+  const subFolder = new TFolder("Test/Research/sub");
+  const nestedBib = new TFile("Test/Research/sub/nested.bib");
+  nestedBib.extension = "bib";
+  const cslFile = new TFile("Test/Research/style.csl");
+  cslFile.extension = "csl";
+
+  const outsideFolder = new TFolder("Outside/Research");
+  const outsideBib = new TFile("Outside/Research/outside.bib");
+  outsideBib.extension = "bib";
+
+  subFolder.children = [nestedBib];
+  nestedBib.parent = subFolder;
+  research.children = [refsBib, subFolder, cslFile];
+  refsBib.parent = research;
+  cslFile.parent = research;
+  outsideFolder.children = [outsideBib];
+  outsideBib.parent = outsideFolder;
+
+  const { vault } = createFakeVault([
+    project,
+    research,
+    refsBib,
+    subFolder,
+    nestedBib,
+    cslFile,
+    outsideFolder,
+    outsideBib,
+  ]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  settings.projectFolder = "Test/Manuscript";
+  settings.projectMeta["Test/Manuscript"] = {
+    type: "fiction",
+    researchFolderLinks: {
+      "Test/Manuscript": "Test/Research",
+    },
+  };
+  settings.projects = [];
+
+  const snapshotBefore = JSON.parse(JSON.stringify(settings));
+
+  const plugin = fakePlugin(settings);
+  plugin.getProjectFolder = () => project;
+  plugin.projectDisplayName = (_path) => "Test";
+  const modal = createModal(ManageProjectsModal, app, plugin);
+
+  modal.onOpen();
+  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
+  modal.render();
+
+  assert.deepEqual(settings, snapshotBefore, "rendering citations page must not mutate settings");
+
+  const selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  assert.equal(selects.length, 4, "Citations page has 4 selects");
+
+  const bibSelect = selects[2];
+  const cslSelect = selects[3];
+
+  const bibValues = bibSelect.children.map((c) => c.value);
+  assert.ok(bibValues.includes(""), "bib options include empty/none option");
+  assert.ok(bibValues.includes("refs.bib"), "bib options include refs.bib");
+  assert.ok(bibValues.includes("sub/nested.bib"), "bib options include sub/nested.bib");
+  assert.ok(!bibValues.includes("outside.bib"), "bib options do NOT include outside.bib");
+
+  const cslValues = cslSelect.children.map((c) => c.value);
+  assert.ok(cslValues.includes(""), "csl options include empty/none option");
+  assert.ok(cslValues.includes("style.csl"), "csl options include style.csl");
+});
+
+test("ManageProjectsModal — Selecting .bib writes citekeyBibliographyPath and deletes legacy pandocBibliographyPath", async () => {
+  const project = new TFolder("Test/Manuscript");
+  const research = new TFolder("Test/Research");
+  const refsBib = new TFile("Test/Research/refs.bib");
+  refsBib.extension = "bib";
+  research.children = [refsBib];
+  refsBib.parent = research;
+
+  const { vault } = createFakeVault([project, research, refsBib]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  settings.projectFolder = "Test/Manuscript";
+  settings.projectMeta["Test/Manuscript"] = {
+    type: "fiction",
+    pandocBibliographyPath: "Test/Research/refs.bib",
+    researchFolderLinks: {
+      "Test/Manuscript": "Test/Research",
+    },
+  };
+  settings.projects = [];
+
+  const plugin = fakePlugin(settings);
+  plugin.getProjectFolder = () => project;
+  plugin.projectDisplayName = (_path) => "Test";
+  const modal = createModal(ManageProjectsModal, app, plugin);
+
+  modal.onOpen();
+  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
+  modal.render();
+
+  const selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  const bibSelect = selects[2];
+  assert.equal(bibSelect.value, "refs.bib", "preselected from legacy path");
+
+  bibSelect.value = "";
+  await bibSelect.trigger("change");
+  assert.equal(settings.projectMeta["Test/Manuscript"].citekeyBibliographyPath, "");
+  assert.equal(settings.projectMeta["Test/Manuscript"].pandocBibliographyPath, undefined, "legacy field deleted");
+  assert.ok(plugin.calls.includes("save"));
+
+  bibSelect.value = "refs.bib";
+  await bibSelect.trigger("change");
+  assert.equal(settings.projectMeta["Test/Manuscript"].citekeyBibliographyPath, "refs.bib");
+  assert.equal(settings.projectMeta["Test/Manuscript"].pandocBibliographyPath, undefined);
+});
+
+test("ManageProjectsModal — Selecting .csl writes citekeyCslPath", async () => {
+  const project = new TFolder("Test/Manuscript");
+  const research = new TFolder("Test/Research");
+  const styleCsl = new TFile("Test/Research/apa.csl");
+  styleCsl.extension = "csl";
+  research.children = [styleCsl];
+  styleCsl.parent = research;
+
+  const { vault } = createFakeVault([project, research, styleCsl]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  settings.projectFolder = "Test/Manuscript";
+  settings.projectMeta["Test/Manuscript"] = {
+    type: "fiction",
+    researchFolderLinks: {
+      "Test/Manuscript": "Test/Research",
+    },
+  };
+  settings.projects = [];
+
+  const plugin = fakePlugin(settings);
+  plugin.getProjectFolder = () => project;
+  plugin.projectDisplayName = (_path) => "Test";
+  const modal = createModal(ManageProjectsModal, app, plugin);
+
+  modal.onOpen();
+  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
+  modal.render();
+
+  const selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  const cslSelect = selects[3];
+
+  cslSelect.value = "apa.csl";
+  await cslSelect.trigger("change");
+  assert.equal(settings.projectMeta["Test/Manuscript"].citekeyCslPath, "apa.csl");
+  assert.ok(plugin.calls.includes("save"));
+});
+
+test("ManageProjectsModal — Displays orphan option when configured .bib or .csl file is missing", async () => {
+  const project = new TFolder("Test/Manuscript");
+  const research = new TFolder("Test/Research");
+
+  const { vault } = createFakeVault([project, research]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  settings.projectFolder = "Test/Manuscript";
+  settings.projectMeta["Test/Manuscript"] = {
+    type: "fiction",
+    citekeyBibliographyPath: "missing.bib",
+    citekeyCslPath: "missing.csl",
+    researchFolderLinks: {
+      "Test/Manuscript": "Test/Research",
+    },
+  };
+  settings.projects = [];
+
+  const plugin = fakePlugin(settings);
+  plugin.getProjectFolder = () => project;
+  plugin.projectDisplayName = (_path) => "Test";
+  const modal = createModal(ManageProjectsModal, app, plugin);
+
+  modal.onOpen();
+  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
+  modal.render();
+
+  const selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  const bibSelect = selects[2];
+  const cslSelect = selects[3];
+
+  const orphanBibOption = bibSelect.children.find((c) => c.value === "missing.bib");
+  assert.ok(orphanBibOption, "orphan bib option rendered");
+  assert.ok(orphanBibOption.text.includes(fr["project.pandocCitationPreview.missingFile"]), "shows missingFile label for bib");
+
+  const orphanCslOption = cslSelect.children.find((c) => c.value === "missing.csl");
+  assert.ok(orphanCslOption, "orphan csl option rendered");
+  assert.ok(orphanCslOption.text.includes(fr["project.pandocCitationPreview.missingFile"]), "shows missingFile label for csl");
+});
+
+
+test("ManageProjectsModal — Disables dropdowns when project has no associated research", async () => {
+  const project = new TFolder("Test/Manuscript");
+
+  const { vault } = createFakeVault([project]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  settings.projectFolder = "Test/Manuscript";
+  settings.projectMeta["Test/Manuscript"] = {
+    type: "fiction",
+    researchFolderLinks: {},
+  };
+  settings.projects = [];
+
+  const plugin = fakePlugin(settings);
+  plugin.getProjectFolder = () => project;
+  plugin.projectDisplayName = (_path) => "Test";
+  const modal = createModal(ManageProjectsModal, app, plugin);
+
+  modal.onOpen();
+  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
+  modal.render();
+
+  const selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  const bibSelect = selects[2];
+  const cslSelect = selects[3];
+
+  assert.equal(bibSelect.children.length, 1);
+  assert.equal(bibSelect.children[0].value, "");
+  assert.equal(cslSelect.children.length, 1);
+  assert.equal(cslSelect.children[0].value, "");
+});

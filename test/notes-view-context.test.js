@@ -445,7 +445,7 @@ test("10. aucune fiche pertinente : la section n'est pas rendue (pas de régress
 test("10bis. les jalons (chronologie) restent inclus indépendamment du moteur de contexte", async () => {
   const project = buildProject();
   project.activeFile.content = "Rien de pertinent ici.";
-  const jalon = new TFile("Projet/_Chrono/1820.md");
+  const jalon = new TFile("Projet/_Recherche/1820.md");
   const { view, contentEl } = createView(project);
   await view.renderCitedEntities(contentEl, project.activeFile, null, [jalon]);
   assert.equal(allElements(contentEl).some((el) => el.classes.has("feuillets-notes-section")), true);
@@ -544,6 +544,7 @@ function createCumulativeSourcesView(project) {
     },
     metadataCache: {},
   };
+  setActiveEditor(app, project.activeFile, fakeEditor(project.activeFile.content || "", 0));
   const plugin = {
     settings: { collapsed: {}, notesPinned: {} },
     getProjectFolder: () => project.root,
@@ -561,6 +562,12 @@ function createCumulativeSourcesView(project) {
   const view = new NotesView({ app, contentEl }, plugin);
   view.fm = (file) => ({ aliases: project.aliases?.[file.path] });
   return { view, contentEl, app, plugin };
+}
+
+function createLot5View(project) {
+  const bundle = createView(project);
+  setActiveEditor(bundle.app, project.activeFile, fakeEditor(project.activeFile.content || "", 0));
+  return bundle;
 }
 
 test("Régression — sources cumulatives : feuillet lié + chapitre lié + Recherche générale (jamais l'un à la place de l'autre)", async () => {
@@ -1263,7 +1270,7 @@ test("Lot 6 — aucun doublon : une fiche épinglée qui matcherait aussi Docume
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.togglePinned(project.activeFile, project.ducA.path);
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
@@ -1378,7 +1385,7 @@ test("Lot 6 — provenance des documents associés : jamais autre chose que Feui
   project.activeFile.content =
     "Le cartographe hésitait devant le meridien tracé la veille. " +
     "Les corsaires avaient chargé une cargaison bien discrète cette nuit-là.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1415,7 +1422,7 @@ test("Lot 6 — le titre n'est jamais répété en tête de l'extrait quand il r
     "# Carte Secrète\n\nLe cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.titles[project.ducA.path] = "Carte Secrète";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1430,7 +1437,7 @@ test("Lot 5 — document associé au FEUILLET retrouvé par son contenu (jamais 
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1444,7 +1451,7 @@ test("Lot 5 — document associé au CHAPITRE retrouvé par son contenu", async 
   project.ducB.stat = { mtime: 1 };
   project.ducB.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1457,7 +1464,7 @@ test("Lot 5 — document NON associé (hors Binder/Recherche) jamais retrouvé p
   project.etranger.stat = { mtime: 1 };
   project.etranger.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1471,7 +1478,7 @@ test("Lot 5 — document de la Recherche générale du projet (project-research)
   project.ducC.stat = { mtime: 1 };
   project.ducC.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1486,7 +1493,7 @@ test("Lot 5 — sous-dossier de la Recherche générale (Sub/Paris.md) jamais re
   project.parisFile.stat = { mtime: 1 };
   project.parisFile.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1502,7 +1509,7 @@ test("Lot 5 — une fiche déjà remontée par son titre (Lot 3) n'est jamais du
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "La carte secrète mentionne aussi un cartographe et un meridien oublié.";
   project.activeFile.content = "La carte secrète refait surface : cartographe et meridien y sont cités.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1539,7 +1546,7 @@ test("Lot 5 — extrait lisible centré sur la correspondance", async () => {
     "Le cartographe traça le meridien avant l'aube, loin de tout port connu. " +
     "Suite du document sans intérêt particulier. ".repeat(10);
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1556,7 +1563,7 @@ test("Lot 5 — le frontmatter YAML n'influence jamais la correspondance ni l'ex
     "---\ntitre: Fiche\ntags: [cartographe, meridien, secret]\n---\n" +
     "Texte réel sans rapport avec la scène.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1571,7 +1578,7 @@ test("Lot 5 — un mot générique isolé ne suffit jamais à faire remonter une
   // Un seul terme partagé ("meridien") : jamais assez, même significatif.
   project.ducA.content = "Le meridien traverse plusieurs pays et océans du globe entier.";
   project.activeFile.content = "Il évoque un meridien sans autre précision dans cette phrase.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1583,7 +1590,7 @@ test("Lot 5 — cache réutilisé si la mtime n'a pas changé (pas de relecture 
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl: firstEl } = createView(project);
+  const { view, contentEl: firstEl } = createLot5View(project);
   const reads = spyOnReads(view);
 
   await view.renderCitedEntities(firstEl, project.activeFile, null, []);
@@ -1602,7 +1609,7 @@ test("Lot 5 — mise à jour après modification du contenu d'une fiche (mtime c
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "Contenu initial sans rapport avec la scène évoquée ici.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl: firstEl } = createView(project);
+  const { view, contentEl: firstEl } = createLot5View(project);
 
   await view.renderCitedEntities(firstEl, project.activeFile, null, []);
   assert.deepEqual(relatedDocNames(firstEl), []);
@@ -1620,7 +1627,7 @@ test("Lot 5 — suppression d'une fiche : elle disparaît du résultat suivant",
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl: firstEl } = createView(project);
+  const { view, contentEl: firstEl } = createLot5View(project);
 
   await view.renderCitedEntities(firstEl, project.activeFile, null, []);
   assert.deepEqual(relatedDocNames(firstEl), ["Carte Secrète"]);
@@ -1640,7 +1647,7 @@ test("Lot 5 — renommage/déplacement d'une fiche : plus d'ancien chemin, retro
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl: firstEl } = createView(project);
+  const { view, contentEl: firstEl } = createLot5View(project);
   await view.renderCitedEntities(firstEl, project.activeFile, null, []);
   assert.deepEqual(relatedDocNames(firstEl), ["Carte Secrète"]);
 
@@ -1665,7 +1672,7 @@ test("Lot 5 — changement d'association Binder ↔ Recherche : plus retrouvée 
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "Le cartographe traça le meridien avant l'aube, loin de tout port connu.";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl: firstEl, plugin } = createView(project);
+  const { view, contentEl: firstEl, plugin } = createLot5View(project);
   await view.renderCitedEntities(firstEl, project.activeFile, null, []);
   assert.deepEqual(relatedDocNames(firstEl), ["Carte Secrète"]);
 
@@ -1694,14 +1701,16 @@ test("Lot 5 — changement de paragraphe : aucun résidu de l'ancien passage", a
   // qui masquerait ducB de « Documents associés » par déduplication — hors
   // sujet ici, qui teste uniquement le Lot 5 en isolation.
   project.ducB.content = "Les corsaires embarquèrent une cargaison discrète au large des côtes.";
-  const { view } = createView(project);
+  const { view, app } = createLot5View(project);
 
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
+  setActiveEditor(app, project.activeFile, fakeEditor(project.activeFile.content, 0));
   const firstEl = new FakeElement();
   await view.renderCitedEntities(firstEl, project.activeFile, null, []);
   assert.deepEqual(relatedDocNames(firstEl), ["Carte Secrète"]);
 
   project.activeFile.content = "Les corsaires avaient chargé une cargaison bien discrète cette nuit-là.";
+  setActiveEditor(app, project.activeFile, fakeEditor(project.activeFile.content, 0));
   const secondEl = new FakeElement();
   await view.renderCitedEntities(secondEl, project.activeFile, null, []);
 
@@ -1713,7 +1722,7 @@ test("Lot 5 — fiche vide n'est jamais proposée", async () => {
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "";
   project.activeFile.content = "Le cartographe hésitait devant le meridien tracé la veille.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 
@@ -1725,7 +1734,7 @@ test("Lot 5 — aucune section « Documents associés » quand rien ne remonte",
   project.ducA.stat = { mtime: 1 };
   project.ducA.content = "Contenu sans le moindre rapport avec la scène.";
   project.activeFile.content = "Rien de pertinent ici non plus.";
-  const { view, contentEl } = createView(project);
+  const { view, contentEl } = createLot5View(project);
 
   await view.renderCitedEntities(contentEl, project.activeFile, null, []);
 

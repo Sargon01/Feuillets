@@ -88,6 +88,7 @@ import {
 import { resolveCanvasSession, type CanvasSession } from "./carnet/canvas/adapter.js";
 import { createFolderCarnet, folderCarnetCanvasPath, getFolderCarnetDisplayLabel, getFolderCarnetRegistration, isFolderCarnetCanvasFile, listCanonicalFolderCarnetOwners, canonicalizeFolderCarnetRegistration, removeFolderCarnetRegistrationsForDeletedFile, resolveExistingFolderCarnetRegistration, resolveFolderCarnet, resolveFolderCarnetContext as resolveFolderCarnetContextCore, resolveFolderCarnetTitleContext, type FolderCarnetContext } from "./carnet/core/folder-carnets.js";
 import { remapFeuilletsPathReferences } from "./carnet/core/path-reference-maintenance.js";
+import { remapWorkspaceCitationResourcePaths } from "./services/workspace-citations.js";
 import { createCarnetLifecycle, type CarnetLifecycle } from "./carnet/core/lifecycle.js";
 import {
   createMindmapBlock,
@@ -1605,6 +1606,8 @@ class FeuilletsPlugin extends Plugin {
            sans traitement séparé. */
         const remapped = remapFeuilletsPathReferences(this.settings, oldPath, file.path);
         if (remapped.changed) settingsChanged = true;
+        const citationsChanged = remapWorkspaceCitationResourcePaths(this.app, this.settings, oldPath, file.path);
+        if (citationsChanged) settingsChanged = true;
         if (settingsChanged) void this.saveSettings();
         void remapAnnotationsAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         void remapWorkNotesAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);

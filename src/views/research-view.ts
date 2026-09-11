@@ -3,7 +3,7 @@ import { VIEW_RESEARCH } from "../constants.js";
 import { t } from "../i18n/index.js";
 import { isEditing } from "../utils/dom.js";
 import { BaseFeuilletsView, type ResearchScopeMode } from "./base-feuillets-view.js";
-import { resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
+import { resolveActiveFileResearchFolders, resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
 
 type ResearchViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type ResearchContainer = HTMLElement & { find?: <T extends HTMLElement>(selector: string) => T | null };
@@ -99,12 +99,23 @@ export class ResearchView extends BaseFeuilletsView {
     const associatedResearchFolder = workspaceResearch?.sourceKind === "exact" || workspaceResearch?.sourceKind === "ancestor"
       ? workspaceResearch.folder
       : null;
+    const activeFile = typeof this.app?.workspace?.getActiveFile === "function"
+      ? this.app.workspace.getActiveFile()
+      : null;
+    const activeBranchResearchFolders = workspaceActive && this.researchScopeMode === "workspace" && workspaceFolder && activeFile
+      ? resolveActiveFileResearchFolders(this.app, this.plugin.settings, workspaceFolder, activeFile)
+          .map((item) => ({
+            folder: item.folder,
+            binderNodes: [item.binderNode],
+          }))
+      : undefined;
     await this.renderResearchBody(container, root, myGen, {
       scopeMode: this.researchScopeMode,
       workspaceActive,
       workspaceFolder,
       researchRoot: projectResearchRoot,
       associatedResearchFolder,
+      activeBranchResearchFolders,
       onScopeModeChange: (mode) => {
         this.researchScopeMode = mode;
         void this.render(true);
