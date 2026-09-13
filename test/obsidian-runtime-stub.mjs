@@ -47,6 +47,8 @@ export class ItemView {
     this._registeredEvents.push(eventRef);
     return eventRef;
   }
+  async onOpen() {}
+  async onClose() {}
   /* État de vue : Obsidian les définit sur View, les sous-classes appellent
      super.setState() après avoir lu le leur. */
   async setState() {}
@@ -96,13 +98,92 @@ export class Notice {
     Notice.onCreate?.(message);
   }
 }
+function createFakeModalNode(tag, opt = {}) {
+  const listeners = {};
+  let focused = false;
+  const node = {
+    tagName: tag.toUpperCase(),
+    children: [],
+    classList: new Set(),
+    style: {},
+    textContent: opt.text || "",
+    value: opt.value || "",
+    type: opt.type || "",
+    placeholder: opt.placeholder || "",
+    disabled: false,
+    empty() { this.children = []; this.textContent = ""; },
+    addClass(c) { this.classList.add(c); return this; },
+    removeClass(c) { this.classList.delete(c); return this; },
+    hasClass(c) { return this.classList.has(c); },
+    appendChild(c) { this.children.push(c); return c; },
+    setAttribute(k, v) { this[k] = v; },
+    getAttribute(k) { return this[k]; },
+    setAttr(k, v) { this[k] = v; return this; },
+    getAttr(k) { return this[k]; },
+    setText(t) { this.textContent = t; return this; },
+    getText() { return this.textContent; },
+    addEventListener(evt, fn) {
+      listeners[evt] = listeners[evt] || [];
+      listeners[evt].push(fn);
+    },
+    dispatchEvent(event) {
+      const handlers = listeners[event.type] || [];
+      for (const h of handlers) h(event);
+    },
+    click() {
+      const handlers = listeners["click"] || [];
+      for (const h of handlers) h({ type: "click", preventDefault() {} });
+    },
+    focus() { focused = true; },
+    blur() { focused = false; },
+    isFocused() { return focused; },
+    scrollIntoView() {},
+    createDiv(o) { return this.createEl("div", o); },
+    createSpan(o) { return this.createEl("span", o); },
+    createEl(t, o = {}) {
+      const child = createFakeModalNode(t, o);
+      this.children.push(child);
+      return child;
+    },
+    querySelector(sel) {
+      for (const c of this.children) {
+        if (sel.startsWith(".") && c.hasClass(sel.slice(1))) return c;
+        if (c.tagName === sel.toUpperCase()) return c;
+        const found = c.querySelector?.(sel);
+        if (found) return found;
+      }
+      return null;
+    },
+    querySelectorAll(sel) {
+      const matches = [];
+      for (const c of this.children) {
+        if (sel.startsWith(".") && c.hasClass(sel.slice(1))) matches.push(c);
+        if (c.tagName === sel.toUpperCase()) matches.push(c);
+        if (c.querySelectorAll) matches.push(...c.querySelectorAll(sel));
+      }
+      return matches;
+    },
+  };
+  if (opt.cls) {
+    for (const cl of opt.cls.split(" ")) if (cl) node.addClass(cl);
+  }
+  return node;
+}
 
 export class Modal {
   constructor(app) {
     this.app = app;
+    this.modalEl = createFakeModalNode("div");
+    this.titleEl = createFakeModalNode("div");
+    this.contentEl = createFakeModalNode("div");
+    this.scope = {
+      register: () => {},
+    };
   }
   close() {}
-  open() {}
+  open() {
+    this.onOpen?.();
+  }
 }
 
 /* Setting : réplique légère mais RÉELLE (DOM factice construit via
@@ -262,6 +343,7 @@ export class Setting {
       onChange(fn) {
         this.changeHandler = fn;
         inputEl?.addEventListener?.("change", () => fn(inputEl.value));
+        inputEl?.addEventListener?.("input", () => fn(inputEl.value));
         return this;
       },
     };
@@ -369,6 +451,17 @@ Menu.lastShown = null;
 export class Keymap {}
 
 export class FuzzySuggestModal {}
+
+export class SuggestModal extends Modal {
+  constructor(app) {
+    super(app);
+    this.placeholder = "";
+  }
+  setPlaceholder(value) {
+    this.placeholder = value;
+    return this;
+  }
+}
 
 export class PopoverSuggest {
   constructor(app) {

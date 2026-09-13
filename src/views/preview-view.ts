@@ -142,7 +142,6 @@ export type PreviewViewPlugin = {
    * reconstruction locale de portée avec la racine globale. */
   compileScopeForFolder?(folder: TFolder): CompileScope | null;
   compileScopeForFile?(file: TFile): CompileScope | null;
-  getWorkspaceFolder?(): TFolder | null;
 };
 
 export type ZoomMode = "fit-width" | "fit-page" | "manual";
@@ -193,6 +192,7 @@ type PreviewSource = {
   title: string;
   /** Sous-titre affiché dans l'en-tête de l'onglet (chemin du feuillet). */
   subtitle: string;
+  citationScopeFolderPath: string | null;
 };
 
 /** Actualisation automatique du mode Scène : assez long pour ne pas rendre
@@ -1153,6 +1153,20 @@ export class PreviewView extends ItemView {
         if (!keepCurrentFrame) this.showMessage("feuillets-preview-error", t("preview.message.emptyCompilation"));
         return null;
       }
+      let citationScopeFolderPath: string | null = null;
+      if (activeScope.type === "file") {
+        const file = this.app.vault.getAbstractFileByPath(activeScope.path);
+        if (file instanceof TFile && file.parent) {
+          citationScopeFolderPath = file.parent.path;
+        } else {
+          const slashIdx = activeScope.path.lastIndexOf("/");
+          citationScopeFolderPath = slashIdx > 0 ? activeScope.path.slice(0, slashIdx) : null;
+        }
+      } else if (activeScope.type === "folder") {
+        citationScopeFolderPath = activeScope.path;
+      } else {
+        citationScopeFolderPath = null;
+      }
       const firstScene = result.segments?.find((s) => s.path)?.path;
       const source: PreviewSource = {
         markdown: result.manuscript,
@@ -1160,6 +1174,7 @@ export class PreviewView extends ItemView {
         sourcePath: firstScene || root.path,
         title: settings.manuscriptTitle || root.name,
         subtitle: t("preview.subtitle.scope", { scope: activeScope.type }),
+        citationScopeFolderPath,
       };
       return this.applySourceModeTransformation(source);
     }
@@ -1185,6 +1200,7 @@ export class PreviewView extends ItemView {
         sourcePath: firstScene || root.path,
         title: settings.manuscriptTitle || root.name,
         subtitle: t("preview.subtitle.completeManuscript"),
+        citationScopeFolderPath: null,
       };
       return this.applySourceModeTransformation(source);
     }
@@ -1225,6 +1241,7 @@ export class PreviewView extends ItemView {
         sourcePath: active.path,
         title: this.binderFileTitle(active),
         subtitle: active.path,
+        citationScopeFolderPath: active.parent ? active.parent.path : null,
       };
       return this.applySourceModeTransformation(source);
     }
@@ -1256,6 +1273,7 @@ export class PreviewView extends ItemView {
       sourcePath: firstScene || scope.path,
       title: scope.name,
       subtitle: scope.path,
+      citationScopeFolderPath: scope.path,
     };
     return this.applySourceModeTransformation(source);
   }
@@ -1272,6 +1290,7 @@ export class PreviewView extends ItemView {
       sourcePath: file.path,
       title: this.binderFileTitle(file),
       subtitle: file.path,
+      citationScopeFolderPath: file.parent ? file.parent.path : null,
     };
     return this.applySourceModeTransformation(source);
   }
@@ -1696,11 +1715,20 @@ export class PreviewView extends ItemView {
     const pandocPreviewStyle = (projectMeta?.pandocCitationPreviewStyle as PandocCitationPreviewStyle) || "off";
     let pandocBibliographyPath = "";
     if (projectRoot) {
-      const workspaceFolder = typeof this.plugin?.getWorkspaceFolder === "function"
-        ? this.plugin.getWorkspaceFolder()
-        : null;
-      const resolution = resolveWorkspaceCitationResources(this.app, settings, projectRoot, workspaceFolder);
-      pandocBibliographyPath = resolution.bibliography.file ? resolution.bibliography.file.path : "";
+      let workspaceFolder: TFolder | null = null;
+      let shouldResolve = true;
+      if (source.citationScopeFolderPath !== null) {
+        const candidate = this.app.vault.getAbstractFileByPath(source.citationScopeFolderPath);
+        if (candidate instanceof TFolder) {
+          workspaceFolder = candidate;
+        } else {
+          shouldResolve = false;
+        }
+      }
+      if (shouldResolve) {
+        const resolution = resolveWorkspaceCitationResources(this.app, settings, projectRoot, workspaceFolder);
+        pandocBibliographyPath = resolution.bibliography.file ? resolution.bibliography.file.path : "";
+      }
     }
 
     // Create afterVariant callback that chains applySourceMarkers and applyPandocCitationPreview

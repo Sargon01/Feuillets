@@ -1,8 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFile, TFolder, Notice } from "obsidian";
+import { Buffer } from "node:buffer";
+import JSZip from "jszip";
+import { MarkdownRenderer, TFile, TFolder, Notice } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { compile, exportWithScope, exportFile } from "../src/services/compile-export.js";
+import { compile, exportWithScope, exportFile, writeBinaryFile } from "../src/services/compile-export.js";
 import { createProjectScope } from "../src/services/compile-scope.js";
 
 /* Reproduit le bug réel : « Uncaught (in promise) Error: File already
@@ -354,3 +356,144 @@ async function loadDomHelper() {
     },
   };
 }
+
+test("writeBinaryFile: Uint8Array view with non-zero byteOffset is written with exact byteLength and no prefix/suffix via createBinary", async () => {
+  const { vault } = createFakeVault([]);
+  let receivedBuffer = null;
+  vault.createBinary = async (_path, buf) => {
+    receivedBuffer = buf;
+    return new TFile(_path, "");
+  };
+
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+
+  const backingArray = new Uint8Array([0xAA, 0xBB, 0x10, 0x20, 0x30, 0x40, 0xCC, 0xDD]);
+  const view = backingArray.subarray(2, 6);
+  assert.equal(view.byteOffset, 2);
+  assert.equal(view.byteLength, 4);
+  assert.equal(view.buffer.byteLength, 8);
+
+  const writtenPath = await writeBinaryFile(app, "Output/created.bin", view);
+  assert.equal(writtenPath, "Output/created.bin");
+  assert.ok(receivedBuffer instanceof ArrayBuffer, "receivedBuffer must be an ArrayBuffer");
+  assert.equal(receivedBuffer.byteLength, 4, "ArrayBuffer byteLength must match view byteLength exactly");
+
+  const writtenBytes = Array.from(new Uint8Array(receivedBuffer));
+  assert.deepEqual(writtenBytes, [0x10, 0x20, 0x30, 0x40], "ArrayBuffer must contain only payload bytes");
+  assert.ok(!writtenBytes.includes(0xAA) && !writtenBytes.includes(0xBB), "ArrayBuffer must not contain prefix bytes");
+  assert.ok(!writtenBytes.includes(0xCC) && !writtenBytes.includes(0xDD), "ArrayBuffer must not contain suffix bytes");
+});
+
+test("writeBinaryFile: Uint8Array view with non-zero byteOffset is written with exact byteLength and no prefix/suffix via modifyBinary", async () => {
+  const existingFile = new TFile("Output/existing.bin", "");
+  const { vault } = createFakeVault([existingFile]);
+  let receivedBuffer = null;
+  vault.modifyBinary = async (file, buf) => {
+    receivedBuffer = buf;
+    file.content = buf;
+  };
+
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+
+  const backingArray = new Uint8Array([0xDE, 0xAD, 0x01, 0x02, 0x03, 0xBE, 0xEF]);
+  const view = backingArray.subarray(2, 5);
+  assert.equal(view.byteOffset, 2);
+  assert.equal(view.byteLength, 3);
+  assert.equal(view.buffer.byteLength, 7);
+
+  const writtenPath = await writeBinaryFile(app, "Output/existing.bin", view);
+  assert.equal(writtenPath, "Output/existing.bin");
+  assert.ok(receivedBuffer instanceof ArrayBuffer, "receivedBuffer must be an ArrayBuffer");
+  assert.equal(receivedBuffer.byteLength, 3, "ArrayBuffer byteLength must match view byteLength exactly");
+
+  const writtenBytes = Array.from(new Uint8Array(receivedBuffer));
+  assert.deepEqual(writtenBytes, [0x01, 0x02, 0x03], "ArrayBuffer must contain only payload bytes");
+  assert.ok(!writtenBytes.includes(0xDE) && !writtenBytes.includes(0xAD), "ArrayBuffer must not contain prefix bytes");
+  assert.ok(!writtenBytes.includes(0xBE) && !writtenBytes.includes(0xEF), "ArrayBuffer must not contain suffix bytes");
+});
+
+test("writeBinaryFile: Buffer subview with non-zero byteOffset is copied exactly without prefix or suffix", async () => {
+  const { vault } = createFakeVault([]);
+  let receivedBuffer = null;
+  vault.createBinary = async (_path, buf) => {
+    receivedBuffer = buf;
+    return new TFile(_path, "");
+  };
+
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+
+  const backingArray = new Uint8Array([0x99, 0x88, 0x77, 0x41, 0x42, 0x43, 0x44, 0x11, 0x22]);
+  const subview = Buffer.from(backingArray.buffer, 3, 4);
+  assert.equal(subview.byteOffset, 3);
+  assert.equal(subview.byteLength, 4);
+  assert.equal(subview.buffer.byteLength, 9);
+
+  const writtenPath = await writeBinaryFile(app, "Output/from-buffer.bin", subview);
+  assert.equal(writtenPath, "Output/from-buffer.bin");
+  assert.ok(receivedBuffer instanceof ArrayBuffer, "receivedBuffer must be an ArrayBuffer");
+  assert.equal(receivedBuffer.byteLength, 4, "ArrayBuffer byteLength must match Buffer subview byteLength");
+
+  const writtenBytes = Array.from(new Uint8Array(receivedBuffer));
+  assert.deepEqual(writtenBytes, [0x41, 0x42, 0x43, 0x44], "ArrayBuffer must contain only Buffer payload");
+  assert.ok(!writtenBytes.includes(0x99) && !writtenBytes.includes(0x88) && !writtenBytes.includes(0x77), "ArrayBuffer must not contain prefix bytes");
+  assert.ok(!writtenBytes.includes(0x11) && !writtenBytes.includes(0x22), "ArrayBuffer must not contain suffix bytes");
+});
+
+test("exportWithScope: native DOCX starts with PK at byte zero and loads in JSZip without recovery or leading bytes", async () => {
+  const manuscript = new TFolder("DocxScope/Manuscrit");
+  const scene = new TFile("DocxScope/Manuscrit/Scene.md", "---\ntitle: Scope Scene\n---\nHello Native DOCX.");
+  manuscript.children = [scene];
+  scene.parent = manuscript;
+
+  const sortie = new TFolder("DocxScope/Manuscrit/_Feuillets/Sortie");
+  const feuillets = new TFolder("DocxScope/Manuscrit/_Feuillets", [sortie]);
+  sortie.parent = feuillets;
+  feuillets.parent = manuscript;
+  manuscript.children.push(feuillets);
+
+  const { vault } = createFakeVault([manuscript, scene, feuillets, sortie]);
+  vault.cachedRead = vault.read;
+
+  let receivedBuffer = null;
+  vault.createBinary = async (path, buf) => {
+    receivedBuffer = buf;
+    const file = new TFile(path, "");
+    file.parent = sortie;
+    sortie.children.push(file);
+    return file;
+  };
+
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: { title: "Scope Scene", compile: true } }) } };
+  const settings = baseSettings({ projectFolder: manuscript.path, compileFileName: "manuscrit.md" });
+
+  const { installMinimalDomForTest } = await loadDomHelper();
+  const restoreDom = installMinimalDomForTest();
+  const previousRender = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    const p = makeEl("p", markdown);
+    container.appendChild(p);
+  };
+  try {
+    const scope = createProjectScope(manuscript.path);
+    const outPath = await exportWithScope(app, settings, scope, "docx", "ScopeDocx");
+    assert.equal(outPath, "DocxScope/Manuscrit/_Feuillets/Sortie/ScopeDocx.docx");
+
+    assert.ok(receivedBuffer instanceof ArrayBuffer, "vault.createBinary must receive an ArrayBuffer");
+    assert.ok(receivedBuffer.byteLength > 0, "receivedBuffer must not be empty");
+
+    const uint8 = new Uint8Array(receivedBuffer);
+    assert.equal(uint8[0], 0x50, "byte 0 must be 'P' (0x50)");
+    assert.equal(uint8[1], 0x4B, "byte 1 must be 'K' (0x4B)");
+    assert.equal(uint8[2], 0x03, "byte 2 must be 0x03");
+    assert.equal(uint8[3], 0x04, "byte 4 must be 0x04");
+
+    const zip = await JSZip.loadAsync(receivedBuffer);
+    const docXmlFile = zip.file("word/document.xml");
+    assert.ok(docXmlFile, "DOCX package must contain word/document.xml");
+    const docXml = await docXmlFile.async("string");
+    assert.match(docXml, /Hello Native DOCX/);
+  } finally {
+    MarkdownRenderer.render = previousRender;
+    restoreDom();
+  }
+});

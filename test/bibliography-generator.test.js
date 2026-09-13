@@ -309,3 +309,96 @@ test("bibliographyEntries : repli Bibliographie legacy quand Sources n'existe pa
   // (aucune n'a de cite_count) comptent toutes les deux.
   assert.equal(entries.length, 2);
 });
+
+test("generateBibliography : formats extended journal, volume, number, pages, and DOI", () => {
+  const text = generateBibliography([
+    {
+      author: "Shannon, Claude",
+      title: "A Mathematical Theory of Communication",
+      journal: "Bell System Technical Journal",
+      volume: "27",
+      number: "3",
+      pages: "379-423",
+      date: "1948",
+      doi: "10.1002/j.1538-7305.1948.tb01338.x",
+    },
+  ]);
+  assert.equal(
+    text,
+    "# Bibliographie\n\nShannon, Claude. *A Mathematical Theory of Communication*. Bell System Technical Journal, vol. 27, no. 3, pp. 379-423, 1948. https://doi.org/10.1002/j.1538-7305.1948.tb01338.x\n"
+  );
+});
+
+test("generateBibliography : sorts deterministically by author, then year, then title", () => {
+  const text = generateBibliography([
+    { author: "Smith, John", title: "Zulu", date: "2020" },
+    { author: "Smith, John", title: "Alpha", date: "2024" },
+    { author: "Smith, John", title: "Beta", date: "2020" },
+    { author: "Adams, Abigail", title: "First Work", date: "2010" },
+  ]);
+  const lines = text.split("\n\n").slice(1);
+  assert.ok(lines[0].startsWith("Adams, Abigail"));
+  assert.ok(lines[1].startsWith("Smith, John. *Beta*. 2020"));
+  assert.ok(lines[2].startsWith("Smith, John. *Zulu*. 2020"));
+  assert.ok(lines[3].startsWith("Smith, John. *Alpha*. 2024"));
+});
+
+test("generateBibliography : deduplicates identical BibTeX entries by bibliographyFilePath + citekey", () => {
+  const text = generateBibliography([
+    {
+      author: "Smith, John",
+      title: "Paper One",
+      date: "2024",
+      citekey: "smith2024",
+      bibliographyFilePath: "Projet/refs.bib",
+    },
+    {
+      author: "Smith, John",
+      title: "Paper One",
+      date: "2024",
+      citekey: "smith2024",
+      bibliographyFilePath: "Projet/refs.bib",
+    },
+  ]);
+  const lines = text.split("\n\n").slice(1);
+  assert.equal(lines.length, 1);
+});
+
+test("generateBibliography : never merges identical citekeys coming from different .bib files", () => {
+  const text = generateBibliography([
+    {
+      author: "Smith, John",
+      title: "Work A Version",
+      date: "2024",
+      citekey: "smith2024",
+      bibliographyFilePath: "Projet/Work-A/refs.bib",
+    },
+    {
+      author: "Smith, Adam",
+      title: "Chapter A Version",
+      date: "2024",
+      citekey: "smith2024",
+      bibliographyFilePath: "Projet/Chapter-A/refs.bib",
+    },
+  ]);
+  const lines = text.split("\n\n").slice(1);
+  assert.equal(lines.length, 2);
+  assert.ok(lines.some((l) => l.includes("Work A Version")));
+  assert.ok(lines.some((l) => l.includes("Chapter A Version")));
+});
+
+test("generateBibliography : coexists with historical Source cards and BibTeX references", () => {
+  const text = generateBibliography([
+    { author: "Hugo, Victor", title: "Les Misérables", publisher: "Gallimard", date: "1862" },
+    {
+      author: "Turing, Alan",
+      title: "Computing Machinery and Intelligence",
+      journal: "Mind",
+      date: "1950",
+      citekey: "turing1950",
+      bibliographyFilePath: "Projet/refs.bib",
+    },
+  ]);
+  assert.match(text, /Hugo, Victor/);
+  assert.match(text, /Turing, Alan/);
+});

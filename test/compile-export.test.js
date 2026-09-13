@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MarkdownRenderer, TFile, TFolder } from "obsidian";
+import { MarkdownRenderer, TFile, TFolder, Platform } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
-import { compile, activePresetConfig, effectiveComposition, getOutputFolder, joinCompiledSegments, listCompiledFilePaths, projectMetaFor } from "../src/services/compile-export.js";
+import { compile, activePresetConfig, effectiveComposition, getOutputFolder, joinCompiledSegments, listCompiledFilePaths, projectMetaFor, exportWithScope } from "../src/services/compile-export.js";
 import { writeGeneratedIncluded } from "../src/services/book-composition.js";
 import { updateOuvrageComposition, clearOuvrageComposition } from "../src/services/ouvrage-composition.js";
 
@@ -948,6 +948,258 @@ test("compile portée selection : jamais de bibliographie même incluse dans pro
 
   assert.ok(result);
   assert.doesNotMatch(result.manuscript, /# Bibliographie/);
+});
+
+test("compile portée project : génère la bibliographie à partir des clés BibTeX citées dans les scènes compilées", async () => {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const sceneCompiled = new TFile(
+    "Projet/Manuscrit/Chapitre 1/Scène 1.md",
+    "---\ntitle: Scène 1\n---\nTexte citant [@knuth1968] et [@unknownKey].\n"
+  );
+  sceneCompiled.extension = "md";
+  sceneCompiled.stat = { mtime: 1000, size: sceneCompiled.content.length };
+
+  const research = new TFolder("Projet/_Recherche");
+  const bibFile = new TFile(
+    "Projet/_Recherche/refs.bib",
+    "@article{knuth1968,\n  author = {Knuth, Donald},\n  title = {The Art of Computer Programming},\n  year = {1968}\n}\n@article{unused1999,\n  author = {Unused, Author},\n  title = {Unused Title},\n  year = {1999}\n}"
+  );
+  bibFile.extension = "bib";
+  bibFile.stat = { mtime: 1000, size: bibFile.content.length };
+
+  volume.children = [manuscript, research];
+  manuscript.parent = volume;
+  research.parent = volume;
+  manuscript.children = [chapter];
+  chapter.parent = manuscript;
+  chapter.children = [sceneCompiled];
+  sceneCompiled.parent = chapter;
+  research.children = [bibFile];
+  bibFile.parent = research;
+
+  const { vault } = createFakeVault([volume, manuscript, chapter, sceneCompiled, research, bibFile]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache: (file) => ({
+        frontmatter: { title: file.basename, compile: true },
+      }),
+    },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [chapter.name] },
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {
+      [manuscript.path]: {
+        researchFolderLinks: {
+          [manuscript.path]: research.path,
+        },
+        citekeyBibliographyPath: "refs.bib",
+      },
+    },
+  };
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path], "bibliography", true);
+
+  const result = await compile(app, settings);
+  assert.ok(result);
+  assert.match(result.manuscript, /# Bibliographie/);
+  const biblioSection = result.manuscript.split("# Bibliographie")[1] || "";
+  // Knuth 1968 must be in the bibliography
+  assert.match(biblioSection, /Knuth, Donald/);
+  assert.match(biblioSection, /The Art of Computer Programming/);
+  // Unused entry must NOT be in the bibliography
+  assert.doesNotMatch(biblioSection, /Unused, Author/);
+  // Unknown citekey must NOT generate an invented reference
+  assert.doesNotMatch(biblioSection, /unknownKey/);
+});
+
+test("compile portée project : n'inclut que les citekeys des fichiers effectivement compilés", async () => {
+  const volume = new TFolder("Projet");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const chapter = new TFolder("Projet/Manuscrit/Chapitre 1");
+  const sceneCompiled = new TFile(
+    "Projet/Manuscrit/Chapitre 1/Scène 1.md",
+    "---\ntitle: Scène 1\ncompile: true\n---\nTexte [@knuth1968].\n"
+  );
+  sceneCompiled.extension = "md";
+  sceneCompiled.stat = { mtime: 1000, size: sceneCompiled.content.length };
+
+  const sceneExcluded = new TFile(
+    "Projet/Manuscrit/Chapitre 1/Scène 2.md",
+    "---\ntitle: Scène 2\ncompile: false\n---\nTexte exclu [@turing1936].\n"
+  );
+  sceneExcluded.extension = "md";
+  sceneExcluded.stat = { mtime: 1000, size: sceneExcluded.content.length };
+
+  const research = new TFolder("Projet/_Recherche");
+  const bibFile = new TFile(
+    "Projet/_Recherche/refs.bib",
+    "@article{knuth1968,\n  author = {Knuth, Donald},\n  year = {1968}\n}\n@article{turing1936,\n  author = {Turing, Alan},\n  year = {1936}\n}"
+  );
+  bibFile.extension = "bib";
+  bibFile.stat = { mtime: 1000, size: bibFile.content.length };
+
+  volume.children = [manuscript, research];
+  manuscript.parent = volume;
+  research.parent = volume;
+  manuscript.children = [chapter];
+  chapter.parent = manuscript;
+  chapter.children = [sceneCompiled, sceneExcluded];
+  sceneCompiled.parent = chapter;
+  sceneExcluded.parent = chapter;
+  research.children = [bibFile];
+  bibFile.parent = research;
+
+  const { vault } = createFakeVault([volume, manuscript, chapter, sceneCompiled, sceneExcluded, research, bibFile]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache: (file) => ({
+        frontmatter: file === sceneExcluded ? { compile: false } : { compile: true },
+      }),
+    },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [chapter.name] },
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: true,
+    insertSceneTitles: true,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {
+      [manuscript.path]: {
+        researchFolderLinks: {
+          [manuscript.path]: research.path,
+        },
+        citekeyBibliographyPath: "refs.bib",
+      },
+    },
+  };
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path], "bibliography", true);
+
+  const result = await compile(app, settings);
+  assert.ok(result);
+  const biblioSection = result.manuscript.split("# Bibliographie")[1] || "";
+  assert.match(biblioSection, /Knuth, Donald/);
+  // Turing is in excluded scene, so must NOT be in bibliography
+  assert.doesNotMatch(biblioSection, /Turing, Alan/);
+});
+
+test("Markdown export: [@key], groups, and locators remain strictly raw and generated bibliography is appended only when requested", async () => {
+  const volume = new TFolder("Project");
+  const manuscript = new TFolder("Project/Manuscript");
+  const chapter = new TFolder("Project/Manuscript/Chapter 1");
+  const rawCitationsText = "Single citation [@knuth1968]. Grouped [@knuth1968; @lamport1994, ch. 2]. Suppressed author [-@knuth1968]. Locator [@knuth1968, pp. 10-15].";
+  const scene = new TFile(
+    "Project/Manuscript/Chapter 1/Scene 1.md",
+    `---\ntitle: Scene 1\ncompile: true\n---\n${rawCitationsText}\n`
+  );
+  scene.extension = "md";
+  scene.stat = { mtime: 1000, size: scene.content.length };
+
+  const research = new TFolder("Project/_Research");
+  const bibFile = new TFile(
+    "Project/_Research/refs.bib",
+    `@article{knuth1968,
+  author = {Knuth, Donald},
+  title = {The Art of Computer Programming},
+  year = {1968}
+}
+@book{lamport1994,
+  author = {Lamport, Leslie},
+  title = {LaTeX: A Document Preparation System},
+  year = {1994}
+}`
+  );
+  bibFile.extension = "bib";
+  bibFile.stat = { mtime: 1000, size: bibFile.content.length };
+
+  volume.children = [manuscript, research];
+  manuscript.parent = volume;
+  research.parent = volume;
+  manuscript.children = [chapter];
+  chapter.parent = manuscript;
+  chapter.children = [scene];
+  scene.parent = chapter;
+  research.children = [bibFile];
+  bibFile.parent = research;
+
+  const { vault } = createFakeVault([volume, manuscript, chapter, scene, research, bibFile]);
+  vault.cachedRead = vault.read;
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache: (file) => ({
+        frontmatter: { title: file.basename, compile: true },
+      }),
+    },
+  };
+  const settings = {
+    projectFolder: manuscript.path,
+    level1Role: "chapitres",
+    orders: { [manuscript.path]: [chapter.name] },
+    compileFileName: "Manuscript.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {
+      [manuscript.path]: {
+        researchFolderLinks: {
+          [manuscript.path]: research.path,
+        },
+        citekeyBibliographyPath: "refs.bib",
+      },
+    },
+  };
+
+  // Case A: bibliography is NOT requested
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path], "bibliography", false);
+  const resultWithoutBib = await compile(app, settings);
+  assert.ok(resultWithoutBib);
+  // Manuscript body must contain citations in raw unmodified Markdown syntax
+  assert.ok(resultWithoutBib.manuscript.includes("[@knuth1968]"), "Single citation remains raw");
+  assert.ok(resultWithoutBib.manuscript.includes("[@knuth1968; @lamport1994, ch. 2]"), "Grouped citations and locators remain raw");
+  assert.ok(resultWithoutBib.manuscript.includes("[-@knuth1968]"), "Suppressed author citation remains raw");
+  assert.ok(resultWithoutBib.manuscript.includes("[@knuth1968, pp. 10-15]"), "Locator citation remains raw");
+  // No bibliography section should be appended
+  assert.doesNotMatch(resultWithoutBib.manuscript, /# Bibliographie/, "No bibliography appended when not requested");
+
+  // Case B: bibliography IS requested
+  writeGeneratedIncluded(settings.projectMeta[manuscript.path], "bibliography", true);
+  const resultWithBib = await compile(app, settings);
+  assert.ok(resultWithBib);
+  // Citations still remain raw in the manuscript body
+  assert.ok(resultWithBib.manuscript.includes("[@knuth1968]"), "Citations remain raw in body with bibliography enabled");
+  assert.ok(resultWithBib.manuscript.includes("[@knuth1968; @lamport1994, ch. 2]"), "Grouped citations remain raw in body");
+  assert.ok(resultWithBib.manuscript.includes("[-@knuth1968]"), "Suppressed author remains raw in body");
+  assert.ok(resultWithBib.manuscript.includes("[@knuth1968, pp. 10-15]"), "Locator remains raw in body");
+  // Bibliography section is appended
+  assert.match(resultWithBib.manuscript, /# Bibliographie/, "Bibliography section is appended when requested");
+  const bibSection = resultWithBib.manuscript.split("# Bibliographie")[1] || "";
+  assert.match(bibSection, /Knuth, Donald/);
+  assert.match(bibSection, /Lamport, Leslie/);
 });
 
 // ─── Annexes (Phase 9) ──────────────────────────────────────────────────────
@@ -2859,4 +3111,735 @@ test("compile : dans un ouvrage, aucun titre automatique de scène n'est génér
   assert.ok(result);
   assert.equal(result.manuscript, "# Subhanallah\n\n## Chapitre 1\n\nAL_RAHMAN_TEXTE");
   assert.doesNotMatch(result.manuscript, /#### Al-Rahman/);
+});
+
+/* ===================== NATIVE EXPORT CITATIONS (DOCX, EPUB, ODT, PDF) ===================== */
+
+function createCitationTextNode(textValue, parent = null) {
+  return {
+    nodeType: 3,
+    _value: textValue,
+    parentElement: parent,
+    get nodeValue() {
+      return this._value;
+    },
+    set nodeValue(v) {
+      this._value = String(v);
+    },
+    get textContent() {
+      return this._value;
+    },
+    set textContent(v) {
+      this._value = String(v);
+    },
+    cloneNode() {
+      return createCitationTextNode(this._value, this.parentElement);
+    },
+    remove() {
+      if (this.parentElement) {
+        const idx = this.parentElement.childNodes.indexOf(this);
+        if (idx >= 0) this.parentElement.childNodes.splice(idx, 1);
+        this.parentElement = null;
+      }
+    },
+  };
+}
+
+class FakeCitationEl {
+  constructor(tag, textContent = "") {
+    this.tagName = tag.toUpperCase();
+    this._attrs = new Map();
+    this.parentElement = null;
+    this.childNodes = [];
+    this.style = {};
+    this.scrollHeight = 0;
+    this.clientHeight = 1000;
+    this.scrollWidth = 0;
+    this.clientWidth = 1000;
+    if (textContent) {
+      this.childNodes.push(createCitationTextNode(textContent, this));
+    }
+  }
+
+  get nodeType() {
+    return 1;
+  }
+
+  get children() {
+    return this.childNodes.filter((n) => n.nodeType === 1);
+  }
+
+  get firstChild() {
+    return this.childNodes[0] || null;
+  }
+
+  get textContent() {
+    return this.childNodes.map((c) => c.textContent).join("");
+  }
+
+  set textContent(v) {
+    this.childNodes = [createCitationTextNode(String(v), this)];
+  }
+
+  get attributes() {
+    return Array.from(this._attrs, ([name, value]) => ({ name, value }));
+  }
+
+  get className() {
+    return this._attrs.get("class") || "";
+  }
+
+  set className(v) {
+    this._attrs.set("class", String(v));
+  }
+
+  get classList() {
+    const self = this;
+    return {
+      contains: (name) => (self.className || "").split(/\s+/).includes(name),
+      add: (...names) => {
+        const cur = (self.className || "").trim().split(/\s+/).filter(Boolean);
+        self.className = [...new Set([...cur, ...names])].join(" ");
+      },
+      remove: (...names) => {
+        const cur = (self.className || "").trim().split(/\s+/).filter(Boolean);
+        self.className = cur.filter((n) => !names.includes(n)).join(" ");
+      },
+    };
+  }
+
+  get innerHTML() {
+    if (this._rawHtml !== undefined) return this._rawHtml;
+    return this.childNodes
+      .map((c) => (c.nodeType === 3 ? c.textContent : c.outerHTML))
+      .join("");
+  }
+
+  set innerHTML(v) {
+    this._rawHtml = v;
+    this.childNodes = [createCitationTextNode(String(v), this)];
+  }
+
+  get outerHTML() {
+    if (this._rawHtml !== undefined) return this._rawHtml;
+    const attrs = Array.from(this._attrs, ([k, v]) => ` ${k}="${v}"`).join("");
+    return `<${this.tagName.toLowerCase()}${attrs}>${this.innerHTML}</${this.tagName.toLowerCase()}>`;
+  }
+
+  setAttribute(name, value) {
+    this._attrs.set(name, String(value));
+  }
+
+  getAttribute(name) {
+    return this._attrs.get(name) ?? null;
+  }
+
+  removeAttribute(name) {
+    this._attrs.delete(name);
+  }
+
+  appendChild(child) {
+    if (child.remove) child.remove();
+    child.parentElement = this;
+    this.childNodes.push(child);
+    return child;
+  }
+
+  insertBefore(child, referenceNode) {
+    if (child.remove) child.remove();
+    child.parentElement = this;
+    const idx = referenceNode ? this.childNodes.indexOf(referenceNode) : -1;
+    if (idx >= 0) {
+      this.childNodes.splice(idx, 0, child);
+    } else {
+      this.childNodes.push(child);
+    }
+    return child;
+  }
+
+  prepend(child) {
+    return this.insertBefore(child, this.childNodes[0] || null);
+  }
+
+  after(newNode) {
+    if (!this.parentElement) return;
+    const idx = this.parentElement.childNodes.indexOf(this);
+    if (idx >= 0) {
+      this.parentElement.childNodes.splice(idx + 1, 0, newNode);
+      newNode.parentElement = this.parentElement;
+    }
+  }
+
+  remove() {
+    if (!this.parentElement) return;
+    const idx = this.parentElement.childNodes.indexOf(this);
+    if (idx >= 0) this.parentElement.childNodes.splice(idx, 1);
+    this.parentElement = null;
+  }
+
+  removeChild(child) {
+    const idx = this.childNodes.indexOf(child);
+    if (idx >= 0) {
+      this.childNodes.splice(idx, 1);
+      child.parentElement = null;
+    }
+    return child;
+  }
+
+  cloneNode(deep = false) {
+    const clone = new FakeCitationEl(this.tagName);
+    for (const [k, v] of this._attrs) {
+      clone.setAttribute(k, v);
+    }
+    if (deep) {
+      for (const child of this.childNodes) {
+        if (child.nodeType === 3) {
+          clone.appendChild(createCitationTextNode(child.textContent, clone));
+        } else if (child.cloneNode) {
+          clone.appendChild(child.cloneNode(true));
+        }
+      }
+    }
+    return clone;
+  }
+
+  matches(sel) {
+    const tag = this.tagName.toLowerCase();
+    const cls = this.className || "";
+    if (sel.startsWith(".")) {
+      return cls.split(/\s+/).includes(sel.slice(1));
+    }
+    if (sel.includes(".")) {
+      const [t, ...cList] = sel.split(".");
+      if (t && tag !== t.toLowerCase()) return false;
+      return cList.every((c) => cls.split(/\s+/).includes(c));
+    }
+    if (sel.includes("[") && sel.endsWith("]")) {
+      const [t, attrWithBrackets] = sel.split("[");
+      const attrName = attrWithBrackets.slice(0, -1);
+      if (t && tag !== t.toLowerCase()) return false;
+      return this._attrs.has(attrName);
+    }
+    return tag === sel.toLowerCase();
+  }
+
+  querySelectorAll(sel) {
+    const selectors = sel.split(",").map((s) => s.trim());
+    const found = [];
+    const visit = (n) => {
+      for (const child of n.children) {
+        if (selectors.some((s) => child.matches(s))) {
+          found.push(child);
+        }
+        visit(child);
+      }
+    };
+    visit(this);
+    return found;
+  }
+
+  querySelector(sel) {
+    return this.querySelectorAll(sel)[0] || null;
+  }
+}
+
+function setupCitationExportDom() {
+  const frames = [];
+  const body = new FakeCitationEl("body");
+  body.createEl = (tag, options = {}) => {
+    if (tag === "iframe") {
+      const frame = new FakeCitationEl("iframe");
+      const contentDoc = {
+        documentElement: null,
+        head: null,
+        body: null,
+        open() {
+          this.documentElement = null;
+          this.head = null;
+          this.body = null;
+        },
+        close() {},
+        importNode(node) {
+          return node;
+        },
+        replaceChildren(htmlEl) {
+          this.documentElement = htmlEl;
+          this.head = htmlEl.children.find((c) => c.tagName === "HEAD") || null;
+          this.body = htmlEl.children.find((c) => c.tagName === "BODY") || null;
+        },
+      };
+      frame.contentDocument = contentDoc;
+      frame.contentWindow = {
+        focus() {},
+        print() {},
+      };
+      frames.push(frame);
+      body.appendChild(frame);
+      return frame;
+    }
+    const el = new FakeCitationEl(tag, options.text || "");
+    if (options.cls) el.className = options.cls;
+    body.appendChild(el);
+    return el;
+  };
+
+  const prevDom = {
+    document: globalThis.document,
+    Node: globalThis.Node,
+    XMLSerializer: globalThis.XMLSerializer,
+    DOMParser: globalThis.DOMParser,
+    createEl: globalThis.createEl,
+    createDiv: globalThis.createDiv,
+    PlatformIsMobile: Platform.isMobile,
+    window: globalThis.window,
+  };
+
+  Platform.isMobile = false;
+
+  globalThis.window = {
+    setTimeout(callback) {
+      callback();
+      return 0;
+    },
+  };
+
+  globalThis.document = {
+    body,
+    createElement: (tag) => new FakeCitationEl(tag),
+  };
+  globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+  globalThis.XMLSerializer = class {
+    serializeToString(n) {
+      return n && typeof n.outerHTML === "string" ? n.outerHTML : String(n?.textContent ?? "");
+    }
+  };
+  globalThis.DOMParser = class {
+    parseFromString(html) {
+      if (/^<html>/.test(html)) {
+        const htmlEl = new FakeCitationEl("html");
+        const headEl = new FakeCitationEl("head");
+        const bodyEl = new FakeCitationEl("body");
+        htmlEl.appendChild(headEl);
+        htmlEl.appendChild(bodyEl);
+        headEl.appendChild(new FakeCitationEl("title"));
+        headEl.appendChild(new FakeCitationEl("style"));
+        return { documentElement: htmlEl, body: bodyEl };
+      }
+      const bodyEl = new FakeCitationEl("body");
+      const wrapper = new FakeCitationEl("div");
+      wrapper.innerHTML = html;
+      bodyEl.appendChild(wrapper);
+      return { body: bodyEl };
+    }
+  };
+  globalThis.createEl = (tag, options = {}) => {
+    const el = new FakeCitationEl(tag, options.text || "");
+    if (options.cls) el.className = options.cls;
+    return el;
+  };
+  globalThis.createDiv = (options = {}) => globalThis.createEl("div", options);
+
+  const prevRenderer = MarkdownRenderer.render;
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    for (const block of markdown.split(/\n\n+/)) {
+      if (!block.trim()) continue;
+      if (block.startsWith("[^1]:")) {
+        const fnSec = new FakeCitationEl("section");
+        fnSec.className = "footnotes";
+        const ol = new FakeCitationEl("ol");
+        const li = new FakeCitationEl("li");
+        li.setAttribute("id", "fn1");
+        const p = new FakeCitationEl("p", block.replace(/^\[\^1\]:\s*/, ""));
+        const a = new FakeCitationEl("a", "↩");
+        a.className = "footnote-backref";
+        a.setAttribute("href", "#fnref1");
+        p.appendChild(a);
+        li.appendChild(p);
+        ol.appendChild(li);
+        fnSec.appendChild(ol);
+        container.appendChild(fnSec);
+        continue;
+      }
+      const headingMatch = block.match(/^(#{1,6})\s+(.*)$/);
+      if (headingMatch) {
+        container.appendChild(new FakeCitationEl(`h${headingMatch[1].length}`, headingMatch[2]));
+        continue;
+      }
+      container.appendChild(new FakeCitationEl("p", block));
+    }
+  };
+
+  return {
+    frames,
+    restore() {
+      MarkdownRenderer.render = prevRenderer;
+      Platform.isMobile = prevDom.PlatformIsMobile;
+      globalThis.document = prevDom.document;
+      globalThis.Node = prevDom.Node;
+      globalThis.XMLSerializer = prevDom.XMLSerializer;
+      globalThis.DOMParser = prevDom.DOMParser;
+      globalThis.createEl = prevDom.createEl;
+      globalThis.createDiv = prevDom.createDiv;
+      globalThis.window = prevDom.window;
+    },
+  };
+}
+
+function createCitationExportFixture() {
+  const project = new TFolder("Project");
+  const projectResearch = new TFolder("Project/_Recherche");
+  const projectBib = new TFile("Project/_Recherche/project.bib");
+  projectBib.content = `@article{sharedKey,
+  author = {ProjectAuthor},
+  year = {2020},
+  title = {Project Title}
+}
+@article{projectOnlyKey,
+  author = {ProjectSolo},
+  year = {2019},
+  title = {Solo Title}
+}`;
+  projectBib.stat = { mtime: 1000 };
+  projectResearch.children = [projectBib];
+  projectBib.parent = projectResearch;
+
+  const workA = new TFolder("Project/Work-A");
+  const workAResearch = new TFolder("Project/Work-A/_Recherche");
+  const workABib = new TFile("Project/Work-A/_Recherche/workA.bib");
+  workABib.content = `@article{sharedKey,
+  author = {WorkAAuthor},
+  year = {2023},
+  title = {Work A Title}
+}`;
+  workABib.stat = { mtime: 1000 };
+  workAResearch.children = [workABib];
+  workABib.parent = workAResearch;
+
+  const chapterA = new TFolder("Project/Work-A/Chapter-A");
+  const chapterAResearch = new TFolder("Project/Work-A/Chapter-A/_Recherche");
+  const chapterABib = new TFile("Project/Work-A/Chapter-A/_Recherche/chapterA.bib");
+  chapterABib.content = `@article{sharedKey,
+  author = {ChapterAuthor},
+  year = {2024},
+  title = {Chapter A Title}
+}`;
+  chapterABib.stat = { mtime: 1000 };
+  chapterAResearch.children = [chapterABib];
+  chapterABib.parent = chapterAResearch;
+
+  const docA = new TFile("Project/Work-A/Chapter-A/Document-A.md");
+  docA.content = "Document A cite [@sharedKey], alien [@workBKey], unknown [@unknownKey] and note[^1].\n\n[^1]: Footnote cite [@sharedKey].";
+  docA.stat = { mtime: 1000 };
+  chapterA.children = [chapterAResearch, docA];
+  docA.parent = chapterA;
+  chapterAResearch.parent = chapterA;
+
+  const docWorkA = new TFile("Project/Work-A/Scene-Direct.md");
+  docWorkA.content = "Work direct cite [@sharedKey].";
+  docWorkA.stat = { mtime: 1000 };
+  workA.children = [workAResearch, chapterA, docWorkA];
+  docWorkA.parent = workA;
+  chapterA.parent = workA;
+  workAResearch.parent = workA;
+
+  const workB = new TFolder("Project/Work-B");
+  const workBResearch = new TFolder("Project/Work-B/_Recherche");
+  const workBBib = new TFile("Project/Work-B/_Recherche/workB.bib");
+  workBBib.content = `@article{workBKey,
+  author = {WorkBAuthor},
+  year = {2025},
+  title = {Work B Title}
+}`;
+  workBBib.stat = { mtime: 1000 };
+  workBResearch.children = [workBBib];
+  workBBib.parent = workBResearch;
+
+  const docB = new TFile("Project/Work-B/Document-B.md");
+  docB.content = "Work B cite [@workBKey] and [@sharedKey].";
+  docB.stat = { mtime: 1000 };
+  workB.children = [workBResearch, docB];
+  docB.parent = workB;
+  workBResearch.parent = workB;
+
+  project.children = [projectResearch, workA, workB];
+  projectResearch.parent = project;
+  workA.parent = project;
+  workB.parent = project;
+
+  const { vault } = createFakeVault([
+    project,
+    projectResearch,
+    projectBib,
+    workA,
+    workAResearch,
+    workABib,
+    chapterA,
+    chapterAResearch,
+    chapterABib,
+    docA,
+    docWorkA,
+    workB,
+    workBResearch,
+    workBBib,
+    docB,
+  ]);
+  vault.cachedRead = vault.read;
+
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache() {
+        return { frontmatter: {} };
+      },
+    },
+  };
+
+  const settings = {
+    projectFolder: project.path,
+    level1Role: "chapitres",
+    orders: {},
+    folderPositions: {},
+    compileFileName: "Manuscrit.md",
+    insertFolderTitles: false,
+    insertTitles: false,
+    insertSceneTitles: false,
+    separator: "\n\n",
+    activePreset: -1,
+    compilePresets: [],
+    exportFrenchTypography: false,
+    projectMeta: {
+      [project.path]: {
+        pandocCitationPreviewStyle: "author-date",
+        researchFolderLinks: {
+          [project.path]: projectResearch.path,
+          [workA.path]: workAResearch.path,
+          [chapterA.path]: chapterAResearch.path,
+          [workB.path]: workBResearch.path,
+        },
+        citekeyBibliographyPath: "project.bib",
+        folderWorkspaces: {
+          "Work-A": {
+            version: 1,
+            citekeyBibliographyPath: "workA.bib",
+          },
+          "Work-A/Chapter-A": {
+            version: 1,
+            citekeyBibliographyPath: "chapterA.bib",
+          },
+          "Work-B": {
+            version: 1,
+            citekeyBibliographyPath: "workB.bib",
+          },
+        },
+      },
+    },
+  };
+
+  return { app, settings, vault, project, workA, chapterA, docA, docWorkA, workB, docB };
+}
+
+test("exportWithScope (file scope) : DOCX, EPUB, ODT et PDF formatent les citations avec le .bib le plus proche (Chapter-A)", async () => {
+  const JSZip = (await import("jszip")).default;
+  const dom = setupCitationExportDom();
+
+  try {
+    const { app, settings, vault, project, docA } = createCitationExportFixture();
+    const scope = { type: "file", projectRoot: project.path, path: docA.path };
+
+    // 1. DOCX
+    const docxPath = await exportWithScope(app, settings, scope, "docx", "OutputDocx");
+    assert.ok(docxPath);
+    const docxData = vault.getAbstractFileByPath(docxPath).content;
+    const docxZip = await JSZip.loadAsync(docxData);
+    const docxXml = await docxZip.file("word/document.xml").async("string");
+    const docxFnXml = docxZip.file("word/footnotes.xml")
+      ? await docxZip.file("word/footnotes.xml").async("string")
+      : "";
+
+    // Nearest .bib (Chapter-A) must win over Work-A and Project
+    assert.match(docxXml, /\(ChapterAuthor, 2024\)/);
+    assert.doesNotMatch(docxXml, /\[@sharedKey\]/);
+    assert.doesNotMatch(docxXml, /WorkAAuthor/);
+    assert.doesNotMatch(docxXml, /ProjectAuthor/);
+    // Footnote cite must be formatted
+    assert.match(docxFnXml, /\(ChapterAuthor, 2024\)/);
+    assert.doesNotMatch(docxFnXml, /\[@sharedKey\]/);
+    // Work-B citekey must not leak and remain raw
+    assert.match(docxXml, /\[@workBKey\]/);
+    assert.doesNotMatch(docxXml, /WorkBAuthor/);
+    // Unknown citekey must remain raw
+    assert.match(docxXml, /\[@unknownKey\]/);
+
+    // 2. EPUB
+    const epubPath = await exportWithScope(app, settings, scope, "epub", "OutputEpub");
+    assert.ok(epubPath);
+    const epubData = vault.getAbstractFileByPath(epubPath).content;
+    const epubZip = await JSZip.loadAsync(epubData);
+    const epubXml = await epubZip.file("OEBPS/chapitres.xhtml").async("string");
+
+    assert.match(epubXml, /\(ChapterAuthor, 2024\)/);
+    assert.doesNotMatch(epubXml, /\[@sharedKey\]/);
+    assert.doesNotMatch(epubXml, /WorkAAuthor/);
+    assert.doesNotMatch(epubXml, /ProjectAuthor/);
+    assert.match(epubXml, /<li id="fn1">[\s\S]*\(ChapterAuthor, 2024\)[\s\S]*<\/li>/);
+    assert.match(epubXml, /\[@workBKey\]/);
+    assert.match(epubXml, /\[@unknownKey\]/);
+
+    // 3. ODT
+    const odtPath = await exportWithScope(app, settings, scope, "odt", "OutputOdt");
+    assert.ok(odtPath);
+    const odtData = vault.getAbstractFileByPath(odtPath).content;
+    const odtZip = await JSZip.loadAsync(odtData);
+    const odtXml = await odtZip.file("content.xml").async("string");
+
+    assert.match(odtXml, /\(ChapterAuthor, 2024\)/);
+    assert.doesNotMatch(odtXml, /\[@sharedKey\]/);
+    assert.doesNotMatch(odtXml, /WorkAAuthor/);
+    assert.doesNotMatch(odtXml, /ProjectAuthor/);
+    assert.match(odtXml, /Footnote cite \(ChapterAuthor, 2024\)/);
+    assert.match(odtXml, /\[@workBKey\]/);
+    assert.match(odtXml, /\[@unknownKey\]/);
+
+    // 4. PDF
+    await exportWithScope(app, settings, scope, "pdf", "OutputPdf");
+    assert.ok(dom.frames.length >= 1);
+    const pdfHtml = dom.frames[dom.frames.length - 1].contentDocument.body.innerHTML;
+
+    assert.match(pdfHtml, /\(ChapterAuthor, 2024\)/);
+    assert.doesNotMatch(pdfHtml, /\[@sharedKey\]/);
+    assert.doesNotMatch(pdfHtml, /WorkAAuthor/);
+    assert.doesNotMatch(pdfHtml, /ProjectAuthor/);
+    assert.match(pdfHtml, /\[@workBKey\]/);
+    assert.match(pdfHtml, /\[@unknownKey\]/);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("exportWithScope (folder scope) : export de Work-A utilise la configuration bibliographique de Work-A", async () => {
+  const JSZip = (await import("jszip")).default;
+  const dom = setupCitationExportDom();
+
+  try {
+    const { app, settings, vault, project, workA } = createCitationExportFixture();
+    const scope = { type: "folder", projectRoot: project.path, path: workA.path };
+
+    const docxPath = await exportWithScope(app, settings, scope, "docx", "WorkADocx");
+    assert.ok(docxPath);
+    const docxData = vault.getAbstractFileByPath(docxPath).content;
+    const docxZip = await JSZip.loadAsync(docxData);
+    const docxXml = await docxZip.file("word/document.xml").async("string");
+
+    // Work-A folder scope resolves Work-A .bib (WorkAAuthor, 2023)
+    assert.match(docxXml, /\(WorkAAuthor, 2023\)/);
+    assert.doesNotMatch(docxXml, /\[@sharedKey\]/);
+    assert.doesNotMatch(docxXml, /ProjectAuthor/);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("exportWithScope (project scope) : export du projet complet utilise le .bib du projet", async () => {
+  const JSZip = (await import("jszip")).default;
+  const dom = setupCitationExportDom();
+
+  try {
+    const { app, settings, vault, project } = createCitationExportFixture();
+    const scope = { type: "project", projectRoot: project.path };
+
+    const docxPath = await exportWithScope(app, settings, scope, "docx", "ProjectDocx");
+    assert.ok(docxPath);
+    const docxData = vault.getAbstractFileByPath(docxPath).content;
+    const docxZip = await JSZip.loadAsync(docxData);
+    const docxXml = await docxZip.file("word/document.xml").async("string");
+
+    // Project scope resolves Project .bib (ProjectAuthor, 2020)
+    assert.match(docxXml, /\(ProjectAuthor, 2020\)/);
+    assert.doesNotMatch(docxXml, /\[@sharedKey\]/);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("exportWithScope : fail-closed si la cible de portée n'existe plus (aucune bibliographie ni repli projet)", async () => {
+  const JSZip = (await import("jszip")).default;
+  const dom = setupCitationExportDom();
+
+  try {
+    const { app, settings, vault, project } = createCitationExportFixture();
+    // Scope pointing to deleted file
+    const scope = { type: "file", projectRoot: project.path, path: "Project/Work-A/Chapter-A/Deleted.md" };
+
+    const docxPath = await exportWithScope(app, settings, scope, "docx", "FailClosedDocx");
+    if (docxPath) {
+      const docxData = vault.getAbstractFileByPath(docxPath).content;
+      const docxZip = await JSZip.loadAsync(docxData);
+      const docxXml = await docxZip.file("word/document.xml").async("string");
+      // Must not use project .bib nor any other .bib
+      assert.doesNotMatch(docxXml, /ProjectAuthor|WorkAAuthor|ChapterAuthor/);
+    }
+  } finally {
+    dom.restore();
+  }
+});
+
+test("exportWithScope (format md) : conserve toujours les citekeys brutes [@citekey]", async () => {
+  const dom = setupCitationExportDom();
+
+  try {
+    const { app, settings, vault, project, docA } = createCitationExportFixture();
+    const scope = { type: "file", projectRoot: project.path, path: docA.path };
+
+    const mdPath = await exportWithScope(app, settings, scope, "md", "OutputMd");
+    assert.ok(mdPath);
+    const mdText = vault.getAbstractFileByPath(mdPath).content;
+
+    // Markdown export must preserve raw citekeys
+    assert.match(mdText, /\[@sharedKey\]/);
+    assert.match(mdText, /\[@workBKey\]/);
+    assert.match(mdText, /\[@unknownKey\]/);
+    assert.doesNotMatch(mdText, /\(ChapterAuthor, 2024\)/);
+  } finally {
+    dom.restore();
+  }
+});
+
+test("exportWithScope : pandocCitationPreviewStyle = 'off' conserve les citekeys brutes dans les exports natifs", async () => {
+  const JSZip = (await import("jszip")).default;
+  const dom = setupCitationExportDom();
+
+  try {
+    const { app, settings, vault, project, docA } = createCitationExportFixture();
+    settings.projectMeta[project.path].pandocCitationPreviewStyle = "off";
+    const scope = { type: "file", projectRoot: project.path, path: docA.path };
+
+    const docxPath = await exportWithScope(app, settings, scope, "docx", "OffDocx");
+    assert.ok(docxPath);
+    const docxData = vault.getAbstractFileByPath(docxPath).content;
+    const docxZip = await JSZip.loadAsync(docxData);
+    const docxXml = await docxZip.file("word/document.xml").async("string");
+
+    assert.match(docxXml, /\[@sharedKey\]/);
+    assert.doesNotMatch(docxXml, /ChapterAuthor/);
+
+    const epubPath = await exportWithScope(app, settings, scope, "epub", "OffEpub");
+    assert.ok(epubPath);
+    const epubData = vault.getAbstractFileByPath(epubPath).content;
+    const epubZip = await JSZip.loadAsync(epubData);
+    const epubXml = await epubZip.file("OEBPS/chapitres.xhtml").async("string");
+
+    assert.match(epubXml, /\[@sharedKey\]/);
+    assert.doesNotMatch(epubXml, /ChapterAuthor/);
+
+    const odtPath = await exportWithScope(app, settings, scope, "odt", "OffOdt");
+    assert.ok(odtPath);
+    const odtData = vault.getAbstractFileByPath(odtPath).content;
+    const odtZip = await JSZip.loadAsync(odtData);
+    const odtXml = await odtZip.file("content.xml").async("string");
+
+    assert.match(odtXml, /\[@sharedKey\]/);
+    assert.doesNotMatch(odtXml, /ChapterAuthor/);
+  } finally {
+    dom.restore();
+  }
 });

@@ -1,7 +1,13 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { ItemView, MarkdownView, Notice, TFile, type App, type WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownView, Notice, TFile, TFolder, normalizePath, type App, type WorkspaceLeaf } from "obsidian";
 import { VIEW_SCRIVENINGS } from "../constants.js";
+import {
+  createCitekeyTriggerExtension,
+  type CitekeyEditorView,
+  type CitekeyTriggerRange,
+  type CitekeyTriggerType,
+} from "../utils/cm-citekey-trigger.js";
 import { resolveCompileScopeFiles, createSelectionScope, createFileScope, type CompileScope } from "../services/compile-scope.js";
 import {
   applyCompositeChanges,
@@ -147,6 +153,15 @@ export type ScriveningsViewPlugin = {
     id: string,
     anchor: AnchorRect | AnnotationDecorationTarget
   ) => void;
+  /** Workspace and citekey insertion delegation for the active continuous editor. */
+  getWorkspaceFolder?: () => TFolder | null;
+  openCitekeyPicker?: (
+    view: CitekeyEditorView,
+    range: CitekeyTriggerRange,
+    file: TFile,
+    workspaceFolder: TFolder | null,
+    triggerType?: CitekeyTriggerType,
+  ) => Promise<void>;
 };
 
 /** LOT 1.4 (§7) : contexte résolu d'un clic droit dans Continu — le segment
@@ -409,6 +424,20 @@ function offsetForLineCol(text: string, line: number, ch: number): number {
   return offset + clampedCh;
 }
 
+/** Resolves the continuous document segment enclosing the citekey trigger range without crossing segment boundaries. */
+export function resolveCitekeySegment(
+  document: ScriveningsDocument,
+  range: CitekeyTriggerRange,
+): ScriveningsSegment | null {
+  if (range.from < 0 || range.to < range.from) return null;
+  const segment = segmentAt(document, range.from);
+  if (!segment) return null;
+  if (range.from < segment.from || range.to > segment.to) {
+    return null;
+  }
+  return segment;
+}
+
 export class ScriveningsView extends ItemView {
   private readonly plugin: ScriveningsViewPlugin;
   private readonly session: ScriveningsSession;
@@ -553,6 +582,38 @@ export class ScriveningsView extends ItemView {
     return true;
   }
 
+  private resolveContinuousWorkspaceFolder(): { ok: true; folder: TFolder | null } | { ok: false } {
+    if (!this._compileScope) return { ok: false };
+
+    const projectRootPath = normalizePath(this._compileScope.projectRoot);
+    const projectRoot = this.app.vault.getAbstractFileByPath(projectRootPath);
+    if (!(projectRoot instanceof TFolder)) return { ok: false };
+
+    if (this._compileScope.type === "folder") {
+      const folderPath = normalizePath(this._compileScope.path);
+      const targetFolder = this.app.vault.getAbstractFileByPath(folderPath);
+      if (!(targetFolder instanceof TFolder)) return { ok: false };
+
+      const inProject = folderPath === projectRootPath || folderPath.startsWith(`${projectRootPath}/`);
+      if (!inProject) return { ok: false };
+
+      return { ok: true, folder: targetFolder };
+    }
+
+    if (this._compileScope.type === "project") {
+      return { ok: true, folder: projectRoot };
+    }
+
+    if (this._compileScope.type === "file" || this._compileScope.type === "selection") {
+      const binderWorkspace = typeof this.plugin.getWorkspaceFolder === "function"
+        ? this.plugin.getWorkspaceFolder()
+        : null;
+      return { ok: true, folder: binderWorkspace };
+    }
+
+    return { ok: false };
+  }
+
   private mountEditor(): void {
     const document = this.session.document;
     if (!document) return;
@@ -592,6 +653,24 @@ export class ScriveningsView extends ItemView {
       // highlighter.ts) : jamais un second système d'annotation.
       annotationHighlightField,
       annotationDoubleClickExtension((id, target) => this.plugin.openScriveningsAnnotation?.(this, id, target)),
+      createCitekeyTriggerExtension((view, range, triggerType) => {
+        const doc = this.session.document;
+        if (!doc) return;
+
+        const segment = resolveCitekeySegment(doc, range);
+        if (!segment) return;
+
+        const wsResolution = this.resolveContinuousWorkspaceFolder();
+        if (!wsResolution.ok) return;
+
+        void this.plugin.openCitekeyPicker?.(
+          view,
+          range,
+          segment.file,
+          wsResolution.folder,
+          triggerType,
+        );
+      }),
     ];
 
     const state = EditorStateTyped.create({ doc: document.text, extensions });

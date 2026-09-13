@@ -51,6 +51,17 @@ import { formatCitation } from "./services/citations.js";
 import { bibliographyEntries, generateBibliography, resolveBibliographySource, resolveBibliographySourceInResearchRoot } from "./services/bibliography-generator.js";
 import { resolveWorkspaceResearchContext } from "./services/workspace-research-context.js";
 import { getResearchTemplate } from "./services/research-templates.js";
+import {
+  createCitekeyTriggerExtension,
+  insertCitation,
+  type CitekeyEditorView,
+  type CitekeyTriggerRange,
+  type CitekeyTriggerType,
+} from "./utils/cm-citekey-trigger.js";
+import { getCachedBibtexCatalog } from "./services/bibtex-catalog.js";
+import { resolveWorkspaceCitationResources } from "./services/workspace-citations.js";
+import { collectScopeCitedBibtexEntries } from "./services/citekey-bibliography.js";
+import { CitekeyModal } from "./ui/citekey-modal.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
 import { BoardView, type BoardModeKey } from "./views/board-view.js";
@@ -540,6 +551,7 @@ class FeuilletsPlugin extends Plugin {
   _lastBackupAt?: number;
   _isSyncingPanels?: boolean;
   _lastFeuilletsActive?: boolean;
+  _activeCitekeyViews = new WeakSet<CitekeyEditorView>();
 
   /* Attachées dynamiquement par initScenesEditor (scenes-editor.js), pas
      déclarées ici en tant que méthodes de classe — voir scenes-editor.ts,
@@ -710,6 +722,13 @@ class FeuilletsPlugin extends Plugin {
     if (initialLayoutFile) void this.refreshDocumentLayoutPageBreaks(initialLayoutFile);
     this.registerEditorExtension(paragraphIndentPlugin);
     this.registerEditorExtension(createParagraphReorderExtension());
+    this.registerEditorExtension(
+      createCitekeyTriggerExtension((view, range, triggerType) => {
+        const file = this.app.workspace.getActiveFile();
+        if (!file) return;
+        void this.openCitekeyPicker(view, range, file, undefined, triggerType);
+      })
+    );
     this.registerMarkdownCodeBlockProcessor("genealogy", (source, el) => {
       renderGenealogyMarkdown(source, el);
     });
@@ -3912,6 +3931,131 @@ class FeuilletsPlugin extends Plugin {
     new Notice(isRepeat ? t("main.notice.ibidInsertedNote", { n: String(n) }) : t("main.notice.citationInsertedNote", { n: String(n) }));
   }
 
+  async openCitekeyPicker(
+    view: CitekeyEditorView,
+    range: CitekeyTriggerRange,
+    file: TFile,
+    explicitWorkspaceFolder?: TFolder | null,
+    triggerType: CitekeyTriggerType = "open_group",
+  ): Promise<void> {
+    if (this._activeCitekeyViews.has(view)) {
+      return;
+    }
+    this._activeCitekeyViews.add(view);
+
+    const releaseLock = () => {
+      this._activeCitekeyViews.delete(view);
+    };
+
+    try {
+      if (!(file instanceof TFile) || file.extension.toLowerCase() !== "md") {
+        releaseLock();
+        return;
+      }
+
+      const expectedLength = triggerType === "open_group" ? 2 : 1;
+      const expectedText = triggerType === "open_group" ? "[@" : "@";
+
+      if (
+        range.from < 0 ||
+        range.to > view.state.doc.length ||
+        range.to - range.from !== expectedLength ||
+        view.state.doc.sliceString(range.from, range.to) !== expectedText
+      ) {
+        releaseLock();
+        return;
+      }
+
+      const projectRoot = this.getProjectFolder();
+      if (!projectRoot || !(projectRoot instanceof TFolder)) {
+        releaseLock();
+        return;
+      }
+
+      const isolationFolder =
+        explicitWorkspaceFolder !== undefined
+          ? explicitWorkspaceFolder
+          : this.getWorkspaceFolder();
+
+      const projectPath = normalizePath(projectRoot.path);
+      const filePath = normalizePath(file.path);
+
+      if (isolationFolder) {
+        const isoPath = normalizePath(isolationFolder.path);
+        const isoInProject = isoPath === projectPath || isoPath.startsWith(`${projectPath}/`);
+        if (!isoInProject) {
+          releaseLock();
+          return;
+        }
+
+        if (isoPath === projectPath) {
+          if (filePath !== projectPath && !filePath.startsWith(`${projectPath}/`)) {
+            releaseLock();
+            return;
+          }
+        } else if (filePath !== isoPath && !filePath.startsWith(`${isoPath}/`)) {
+          releaseLock();
+          return;
+        }
+      } else {
+        if (filePath !== projectPath && !filePath.startsWith(`${projectPath}/`)) {
+          releaseLock();
+          return;
+        }
+      }
+
+      const searchFolder = file.parent instanceof TFolder ? file.parent : null;
+
+      const resolution = resolveWorkspaceCitationResources(
+        this.app,
+        this.settings,
+        projectRoot,
+        searchFolder,
+      );
+
+      if (
+        resolution.bibliography.status !== "valid" ||
+        !resolution.bibliography.file ||
+        !(resolution.bibliography.file instanceof TFile)
+      ) {
+        releaseLock();
+        return;
+      }
+
+      const entries = await getCachedBibtexCatalog(this.app, resolution.bibliography.file);
+      if (!entries || entries.length === 0) {
+        releaseLock();
+        return;
+      }
+
+      if (
+        range.from < 0 ||
+        range.to > view.state.doc.length ||
+        range.to - range.from !== expectedLength ||
+        view.state.doc.sliceString(range.from, range.to) !== expectedText
+      ) {
+        releaseLock();
+        return;
+      }
+
+      const modal = new CitekeyModal(
+        this.app,
+        entries,
+        (selectedItems) => {
+          insertCitation(view, range, selectedItems, triggerType);
+          releaseLock();
+        },
+        () => {
+          releaseLock();
+        },
+      );
+
+      modal.open();
+    } catch {
+      releaseLock();
+    }
+  }
+
   recordCitationOccurrence(
     targetFile: TFile | null | undefined,
     sourceFile: TFile,
@@ -3949,7 +4093,22 @@ class FeuilletsPlugin extends Plugin {
   async generateBibliographyFile(): Promise<void> {
     const root = this.getProjectFolder();
     if (!root) return;
-    const content = generateBibliography(bibliographyEntries(this.app, this.settings));
+
+    const activeFile = typeof this.app?.workspace?.getActiveFile === "function"
+      ? this.app.workspace.getActiveFile()
+      : null;
+
+    const bibtexResult = await collectScopeCitedBibtexEntries(
+      this.app,
+      this.settings,
+      root,
+      activeFile
+    );
+
+    const sourceEntries = bibliographyEntries(this.app, this.settings);
+    const combined = [...sourceEntries, ...bibtexResult.allBibliographyEntries];
+
+    const content = generateBibliography(combined);
     if (!content) {
       new Notice(t("main.notice.noSourceCitedYet"));
       return;

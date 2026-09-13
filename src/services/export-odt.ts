@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages } from "./export-render.js";
+import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import { escapeXml } from "../utils/xml.js";
@@ -55,6 +56,7 @@ type ExportInput = {
   segments?: ExportSegment[];
   contentVariant?: ContentVariant | null;
   separator?: string;
+  citationSettings?: ExportCitationSettings;
 };
 
 type OdtOptions = {
@@ -152,9 +154,14 @@ function footnotesEndSectionXml(footnotes: RenderedFootnote[]): string {
 }
 
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
-export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n" }: ExportInput): Promise<Uint8Array> {
+export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, undefined, separator);
+  const afterVariant = citationSettings && citationSettings.style !== "off" && citationSettings.bibliographyPath
+    ? async (container: HTMLElement) => {
+        await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+      }
+    : undefined;
+  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, afterVariant, separator);
 
   const fontName = primaryFontName(template.body.fontFamily);
   const { body, page, headings } = template;

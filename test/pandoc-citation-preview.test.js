@@ -10,6 +10,13 @@ import {
 import { resolveWorkspaceCitationResources } from "../src/services/workspace-citations.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { TFile, TFolder } from "obsidian";
+import { PreviewView } from "../src/views/preview-view.js";
+import {
+  createFileScope,
+  createFolderScope,
+  createProjectScope,
+  createSelectionScope,
+} from "../src/services/compile-scope.js";
 
 
 /**
@@ -804,4 +811,235 @@ test("preview-view: source wiring invokes resolveWorkspaceCitationResources and 
     /pandocBibliographyPath\s*=\s*resolution\.bibliography\.file\s*\?\s*resolution\.bibliography\.file\.path\s*:\s*""/,
     "preview-view extracts resolved bibliography file path for pandoc citation preview"
   );
+  assert.match(
+    previewSource,
+    /citationScopeFolderPath:\s*string\s*\|\s*null;/,
+    "PreviewSource defines citationScopeFolderPath"
+  );
+  assert.doesNotMatch(
+    previewSource,
+    /renderPreviewSource[\s\S]*?getWorkspaceFolder/,
+    "renderPreviewSource never calls getWorkspaceFolder"
+  );
+});
+
+function createWorkAndChapterPreviewFixture() {
+  const project = new TFolder("PROJECT");
+  const workA = new TFolder("PROJECT/Work-A");
+  const chapterA = new TFolder("PROJECT/Work-A/Chapter-A");
+  const docA = new TFile("PROJECT/Work-A/Chapter-A/Document-A.md");
+  docA.content = "Text referencing [@sharedKey].";
+
+  const workB = new TFolder("PROJECT/Work-B");
+  const chapterB = new TFolder("PROJECT/Work-B/Chapter-B");
+  const docB = new TFile("PROJECT/Work-B/Chapter-B/Document-B.md");
+  docB.content = "Text referencing [@jones2023] and [@smith2024].";
+
+  workA.parent = project;
+  workA.children = [chapterA];
+  chapterA.parent = workA;
+  chapterA.children = [docA];
+  docA.parent = chapterA;
+
+  workB.parent = project;
+  workB.children = [chapterB];
+  chapterB.parent = workB;
+  chapterB.children = [docB];
+  docB.parent = chapterB;
+
+  project.children = [workA, workB];
+
+  const projectResearch = new TFolder("RESEARCH/Project-Research");
+  const projectBib = new TFile("RESEARCH/Project-Research/project.bib");
+  projectBib.content = `@article{sharedKey, author = {ProjectAuthor}, year = {2020}, title = {Project Study}}\n@article{projectKey, author = {ProjectAuthor}, year = {2020}, title = {Project Title}}`;
+  projectResearch.children = [projectBib];
+  projectBib.parent = projectResearch;
+
+  const workAResearch = new TFolder("RESEARCH/Work-A-Research");
+  const workABib = new TFile("RESEARCH/Work-A-Research/workA.bib");
+  workABib.content = `@article{sharedKey, author = {WorkAuthor}, year = {2024}, title = {Work A Study}}\n@article{smith2024, author = {Smith, John}, year = {2024}, title = {Work A Study}}`;
+  workAResearch.children = [workABib];
+  workABib.parent = workAResearch;
+
+  const chapterAResearch = new TFolder("RESEARCH/Chapter-A-Research");
+  const chapterABib = new TFile("RESEARCH/Chapter-A-Research/chapterA.bib");
+  chapterABib.content = `@article{sharedKey, author = {ChapterAuthor}, year = {2024}, title = {Chapter A Study}}`;
+  chapterAResearch.children = [chapterABib];
+  chapterABib.parent = chapterAResearch;
+
+  const workBResearch = new TFolder("RESEARCH/Work-B-Research");
+  const workBBib = new TFile("RESEARCH/Work-B-Research/workB.bib");
+  workBBib.content = `@article{jones2023, author = {Jones, Alice}, year = {2023}, title = {Work B Study}}`;
+  workBResearch.children = [workBBib];
+  workBBib.parent = workBResearch;
+
+  const allFiles = [docA, docB, projectBib, workABib, chapterABib, workBBib];
+  for (const file of allFiles) {
+    file.stat = { mtime: 1000 };
+  }
+
+  const { vault } = createFakeVault([
+    project,
+    workA,
+    chapterA,
+    docA,
+    workB,
+    chapterB,
+    docB,
+    projectResearch,
+    projectBib,
+    workAResearch,
+    workABib,
+    chapterAResearch,
+    chapterABib,
+    workBResearch,
+    workBBib,
+  ]);
+
+  vault.cachedRead = async (file) => vault.read(file);
+
+  const settings = {
+    projectFolder: project.path,
+    previewMode: "scene",
+    level1Role: "chapitres",
+    exportTemplate: "classique",
+    manuscriptTitle: "Work Title",
+    manuscriptAuthor: "Work Author",
+    orders: {},
+    folderPositions: {},
+    projectMeta: {
+      [project.path]: {
+        pandocCitationPreviewStyle: "preview",
+        researchFolderLinks: {
+          [project.path]: projectResearch.path,
+          [workA.path]: workAResearch.path,
+          [chapterA.path]: chapterAResearch.path,
+          [workB.path]: workBResearch.path,
+        },
+        citekeyBibliographyPath: "project.bib",
+        folderWorkspaces: {
+          "Work-A": {
+            version: 1,
+            citekeyBibliographyPath: "workA.bib",
+          },
+          "Work-A/Chapter-A": {
+            version: 1,
+            citekeyBibliographyPath: "chapterA.bib",
+          },
+          "Work-B": {
+            version: 1,
+            citekeyBibliographyPath: "workB.bib",
+          },
+        },
+      },
+    },
+  };
+
+  const app = {
+    vault,
+    metadataCache: {
+      getFileCache: () => null,
+    },
+    workspace: {
+      getActiveFile: () => docA,
+      getLeavesOfType: () => [],
+    },
+  };
+
+  return {
+    app,
+    settings,
+    project,
+    workA,
+    chapterA,
+    docA,
+    workB,
+    chapterB,
+    docB,
+    projectBib,
+    workABib,
+    chapterABib,
+    workBBib,
+  };
+}
+
+test("preview: Chapter-A resolves nearest chapter bibliography over parent work bibliography", () => {
+  const f = createWorkAndChapterPreviewFixture();
+  const res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, f.chapterA);
+  assert.equal(res.bibliography.file?.path, f.chapterABib.path);
+  assert.equal(res.bibliography.status, "valid");
+});
+
+test("preview: collectSource captures correct citationScopeFolderPath for all compile scopes", async () => {
+  const f = createWorkAndChapterPreviewFixture();
+  const plugin = {
+    settings: f.settings,
+    getProjectFolder: () => f.project,
+    getWorkspaceFolder: () => null,
+    saveSettings: async () => {},
+  };
+  const view = new PreviewView({ contentEl: new FakeDOMNode("DIV") }, plugin);
+  view.app = f.app;
+
+  // 1. File scope -> parent folder path
+  const fileScope = createFileScope(f.project.path, f.docA.path);
+  const fileSource = await view.collectSource(0, fileScope);
+  assert.ok(fileSource);
+  assert.equal(fileSource.citationScopeFolderPath, f.chapterA.path);
+
+  // 2. Folder scope -> folder path
+  const folderScope = createFolderScope(f.project.path, f.chapterA.path);
+  const folderSource = await view.collectSource(0, folderScope);
+  assert.ok(folderSource);
+  assert.equal(folderSource.citationScopeFolderPath, f.chapterA.path);
+
+  // 3. Project scope -> null
+  const projectScope = createProjectScope(f.project.path);
+  const projectSource = await view.collectSource(0, projectScope);
+  assert.ok(projectSource);
+  assert.equal(projectSource.citationScopeFolderPath, null);
+
+  // 4. Multiple selection scope -> null
+  const selectionScope = createSelectionScope(f.project.path, [f.docA.path, f.docB.path]);
+  const selectionSource = await view.collectSource(0, selectionScope);
+  assert.ok(selectionSource);
+  assert.equal(selectionSource.citationScopeFolderPath, null);
+});
+
+test("preview: preserves status codes (disabled, missing_file, invalid_path, unbound_research, not_configured)", () => {
+  const f = createWorkAndChapterPreviewFixture();
+  delete f.settings.projectMeta[f.project.path].folderWorkspaces["Work-A/Chapter-A"];
+  const folder = f.chapterA;
+
+  // A. Disabled with empty string
+  f.settings.projectMeta[f.project.path].folderWorkspaces["Work-A"].citekeyBibliographyPath = "";
+  let res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, folder);
+  assert.equal(res.bibliography.status, "disabled");
+  assert.equal(res.bibliography.file, null);
+
+  // B. Missing file
+  f.settings.projectMeta[f.project.path].folderWorkspaces["Work-A"].citekeyBibliographyPath = "absent.bib";
+  res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, folder);
+  assert.equal(res.bibliography.status, "missing_file");
+  assert.equal(res.bibliography.file, null);
+
+  // C. Invalid path
+  f.settings.projectMeta[f.project.path].folderWorkspaces["Work-A"].citekeyBibliographyPath = "../outside.bib";
+  res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, folder);
+  assert.equal(res.bibliography.status, "invalid_path");
+  assert.equal(res.bibliography.file, null);
+
+  // D. Unbound research: explicit link points to non-existent folder
+  f.settings.projectMeta[f.project.path].researchFolderLinks[f.workA.path] = "RESEARCH/NonExistent";
+  f.settings.projectMeta[f.project.path].folderWorkspaces["Work-A"].citekeyBibliographyPath = "workA.bib";
+  res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, folder);
+  assert.equal(res.bibliography.status, "unbound_research");
+  assert.equal(res.bibliography.file, null);
+
+  // E. Not configured anywhere
+  delete f.settings.projectMeta[f.project.path].folderWorkspaces["Work-A"].citekeyBibliographyPath;
+  delete f.settings.projectMeta[f.project.path].citekeyBibliographyPath;
+  res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, folder);
+  assert.equal(res.bibliography.status, "not_configured");
+  assert.equal(res.bibliography.file, null);
 });

@@ -19,6 +19,9 @@ export class ResearchView extends BaseFeuilletsView {
   declare viewingFile: TFile | null;
   declare _renderGen?: number;
   researchScopeMode: ResearchScopeMode = "workspace";
+  protected _bibliographyDebounceTimer: number | null = null;
+  protected _bibliographyListenersSetup = false;
+  protected _isClosed = false;
 
   constructor(leaf: WorkspaceLeaf, plugin: ResearchViewPlugin) {
     super(leaf, plugin);
@@ -36,8 +39,52 @@ export class ResearchView extends BaseFeuilletsView {
     return "book-marked";
   }
 
+  setupBibliographyLifecycleListeners(): void {
+    if (this._bibliographyListenersSetup) return;
+    this._bibliographyListenersSetup = true;
+
+    const debouncedRefresh = () => {
+      if (this._isClosed) return;
+      if (this._bibliographyDebounceTimer !== null && typeof window !== "undefined") {
+        window.clearTimeout(this._bibliographyDebounceTimer);
+      }
+      if (typeof window !== "undefined") {
+        this._bibliographyDebounceTimer = window.setTimeout(() => {
+          this._bibliographyDebounceTimer = null;
+          if (this._isClosed) return;
+          void this.render();
+        }, 150);
+      }
+    };
+
+    if (this.app?.workspace) {
+      this.registerEvent(this.app.workspace.on("active-leaf-change", debouncedRefresh));
+      this.registerEvent(this.app.workspace.on("file-open", debouncedRefresh));
+      this.registerEvent(this.app.workspace.on("editor-change", debouncedRefresh));
+    }
+    if (this.app?.vault) {
+      this.registerEvent(this.app.vault.on("modify", (file) => {
+        if (file instanceof TFile && (file.extension === "md" || file.extension === "bib")) {
+          debouncedRefresh();
+        }
+      }));
+    }
+  }
+
   async onOpen(): Promise<void> {
+    this._isClosed = false;
+    this.setupBibliographyLifecycleListeners();
     await this.render();
+  }
+
+  async onClose(): Promise<void> {
+    this._isClosed = true;
+    if (this._bibliographyDebounceTimer !== null && typeof window !== "undefined") {
+      window.clearTimeout(this._bibliographyDebounceTimer);
+      this._bibliographyDebounceTimer = null;
+    }
+    this._bibliographyListenersSetup = false;
+    await super.onClose();
   }
 
   async render(force = false): Promise<void> {

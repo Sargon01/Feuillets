@@ -98,6 +98,23 @@ class FakeStyle {
   getPropertyValue(name) { return this._props.get(name) ?? ""; }
 }
 
+class FakeTextNode {
+  constructor(parentElement, text = "") {
+    this.parentElement = parentElement;
+    this._text = text;
+  }
+  get nodeType() { return 3; }
+  get nodeValue() { return this._text; }
+  set nodeValue(value) {
+    this._text = String(value);
+    if (this.parentElement) {
+      this.parentElement._text = this._text;
+    }
+  }
+  get textContent() { return this.nodeValue; }
+  set textContent(value) { this.nodeValue = value; }
+}
+
 class FakeElement {
   constructor(tagName, text = "") {
     this.tagName = tagName.toUpperCase();
@@ -194,6 +211,17 @@ class FakeElement {
   }
   set scrollHeight(value) { this._scrollHeight = value; }
   get parentElement() { return this.parentNode; }
+  get nodeType() { return 1; }
+  get nodeValue() { return null; }
+  get childNodes() {
+    if (this._text && !this.children.length) {
+      return [new FakeTextNode(this, this._text)];
+    }
+    if (this._text && this.children.length) {
+      return [new FakeTextNode(this, this._text), ...this.children];
+    }
+    return this.children;
+  }
   get firstElementChild() { return this.children[0] || null; }
   get nextElementSibling() {
     const siblings = this.parentNode ? this.parentNode.children : [];
@@ -548,11 +576,16 @@ function installDom() {
   const previous = {
     document: globalThis.document,
     window: globalThis.window,
+    Node: globalThis.Node,
     createEl: globalThis.createEl,
     createDiv: globalThis.createDiv,
     createSpan: globalThis.createSpan,
     ResizeObserver: globalThis.ResizeObserver,
     getComputedStyle: globalThis.getComputedStyle,
+  };
+  globalThis.Node = {
+    ELEMENT_NODE: 1,
+    TEXT_NODE: 3,
   };
   /* Padding réel du viewport (styles.css : `padding: 20px 20px`) — la vue
      doit le RETRANCHER de clientWidth/clientHeight, qui l'incluent. Exposé
@@ -611,6 +644,7 @@ function installDom() {
     restore() {
       globalThis.document = previous.document;
       globalThis.window = previous.window;
+      globalThis.Node = previous.Node;
       globalThis.createEl = previous.createEl;
       globalThis.createDiv = previous.createDiv;
       globalThis.createSpan = previous.createSpan;
@@ -5697,3 +5731,237 @@ test("PreviewView : dans un ouvrage imbriqué, le titre automatique d'une scène
   result = await compile(app, settings, null, view.compileScope, null, { writeOutput: false });
   assert.equal(result.manuscript, "#### Al-Rahman\n\nAL_RAHMAN_TEXTE");
 });
+
+function createCitationPreviewFixture() {
+  const project = new TFolder("PROJECT");
+  project.name = "PROJECT";
+  project.path = "PROJECT";
+
+  const workA = new TFolder("PROJECT/Work-A");
+  workA.name = "Work-A";
+  workA.path = "PROJECT/Work-A";
+  workA.parent = project;
+
+  const chapterA = new TFolder("PROJECT/Work-A/Chapter-A");
+  chapterA.name = "Chapter-A";
+  chapterA.path = "PROJECT/Work-A/Chapter-A";
+  chapterA.parent = workA;
+
+  const docA = new TFile("PROJECT/Work-A/Chapter-A/Document-A.md", "Text referencing [@sharedKey].");
+  docA.name = "Document-A.md";
+  docA.basename = "Document-A";
+  docA.extension = "md";
+  docA.path = "PROJECT/Work-A/Chapter-A/Document-A.md";
+  docA.content = "Text referencing [@sharedKey].";
+  docA.parent = chapterA;
+  docA.stat = { mtime: 1000 };
+
+  chapterA.children = [docA];
+  workA.children = [chapterA];
+  project.children = [workA];
+
+  const projectResearch = new TFolder("RESEARCH/Project-Research");
+  projectResearch.name = "Project-Research";
+  projectResearch.path = "RESEARCH/Project-Research";
+
+  const projectBib = new TFile("RESEARCH/Project-Research/project.bib");
+  projectBib.name = "project.bib";
+  projectBib.basename = "project";
+  projectBib.extension = "bib";
+  projectBib.path = "RESEARCH/Project-Research/project.bib";
+  projectBib.content = `@article{sharedKey, author = {ProjectAuthor}, year = {2020}, title = {Project Study}}`;
+  projectBib.parent = projectResearch;
+  projectBib.stat = { mtime: 1000 };
+  projectResearch.children = [projectBib];
+
+  const workAResearch = new TFolder("RESEARCH/Work-A-Research");
+  workAResearch.name = "Work-A-Research";
+  workAResearch.path = "RESEARCH/Work-A-Research";
+
+  const workABib = new TFile("RESEARCH/Work-A-Research/workA.bib");
+  workABib.name = "workA.bib";
+  workABib.basename = "workA";
+  workABib.extension = "bib";
+  workABib.path = "RESEARCH/Work-A-Research/workA.bib";
+  workABib.content = `@article{sharedKey, author = {WorkAuthor}, year = {2024}, title = {Work A Study}}\n@article{smith2024, author = {Smith, John}, year = {2024}, title = {Work A Study}}`;
+  workABib.parent = workAResearch;
+  workABib.stat = { mtime: 1000 };
+  workAResearch.children = [workABib];
+
+  const chapterAResearch = new TFolder("RESEARCH/Chapter-A-Research");
+  chapterAResearch.name = "Chapter-A-Research";
+  chapterAResearch.path = "RESEARCH/Chapter-A-Research";
+
+  const chapterABib = new TFile("RESEARCH/Chapter-A-Research/chapterA.bib");
+  chapterABib.name = "chapterA.bib";
+  chapterABib.basename = "chapterA";
+  chapterABib.extension = "bib";
+  chapterABib.path = "RESEARCH/Chapter-A-Research/chapterA.bib";
+  chapterABib.content = `@article{sharedKey, author = {ChapterAuthor}, year = {2024}, title = {Chapter A Study}}`;
+  chapterABib.parent = chapterAResearch;
+  chapterABib.stat = { mtime: 1000 };
+  chapterAResearch.children = [chapterABib];
+
+  const allNodes = [
+    project,
+    workA,
+    chapterA,
+    docA,
+    projectResearch,
+    projectBib,
+    workAResearch,
+    workABib,
+    chapterAResearch,
+    chapterABib,
+  ];
+  const fileMap = new Map();
+  for (const node of allNodes) {
+    fileMap.set(node.path, node);
+  }
+
+  const settings = {
+    projectFolder: project.path,
+    previewMode: "scene",
+    level1Role: "chapitres",
+    exportTemplate: "classique",
+    manuscriptTitle: "Work Title",
+    manuscriptAuthor: "Work Author",
+    orders: {},
+    folderPositions: {},
+    projectMeta: {
+      [project.path]: {
+        pandocCitationPreviewStyle: "preview",
+        citekeyBibliographyPath: "project.bib",
+        researchFolderLinks: {
+          [project.path]: projectResearch.path,
+          [workA.path]: workAResearch.path,
+          [chapterA.path]: chapterAResearch.path,
+        },
+        folderWorkspaces: {
+          "Work-A": {
+            version: 1,
+            citekeyBibliographyPath: "workA.bib",
+          },
+          "Work-A/Chapter-A": {
+            version: 1,
+            citekeyBibliographyPath: "chapterA.bib",
+          },
+        },
+      },
+    },
+  };
+
+  const app = {
+    vault: {
+      read: async (file) => (file && typeof file.content === "string" ? file.content : ""),
+      cachedRead: async (file) => (file && typeof file.content === "string" ? file.content : ""),
+      getAbstractFileByPath: (p) => fileMap.get(p) || null,
+      on: () => ({ event: "", handler: () => {} }),
+    },
+    metadataCache: {
+      getFileCache: () => null,
+    },
+    workspace: {
+      on: () => ({ event: "", handler: () => {} }),
+      getActiveFile: () => docA,
+      getLeavesOfType: () => [],
+    },
+  };
+
+  return {
+    app,
+    settings,
+    project,
+    workA,
+    chapterA,
+    docA,
+    projectBib,
+    workABib,
+    chapterABib,
+    fileMap,
+  };
+}
+
+async function openCitationPreviewView(fixture, isolatedFolder = null) {
+  const plugin = {
+    settings: fixture.settings,
+    getProjectFolder: () => fixture.project,
+    getWorkspaceFolder: () => isolatedFolder,
+    saveSettings: async () => {},
+  };
+  const leaf = { contentEl: element("div") };
+  const view = new PreviewView(leaf, plugin);
+  view.app = fixture.app;
+
+  await view.onOpen();
+
+  const viewport = view.contentEl.querySelector(".feuillets-preview-viewport");
+  const scaledContainer = view.contentEl.querySelector(".feuillets-preview-scaled-container");
+  if (viewport) {
+    viewport._paddingX = VIEWPORT_PADDING;
+    viewport._paddingY = VIEWPORT_PADDING;
+  }
+  return { view, plugin, viewport, scaledContainer };
+}
+
+test("preview: renders nearest Chapter-A citation in iframe, strictly identical with and without Binder isolation", withRender(async () => {
+  const f = createCitationPreviewFixture();
+
+  // 1. Unisolated mode (plugin.getWorkspaceFolder() === null)
+  const { view, scaledContainer, viewport } = await openCitationPreviewView(f, null);
+  await view.refreshPreview();
+  const frameUnisolated = latestFrame(scaledContainer);
+  assert.ok(frameUnisolated);
+  fireLoad(placeFrame(frameUnisolated, viewport));
+  assert.ok(view.previewFrame);
+  const srcdocUnisolated = view.previewFrame.srcdoc;
+  assert.ok(srcdocUnisolated);
+
+  // [@sharedKey] must be formatted using nearest scope (Chapter-A wins over Work-A and project)
+  assert.ok(!srcdocUnisolated.includes("[@sharedKey]"), "raw citekey [@sharedKey] must be formatted");
+  assert.ok(srcdocUnisolated.includes("ChapterAuthor"), "nearest scope (Chapter-A) author must appear in rendered iframe");
+  assert.ok(!srcdocUnisolated.includes("WorkAuthor"), "Work-A author must not appear");
+  assert.ok(!srcdocUnisolated.includes("ProjectAuthor"), "Project author must not appear");
+
+  // 2. Isolated mode on Work-A (plugin.getWorkspaceFolder() === workA)
+  const { view: isolatedView, scaledContainer: isolatedContainer, viewport: isolatedViewport } = await openCitationPreviewView(f, f.workA);
+  await isolatedView.refreshPreview();
+  const frameIsolated = latestFrame(isolatedContainer);
+  assert.ok(frameIsolated);
+  fireLoad(placeFrame(frameIsolated, isolatedViewport));
+  assert.ok(isolatedView.previewFrame);
+  const srcdocIsolated = isolatedView.previewFrame.srcdoc;
+
+  // Rendered iframe content must be strictly identical regardless of Binder isolation
+  assert.equal(srcdocIsolated, srcdocUnisolated);
+}));
+
+test("preview: invalid citationScopeFolderPath does not fallback to project bibliography", withRender(async () => {
+  const f = createCitationPreviewFixture();
+  const { view, scaledContainer, viewport } = await openCitationPreviewView(f, null);
+
+  const invalidFolderPath = "PROJECT/Work-A/NonExistentChapter";
+  assert.equal(f.app.vault.getAbstractFileByPath(invalidFolderPath), null);
+
+  const source = {
+    markdown: "Text referencing [@sharedKey].",
+    segments: null,
+    sourcePath: f.docA.path,
+    title: "Document-A",
+    subtitle: f.docA.path,
+    citationScopeFolderPath: invalidFolderPath,
+  };
+
+  await view.renderPreviewSource(source, view.refreshGeneration, null, () => {});
+  const frame = latestFrame(scaledContainer);
+  assert.ok(frame);
+  fireLoad(placeFrame(frame, viewport));
+  assert.ok(view.previewFrame);
+  const srcdoc = view.previewFrame.srcdoc;
+
+  // Since citationScopeFolderPath is invalid, it must not resolve to project.bib
+  assert.ok(srcdoc.includes("[@sharedKey]"), "citekey must remain raw when citationScopeFolderPath is invalid");
+  assert.ok(!srcdoc.includes("ProjectAuthor"), "must never fall back to project bibliography when scope path is invalid");
+  assert.ok(!srcdoc.includes("ChapterAuthor"));
+  assert.ok(!srcdoc.includes("WorkAuthor"));
+}));

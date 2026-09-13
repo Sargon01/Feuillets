@@ -1,6 +1,7 @@
 import { Notice, Platform } from "obsidian";
 import type { App } from "obsidian";
 import { composeDocumentMedia, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
+import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
 import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
@@ -25,6 +26,7 @@ type PdfExportInput = {
   segments?: PdfExportSegment[];
   contentVariant?: ContentVariant | null;
   separator?: string;
+  citationSettings?: ExportCitationSettings;
 };
 
 type PaginationResult = {
@@ -588,7 +590,7 @@ export async function paginateManuscriptCooperatively(
 }
 
 /** PDF via la boîte de dialogue d'impression du système */
-export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n" }: PdfExportInput): Promise<void> {
+export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: PdfExportInput): Promise<void> {
   if (Platform.isMobile) {
     new Notice(
       "L'export PDF n'est disponible que sur desktop pour l'instant — utilise EPUB ou Word (.docx) sur mobile."
@@ -597,7 +599,12 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   }
 
   const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes, images } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, undefined, separator);
+  const afterVariant = citationSettings && citationSettings.style !== "off" && citationSettings.bibliographyPath
+    ? async (container: HTMLElement) => {
+        await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+      }
+    : undefined;
+  const { containerEl, footnotes, images } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, afterVariant, separator);
   if (tpl.profile === "document") composeDocumentMedia(containerEl, images);
 
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre

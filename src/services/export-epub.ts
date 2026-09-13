@@ -1,6 +1,7 @@
 import JSZip from "jszip";
 import type { App } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
+import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
 import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
@@ -21,6 +22,7 @@ type ExportInput = {
   segments?: ExportSegment[];
   contentVariant?: ContentVariant | null;
   separator?: string;
+  citationSettings?: ExportCitationSettings;
 };
 
 type ExportFootnote = {
@@ -62,9 +64,14 @@ function footnotesXhtml(footnotes: ExportFootnote[]): string {
  * (markdown, sortie de compile()) : un seul flux XHTML continu, pas de
  * découpage par chapitre en v1 (portée assumée — voir plan). Utilise
  * jszip (pur JS, aucune dépendance Node) : fonctionne desktop et mobile. */
-export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n" }: ExportInput): Promise<Uint8Array> {
+export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
-  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, undefined, separator);
+  const afterVariant = citationSettings && citationSettings.style !== "off" && citationSettings.bibliographyPath
+    ? async (container: HTMLElement) => {
+        await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+      }
+    : undefined;
+  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, afterVariant, separator);
   const bodyXhtml = serializeXhtmlBody(containerEl);
   const css = templateV2ToEpubCss(template) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS;
   const lang = settings.epubLanguage || "fr";

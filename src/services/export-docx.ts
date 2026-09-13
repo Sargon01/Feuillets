@@ -22,6 +22,7 @@ import {
 import type { App } from "obsidian";
 import type { IParagraphStyleOptions, ISectionOptions, IStylesOptions } from "docx";
 import { renderManuscriptHtml } from "./export-render.js";
+import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
 
 import { resolveExportTemplate, resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
@@ -101,6 +102,7 @@ type ExportInput = {
   segments?: ExportSegment[];
   contentVariant?: ContentVariant | null;
   separator?: string;
+  citationSettings?: ExportCitationSettings;
 };
 
 type RenderedFootnote = {
@@ -157,7 +159,7 @@ type ExportDocxSettings = FeuilletsSettings & {
    services/docx-review-import.js. */
 
 /** Génère un fichier Word (.docx) avec gestion des en-têtes/pieds et numérotation des pages */
-export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n" }: ExportInput): Promise<Buffer> {
+export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: ExportInput): Promise<Buffer> {
   /* Ces champs sont fournis par DEFAULT_SETTINGS ; FeuilletsSettings les
      garde ouverts pendant la migration progressive pour les autres services. */
   const docxSettings = settings as ExportDocxSettings;
@@ -196,7 +198,12 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   const allSegments = segments ?? [];
   const renderSegments = allSegments.filter((segment) => segment.generatedType !== "summary" && segment.generatedType !== "toc");
   const renderMarkdown = segments && segments.length ? markedMarkdownFor(renderSegments.map((segment) => ({ ...segment, text: segment.renderText ?? segment.text })), separator) : markdown;
-  const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath, [], contentVariant ?? null);
+  const afterVariant = citationSettings && citationSettings.style !== "off" && citationSettings.bibliographyPath
+    ? async (container: HTMLElement) => {
+        await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+      }
+    : undefined;
+  const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath, [], contentVariant ?? null, undefined, afterVariant);
 
   const footnoteIdByHref = new Map<string, number>();
   const footnoteMap: Record<string, { children: Paragraph[] }> = {};

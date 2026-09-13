@@ -27,10 +27,14 @@ import { exportDocx } from "./export-docx.js";
 import { exportPdf } from "./export-pdf.js";
 import { exportOdt } from "./export-odt.js";
 import { type CompileScope, resolveCompileScopeFiles, createProjectScope } from "./compile-scope.js";
+import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
+import type { ExportCitationSettings } from "./pandoc-citation-preview.js";
 import { generateSummary, generateTableOfContents } from "./contents-generator.js";
 import type { GeneratedContentsKind } from "./generated-contents.js";
 import { generateTableOfIllustrations } from "./tables-generator.js";
-import { bibliographyEntriesForEditorialRoot, bibliographyEntriesForFiles, generateBibliography } from "./bibliography-generator.js";
+import { bibliographyEntriesForEditorialRoot, bibliographyEntriesForFiles, generateBibliography, type BibliographyEntry } from "./bibliography-generator.js";
+import { extractCitekeysCached, resolveBibliographicScope, bibtexEntryToBibliographyEntry } from "./citekey-bibliography.js";
+import { getCachedBibtexCatalog, type BibtexCatalogEntry } from "./bibtex-catalog.js";
 import { resolveCitedSourceFilesForCompileFiles } from "./citation-registry.js";
 import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "./layout-store.js";
 import { injectDocumentLayoutMarkers } from "./document-layout.js";
@@ -111,6 +115,7 @@ type NativeExportContext = {
   segments: NativeExportSegment[];
   contentVariant: ContentVariant | null;
   separator: string;
+  citationSettings?: ExportCitationSettings;
 };
 
 /* PresetConfig n'est plus redéclaré ici : il vient de types.d.ts (ambiant,
@@ -191,6 +196,59 @@ function resolveEditorialRootFor(
   }
   const editorialRoot = app.vault.getAbstractFileByPath(normalizePath(compilationScope.projectRoot));
   return editorialRoot instanceof TFolder ? editorialRoot : globalRoot;
+}
+
+/**
+ * Resolves the target folder for workspace bibliography resolution during native export.
+ *
+ * Scoping rules:
+ * - scope.type === "file": file's parent folder
+ * - scope.type === "folder": exported folder
+ * - scope.type === "project" | "selection": project root (null target folder)
+ * - legacy scopePath to file: file's parent folder
+ * - legacy scopePath to folder: that folder
+ * - neither: project root (null target folder)
+ *
+ * If the target file/folder is missing: failClosed = true (no bibliography, no fallback to project).
+ */
+function resolveExportCitationTargetFolder(
+  app: App,
+  scopePath: string | null | undefined,
+  scope: CompileScope | null | undefined
+): { folder: TFolder | null; failClosed: boolean } {
+  if (scope) {
+    if (scope.type === "file") {
+      const candidate = app.vault.getAbstractFileByPath(normalizePath(scope.path));
+      if (candidate instanceof TFile && candidate.parent) {
+        return { folder: candidate.parent, failClosed: false };
+      }
+      return { folder: null, failClosed: true };
+    }
+    if (scope.type === "folder") {
+      const candidate = app.vault.getAbstractFileByPath(normalizePath(scope.path));
+      if (candidate instanceof TFolder) {
+        return { folder: candidate, failClosed: false };
+      }
+      return { folder: null, failClosed: true };
+    }
+    return { folder: null, failClosed: false };
+  }
+
+  if (scopePath) {
+    const candidate = app.vault.getAbstractFileByPath(normalizePath(scopePath));
+    if (candidate instanceof TFile) {
+      if (candidate.parent) {
+        return { folder: candidate.parent, failClosed: false };
+      }
+      return { folder: null, failClosed: true };
+    }
+    if (candidate instanceof TFolder) {
+      return { folder: candidate, failClosed: false };
+    }
+    return { folder: null, failClosed: true };
+  }
+
+  return { folder: null, failClosed: false };
 }
 
 /** Nom de base (sans extension) de la sortie compilée : résolu ICI, UNE
@@ -853,7 +911,44 @@ export async function compile(
       const bibliographyEntriesForCompilation = contextualCitations.hasIndexedOccurrences
         ? bibliographyEntriesForFiles(app, contextualCitations.sourceFiles)
         : bibliographyEntriesForEditorialRoot(app, settings, editorialRoot);
-      const bibliographyText = generateBibliography(bibliographyEntriesForCompilation);
+
+      const compiledBibtexEntries: BibliographyEntry[] = [];
+      const bibCatalogCache = new Map<string, readonly BibtexCatalogEntry[]>();
+
+      for (const file of filesToCompile) {
+        const fm = fmOf(app, file);
+        if (fm.compile === false) continue;
+
+        const content = typeof app.vault.cachedRead === "function"
+          ? await app.vault.cachedRead(file)
+          : await app.vault.read(file);
+        const citekeys = extractCitekeysCached(file, content);
+        if (citekeys.size === 0) continue;
+
+        const { bibFile } = resolveBibliographicScope(app, settings, globalRoot, file);
+        if (!bibFile) continue;
+
+        let catalog = bibCatalogCache.get(bibFile.path);
+        if (!catalog) {
+          catalog = await getCachedBibtexCatalog(app, bibFile);
+          bibCatalogCache.set(bibFile.path, catalog);
+        }
+
+        const catMap = new Map<string, BibtexCatalogEntry>();
+        for (const catEntry of catalog) {
+          catMap.set(catEntry.key, catEntry);
+        }
+
+        for (const key of citekeys.keys()) {
+          const entry = catMap.get(key);
+          if (entry) {
+            compiledBibtexEntries.push(bibtexEntryToBibliographyEntry(entry, bibFile.path));
+          }
+        }
+      }
+
+      const allBibliographyEntries = [...bibliographyEntriesForCompilation, ...compiledBibtexEntries];
+      const bibliographyText = generateBibliography(allBibliographyEntries);
       if (bibliographyText) {
         parts.push(bibliographyText);
         segments.push({ path: null, text: bibliographyText, frontType: null });
@@ -1182,7 +1277,35 @@ async function exportViaNative(
       frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) } : { path, text, frontType, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) }
     );
     const contentVariant = await selectedContentVariant(app, settings);
-    const ctx: NativeExportContext = { markdown: result.manuscript, title, author, sourcePath, segments, contentVariant, separator: composition.separator };
+    const { folder: citationTargetFolder, failClosed: citationFailClosed } =
+      resolveExportCitationTargetFolder(app, scopePath, scope);
+
+    const projectMeta = settings.projectMeta?.[folder.path];
+    const citationStyle = (projectMeta?.pandocCitationPreviewStyle as PandocCitationPreviewStyle) || "off";
+    let citationBibliographyPath = "";
+
+    if (!citationFailClosed) {
+      const resolution = resolveWorkspaceCitationResources(app, settings, folder, citationTargetFolder);
+      if (resolution.bibliography.status === "valid" && resolution.bibliography.file) {
+        citationBibliographyPath = resolution.bibliography.file.path;
+      }
+    }
+
+    const citationSettings: ExportCitationSettings = {
+      style: citationStyle,
+      bibliographyPath: citationBibliographyPath,
+    };
+
+    const ctx: NativeExportContext = {
+      markdown: result.manuscript,
+      title,
+      author,
+      sourcePath,
+      segments,
+      contentVariant,
+      separator: composition.separator,
+      citationSettings,
+    };
 
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);
@@ -1227,6 +1350,12 @@ function uniqueBinaryPath(app: App, folderPath: string, baseName: string, extens
   return path;
 }
 
+function exactArrayBuffer(data: Uint8Array): ArrayBuffer {
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
+  return copy.buffer;
+}
+
 /**
  * LOT 9B — exportée pour être réutilisée par le panneau de révision DOCX
  * (docx-review-view.ts#generateRevisedDocx), qui écrit ainsi le .docx
@@ -1249,7 +1378,7 @@ export async function writeBinaryFile(app: App, path: string, data: Uint8Array |
   if (data instanceof ArrayBuffer) {
     buf = data;
   } else if (data instanceof Uint8Array) {
-    buf = data.buffer as ArrayBuffer;
+    buf = exactArrayBuffer(data);
   } else {
     buf = await data.arrayBuffer();
   }

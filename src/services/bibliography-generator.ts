@@ -31,6 +31,14 @@ export type BibliographyEntry = {
   publisher?: string;
   date?: string;
   url?: string;
+  journal?: string;
+  booktitle?: string;
+  volume?: string;
+  number?: string;
+  pages?: string;
+  doi?: string;
+  citekey?: string;
+  bibliographyFilePath?: string;
 };
 
 /** Nom canonique, fixe quelle que soit la langue de l'interface (voir
@@ -188,49 +196,90 @@ function formatEntry(entry: BibliographyEntry): string {
   const segments: string[] = [];
   if (entry.author) segments.push(`${entry.author}.`);
   if (entry.title) segments.push(`*${entry.title}*.`);
-  const publisherDate = [entry.publisher, entry.date].filter(Boolean).join(", ");
-  if (publisherDate) segments.push(`${publisherDate}.`);
-  const text = segments.join(" ");
+
+  const venueParts: string[] = [];
+  const container = entry.journal || entry.booktitle || entry.publisher;
+  if (container) venueParts.push(container);
+  if (entry.volume) {
+    let vol = `vol. ${entry.volume}`;
+    if (entry.number) vol += `, no. ${entry.number}`;
+    venueParts.push(vol);
+  } else if (entry.number) {
+    venueParts.push(`no. ${entry.number}`);
+  }
+  if (entry.pages) {
+    const p = entry.pages.includes("-") || entry.pages.includes("–") ? `pp. ${entry.pages}` : `p. ${entry.pages}`;
+    venueParts.push(p);
+  }
+  const date = entry.date;
+  if (date) venueParts.push(date);
+
+  const venueText = venueParts.join(", ");
+  if (venueText) segments.push(`${venueText}.`);
+
+  const links: string[] = [];
+  if (entry.doi) {
+    const doiUrl = entry.doi.startsWith("http") ? entry.doi : `https://doi.org/${entry.doi}`;
+    links.push(doiUrl);
+  }
   const url = (entry.url || "").trim();
-  if (!url) return text;
-  return text ? `${text} ${url}` : url;
+  if (url && (!entry.doi || !url.includes(entry.doi))) {
+    links.push(url);
+  }
+
+  const text = segments.join(" ");
+  const linkText = links.join(" ");
+  if (!linkText) return text;
+  return text ? `${text} ${linkText}` : linkText;
 }
 
-/** Clé de tri : l'auteur, ou le titre si l'auteur est absent — exactement
- * la règle demandée, comparée insensible à la casse. */
-function sortKey(entry: BibliographyEntry): string {
-  return (entry.author || entry.title || "").trim().toLocaleLowerCase("fr");
+function sortCompare(a: BibliographyEntry, b: BibliographyEntry): number {
+  const authorA = (a.author || a.title || "").trim();
+  const authorB = (b.author || b.title || "").trim();
+  const authorCmp = authorA.localeCompare(authorB, "fr", { sensitivity: "base" });
+  if (authorCmp !== 0) return authorCmp;
+
+  const yearA = (a.date || "").trim();
+  const yearB = (b.date || "").trim();
+  const yearCmp = yearA.localeCompare(yearB, "fr", { numeric: true });
+  if (yearCmp !== 0) return yearCmp;
+
+  const titleA = (a.title || "").trim();
+  const titleB = (b.title || "").trim();
+  return titleA.localeCompare(titleB, "fr", { sensitivity: "base" });
 }
 
-/** Références formatées et dédupliquées (texte final EXACTEMENT identique
- * — une fiche vide, sans aucun champ utilisable, ne produit aucune entrée),
- * dans l'ordre d'arrivée : la première occurrence d'un texte l'emporte. */
 function dedupedEntries(entries: BibliographyEntry[]): Array<{ text: string; entry: BibliographyEntry }> {
-  const seen = new Set<string>();
+  const seenBibtex = new Set<string>();
+  const seenSourceTexts = new Set<string>();
   const out: Array<{ text: string; entry: BibliographyEntry }> = [];
+
   for (const entry of entries) {
     const text = formatEntry(entry);
-    if (!text || seen.has(text)) continue;
-    seen.add(text);
-    out.push({ text, entry });
+    if (!text) continue;
+
+    if (entry.bibliographyFilePath && entry.citekey) {
+      const key = `${entry.bibliographyFilePath}::${entry.citekey}`;
+      if (seenBibtex.has(key)) continue;
+      seenBibtex.add(key);
+      out.push({ text, entry });
+    } else {
+      if (seenSourceTexts.has(text)) continue;
+      seenSourceTexts.add(text);
+      out.push({ text, entry });
+    }
   }
+
   return out;
 }
 
-/** Nombre de références réellement incluses (après déduplication) — sert à
- * l'UI (ui/bibliography-panel.ts) pour afficher « N références » sans
- * recalculer le texte généré. */
 export function bibliographyReferenceCount(entries: BibliographyEntry[]): number {
   return dedupedEntries(entries).length;
 }
 
-/** Bibliographie : titre `# Bibliographie` suivi d'une référence par
- * paragraphe, triées par auteur puis par titre. `null` s'il n'existe aucune
- * référence exploitable — jamais de page générée vide (même règle que la
- * Table des illustrations, Phase 7). */
 export function generateBibliography(entries: BibliographyEntry[]): string | null {
   const deduped = dedupedEntries(entries);
   if (!deduped.length) return null;
-  const sorted = [...deduped].sort((a, b) => sortKey(a.entry).localeCompare(sortKey(b.entry), "fr"));
+  const sorted = [...deduped].sort((a, b) => sortCompare(a.entry, b.entry));
   return `# Bibliographie\n\n${sorted.map((d) => d.text).join("\n\n")}\n`;
 }

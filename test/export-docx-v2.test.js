@@ -14,3 +14,11 @@ test("export DOCX : consomme le profil et les champs V2 sans toucher au contrat 
   assert.match(source, /bookmarkMarkerInfoOf/);
   assert.match(source, /bookmarkIdFor/);
 });
+
+test("export DOCX : hooks into applyPandocCitationPreview via afterVariant", async () => {
+  const source = await readFile(new URL("../src/services/export-docx.js", import.meta.url), "utf8");
+
+  assert.match(source, /applyPandocCitationPreview\(/);
+  assert.match(source, /citationSettings/);
+  assert.match(source, /renderManuscriptHtml\([\s\S]*afterVariant/);
+});

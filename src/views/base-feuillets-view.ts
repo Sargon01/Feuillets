@@ -23,6 +23,7 @@ import { FolderSuggest } from "../ui/folder-suggest.js";
 import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
 import { t } from "../i18n/index.js";
 import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
+import { collectScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
 
 export type ResearchScopeMode = "workspace" | "project";
@@ -308,6 +309,7 @@ export abstract class BaseFeuilletsView extends ItemView {
   researchFolderClipboardPath?: string;
   selectedText?: string;
   viewingFile?: TFile | null;
+
 
   private addFolderCarnetMenuItem(menu: Menu, folder: TFolder): void {
     const candidate = this.plugin as unknown as { canUseFolderCarnet?: (folder: TFolder) => boolean; hasFolderCarnet?: (folder: TFolder) => boolean; openFolderCarnet?: (folder: TFolder) => Promise<void> };
@@ -2135,7 +2137,7 @@ export abstract class BaseFeuilletsView extends ItemView {
   async renderBibliographySection(container: HTMLElement, root: TFolder, candidateFolders: TFolder[]): Promise<void> {
     const S = this.plugin.settings;
     const collapseKey = "research:cited-sources";
-    const collapsed = !!S.collapsed[collapseKey];
+    const collapsed = Boolean(S?.collapsed?.[collapseKey]);
 
     const { section } = renderCollapsibleHead(container, {
       classes: {
@@ -2170,7 +2172,23 @@ export abstract class BaseFeuilletsView extends ItemView {
     exportRow.addEventListener("click", () => { void this.plugin.generateBibliographyFile(); });
 
     const list = sectionEl.createDiv({ cls: "feuillets-research-list" });
-    if (cited.length === 0) {
+
+    const activeFile = typeof this.app?.workspace?.getActiveFile === "function"
+      ? this.app.workspace.getActiveFile()
+      : null;
+
+    const bibtexResult = await collectScopeCitedBibtexEntries(
+      this.app,
+      this.plugin.settings,
+      root,
+      activeFile
+    );
+
+    if (
+      cited.length === 0 &&
+      bibtexResult.knownEntries.length === 0 &&
+      bibtexResult.unknownKeys.length === 0
+    ) {
       list
         .createDiv({ cls: "feuillets-research-empty" })
         .setText(t("shared.bibliography.empty"));
@@ -2194,6 +2212,40 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.viewingFile = f;
         void this.render();
       });
+    }
+
+    for (const item of bibtexResult.knownEntries) {
+      const row = list.createDiv({ cls: "feuillets-research-item feuillets-bibtex-citation-item" });
+      const header = row.createDiv({ cls: "feuillets-research-item-header" });
+      const n = item.count;
+      const entry = item.entry;
+      const authorPart = entry?.author || (entry?.authors && entry.authors.length > 0 ? entry.authors.join(", ") : "");
+      const yearPart = entry?.year || entry?.date || "";
+      const titlePart = entry?.title ? ` — ${entry.title}` : "";
+      const details = [authorPart, yearPart ? `(${yearPart})` : ""].filter(Boolean).join(" ");
+      const displayDetails = details ? `${details}${titlePart}` : (entry?.title || "");
+      const label = displayDetails
+        ? t("shared.bibliography.bibtexCitationCount", {
+            key: item.key,
+            details: displayDetails,
+            count: String(n),
+            s: n > 1 ? "s" : "",
+          })
+        : `@${item.key} (${n} citation${n > 1 ? "s" : ""})`;
+      header.createDiv({ cls: "feuillets-research-item-name" }).setText(label);
+    }
+
+    for (const item of bibtexResult.unknownKeys) {
+      const row = list.createDiv({ cls: "feuillets-research-item feuillets-bibtex-unknown-item" });
+      const header = row.createDiv({ cls: "feuillets-research-item-header" });
+      const n = item.count;
+      const warningLabel = t("shared.bibliography.unknownCitekeyWarning", {
+        key: item.key,
+        count: String(n),
+        s: n > 1 ? "s" : "",
+      });
+      const nameEl = header.createDiv({ cls: "feuillets-research-item-name feuillets-citekey-warning" });
+      nameEl.setText(warningLabel);
     }
   }
 
