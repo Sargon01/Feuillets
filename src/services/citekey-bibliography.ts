@@ -119,8 +119,7 @@ export function resolveBibliographicScope(
   projectRoot: TFolder,
   targetFileOrFolder: TFile | TFolder | null
 ): { bibFile: TFile | null; definingScope: TFolder | null } {
-  const targetFolder = targetFileOrFolder instanceof TFile ? targetFileOrFolder.parent : targetFileOrFolder;
-  const resolution = resolveWorkspaceCitationResources(app, settings, projectRoot, targetFolder);
+  const resolution = resolveWorkspaceCitationResources(app, settings, projectRoot, targetFileOrFolder);
   if (resolution.bibliography.status === "valid" && resolution.bibliography.file) {
     return {
       bibFile: resolution.bibliography.file,

@@ -47,6 +47,17 @@ import { joinCompiledSegments } from "./compile-segments.js";
 export { joinCompiledSegments } from "./compile-segments.js";
 import { effectiveComposition } from "./ouvrage-composition.js";
 export { effectiveComposition } from "./ouvrage-composition.js";
+import { t } from "../i18n/index.js";
+import {
+  createPandocPackage,
+  sanitizeArchiveSegment,
+  type PandocPackageBibliographyFile,
+  type PandocPackageCslFile,
+  type PandocPackageMediaFile,
+  type PandocPackageCitationReport,
+  type PandocPackageCitationReportItem,
+  type ResolverStatus,
+} from "./pandoc-package-export.js";
 
 /** Les deux noms reconnus pour le dossier Annexes, à la RACINE du dossier
  * Manuscrit — même convention de double reconnaissance (FR/EN) que
@@ -82,8 +93,8 @@ export function annexesFiles(app: App, settings: FeuilletsSettings, projectRoot:
 
 /** Formats d'export réellement implémentés dans Feuillets.
  * À maintenir en synchro avec les branches de exportViaNative(). */
-export type ExportFormat = "md" | "epub" | "docx" | "odt" | "pdf";
-export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", "pdf", "md"];
+export type ExportFormat = "md" | "epub" | "docx" | "odt" | "pdf" | "pandoc";
+export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", "pdf", "md", "pandoc"];
 
 /** @typedef {{ name: string; color: string }} Label */
 /** @typedef {{ [key: string]: unknown }} ProjectMeta */
@@ -91,7 +102,7 @@ export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", 
 
 /** @typedef {{ name: string; fileName: string; folderTitles: boolean; chapterTitles: boolean; sceneTitles: boolean; separator: string; [key: string]: unknown }} PresetConfig */
 type CompileSegment = { path: string | null; text: string; renderText?: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part"; sceneBreakBefore?: boolean; titleBlockCount?: number };
-/** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[] }} CompileResult */
+/** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[]; compiledFilePaths: readonly string[] }} CompileResult */
 /** @typedef {{ markdown: string; title: string; author: string; sourcePath: string; segments?: CompileSegment[] }} ExportContext */
 
 type NativeExportSegment = {
@@ -372,6 +383,7 @@ export type CompileOptions = {
   writeOutput?: boolean;
   contentExtraction?: ContentExtraction | null;
   contentCollection?: ContentCollection | null;
+  bibliographyMode?: "default" | "pandoc";
 };
 
 /**
@@ -572,6 +584,7 @@ export async function compile(
      Pandoc : aucun risque de faire fuiter un marqueur dans du texte visible
      (contrairement à l'erreur des commentaires HTML pour les citations,
      plus tôt). */
+  const compiledFilePaths: string[] = [];
   const segments: CompileSegment[] = [];
   /* Annexes (Phase 9) : compilées à PART du corps principal (voir walk(),
      qui les exclut explicitement en portée project) puis insérées après
@@ -638,6 +651,7 @@ export async function compile(
       targetSegments[targetSegments.length - 1].renderText = body.renderText;
       Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
       count++;
+      compiledFilePaths.push(file.path);
       return true;
     }
 
@@ -666,6 +680,7 @@ export async function compile(
     if (title) targetSegments[targetSegments.length - 1].startsWithGeneratedTitle = true;
     targetSegments[targetSegments.length - 1].titleBlockCount = title ? title.split("\n\n").length : 0;
     count++;
+    compiledFilePaths.push(file.path);
     return true;
   };
 
@@ -872,10 +887,10 @@ export async function compile(
      `parts` et `segments` reçoivent exactement les mêmes inserts, aux mêmes
      index, pour rester synchronisés (voir le commentaire juste en dessous
      sur cette contrainte). */
-  if (compilationScope.type === "project") {
-    const wantSummary = composition.summary;
-    const wantTables = composition.tables;
-    const wantToc = composition.toc;
+  if (compilationScope.type === "project" || options?.bibliographyMode === "pandoc") {
+    const wantSummary = compilationScope.type === "project" ? composition.summary : false;
+    const wantTables = compilationScope.type === "project" ? composition.tables : false;
+    const wantToc = compilationScope.type === "project" ? composition.toc : false;
     const wantBibliography = composition.bibliography;
     const bodySegments = segments.slice();
     const tocSourceSegments = wantAnnexes ? bodySegments.concat(annexSegments) : bodySegments;
@@ -907,51 +922,58 @@ export async function compile(
     }
 
     if (wantBibliography) {
-      const contextualCitations = await resolveCitedSourceFilesForCompileFiles(app, settings, filesToCompile);
-      const bibliographyEntriesForCompilation = contextualCitations.hasIndexedOccurrences
-        ? bibliographyEntriesForFiles(app, contextualCitations.sourceFiles)
-        : bibliographyEntriesForEditorialRoot(app, settings, editorialRoot);
-
-      const compiledBibtexEntries: BibliographyEntry[] = [];
-      const bibCatalogCache = new Map<string, readonly BibtexCatalogEntry[]>();
-
-      for (const file of filesToCompile) {
-        const fm = fmOf(app, file);
-        if (fm.compile === false) continue;
-
-        const content = typeof app.vault.cachedRead === "function"
-          ? await app.vault.cachedRead(file)
-          : await app.vault.read(file);
-        const citekeys = extractCitekeysCached(file, content);
-        if (citekeys.size === 0) continue;
-
-        const { bibFile } = resolveBibliographicScope(app, settings, globalRoot, file);
-        if (!bibFile) continue;
-
-        let catalog = bibCatalogCache.get(bibFile.path);
-        if (!catalog) {
-          catalog = await getCachedBibtexCatalog(app, bibFile);
-          bibCatalogCache.set(bibFile.path, catalog);
-        }
-
-        const catMap = new Map<string, BibtexCatalogEntry>();
-        for (const catEntry of catalog) {
-          catMap.set(catEntry.key, catEntry);
-        }
-
-        for (const key of citekeys.keys()) {
-          const entry = catMap.get(key);
-          if (entry) {
-            compiledBibtexEntries.push(bibtexEntryToBibliographyEntry(entry, bibFile.path));
-          }
-        }
-      }
-
-      const allBibliographyEntries = [...bibliographyEntriesForCompilation, ...compiledBibtexEntries];
-      const bibliographyText = generateBibliography(allBibliographyEntries);
-      if (bibliographyText) {
+      if (options?.bibliographyMode === "pandoc") {
+        const heading = t("export.pandoc.bibliographyHeading");
+        const bibliographyText = `# ${heading}\n\n::: {#refs}\n:::\n`;
         parts.push(bibliographyText);
         segments.push({ path: null, text: bibliographyText, frontType: null });
+      } else if (compilationScope.type === "project") {
+        const contextualCitations = await resolveCitedSourceFilesForCompileFiles(app, settings, filesToCompile);
+        const bibliographyEntriesForCompilation = contextualCitations.hasIndexedOccurrences
+          ? bibliographyEntriesForFiles(app, contextualCitations.sourceFiles)
+          : bibliographyEntriesForEditorialRoot(app, settings, editorialRoot);
+
+        const compiledBibtexEntries: BibliographyEntry[] = [];
+        const bibCatalogCache = new Map<string, readonly BibtexCatalogEntry[]>();
+
+        for (const file of filesToCompile) {
+          const fm = fmOf(app, file);
+          if (fm.compile === false) continue;
+
+          const content = typeof app.vault.cachedRead === "function"
+            ? await app.vault.cachedRead(file)
+            : await app.vault.read(file);
+          const citekeys = extractCitekeysCached(file, content);
+          if (citekeys.size === 0) continue;
+
+          const { bibFile } = resolveBibliographicScope(app, settings, globalRoot, file);
+          if (!bibFile) continue;
+
+          let catalog = bibCatalogCache.get(bibFile.path);
+          if (!catalog) {
+            catalog = await getCachedBibtexCatalog(app, bibFile);
+            bibCatalogCache.set(bibFile.path, catalog);
+          }
+
+          const catMap = new Map<string, BibtexCatalogEntry>();
+          for (const catEntry of catalog) {
+            catMap.set(catEntry.key, catEntry);
+          }
+
+          for (const key of citekeys.keys()) {
+            const entry = catMap.get(key);
+            if (entry) {
+              compiledBibtexEntries.push(bibtexEntryToBibliographyEntry(entry, bibFile.path));
+            }
+          }
+        }
+
+        const allBibliographyEntries = [...bibliographyEntriesForCompilation, ...compiledBibtexEntries];
+        const bibliographyText = generateBibliography(allBibliographyEntries);
+        if (bibliographyText) {
+          parts.push(bibliographyText);
+          segments.push({ path: null, text: bibliographyText, frontType: null });
+        }
       }
     }
 
@@ -1001,7 +1023,7 @@ export async function compile(
   }
   const manuscript = joinCompiledSegments(segments, composition.separator);
   if (options?.writeOutput === false) {
-    return { outPath: "", manuscript, segments };
+    return { outPath: "", manuscript, segments, compiledFilePaths: Object.freeze([...compiledFilePaths]) };
   }
   const fileName = resolveOutputBaseName(outputFileName, composition.fileName);
   const outputFolder = await getOutputFolder(app, settings);
@@ -1029,7 +1051,7 @@ export async function compile(
     `Compilé (${activePresetConfig(settings).name}) : ${count} feuillets → ${fileName}.md`
   );
   /** @type {CompileResult} */
-  return { outPath: writtenOutPath, manuscript, segments };
+  return { outPath: writtenOutPath, manuscript, segments, compiledFilePaths: Object.freeze([...compiledFilePaths]) };
 }
 
 /**
@@ -1091,6 +1113,410 @@ export function listCompiledFilePaths(app: App, settings: FeuilletsSettings) {
   return paths;
 }
 
+function isRemoteUrl(url: string): boolean {
+  return /^https?:\/\//i.test(url.trim());
+}
+
+function isRegisteredPackageMedia(target: string, mediaFiles: Map<string, PandocPackageMediaFile>): boolean {
+  const trimmed = target.trim();
+  if (!trimmed.startsWith("media/")) return false;
+  const rawName = trimmed.slice("media/".length).trim();
+  if (!rawName) return false;
+  if (mediaFiles.has(rawName)) return true;
+  try {
+    const decodedName = decodeURIComponent(rawName);
+    return mediaFiles.has(decodedName);
+  } catch {
+    return false;
+  }
+}
+
+async function replaceAsync(
+  str: string,
+  regex: RegExp,
+  replacer: (match: RegExpExecArray) => Promise<string>
+): Promise<string> {
+  const re = new RegExp(regex.source, regex.flags.includes("g") ? regex.flags : `${regex.flags}g`);
+  const matches: RegExpExecArray[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(str)) !== null) {
+    matches.push(m);
+  }
+  if (matches.length === 0) return str;
+
+  const replacements: string[] = [];
+  for (const match of matches) {
+    replacements.push(await replacer(match));
+  }
+  let result = "";
+  let lastIndex = 0;
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    result += str.slice(lastIndex, match.index);
+    result += replacements[i];
+    lastIndex = match.index + match[0].length;
+  }
+  result += str.slice(lastIndex);
+  return result;
+}
+
+function relativePathToProject(projectRoot: TFolder, file: TFile): string {
+  const rootPath = normalizePath(projectRoot.path);
+  const filePath = normalizePath(file.path);
+  if (filePath === rootPath) return file.name;
+  if (filePath.startsWith(`${rootPath}/`)) {
+    return filePath.slice(rootPath.length + 1);
+  }
+  return file.name;
+}
+
+type MediaCollectorState = {
+  mediaFiles: Map<string, PandocPackageMediaFile>;
+  mediaVaultMap: Map<string, string>;
+  seenNames: Map<string, number>;
+  warnings: string[];
+};
+
+async function transformSegmentMedia(
+  app: App,
+  text: string,
+  sourceFilePath: string,
+  mediaState: MediaCollectorState
+): Promise<string> {
+  if (!text) return text;
+
+  const codeBlocks: string[] = [];
+  const placeholderPrefix = `\x00FEUILLET_CODE_${Date.now()}_`;
+  let protectedText = text.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`/g, (match) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(match);
+    return `${placeholderPrefix}${idx}\x00`;
+  });
+
+  const WIKILINK_IMAGE_RE = /!\[\[([^\]|]+)(?:\|([^\]]*))?\]\]/g;
+  protectedText = await replaceAsync(protectedText, WIKILINK_IMAGE_RE, async (match) => {
+    const fullMatch = match[0];
+    const rawTarget = match[1] ?? "";
+    const rawAlt = match[2];
+    const target = rawTarget.trim();
+    const alt = rawAlt !== undefined ? rawAlt.trim() : "";
+
+    if (isRemoteUrl(target)) {
+      return alt ? `![${alt}](${target})` : `![](${target})`;
+    }
+
+    const decoded = decodeURIComponent(target);
+    const candidateFile = app.metadataCache?.getFirstLinkpathDest
+      ? app.metadataCache.getFirstLinkpathDest(decoded, sourceFilePath)
+      : null;
+    const directPathFile = app.vault.getAbstractFileByPath(decoded);
+    const directFile = candidateFile ?? (directPathFile instanceof TFile ? directPathFile : null);
+
+    if (directFile instanceof TFile) {
+      let finalName = mediaState.mediaVaultMap.get(directFile.path);
+      if (!finalName) {
+        const safeBase = sanitizeArchiveSegment(directFile.name);
+        const lower = safeBase.toLowerCase();
+        const count = mediaState.seenNames.get(lower) || 0;
+        mediaState.seenNames.set(lower, count + 1);
+        if (count > 0) {
+          const dotIdx = safeBase.lastIndexOf(".");
+          finalName = dotIdx > 0
+            ? `${safeBase.slice(0, dotIdx)}-${count}${safeBase.slice(dotIdx)}`
+            : `${safeBase}-${count}`;
+        } else {
+          finalName = safeBase;
+        }
+        mediaState.mediaVaultMap.set(directFile.path, finalName);
+        const data = await app.vault.readBinary(directFile);
+        mediaState.mediaFiles.set(finalName, { relativePath: finalName, data });
+      }
+
+      const isDimension = /^\d+(x\d+)?$/.test(alt);
+      const effectiveAlt = isDimension ? "" : alt;
+      return `![${effectiveAlt}](media/${finalName})`;
+    }
+
+    mediaState.warnings.push(`Missing media asset: ${target}`);
+    return fullMatch;
+  });
+
+  const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+["']([^"']*)["'])?\)/g;
+  protectedText = await replaceAsync(protectedText, MD_IMAGE_RE, async (match) => {
+    const fullMatch = match[0];
+    const alt = match[1] ?? "";
+    const rawTarget = match[2] ?? "";
+    const title = match[3];
+    const target = rawTarget.trim();
+
+    if (isRemoteUrl(target) || target.startsWith("data:") || isRegisteredPackageMedia(target, mediaState.mediaFiles)) {
+      return fullMatch;
+    }
+
+    const decoded = decodeURIComponent(target);
+    const candidateFile = app.metadataCache?.getFirstLinkpathDest
+      ? app.metadataCache.getFirstLinkpathDest(decoded, sourceFilePath)
+      : null;
+    const directPathFile = app.vault.getAbstractFileByPath(decoded);
+    const directFile = candidateFile ?? (directPathFile instanceof TFile ? directPathFile : null);
+
+    if (directFile instanceof TFile) {
+      let finalName = mediaState.mediaVaultMap.get(directFile.path);
+      if (!finalName) {
+        const safeBase = sanitizeArchiveSegment(directFile.name);
+        const lower = safeBase.toLowerCase();
+        const count = mediaState.seenNames.get(lower) || 0;
+        mediaState.seenNames.set(lower, count + 1);
+        if (count > 0) {
+          const dotIdx = safeBase.lastIndexOf(".");
+          finalName = dotIdx > 0
+            ? `${safeBase.slice(0, dotIdx)}-${count}${safeBase.slice(dotIdx)}`
+            : `${safeBase}-${count}`;
+        } else {
+          finalName = safeBase;
+        }
+        mediaState.mediaVaultMap.set(directFile.path, finalName);
+        const data = await app.vault.readBinary(directFile);
+        mediaState.mediaFiles.set(finalName, { relativePath: finalName, data });
+      }
+
+      return title
+        ? `![${alt}](media/${finalName} "${title}")`
+        : `![${alt}](media/${finalName})`;
+    }
+
+    mediaState.warnings.push(`Missing media asset: ${target}`);
+    return fullMatch;
+  });
+
+  const placeholderRe = new RegExp(`${placeholderPrefix}(\\d+)\x00`, "g");
+  let restored = "";
+  let lastIndex = 0;
+  let placeholderMatch: RegExpExecArray | null;
+  while ((placeholderMatch = placeholderRe.exec(protectedText)) !== null) {
+    restored += protectedText.slice(lastIndex, placeholderMatch.index);
+    const idxStr = placeholderMatch[1] ?? "";
+    const idx = Number.parseInt(idxStr, 10);
+    restored += codeBlocks[idx] ?? "";
+    lastIndex = placeholderMatch.index + placeholderMatch[0].length;
+  }
+  restored += protectedText.slice(lastIndex);
+  return restored;
+}
+
+export async function exportPandocPackageWithScope(
+  app: App,
+  settings: FeuilletsSettings,
+  scope: CompileScope,
+  baseName: string,
+  contentExtraction: ContentExtraction | null = null,
+  contentCollection: ContentCollection | null = null,
+  compileFn: typeof compile = compile
+): Promise<string | undefined> {
+  const folder = getProjectFolder(app, settings);
+  if (!folder) {
+    new Notice(t("export.pandoc.projectFolderNotFound"));
+    return undefined;
+  }
+
+  try {
+    const compileOptions: CompileOptions = {
+      writeOutput: false,
+      bibliographyMode: "pandoc",
+      ...(contentExtraction ? { contentExtraction } : {}),
+      ...(contentCollection ? { contentCollection } : {}),
+    };
+
+    const result = await compileFn(
+      app,
+      settings,
+      null,
+      scope,
+      undefined,
+      compileOptions
+    );
+    if (!result) return undefined;
+
+    const editorialRootForExport = resolveEditorialRootFor(app, folder, null, scope);
+    const composition = effectiveComposition(settings, folder, editorialRootForExport);
+    const wantBibliography = Boolean(composition.bibliography);
+    const suppressBibliography = !wantBibliography;
+
+    const mediaCollector: MediaCollectorState = {
+      mediaFiles: new Map(),
+      mediaVaultMap: new Map(),
+      seenNames: new Map(),
+      warnings: [],
+    };
+
+    const transformedSegments: CompileSegment[] = [];
+    for (const seg of result.segments) {
+      if (seg.path) {
+        const transformedText = await transformSegmentMedia(app, seg.text, seg.path, mediaCollector);
+        const transformedRenderText = seg.renderText !== undefined
+          ? await transformSegmentMedia(app, seg.renderText, seg.path, mediaCollector)
+          : undefined;
+        transformedSegments.push({
+          ...seg,
+          text: transformedText,
+          ...(transformedRenderText !== undefined ? { renderText: transformedRenderText } : {}),
+        });
+      } else {
+        transformedSegments.push(seg);
+      }
+    }
+
+    const finalManuscript = joinCompiledSegments(
+      transformedSegments.map((s) => ({
+        ...s,
+        text: s.renderText ?? s.text,
+      })),
+      composition.separator
+    );
+
+    const unknownKeys: PandocPackageCitationReportItem[] = [];
+    const neededBibFilesMap = new Map<string, TFile>();
+
+    for (const filePath of result.compiledFilePaths) {
+      const file = app.vault.getAbstractFileByPath(normalizePath(filePath));
+      if (!(file instanceof TFile) || file.extension !== "md") continue;
+
+      const content = typeof app.vault.cachedRead === "function"
+        ? await app.vault.cachedRead(file)
+        : await app.vault.read(file);
+      const fileCitekeys = extractCitekeysCached(file, content);
+      if (fileCitekeys.size === 0) continue;
+
+      const { bibFile } = resolveBibliographicScope(app, settings, folder, file);
+      if (bibFile) {
+        const catalog = await getCachedBibtexCatalog(app, bibFile);
+        const catalogMap = new Map<string, BibtexCatalogEntry>();
+        for (const entry of catalog) {
+          catalogMap.set(entry.key, entry);
+        }
+
+        let bibNeededByThisFile = false;
+        for (const [key, count] of fileCitekeys) {
+          if (catalogMap.has(key)) {
+            bibNeededByThisFile = true;
+          } else {
+            unknownKeys.push({
+              key,
+              occurrenceCount: count,
+              sourceMarkdownPath: relativePathToProject(folder, file),
+              resolverStatus: "unknown_citekey",
+            });
+          }
+        }
+        if (bibNeededByThisFile) {
+          neededBibFilesMap.set(normalizePath(bibFile.path), bibFile);
+        }
+      } else {
+        const res = resolveWorkspaceCitationResources(app, settings, folder, file);
+        let resolverStatus: ResolverStatus = "missing_bibliography";
+        if (res.bibliography.status === "disabled") {
+          resolverStatus = "disabled_bibliography";
+        } else if (res.bibliography.status === "invalid_path") {
+          resolverStatus = "invalid_bibliography_path";
+        } else if (res.bibliography.status === "unbound_research" && !res.selectionResearchFolder) {
+          resolverStatus = "unbound_research";
+        }
+
+        for (const [key, count] of fileCitekeys) {
+          unknownKeys.push({
+            key,
+            occurrenceCount: count,
+            sourceMarkdownPath: relativePathToProject(folder, file),
+            resolverStatus,
+          });
+        }
+      }
+    }
+
+    const neededBibFiles = Array.from(neededBibFilesMap.values());
+
+    const seenKeyOwner = new Map<string, { path: string; name: string }>();
+    for (const bibFile of neededBibFiles) {
+      const catalog = await getCachedBibtexCatalog(app, bibFile);
+      for (const entry of catalog) {
+        const previousOwner = seenKeyOwner.get(entry.key);
+        if (previousOwner && previousOwner.path !== bibFile.path) {
+          new Notice(t("export.pandoc.duplicateCitekey", {
+            key: entry.key,
+            file1: previousOwner.name,
+            file2: bibFile.name,
+          }));
+          return undefined;
+        }
+        seenKeyOwner.set(entry.key, { path: bibFile.path, name: bibFile.name });
+      }
+    }
+
+    const { folder: citationTargetFolder, failClosed: citationFailClosed } =
+      resolveExportCitationTargetFolder(app, null, scope);
+    let cslFile: PandocPackageCslFile | null = null;
+    if (!citationFailClosed) {
+      const scopeRes = resolveWorkspaceCitationResources(app, settings, folder, citationTargetFolder);
+      if (scopeRes.csl.status === "valid" && scopeRes.csl.file) {
+        const cslContent = await app.vault.read(scopeRes.csl.file);
+        cslFile = {
+          filename: sanitizeArchiveSegment(scopeRes.csl.file.name),
+          content: cslContent,
+        };
+      }
+    }
+
+    const bibliographies: PandocPackageBibliographyFile[] = [];
+    const seenBibNames = new Map<string, number>();
+    for (const bibFile of neededBibFiles) {
+      const safeBase = sanitizeArchiveSegment(bibFile.name);
+      const lower = safeBase.toLowerCase();
+      const count = seenBibNames.get(lower) || 0;
+      seenBibNames.set(lower, count + 1);
+      let filename = safeBase;
+      if (count > 0) {
+        const dotIdx = safeBase.lastIndexOf(".");
+        filename = dotIdx > 0
+          ? `${safeBase.slice(0, dotIdx)}-${count}${safeBase.slice(dotIdx)}`
+          : `${safeBase}-${count}`;
+      }
+      const content = await app.vault.read(bibFile);
+      bibliographies.push({ filename, content });
+    }
+
+    const hasReport = unknownKeys.length > 0 || mediaCollector.warnings.length > 0;
+    const citationReport: PandocPackageCitationReport | null = hasReport
+      ? {
+          ...(unknownKeys.length > 0 ? { unknownKeys } : {}),
+          ...(mediaCollector.warnings.length > 0 ? { warnings: mediaCollector.warnings } : {}),
+        }
+      : null;
+
+    const zipData = await createPandocPackage({
+      manuscript: finalManuscript,
+      suppressBibliography,
+      bibliographies,
+      csl: cslFile,
+      media: Array.from(mediaCollector.mediaFiles.values()),
+      citationReport,
+    });
+
+    const outputFolder = await getOutputFolder(app, settings);
+    const outBase = outputFolder ? outputFolder.path : folder.path;
+    const safeBase = resolveOutputBaseName(baseName, composition.fileName);
+    const zipBaseName = safeBase.toLowerCase().endsWith("-pandoc") ? safeBase : `${safeBase}-pandoc`;
+    const outPath = normalizePath(`${outBase}/${zipBaseName}.zip`);
+    const writtenPath = await writeBinaryFile(app, outPath, zipData);
+    new Notice(t("export.pandoc.exportSuccess", { path: writtenPath }));
+    return writtenPath;
+  } catch (e) {
+    console.error("Feuillets: export pandoc", e);
+    const err = toCompileError(e, "export pandoc", { format: "pandoc" });
+    new Notice(err.describe().slice(0, 300));
+    return undefined;
+  }
+}
+
 /** Point d'entrée de l'export : route vers le moteur natif (zéro dépendance,
  * fonctionne partout dont mobile). */
 export async function exportFile(app: App, settings: FeuilletsSettings, format = "docx", scopePath: string | null = null) {
@@ -1119,13 +1545,17 @@ export async function exportWithScope(
   format: ExportFormat,
   baseName: string,
   contentExtraction: ContentExtraction | null = null,
-  contentCollection: ContentCollection | null = null
+  contentCollection: ContentCollection | null = null,
+  compileFn: typeof compile = compile
 ): Promise<string | undefined> {
   if (format === "md") {
     /* Format Markdown : compile() écrit déjà le .md dans _Sortie et renvoie
        le chemin ; on réutilise le paramètre outputFileName pour forcer le nom. */
-    const result = await compile(app, settings, null, scope, baseName);
+    const result = await compileFn(app, settings, null, scope, baseName);
     return result?.outPath;
+  }
+  if (format === "pandoc") {
+    return exportPandocPackageWithScope(app, settings, scope, baseName, contentExtraction, contentCollection, compileFn);
   }
   /* Formats binaires : on passe par exportViaNative en fournissant la portée
      et le baseName directement — l'extension est ajoutée par exportViaNative

@@ -747,6 +747,7 @@ declare type CompileResult = {
   outPath: string;
   manuscript: string;
   segments: CompileSegment[];
+  compiledFilePaths: readonly string[];
 };
 
 /** Contexte d'export partagé par les moteurs natifs (EPUB, DOCX, ODT, PDF). */

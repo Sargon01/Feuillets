@@ -18,9 +18,11 @@ function createModal(exportFormat, exportScope) {
 test("ExportModal initialise le format depuis les réglages", () => {
   const docxModal = createModal("docx", { type: "project" });
   const pdfModal = createModal("pdf", { type: "project" });
+  const pandocModal = createModal("pandoc", { type: "project" });
 
   assert.equal(docxModal.selectedFormat, "docx");
   assert.equal(pdfModal.selectedFormat, "pdf");
+  assert.equal(pandocModal.selectedFormat, "pandoc");
 });
 
 test("ExportModal initialise le nom d'une portée fichier sans extension", () => {

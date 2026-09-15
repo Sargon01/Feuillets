@@ -1935,8 +1935,7 @@ function makeExportFixture() {
 
 test("SUPPORTED_EXPORT_FORMATS : contient exactement les formats implementes", async () => {
   const { SUPPORTED_EXPORT_FORMATS } = await import("../src/services/compile-export.js");
-  // Les 5 formats reellement implementes : epub, docx, odt, pdf, md
-  assert.deepEqual([...SUPPORTED_EXPORT_FORMATS].sort(), ["docx", "epub", "md", "odt", "pdf"]);
+  assert.deepEqual([...SUPPORTED_EXPORT_FORMATS].sort(), ["docx", "epub", "md", "odt", "pandoc", "pdf"]);
   // Aucun format fictif (html n'est pas implemente dans Feuillets)
   assert.ok(!SUPPORTED_EXPORT_FORMATS.includes("html"), "html ne doit pas etre dans SUPPORTED_EXPORT_FORMATS");
 });

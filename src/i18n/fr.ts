@@ -2496,6 +2496,11 @@ export const fr = {
   "modal.export.scope.folder": "Dossier {name}",
   "modal.export.scope.selection": "Sélection multiple",
   "modal.export.scope.project": "Projet complet",
+  "export.format.pandoc": "Paquet Pandoc (.zip)",
+  "export.pandoc.projectFolderNotFound": "Dossier projet introuvable. Vérifie les réglages.",
+  "export.pandoc.exportSuccess": "Export réussi : {path}",
+  "export.pandoc.bibliographyHeading": "Bibliographie",
+  "export.pandoc.duplicateCitekey": "Clé de citation en double « {key} » dans les bibliographies : {file1}, {file2}.",
   "shared.cancel": "Annuler",
 
   "settings.grammarExternal.name": "Correcteur grammatical",

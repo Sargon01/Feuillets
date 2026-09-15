@@ -152,7 +152,7 @@ export function resolveWorkspaceCitationResearchFolder(
   app: App,
   settings: FeuilletsSettings,
   projectRoot: TFolder,
-  workspaceFolder: TFolder | null,
+  targetScope: TFolder | TFile | null,
 ): TFolder | null {
   const configuredLinks = settings.projectMeta?.[projectRoot.path]?.researchFolderLinks;
   const isAssociationBased =
@@ -161,7 +161,7 @@ export function resolveWorkspaceCitationResearchFolder(
     Object.keys(configuredLinks).length > 0;
 
   if (isAssociationBased) {
-    if (workspaceFolder === null || workspaceFolder.path === projectRoot.path) {
+    if (targetScope === null || targetScope.path === projectRoot.path) {
       const explicit = configuredLinks[projectRoot.path];
       if (explicit) {
         const folder = app.vault.getAbstractFileByPath(normalizePath(explicit));
@@ -171,22 +171,42 @@ export function resolveWorkspaceCitationResearchFolder(
     }
 
     const rootPath = normalizePath(projectRoot.path);
-    const wsPath = normalizePath(workspaceFolder.path);
+    const targetPath = normalizePath(targetScope.path);
     const prefix = `${rootPath}/`;
-    if (!wsPath.startsWith(prefix)) return null;
+    if (!targetPath.startsWith(prefix)) return null;
 
-    const rel = wsPath.slice(prefix.length);
-    const parts = rel.split("/");
-    for (let end = parts.length; end > 0; end -= 1) {
-      const candidatePath = normalizePath(`${rootPath}/${parts.slice(0, end).join("/")}`);
-      if (candidatePath in configuredLinks) {
-        const link = configuredLinks[candidatePath];
+    // Direct-file association lookup explicitly before physical folder ancestors
+    if (targetScope instanceof TFile) {
+      if (targetPath in configuredLinks) {
+        const link = configuredLinks[targetPath];
         if (link) {
           const folder = app.vault.getAbstractFileByPath(normalizePath(link));
           if (folder instanceof TFolder) return folder;
         }
         // Stale/orphan link: target folder does not exist on disk.
-        // Ignore orphan link and continue checking ancestors.
+        // Ignore orphan link and continue checking physical folder ancestors.
+      }
+    }
+
+    // Physical folder ancestors traversal up to projectRoot
+    const folderPath = targetScope instanceof TFile
+      ? (targetScope.parent ? normalizePath(targetScope.parent.path) : null)
+      : targetPath;
+
+    if (folderPath && folderPath.startsWith(prefix)) {
+      const rel = folderPath.slice(prefix.length);
+      const parts = rel.split("/");
+      for (let end = parts.length; end > 0; end -= 1) {
+        const candidatePath = normalizePath(`${rootPath}/${parts.slice(0, end).join("/")}`);
+        if (candidatePath in configuredLinks) {
+          const link = configuredLinks[candidatePath];
+          if (link) {
+            const folder = app.vault.getAbstractFileByPath(normalizePath(link));
+            if (folder instanceof TFolder) return folder;
+          }
+          // Stale/orphan link: target folder does not exist on disk.
+          // Ignore orphan link and continue checking ancestors.
+        }
       }
     }
 
@@ -249,13 +269,13 @@ export function resolveWorkspaceCitationResources(
   app: App,
   settings: FeuilletsSettings,
   projectRoot: TFolder,
-  workspaceFolder: TFolder | null,
+  targetScope: TFolder | TFile | null,
 ): WorkspaceCitationResourcesResolution {
   const selectionResearchFolder = resolveWorkspaceCitationResearchFolder(
     app,
     settings,
     projectRoot,
-    workspaceFolder,
+    targetScope,
   );
 
   const meta = settings.projectMeta?.[projectRoot.path];
@@ -275,10 +295,11 @@ export function resolveWorkspaceCitationResources(
   };
 
   const scopes: ScopeEntry[] = [];
-  const isWorkspace = workspaceFolder !== null && workspaceFolder.path !== projectRoot.path;
+  const targetFolder = targetScope instanceof TFile ? targetScope.parent ?? null : targetScope;
+  const isWorkspace = targetFolder !== null && targetFolder.path !== projectRoot.path;
 
   if (isWorkspace) {
-    const chain = folderWorkspaceScopeChain(projectRoot.path, workspaceFolder.path);
+    const chain = folderWorkspaceScopeChain(projectRoot.path, targetFolder.path);
     const exactScope = chain[0] || null;
 
     for (const relScope of chain) {
@@ -288,8 +309,8 @@ export function resolveWorkspaceCitationResources(
         scopes.push({
           folder,
           relativeScope: relScope,
-          isWorkspace: relScope === exactScope,
-          isAncestor: relScope !== exactScope,
+          isWorkspace: relScope === exactScope && !(targetScope instanceof TFile),
+          isAncestor: relScope !== exactScope || (targetScope instanceof TFile),
           isProject: false,
         });
       }
@@ -347,12 +368,36 @@ export function resolveWorkspaceCitationResources(
         source = isLegacyMode ? "legacy" : "project";
       }
 
-      const ownerResearch = getScopeAssociatedResearchFolder(
+      const scopeResearch = getScopeAssociatedResearchFolder(
         app,
         settings,
         projectRoot,
         entry.folder,
       );
+
+      const hasExplicitOrphanLink = (folderPath: string): boolean => {
+        if (!isAssociationBased || !configuredLinks) return false;
+        if (!(folderPath in configuredLinks)) return false;
+        const link = configuredLinks[folderPath];
+        if (!link) return true;
+        const target = app.vault.getAbstractFileByPath(normalizePath(link));
+        return !(target instanceof TFolder);
+      };
+
+      let ownerResearch: TFolder | null = null;
+      if (hasExplicitOrphanLink(entry.folder.path)) {
+        ownerResearch = null;
+      } else if (scopeResearch) {
+        ownerResearch = scopeResearch;
+      } else if (
+        entry.folder.path === projectRoot.path &&
+        configuredLinks &&
+        !hasExplicitOrphanLink(projectRoot.path) &&
+        !(projectRoot.path in configuredLinks) &&
+        !(targetScope && hasExplicitOrphanLink(targetScope.path))
+      ) {
+        ownerResearch = selectionResearchFolder;
+      }
 
       if (!ownerResearch) {
         return {

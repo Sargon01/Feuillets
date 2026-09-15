@@ -259,7 +259,7 @@ export class ExportPanel {
     new Setting(main)
       .setName(t("preview.export.format"))
       .addDropdown((dropdown) => {
-        for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"]]) {
+        for (const [value, label] of [["docx", "DOCX"], ["pdf", "PDF"], ["epub", "EPUB"], ["odt", "ODT"], ["pandoc", t("export.format.pandoc")]]) {
           dropdown.addOption(value, label);
         }
         dropdown.setValue(this.exportFormat === "md" ? "docx" : this.exportFormat);
@@ -347,7 +347,7 @@ export class ExportPanel {
   }
 
   private quickFormatTooltip(format: string): string {
-    const label = format === "md" ? "Markdown" : format.toUpperCase();
+    const label = format === "md" ? "Markdown" : (format === "pandoc" ? t("export.format.pandoc") : format.toUpperCase());
     return t("preview.export.formatTooltip", { format: label });
   }
 
@@ -558,7 +558,7 @@ export class ExportPanel {
   private showQuickFormatMenu(event: MouseEvent, button: HTMLButtonElement): void {
     const current = this.exportFormat === "md" ? "docx" : this.exportFormat;
     const menu = new Menu();
-    for (const [value, label] of [["pdf", "PDF"], ["docx", "DOCX"], ["odt", "ODT"], ["epub", "EPUB"], ["md", "Markdown"]]) {
+    for (const [value, label] of [["pdf", "PDF"], ["docx", "DOCX"], ["odt", "ODT"], ["epub", "EPUB"], ["md", "Markdown"], ["pandoc", t("export.format.pandoc")]]) {
       menu.addItem((item) => item.setTitle(label).setChecked(current === value).onClick(() => {
         this.plugin.settings.exportFormat = value;
         void this.plugin.saveSettings?.();

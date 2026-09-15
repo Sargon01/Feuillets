@@ -2494,6 +2494,11 @@ export const en = {
   "modal.export.scope.folder": "Folder {name}",
   "modal.export.scope.selection": "Multiple selection",
   "modal.export.scope.project": "Entire project",
+  "export.format.pandoc": "Pandoc package (.zip)",
+  "export.pandoc.projectFolderNotFound": "Project folder not found. Check settings.",
+  "export.pandoc.exportSuccess": "Export successful: {path}",
+  "export.pandoc.bibliographyHeading": "Bibliography",
+  "export.pandoc.duplicateCitekey": "Duplicate citekey \"{key}\" found in bibliographies: {file1}, {file2}.",
   "shared.cancel": "Cancel",
 
   "settings.grammarExternal.name": "Grammar checker",

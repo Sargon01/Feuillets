@@ -34,7 +34,8 @@ export class ExportModal extends Modal {
       configuredFormat === "epub" ||
       configuredFormat === "docx" ||
       configuredFormat === "odt" ||
-      configuredFormat === "pdf"
+      configuredFormat === "pdf" ||
+      configuredFormat === "pandoc"
         ? configuredFormat
         : "docx";
     this.outputName = this.getDefaultOutputName();
@@ -86,7 +87,8 @@ export class ExportModal extends Modal {
           .addOption("docx", "Word (DOCX)")
           .addOption("pdf", "PDF")
           .addOption("odt", "OpenDocument (ODT)")
-          .addOption("md", "Markdown");
+          .addOption("md", "Markdown")
+          .addOption("pandoc", t("export.format.pandoc"));
         dropdown.setValue(this.selectedFormat);
         dropdown.onChange((value) => {
           this.selectedFormat = value as ExportFormat;

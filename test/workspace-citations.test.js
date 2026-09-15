@@ -1353,3 +1353,97 @@ test("H17. Distinct ancestor research folders: distinct research roots resolved 
   assert.notEqual(res.selectionResearchFolder?.path, res.bibliography.researchFolder?.path);
   assert.equal(res.selectionResearchFolder?.path, f.chapterAResearch.path);
 });
+
+test("TFile 1: Direct-file association resolves explicit research folder before physical folder ancestors", () => {
+  const f = createCitationFixture();
+  f.settings.projectMeta[f.project.path].researchFolderLinks = {
+    [f.docA.path]: f.articleAResearch.path,
+    [f.sectionA.path]: f.articleBResearch.path,
+  };
+
+  const research = resolveWorkspaceCitationResearchFolder(f.app, f.settings, f.project, f.docA);
+  assert.equal(research?.path, f.articleAResearch.path);
+});
+
+test("TFile 2: Direct-file association falls back to parent folder when file has no explicit link", () => {
+  const f = createCitationFixture();
+  f.settings.projectMeta[f.project.path].researchFolderLinks = {
+    [f.sectionA.path]: f.articleAResearch.path,
+  };
+
+  const research = resolveWorkspaceCitationResearchFolder(f.app, f.settings, f.project, f.docA);
+  assert.equal(research?.path, f.articleAResearch.path);
+});
+
+test("TFile 3: Stale direct-file link is ignored and falls back to parent folder association", () => {
+  const f = createCitationFixture();
+  f.settings.projectMeta[f.project.path].researchFolderLinks = {
+    [f.docA.path]: "NON_EXISTENT_FOLDER",
+    [f.sectionA.path]: f.articleAResearch.path,
+  };
+
+  const research = resolveWorkspaceCitationResearchFolder(f.app, f.settings, f.project, f.docA);
+  assert.equal(research?.path, f.articleAResearch.path);
+});
+
+test("TFile 4: Direct-file association in resolveWorkspaceCitationResources resolves resources from linked research folder", () => {
+  const f = createCitationFixture();
+  // Only docA has an explicit research link; project and parent folders have none
+  f.settings.projectMeta[f.project.path].researchFolderLinks = {
+    [f.docA.path]: f.articleAResearch.path,
+  };
+  f.settings.projectMeta[f.project.path].citekeyBibliographyPath = "references.bib";
+
+  const res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, f.docA);
+  assert.equal(res.selectionResearchFolder?.path, f.articleAResearch.path);
+  assert.equal(res.bibliography.status, "valid");
+  assert.equal(res.bibliography.file?.path, f.refA.path);
+  assert.equal(res.bibliography.researchFolder?.path, f.articleAResearch.path);
+});
+
+test("Orphan 1: Explicit orphan link on workspace folder never falls back to selectionResearchFolder or another branch", () => {
+  const f = createCitationFixture();
+  f.settings.projectMeta[f.project.path].researchFolderLinks = {
+    [f.articleA.path]: "RESEARCH/Broken-Link",
+    [f.articleB.path]: f.articleBResearch.path,
+  };
+  f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"] = {
+    version: 1,
+    citekeyBibliographyPath: "references.bib",
+  };
+
+  const res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, f.articleA);
+  assert.equal(res.bibliography.status, "unbound_research");
+  assert.equal(res.bibliography.researchFolder, null);
+  assert.equal(res.bibliography.file, null);
+  assert.notEqual(res.bibliography.researchFolder?.path, f.articleBResearch.path);
+});
+
+test("Orphan 2: Explicit orphan link on targetScope never triggers fallback to another branch's research folder", () => {
+  const f = createCitationFixture();
+  f.settings.projectMeta[f.project.path].researchFolderLinks = {
+    [f.articleA.path]: "RESEARCH/Broken-Link",
+    [f.articleB.path]: f.articleBResearch.path,
+  };
+  f.settings.projectMeta[f.project.path].citekeyBibliographyPath = "references.bib";
+
+  const res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, f.articleA);
+  assert.equal(res.bibliography.status, "unbound_research");
+  assert.equal(res.bibliography.researchFolder, null);
+  assert.equal(res.bibliography.file, null);
+});
+
+test("Orphan 3: Explicit orphan link on project root produces unbound_research and never falls back to selectionResearchFolder", () => {
+  const f = createCitationFixture();
+  f.settings.projectMeta[f.project.path].researchFolderLinks = {
+    [f.project.path]: "RESEARCH/Broken-Project-Research",
+    [f.docA.path]: f.articleAResearch.path,
+  };
+  f.settings.projectMeta[f.project.path].citekeyBibliographyPath = "references.bib";
+
+  const res = resolveWorkspaceCitationResources(f.app, f.settings, f.project, f.docA);
+  assert.equal(res.selectionResearchFolder?.path, f.articleAResearch.path);
+  assert.equal(res.bibliography.status, "unbound_research");
+  assert.equal(res.bibliography.researchFolder, null);
+  assert.equal(res.bibliography.file, null);
+});
