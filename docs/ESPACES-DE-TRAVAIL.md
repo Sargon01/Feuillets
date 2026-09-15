@@ -56,6 +56,14 @@ Un dossier ne stocke que les différences qu’il doit réellement surcharger. P
 
 Tous les réglages Feuillets ne sont pas nécessairement surchargeables localement. L’interface indique les réglages pris en charge et permet de revenir à la valeur héritée sans recopier les réglages du parent.
 
+## Espace de travail ou ouvrage indépendant ?
+
+Un espace ordinaire modifie le contexte local de travail mais reste dans l’unité éditoriale principale du projet. Lorsqu’un dossier doit devenir un tome, un livre ou une autre unité composée indépendamment, ouvrez ses réglages d’espace puis choisissez **Définir ce dossier comme ouvrage**.
+
+L’ouvrage déclaré conserve les mêmes dossiers physiques et fichiers Markdown, mais son Aperçu et son export de portée Projet s’arrêtent à cette frontière éditoriale. Sa Composition peut hériter du projet principal ou devenir locale, notamment pour les pages liminaires, le sommaire, la bibliographie et les annexes. Plusieurs ouvrages frères peuvent ainsi former les tomes d’une série, et un ouvrage peut en contenir un autre si nécessaire.
+
+Voir [Du texte court à la série](DU-TEXTE-COURT-A-LA-SERIE.md).
+
 ## Recherche Projet et Recherche Espace
 
 Le modèle conceptuel est le suivant :

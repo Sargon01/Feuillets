@@ -90,3 +90,11 @@ Ces trois surfaces répondent à des besoins différents :
 | Écrire plusieurs feuillets comme un seul texte | Continu |
 
 Le Classeur reste la structure réelle. Le Plan et Continu sont d’autres manières de travailler avec les mêmes fichiers.
+
+## Brouillons rapides
+
+**Nouveau brouillon rapide** ouvre immédiatement un fichier Markdown éditable sous `_Feuillets/Drafts`. La première ligne non vide du corps fournit automatiquement son nom de fichier. Le brouillon reste hors de la compilation du projet tant qu’il n’a pas été glissé ou déplacé dans le manuscrit ; il peut néanmoins être prévisualisé ou exporté seul.
+
+Déplacer un brouillon dans un dossier du Classeur le transforme en contenu ordinaire du manuscrit. Si son nom existe déjà dans le dossier d’arrivée, Feuillets choisit un nom numéroté sans écraser le fichier présent.
+
+Voir [Du texte court à la série](DU-TEXTE-COURT-A-LA-SERIE.md).

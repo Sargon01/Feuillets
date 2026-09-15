@@ -18,6 +18,7 @@ Voir [Projet portable `.feuil`](PROJET-PORTABLE-FEUIL.md).
 
 ### Classeur
 
+- brouillons rapides créés sous `_Feuillets/Drafts`, nommés automatiquement d’après leur première ligne non vide et exclus de la compilation globale jusqu’à leur intégration au manuscrit ;
 - création/renommage/déplacement ;
 - glisser-déposer vers la racine ;
 - sélection multiple ;
@@ -83,6 +84,8 @@ Le Classeur reste la structure de travail ; le Tableau en propose plusieurs lect
 ## Espaces et portées
 
 - isolation d’un dossier comme portée de travail sans déplacement ni copie des fichiers ;
+- possibilité de transformer tout espace en ouvrage éditorial indépendant, y compris à l’intérieur d’un autre ouvrage ;
+- composition héritée du projet ou définie localement pour chaque ouvrage : pages liminaires, sommaire, bibliographie, annexes et structure du manuscrit ;
 - portée feuillet, dossier, sélection ou projet selon l’action ;
 - réglages locaux pris en charge avec héritage depuis le parent, le projet ou les réglages globaux ;
 - Recherche, Tableau, objectifs, workflow et typographie pouvant suivre le contexte de travail ;
@@ -172,6 +175,7 @@ Le panneau Relecture regroupe :
 - sommaire/table des matières/tables ;
 - bibliographie et annexes ;
 - structure du manuscrit ;
+- composition résolue à la racine éditoriale active, afin de publier séparément articles, modules de cours, tomes ou série complète sans dupliquer les sources ;
 - gabarits V2 partagés avec Aperçu/export ;
 - création/duplication/renommage de gabarits ;
 - import Ulysses et Word.
@@ -210,10 +214,14 @@ Le panneau Relecture regroupe :
 - notes de bas de page placées au pied de la page de leur premier appel, avec espace réservé pendant la pagination ;
 - appels répétés sans duplication de la définition et notes pleine largeur sous une composition multicolonne ;
 - limitation connue : une note individuelle plus haute qu’une page utile n’est pas encore fragmentée ;
-- aperçu Pandoc/Zotero facultatif par projet à partir d’un fichier `.bib` du coffre ;
+- aperçu Pandoc/Zotero facultatif à partir de la ressource `.bib` résolue pour l’espace actif ;
 - affichage **Clés brutes** ou **Auteur-date**, avec localisateurs et groupes simples pris en charge ;
-- Markdown source et exports natifs inchangés ; citekeys non résolues laissées brutes ;
-- aucun moteur CSL complet : le style bibliographique final peut rester géré par un flux Pandoc externe.
+- Markdown source et exports natifs conservent les citekeys brutes ; citekeys non résolues laissées brutes ;
+- ressources `.bib` et CSL facultatif suivant le dossier Recherche associé à l’espace actif ;
+- `[@` ouvre un sélecteur BibTeX filtrable, avec références multiples et localisateurs ;
+- entrées BibTeX citées visibles dans Recherche et utilisables pour la bibliographie simple de Feuillets ;
+- **Paquet Pandoc (.zip)** réunissant Markdown compilé, `.bib` requis, CSL éventuel et médias locaux pour un traitement Pandoc externe ;
+- aucun moteur CSL complet : Feuillets n’installe, ne recherche et n’exécute ni Pandoc, ni Zotero, ni Better BibTeX.
 
 Les citations relient les sources Recherche au manuscrit. Lors d’une compilation, Feuillets peut limiter la bibliographie aux sources réellement citées dans la portée compilée.
 
@@ -225,6 +233,7 @@ Les citations relient les sources Recherche au manuscrit. Lors d’une compilati
 - ODT ;
 - PDF desktop via impression système ;
 - barre d’export compacte **Portée → Contenu → Format → Exporter** ;
+- **Paquet Pandoc (.zip)** portable, facultatif, pour un flux externe utilisant un CSL final ;
 - menu Contenu : document complet, extraction ou collection ;
 - nom de sortie résolu automatiquement avec compatibilité legacy ;
 - collisions de casse macOS gérées lors du remplacement des sorties existantes.
@@ -248,4 +257,4 @@ Les citations relient les sources Recherche au manuscrit. Lors d’une compilati
 - imports explicitement déclenchés ;
 - relecture collaborative par fichier local explicite ;
 - APIs Obsidian pour les écritures de coffre ;
-- aucun Pandoc ou exécutable de conversion.
+- aucun Pandoc ou exécutable de conversion n’est installé, recherché ou exécuté par Feuillets.

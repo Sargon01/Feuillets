@@ -18,6 +18,7 @@ See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 
 ### Binder
 
+- quick drafts created under `_Feuillets/Drafts`, automatically named from their first non-empty line and kept outside whole-project compilation until promoted into the manuscript;
 - create/rename/move;
 - drag back to root;
 - multi-select;
@@ -83,6 +84,8 @@ The Binder remains the working structure; the Board offers several readings of t
 ## Workspaces and scopes
 
 - folder isolation as a working scope without moving or copying files;
+- any workspace folder can become an independent editorial work, including a work nested inside another work;
+- each work can inherit the project composition or define its own front matter, contents, bibliography, appendices and manuscript structure;
 - sheet, folder, selection or project scope depending on the action;
 - supported local settings inherited from the parent, project or global settings;
 - Research, Board, goals, workflow and typography can follow the working context;
@@ -166,6 +169,7 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - contents/table of contents/tables;
 - bibliography and appendices;
 - manuscript structure;
+- composition resolved at the active editorial root, so one project can publish separate articles, course units, volumes or a complete series without duplicating source files;
 - V2 templates shared with Preview/export;
 - create/duplicate/rename custom templates;
 - Ulysses and Word template import.
@@ -204,10 +208,14 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - footnotes placed at the bottom of the page containing their first call, with space reserved during pagination;
 - repeated calls without duplicate definitions and full-width footnotes below multi-column composition;
 - known limitation: a single footnote taller than one usable page is not yet split;
-- optional per-project Pandoc/Zotero preview using a `.bib` file from the vault;
+- optional Pandoc/Zotero preview using the `.bib` resource resolved for the active workspace;
 - **Raw citekeys** or **Author-date** display, including locators and simple citation groups;
-- source Markdown and native exports unchanged; unresolved citekeys remain raw;
-- no full CSL engine: final bibliography styling can remain in an external Pandoc workflow.
+- source Markdown and native exports keep raw citekeys; unresolved citekeys remain raw;
+- `.bib` and optional CSL resources can follow the active workspace’s associated Research folder;
+- `[@` opens a searchable BibTeX picker supporting multiple references and locators;
+- cited BibTeX entries can appear in Research and feed Feuillets’ simple bibliography;
+- **Pandoc package (.zip)** can bundle compiled Markdown, required `.bib` files, an optional CSL and local media for an external Pandoc run;
+- no full CSL engine: Feuillets does not install, locate or run Pandoc, Zotero or Better BibTeX.
 
 Citations connect Research sources to the manuscript. During compilation, Feuillets can limit the bibliography to sources actually cited within the compiled scope.
 
@@ -216,6 +224,7 @@ Citations connect Research sources to the manuscript. During compilation, Feuill
 - compiled Markdown, DOCX, EPUB, ODT;
 - desktop PDF through system printing;
 - compact **Scope → Content → Format → Export** Edition toolbar;
+- optional portable **Pandoc package (.zip)** for a final external CSL-based workflow;
 - Content menu: full document, extraction or collection;
 - automatically resolved output name with legacy compatibility;
 - safe replacement across macOS case-only filename differences.
@@ -239,4 +248,4 @@ Citations connect Research sources to the manuscript. During compilation, Feuill
 - imports are explicit user actions;
 - collaborative review is explicit local file exchange;
 - Obsidian APIs for vault writes;
-- no Pandoc/external conversion executable.
+- no Pandoc/external conversion executable is installed, located or run by Feuillets.

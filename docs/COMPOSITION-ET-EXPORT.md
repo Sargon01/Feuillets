@@ -113,6 +113,12 @@ La barre rapide suit quatre commandes : **Portée → Contenu → Format → Exp
 
 La portée utilise le même modèle `CompileScope` que le reste de la chaîne. Les menus rapides sont compacts et n’imposent pas de dupliquer les réglages dans le manuscrit.
 
+### Composition dans un ouvrage indépendant
+
+Un dossier déclaré comme **ouvrage** devient une racine éditoriale. Dans son contexte, la portée Projet désigne cet ouvrage, et non la série ou le recueil qui le contient. L’Aperçu et l’export respectent la même frontière.
+
+L’ouvrage hérite d’abord de la Composition du projet principal. La personnaliser crée une composition locale sans réécrire le parent : rôles de structure et numérotation, première page, pages liminaires, contenus générés, bibliographie, annexes et choix de sortie restent rattachés au bon ouvrage. Réinitialiser la composition locale restaure l’héritage.
+
 Avant de lancer un export, Feuillets enregistre les modifications encore en attente de Continu, puis exporte depuis les vrais fichiers sources. Si ces écritures ne peuvent pas être sécurisées, l’export ne démarre pas. Il n’est pas nécessaire d’ouvrir l’Aperçu avant d’exporter.
 
 ## Nom du fichier de sortie
@@ -135,22 +141,13 @@ Les appels répétés restent visibles dans le texte mais ne réservent pas une 
 
 Une note individuelle dont la hauteur dépasse à elle seule la hauteur utile d’une page n’est pas encore fragmentée sur plusieurs pages. Cette limite ne concerne pas les notes ordinaires ou multiparagraphes qui tiennent dans la zone disponible d’une page.
 
-### Aperçu des citations Pandoc / Zotero
+### Citations BibTeX et paquet Pandoc
 
-Les réglages du projet proposent un **Aperçu des citations Pandoc / Zotero** indépendant du système de citations interne de Feuillets. Deux modes sont disponibles :
+Un espace de travail peut résoudre un fichier `.bib` et, facultativement, un style CSL depuis son dossier Recherche associé. Le feuillet actif utilise d’abord sa propre association, puis celles de ses dossiers ancêtres physiques : la Recherche d’un espace frère n’est jamais incluse. Tapez `[@` pour rechercher le catalogue et insérer une ou plusieurs citekeys avec des localisateurs facultatifs.
 
-- **Clés brutes** — aucun lissage ;
-- **Auteur-date** — résolution à partir d’un fichier `.bib` dont le chemin est indiqué relativement à la racine du coffre.
+L’Aperçu peut afficher les citations en auteur-date et le panneau Recherche lister les entrées BibTeX citées. Les citekeys inconnues restent visibles sous forme de Markdown brut. Les exports natifs conservent les citekeys brutes et peuvent inclure la bibliographie simple de Feuillets ; ils ne mettent pas en forme un style CSL.
 
-Le mode auteur-date prend en charge les groupes simples commençant par une citekey, les localisateurs et plusieurs références séparées par un point-virgule. Par exemple :
-
-- `[@smith2024]` → `(Smith, 2024)` ;
-- `[@smith2024, p. 42]` → `(Smith, 2024, p. 42)` ;
-- `[@smith2024; @doe2023]` → `(Smith, 2024; Doe & Brown, 2023)`.
-
-Une citation inconnue ou un groupe qui ne peut pas être entièrement résolu reste brut. Les citations narratives non encadrées, les syntaxes de suppression d’auteur, les préfixes complexes, le code et les liens ne sont pas réécrits par cet aperçu.
-
-Le lissage est appliqué uniquement au DOM de l’Aperçu, y compris aux citations présentes dans les notes de bas de page. Le Markdown source et les exports natifs Feuillets conservent toujours les citekeys originales. Il ne s’agit pas d’un moteur CSL complet : un flux Pandoc externe reste libre d’appliquer son propre style final. Le fichier `.bib` est relu lorsque sa date de modification change.
+Choisissez **Paquet Pandoc (.zip)** lorsqu’un établissement ou une revue exige un style CSL final. L’archive contient le `manuscript.md` compilé, `pandoc.yaml`, les seules bibliographies nécessaires à la portée compilée, le CSL applicable et les médias locaux copiés. Feuillets n’exécute jamais Pandoc : traitez l’archive avec votre propre installation ou flux Pandoc. Voir [Citations BibTeX et paquet Pandoc](CITATIONS-BIBTEX-ET-PANDOC.md).
 
 ## Formats
 

@@ -62,13 +62,13 @@ Think → organize → document → write → reread → revise → format → p
 - **Document** with Research, linked folders, citations, bibliography and Context.
 - **Write** with the native Markdown editor, writing typography, Continuous mode, goals and Focus Mode.
 - **Reread and revise** with Preview, annotations, snapshots, comparison, restoration, collaborative review and DOCX Review.
-- **Format and publish** with Edition, Composition, Layout, templates, footnotes, bibliography and the existing Markdown, DOCX, EPUB, ODT and PDF exports, with 16:9 Presentation when relevant.
+- **Format and publish** with Edition, Composition, Layout, templates, footnotes, bibliography and Markdown, DOCX, EPUB, ODT, PDF or Pandoc-package export, with 16:9 Presentation when relevant.
 
 Not every project needs every step. Feuillets keeps the whole chain available while letting each author choose the parts that fit the work.
 
 ## No imposed writing method
 
-Feuillets provides tools without imposing a narrative model. You can use only the Binder and the editor, build a fiction project with narrative threads and Timeline, develop documentary work with Research and citations, prepare a course or essay, work toward Edition, or keep a folder of independent texts.
+Feuillets provides tools without imposing a narrative model. You can use only the Binder and the editor, start a quick draft, build a fiction project with narrative threads and Timeline, develop documentary work with Research and citations, prepare a course or essay, organize a trilogy as independent works inside one project, or keep a folder of independent texts.
 
 Properties and metadata remain optional and adaptable to the project. Fiction, Non-fiction and Free are creation presets, not requirements for how a manuscript must be written.
 
@@ -89,6 +89,9 @@ A sheet may remain an article, short story, column or standalone chapter. Severa
 - optional **semantic roles** for variants, extractions and collections without duplicating the manuscript;
 - a 16:9 **Presentation** rendering from the same Markdown;
 - Markdown, DOCX, EPUB, ODT and PDF export.
+- a portable **Pandoc package (.zip)** when an external academic workflow needs a CSL-formatted result.
+
+See [From a short text to a series](docs/FROM-SHORT-TEXT-TO-SERIES.md).
 
 ## Start with an existing folder
 
@@ -255,13 +258,11 @@ In paginated Preview and PDF, a footnote is composed at the bottom of the page c
 
 The source remains ordinary Markdown (`[^1]`); only the displayed marker is smoothed in the composed document. Current limitation: a single footnote taller than the usable height of one page is not yet split across pages.
 
-### Pandoc / Zotero citation preview
+### BibTeX citations and Pandoc package
 
-A project can smooth Pandoc/Zotero citekeys in Preview without changing the manuscript. In project settings, **Pandoc / Zotero citation preview** lets you choose **Raw citekeys** or **Author-date**, then provide the path to a `.bib` file relative to the vault root.
+An author can place a `.bib` file, and optionally a `.csl` style, in a Research folder associated with a workspace. Type `[@` in a sheet to search the available catalog, select one or more references and add page locators. The Markdown source remains standard Pandoc citation syntax.
 
-For example, `[@smith2024]` can appear as `(Smith, 2024)`, `[@smith2024, p. 42]` as `(Smith, 2024, p. 42)`, and `[@smith2024; @doe2023]` as `(Smith, 2024; Doe & Brown, 2023)`. Unknown citekeys, groups that cannot be fully resolved, and syntax outside this preview’s supported subset remain raw.
-
-This feature is **visual and Preview-only**: Markdown files and Feuillets native exports keep the original citekeys. Feuillets does not provide a full CSL engine here; an external Pandoc workflow can still apply its own final bibliography style. The `.bib` file is re-read when its modification time changes.
+Feuillets can smooth citations in Preview, list cited BibTeX references in the Research panel and generate a simple bibliography. Native exports keep raw citekeys. For a university or journal workflow requiring a final CSL style, **Pandoc package (.zip)** creates a portable archive with `manuscript.md`, `pandoc.yaml`, the required `.bib` files, the optional CSL and local media. It does not run or require Pandoc, Zotero or Better BibTeX. See [BibTeX citations and Pandoc package](docs/BIBTEX-CITATIONS-AND-PANDOC.md).
 
 Native formats:
 
@@ -270,6 +271,7 @@ Native formats:
 - **EPUB**;
 - **ODT**;
 - **PDF** through the desktop system print dialog.
+- **Pandoc package (.zip)** for an optional external Pandoc run.
 
 V2 templates are shared by Preview and exports. Templates can be created, duplicated, renamed, or imported from Ulysses styles and Word templates when properties can be represented.
 
@@ -289,7 +291,7 @@ See [Import a Scrivener project](docs/IMPORT-SCRIVENER-EN.md).
 - local operation;
 - no telemetry;
 - no manuscript upload to a Feuillets service;
-- no Pandoc or external conversion executable for export;
+- no Pandoc or external conversion executable is installed, located or run by Feuillets;
 - collaborative review transported through `.feuillets` files explicitly exchanged by users;
 - desktop Scrivener import is an explicit user action;
 - GPL-3.0 source.

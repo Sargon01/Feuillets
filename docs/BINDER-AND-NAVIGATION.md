@@ -90,3 +90,11 @@ These surfaces solve different needs:
 | Write across several sheets as one text | Continuous |
 
 The Binder remains the real structure. Outline and Continuous are other ways of working with the same files.
+
+## Quick drafts
+
+**New quick draft** opens an immediately editable Markdown file under `_Feuillets/Drafts`. The first non-empty body line supplies its automatic filename. Drafts stay outside whole-project compilation until they are dragged or moved into the manuscript, while a draft can still be previewed or exported on its own.
+
+Moving a draft into a Binder folder promotes it to ordinary manuscript content. If its filename already exists at the destination, Feuillets chooses a non-destructive numbered name.
+
+See [From a short text to a series](FROM-SHORT-TEXT-TO-SERIES.md).

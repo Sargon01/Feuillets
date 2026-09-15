@@ -21,10 +21,12 @@ Le projet assure la continuité ; les espaces de travail fournissent un contexte
 7. [Réécriture, sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md)
 8. [Annotations de travail](ANNOTATIONS-DE-TRAVAIL.md)
 9. [Composition et export](COMPOSITION-ET-EXPORT.md)
+10. [Citations BibTeX et paquet Pandoc](CITATIONS-BIBTEX-ET-PANDOC.md)
 
 ## Pour découvrir
 
 - **[Découvrir Feuillets](DECOUVRIR.md)** · [English](DISCOVER.md)
+- **[Nouveautés de Feuillets 3.0.0](VERSION-3.0.0.md)** · [English](RELEASE-3.0.0.md)
 - **[Tutoriel — publier plusieurs documents depuis une seule source](TUTORIEL-PUBLICATION-SEMANTIQUE.md)** · [English](SEMANTIC-PUBLISHING-TUTORIAL.md)
 - **[Le parcours d’un auteur](PARCOURS-AUTEUR.md)** · [English](AUTHOR-WORKFLOW.md)
 - **[Fonctionnalités par usage](FONCTIONNALITES.md)** · [English](FEATURES.md)
@@ -41,6 +43,8 @@ Le projet assure la continuité ; les espaces de travail fournissent un contexte
 - **[Projet portable `.feuil`](PROJET-PORTABLE-FEUIL.md)** · [English](PORTABLE-FEUIL-PROJECT.md)
 - **[Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md)** · [English](HOW-TO-NOTEBOOK.md)
 - **[Utiliser le contexte intelligent local](How-to-Contexte-Feuillets.md)** · [English](HOW-TO-CONTEXT.md)
+- **[Citations BibTeX et paquet Pandoc](CITATIONS-BIBTEX-ET-PANDOC.md)** · [English](BIBTEX-CITATIONS-AND-PANDOC.md)
+- **[Du texte court à la série](DU-TEXTE-COURT-A-LA-SERIE.md)** · [English](FROM-SHORT-TEXT-TO-SERIES.md)
 
 ## Relecture et versions
 
@@ -54,6 +58,7 @@ Le projet assure la continuité ; les espaces de travail fournissent un contexte
 ## Composition, publication et présentation
 
 - **[Composition et export](COMPOSITION-ET-EXPORT.md)** · [English](COMPOSITION-AND-EXPORT.md)
+- **[Citations BibTeX et paquet Pandoc](CITATIONS-BIBTEX-ET-PANDOC.md)** · [English](BIBTEX-CITATIONS-AND-PANDOC.md)
 - **[Rôles sémantiques](ROLES-SEMANTIQUES.md)** · [English](SEMANTIC-ROLES.md)
 - **[Variantes, extractions et collections](VARIANTES-EXTRACTIONS-COLLECTIONS.md)** · [English](CONTENT-VARIANTS-EXTRACTIONS-COLLECTIONS.md)
 - **[Présentation](PRESENTATION.md)** · [English](PRESENTATION-EN.md)

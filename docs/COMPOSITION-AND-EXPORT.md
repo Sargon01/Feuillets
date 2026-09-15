@@ -85,6 +85,12 @@ The compact toolbar follows **Scope → Content → Format → Export**.
 
 Scope uses the same `CompileScope` model as the rest of the pipeline: sheet, folder, selection or project.
 
+### Composition inside an independent work
+
+A folder declared as a **work** becomes an editorial root. In its context, project scope means that work rather than the containing series or collection. Preview and export use the same boundary.
+
+The work initially inherits the main project Composition. Customizing it creates a local composition without rewriting the parent: structure roles and numbering, first page, front matter, generated contents, bibliography, appendices and output choices remain attached to the correct work. Resetting the local composition returns to inheritance.
+
 Before export starts, Feuillets saves any pending Continuous edits, then exports from the real source files. If those writes cannot be secured, export does not start. Opening Preview is not required before exporting.
 
 ## Output name
@@ -107,22 +113,13 @@ Repeated calls remain visible in the text without reserving the definition again
 
 A single footnote taller than the usable height of one page is not yet split across pages. This limitation does not affect ordinary or multi-paragraph notes that fit within the available area of a page.
 
-### Pandoc / Zotero citation preview
+### BibTeX citations and Pandoc package
 
-Project settings include a **Pandoc / Zotero citation preview** that is separate from Feuillets’ internal citation system. Two modes are available:
+A workspace can resolve a `.bib` file, and optionally a CSL style, from its associated Research folder. The active sheet uses its own association first, then its physical ancestor folders: sibling workspaces are never included. Type `[@` to search the catalog and insert one or more citekeys with optional locators.
 
-- **Raw citekeys** — no smoothing;
-- **Author-date** — resolve citations from a `.bib` file whose path is relative to the vault root.
+Preview can show author-date citations and the Research panel can list cited BibTeX entries. Unknown citekeys remain visible as raw Markdown. Native exports retain raw citekeys and can include Feuillets’ simple bibliography. They do not implement CSL formatting.
 
-Author-date preview supports simple bracketed groups beginning with a citekey, locators, and multiple references separated by semicolons. For example:
-
-- `[@smith2024]` → `(Smith, 2024)`;
-- `[@smith2024, p. 42]` → `(Smith, 2024, p. 42)`;
-- `[@smith2024; @doe2023]` → `(Smith, 2024; Doe & Brown, 2023)`.
-
-An unknown citation or a group that cannot be fully resolved remains raw. Unbracketed narrative citations, author-suppression syntax, complex prefixes, code, and links are not rewritten by this preview.
-
-Smoothing is applied only to the Preview DOM, including citations inside footnotes. Source Markdown and Feuillets native exports always keep the original citekeys. This is not a full CSL engine: an external Pandoc workflow remains free to apply its own final style. The `.bib` file is re-read when its modification time changes.
+Choose **Pandoc package (.zip)** when the final document must follow a university or journal CSL style. The archive contains the compiled `manuscript.md`, `pandoc.yaml`, only the bibliographies needed by the compiled scope, the applicable CSL and copied local media. Feuillets never runs Pandoc; process the archive with your own Pandoc installation or workflow. See [BibTeX citations and Pandoc package](BIBTEX-CITATIONS-AND-PANDOC.md).
 
 Native output: compiled Markdown, DOCX, EPUB, ODT and desktop PDF through the system print dialog. Source Markdown is never replaced by the export artifact.
 

@@ -57,6 +57,14 @@ A folder stores only the differences it actually needs to override. For example,
 
 Not every Feuillets setting is necessarily locally overridable. The interface exposes the supported settings and lets you return to the inherited value without copying the parent’s settings.
 
+## Workspace or independent work?
+
+An ordinary workspace changes the local working context but remains part of the project’s main editorial unit. When a folder must become a volume, book or other independently composed unit, open its workspace settings and choose **Define this folder as a work**.
+
+A declared work keeps the same physical folders and Markdown files, but its project-level Preview and export stop at that editorial boundary. Its Composition can inherit the main project or become local, including front matter, contents, bibliography and appendices. Several sibling works can therefore represent volumes of a series, and works may be nested when necessary.
+
+See [From a short text to a series](FROM-SHORT-TEXT-TO-SERIES.md).
+
 ## Project Research and Workspace Research
 
 The conceptual model is:

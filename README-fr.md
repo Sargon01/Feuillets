@@ -38,13 +38,13 @@ Un dossier du Classeur peut devenir l’espace actif sans créer de sous-projet 
 
 ## Une chaîne de travail d’auteur
 
-**Penser** avec le Carnet et les plans → **organiser** avec le Classeur, les Cartes, le Plan, le Chemin de fer et la Chronologie → **documenter** avec Recherche, citations et Contexte → **écrire** dans l’éditeur Markdown, Continu et le mode Concentration → **relire** avec l’Aperçu → **réviser** avec annotations, versions et comparaison → **mettre en forme** avec Édition → **publier** par les exports disponibles.
+**Penser** avec le Carnet et les plans → **organiser** avec le Classeur, les Cartes, le Plan, le Chemin de fer et la Chronologie → **documenter** avec Recherche, citations et Contexte → **écrire** dans l’éditeur Markdown, Continu et le mode Concentration → **relire** avec l’Aperçu → **réviser** avec annotations, versions et comparaison → **mettre en forme** avec Édition → **publier** par les exports natifs ou un paquet Pandoc.
 
 Chaque étape reste facultative : Feuillets s’adapte au projet et à la méthode de l’auteur.
 
 ## Aucune méthode d’écriture imposée
 
-Feuillets peut servir à un projet de fiction, un essai, un cours, un travail documentaire, un recueil ou des textes indépendants. L’auteur peut utiliser seulement le Classeur et l’éditeur, ou ajouter Recherche, Chronologie, fils narratifs, citations, édition et export. Les propriétés et métadonnées restent facultatives et adaptables au projet.
+Feuillets peut servir à un projet de fiction, un essai, un cours, un travail documentaire, un recueil ou des textes indépendants. L’auteur peut utiliser seulement le Classeur et l’éditeur, commencer par un brouillon rapide, ajouter Recherche, Chronologie, fils narratifs, citations, édition et export, ou organiser une trilogie comme plusieurs ouvrages dans un même projet. Les propriétés et métadonnées restent facultatives et adaptables au projet.
 
 ## Du feuillet au manuscrit
 
@@ -63,6 +63,9 @@ Un feuillet peut rester un article, une nouvelle, une chronique ou un chapitre a
 - des **rôles sémantiques** facultatifs pour produire variantes, extractions et collections sans dupliquer le manuscrit ;
 - un rendu **Présentation** 16:9 à partir du même Markdown ;
 - des exports Markdown, DOCX, EPUB, ODT et PDF.
+- un **paquet Pandoc (.zip)** portable lorsqu’un flux universitaire externe exige un style CSL.
+
+Voir [Du texte court à la série](docs/DU-TEXTE-COURT-A-LA-SERIE.md).
 
 ## Commencer avec un dossier existant
 
@@ -229,13 +232,11 @@ Dans l’Aperçu paginé et le PDF, une note de bas de page est composée au pie
 
 Le Markdown de la note reste un Markdown ordinaire (`[^1]`). La numérotation est simplement lissée dans le document composé. Limitation actuelle : une note individuelle plus haute que la hauteur utile d’une page n’est pas encore fragmentée sur plusieurs pages.
 
-### Aperçu des citations Pandoc / Zotero
+### Citations BibTeX et paquet Pandoc
 
-Un projet peut lisser dans l’Aperçu les citekeys Pandoc/Zotero sans modifier le manuscrit. Dans les réglages du projet, **Aperçu des citations Pandoc / Zotero** permet de choisir entre **Clés brutes** et **Auteur-date**, puis d’indiquer le chemin d’un fichier `.bib` relatif à la racine du coffre.
+L’auteur peut placer un fichier `.bib` et, facultativement, un style `.csl` dans un dossier Recherche associé à un espace de travail. Tapez `[@` dans un feuillet pour rechercher le catalogue disponible, choisir une ou plusieurs références et ajouter des pages. Le Markdown source reste la syntaxe de citation Pandoc standard.
 
-Par exemple, `[@smith2024]` peut apparaître comme `(Smith, 2024)`, `[@smith2024, p. 42]` comme `(Smith, 2024, p. 42)` et `[@smith2024; @doe2023]` comme `(Smith, 2024; Doe & Brown, 2023)`. Les citekeys inconnues, les groupes qui ne peuvent pas être entièrement résolus et les syntaxes hors du périmètre de cet aperçu restent bruts.
-
-Cette fonction est **visuelle et limitée à l’Aperçu** : les fichiers Markdown et les exports natifs Feuillets conservent les citekeys d’origine. Feuillets ne fournit pas ici un moteur CSL complet ; un export Pandoc externe peut donc continuer à appliquer son propre style bibliographique final. Le `.bib` est relu lorsque sa date de modification change.
+Feuillets peut mettre en forme les citations dans l’Aperçu, afficher les références BibTeX citées dans le panneau Recherche et générer une bibliographie simple. Les exports natifs conservent les citekeys brutes. Lorsqu’un établissement ou une revue impose un style CSL final, **Paquet Pandoc (.zip)** produit une archive portable avec `manuscript.md`, `pandoc.yaml`, les `.bib` requis, le CSL éventuel et les médias locaux. Feuillets n’installe ni n’exécute Pandoc, Zotero ou Better BibTeX. Voir [Citations BibTeX et paquet Pandoc](docs/CITATIONS-BIBTEX-ET-PANDOC.md).
 
 Formats natifs :
 
@@ -244,6 +245,7 @@ Formats natifs :
 - **EPUB** ;
 - **ODT** ;
 - **PDF** via la boîte d’impression système sur ordinateur.
+- **Paquet Pandoc (.zip)** pour un traitement Pandoc externe facultatif.
 
 Les gabarits V2 sont partagés entre Aperçu et exports. Ils peuvent être créés, dupliqués, renommés ou importés depuis des styles Ulysses ou des modèles Word lorsque les propriétés sont représentables.
 
@@ -263,7 +265,7 @@ Voir [Importer un projet Scrivener](docs/IMPORT-SCRIVENER.md).
 - fonctionnement local ;
 - aucune télémétrie ;
 - aucun envoi du manuscrit vers un service Feuillets ;
-- aucun Pandoc ni exécutable externe pour les exports ;
+- aucun Pandoc ni exécutable externe n’est installé, recherché ou exécuté par Feuillets ;
 - relecture collaborative transportée par fichiers `.feuillets` explicitement échangés par l’utilisateur ;
 - import Scrivener déclenché explicitement sur ordinateur ;
 - code GPL-3.0.

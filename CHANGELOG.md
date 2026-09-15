@@ -2,6 +2,28 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.0.0 — 2026-09-15
+
+### Écriture et structure
+
+- Création rapide de brouillons et modèle d’export simple pour les documents autonomes.
+- Gestion d’œuvres éditoriales imbriquées : un projet peut contenir plusieurs manuscrits composés et exportés indépendamment, chacun avec sa propre composition.
+- Correction des séparateurs entre scènes, de la portée d’export et de la traversée des chapitres imbriqués afin que l’Aperçu et les exports suivent la même structure.
+
+### Recherche et citations
+
+- Recherche contextualisée le long de la branche du feuillet actif, sans faire apparaître les recherches de dossiers frères.
+- Un dossier ou un feuillet peut désigner sa propre Recherche associée, y compris pour les ressources bibliographiques.
+- Prise en charge des fichiers BibTeX `.bib` et des styles CSL facultatifs placés dans la Recherche d’un espace de travail.
+- Saisie de citekeys avec `[@` : recherche, sélection de plusieurs références et localisateurs de page.
+- Bibliographie des citekeys réellement utilisés, visible dans le panneau Recherche et générable en Markdown ; les Sources Feuillets existantes restent prises en charge.
+
+### Aperçu et export
+
+- L’Aperçu résout les citations BibTeX selon la branche physique du feuillet, qu’un dossier soit isolé ou non.
+- Les exports natifs conservent les citekeys Markdown ; la bibliographie simple peut être générée à partir des références citées.
+- Ajout du **paquet Pandoc (.zip)** : un export portable contenant le manuscrit Markdown, les fichiers `.bib`, le CSL éventuel et les médias locaux. Feuillets n’installe ni n’exécute Pandoc, Zotero ou Better BibTeX.
+
 ## 2.9.0 — 2026-09-06
 
 ### Workspaces
