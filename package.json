@@ -1,6 +1,6 @@
 {
   "name": "feuillets-dev",
-  "version": "3.0.0",
+  "version": "3.0.1",
   "description": "Feuillets plugin development",
   "main": "main.js",
   "scripts": {

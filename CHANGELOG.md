@@ -2,6 +2,15 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.0.1 — 2026-09-16
+
+### Journal
+
+- Ajout d'un suffixe facultatif et configurable pour les fichiers quotidiens, par exemple `2026-09-15-log.md`, sans renommage ni duplication des entrées existantes.
+- Les statistiques quotidiennes sont désormais enregistrées séparément pour chaque projet et actualisées indépendamment de l'ouverture du Tableau.
+- Le calendrier devient entièrement utilisable au clavier, distingue le jour courant du jour sélectionné et permet de revenir directement à aujourd'hui.
+- Le nom et les notifications du carnet compilé sont localisés en français et en anglais ; un carnet existant conserve son nom lors d'un changement de langue afin d'éviter les doublons.
+
 ## 3.0.0 — 2026-09-15
 
 ### Écriture et structure
