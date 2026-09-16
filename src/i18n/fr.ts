@@ -613,6 +613,9 @@ export const fr = {
   "journal.weekday.sat": "Sam",
   "journal.weekday.sun": "Dim",
   "journal.compileTooltip": "Compiler le carnet",
+  "journal.previousMonth": "Mois précédent",
+  "journal.nextMonth": "Mois suivant",
+  "journal.today": "Aujourd'hui",
   "journal.wordsCount": "{count} mots",
   "journal.backToLastEntry": "Retour à la dernière entrée",
   "journal.journalTitle": "Journal",
@@ -623,6 +626,7 @@ export const fr = {
   "journal.noEntryYet": "Aucune entrée pour l'instant — clique un jour pour commencer.",
   "journal.recentHistory": "Historique récent",
   "journal.dayWordsAria": "{date} : {count} mot{s}",
+  "journal.entryAvailable": "Entrée de journal présente",
   "journal.historyTotal": "{total} mots sur les {days} derniers jours",
 
   // ---------- Panneau latéral à onglets (sidebar-feuillets-view.js) ----------

@@ -27,6 +27,12 @@ function mondayIndex(date: Date): number {
   return (date.getDay() + 6) % 7;
 }
 
+/** Marque du pluriel pour `journal.dayWordsAria` ({count} mot{s}) — seul 1
+ * reste au singulier, zéro comme tout le reste prend le pluriel ("0 mots"). */
+function wordsPlural(count: number): string {
+  return count === 1 ? "" : "s";
+}
+
 function readableDate(key: string): string {
   const [year, month, day] = key.split("-").map(Number);
   return new Date(year, month - 1, day).toLocaleDateString(dateLocale(), {
@@ -95,6 +101,16 @@ export class JournalView extends BaseFeuilletsView {
     void this.render();
   }
 
+  /** Bouton « Aujourd'hui » de l'en-tête du calendrier : ramène le mois
+   * affiché au mois courant et sélectionne le jour du jour, en un seul
+   * rendu — même patron que changeMonth()/openDay(). */
+  goToToday(): void {
+    const today = new Date();
+    this.monthCursor = new Date(today.getFullYear(), today.getMonth(), 1);
+    this.viewedDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    void this.render();
+  }
+
   async compileCarnet(): Promise<void> {
     await this.plugin.compileJournal();
     void this.render();
@@ -129,15 +145,15 @@ export class JournalView extends BaseFeuilletsView {
     }
 
     const header = wrapper.createDiv({ cls: "feuillets-journal-header" });
-    const prevBtn = header.createSpan({ cls: "feuillets-journal-nav-btn clickable-icon" });
-    setIcon(prevBtn, "chevron-left");
-    prevBtn.addEventListener("click", () => this.changeMonth(-1));
+    const prevBtn = iconBtn(header, "chevron-left", t("journal.previousMonth"), () => this.changeMonth(-1));
+    prevBtn.addClass("feuillets-journal-nav-btn");
     header.createSpan({ cls: "feuillets-journal-month" }).setText(
       this.monthCursor.toLocaleDateString(dateLocale(), { month: "long", year: "numeric" })
     );
-    const nextBtn = header.createSpan({ cls: "feuillets-journal-nav-btn clickable-icon" });
-    setIcon(nextBtn, "chevron-right");
-    nextBtn.addEventListener("click", () => this.changeMonth(1));
+    const nextBtn = iconBtn(header, "chevron-right", t("journal.nextMonth"), () => this.changeMonth(1));
+    nextBtn.addClass("feuillets-journal-nav-btn");
+    const todayBtn = iconBtn(header, "calendar-check", t("journal.today"), () => this.goToToday());
+    todayBtn.addClass("feuillets-journal-today-btn");
     const compileBtn = iconBtn(header, "refresh-cw", t("journal.compileTooltip"), () => { void this.compileCarnet(); });
     compileBtn.addClass("feuillets-journal-compile-btn");
 
@@ -159,6 +175,7 @@ export class JournalView extends BaseFeuilletsView {
     const firstDay = new Date(year, month, 1);
     const leading = mondayIndex(firstDay);
     const todayKeyStr = dateKey(new Date());
+    const selectedKey = this.viewedDate ? dateKey(this.viewedDate) : null;
     const entryKeys = journalEntryKeys(this.app, settings);
 
     for (let index = 0; index < leading; index++) {
@@ -168,14 +185,26 @@ export class JournalView extends BaseFeuilletsView {
       const date = new Date(year, month, day);
       const key = dateKey(date);
       const delta = deltas[day - 1];
-      const cell = grid.createDiv({ cls: "feuillets-journal-cell" });
-      if (key === todayKeyStr) cell.addClass("feuillets-journal-cell-today");
+      const hasEntry = entryKeys.has(key);
+      const isToday = key === todayKeyStr;
+      const isSelected = selectedKey !== null && key === selectedKey;
+      const cell = grid.createEl("button", { cls: "feuillets-journal-cell", attr: { type: "button" } });
+      if (isToday) {
+        cell.addClass("feuillets-journal-cell-today");
+        cell.setAttr("aria-current", "date");
+      }
+      if (isSelected) cell.addClass("feuillets-journal-cell-selected");
+      cell.setAttr("aria-pressed", String(isSelected));
       cell.createDiv({ cls: "feuillets-journal-daynum" }).setText(String(day));
 
-      if (entryKeys.has(key)) {
+      if (hasEntry) {
         cell.createDiv({ cls: "feuillets-journal-dot" });
       }
-      cell.setAttr("title", delta > 0 ? t("journal.wordsCount", { count: String(delta) }) : "");
+      const fullDate = date.toLocaleDateString(dateLocale(), { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+      let dayLabel = t("journal.dayWordsAria", { date: fullDate, count: String(delta), s: wordsPlural(delta) });
+      if (hasEntry) dayLabel += ` ${t("journal.entryAvailable")}`;
+      cell.setAttr("aria-label", dayLabel);
+      cell.setAttr("title", dayLabel);
       cell.addEventListener("click", () => this.openDay(date));
     }
 
@@ -333,7 +362,7 @@ export class JournalView extends BaseFeuilletsView {
         t("journal.dayWordsAria", {
           date: entry.date.toLocaleDateString(dateLocale(), { weekday: "short", day: "numeric", month: "short" }),
           count: String(entry.delta),
-          s: entry.delta > 1 ? "s" : "",
+          s: wordsPlural(entry.delta),
         })
       );
       bar.setAttr("title", bar.getAttr("aria-label"));

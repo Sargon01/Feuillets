@@ -612,6 +612,9 @@ export const en = {
   "journal.weekday.sat": "Sat",
   "journal.weekday.sun": "Sun",
   "journal.compileTooltip": "Compile the journal",
+  "journal.previousMonth": "Previous month",
+  "journal.nextMonth": "Next month",
+  "journal.today": "Today",
   "journal.wordsCount": "{count} words",
   "journal.backToLastEntry": "Back to the last entry",
   "journal.journalTitle": "Journal",
@@ -622,6 +625,7 @@ export const en = {
   "journal.noEntryYet": "No entry yet — click a day to start.",
   "journal.recentHistory": "Recent history",
   "journal.dayWordsAria": "{date}: {count} word{s}",
+  "journal.entryAvailable": "Journal entry available",
   "journal.historyTotal": "{total} words over the last {days} days",
 
   // ---------- Tabbed sidebar panel (sidebar-feuillets-view.js) ----------

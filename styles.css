@@ -1508,6 +1508,15 @@ body:not(.feuillets-indent) .feuillets-indent-widget {
   align-items: center;
   justify-content: center;
   cursor: pointer;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  box-sizing: border-box;
+  border-radius: var(--radius-s);
 }
 
 .feuillets-journal-cell-empty {
@@ -1516,6 +1525,16 @@ body:not(.feuillets-indent) .feuillets-indent-widget {
 
 .feuillets-journal-cell:hover .feuillets-journal-daynum {
   color: var(--text-normal);
+}
+
+.feuillets-journal-cell-selected {
+  background: color-mix(in srgb, var(--interactive-accent) 18%, transparent);
+}
+
+.feuillets-journal-cell:focus-visible,
+.feuillets-journal-nav-btn:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
 }
 
 .feuillets-journal-cell-today .feuillets-journal-daynum {
