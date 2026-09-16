@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import { feuilletsAuxiliaryPath, getProjectFolder } from "./folder-structure.js";
 import { dateKey } from "../utils/journal-stats.js";
 import { buildCarnet } from "../utils/journal-carnet.js";
+import { t } from "../i18n/index.js";
 
 /** Nom de fichier d'une note quotidienne, avec ou sans suffixe configurable
  * (chantier « suffixe des fichiers du journal ») : groupe 1 = date logique
@@ -24,9 +25,14 @@ function stripControlChars(value: string): string {
   }
   return result;
 }
-/** Nom du carnet compilé — fixe, indépendant du nom du dossier
- * (configurable, peut être "Journal" ou autre chose). */
-const CARNET_NAME = "Journal d'écriture";
+/** Noms de fichier HISTORIQUES du carnet compilé — jamais recréés ni
+ * renommés, seulement reconnus pour continuer à mettre à jour un carnet
+ * déjà existant (chantier « internationalisation du carnet »). Le nom d'un
+ * NOUVEAU carnet suit désormais la locale active, t("journal.compiledFileName")
+ * (déjà avec l'extension .md), jamais ce nom fixe. Ordre exact imposé par
+ * l'algorithme de résolution (voir resolveExistingCarnetFile) : nom localisé
+ * courant d'abord, puis ces deux noms historiques dans cet ordre. */
+const HISTORICAL_CARNET_FILE_NAMES = ["Journal d'écriture.md", "Writing journal.md"];
 
 /** Normalise un suffixe de fichier journal avant son enregistrement dans les
  * réglages : espaces de bord supprimés, caractères interdits/non portables
@@ -205,13 +211,34 @@ export function journalEntryKeys(app: App, settings: FeuilletsSettings) {
   return new Set(listDayEntries(app, settings).map((f) => parseDayFileName(f.name)?.date ?? f.basename));
 }
 
+/** Carnet compilé déjà existant dans `folder`, en respectant la
+ * compatibilité avec les noms fixes historiques — jamais un renommage,
+ * jamais une création ici, une simple recherche. Ordre de candidats exact
+ * imposé par l'algorithme : nom localisé courant, puis les deux noms
+ * historiques connus, sans doublon. `null` si aucun candidat n'existe
+ * encore (un nouveau carnet sera créé avec le nom localisé courant). */
+function resolveExistingCarnetFile(app: App, folder: TFolder): TFile | null {
+  const candidates = [t("journal.compiledFileName"), ...HISTORICAL_CARNET_FILE_NAMES];
+  const seen = new Set<string>();
+  for (const name of candidates) {
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const file = app.vault.getAbstractFileByPath(normalizePath(`${folder.path}/${name}`));
+    if (file instanceof TFile) return file;
+  }
+  return null;
+}
+
 /** Régénère entièrement le carnet compilé à partir des notes quotidiennes
  * — jamais retouché à la main, reconstruit à chaque appel, même logique
- * que la compilation du manuscrit (services/compile-export.js). */
+ * que la compilation du manuscrit (services/compile-export.js). Un carnet
+ * déjà existant (nom localisé courant ou historique — voir
+ * resolveExistingCarnetFile) est mis à jour SANS être renommé ; sinon un
+ * nouveau carnet est créé avec le nom localisé courant. */
 export async function compileJournal(app: App, settings: FeuilletsSettings) {
   const entries = listDayEntries(app, settings);
   if (entries.length === 0) {
-    new Notice("Aucune note de journal à compiler.");
+    new Notice(t("journal.compileEmpty"));
     return 0;
   }
   const sections: Array<{ key: string; body: string }> = [];
@@ -222,13 +249,20 @@ export async function compileJournal(app: App, settings: FeuilletsSettings) {
   }
   const carnet = buildCarnet(sections);
   const folder = (await ensureJournalFolder(app, settings)) || getJournalRoot(app, settings);
-  const path = normalizePath(`${folder!.path}/${CARNET_NAME}.md`);
-  const existing = app.vault.getAbstractFileByPath(path);
-  if (existing instanceof TFile) {
+  const existing = resolveExistingCarnetFile(app, folder!);
+  let fileName: string;
+  if (existing) {
     await app.vault.modify(existing, carnet);
+    fileName = existing.name;
   } else {
-    await app.vault.create(path, carnet);
+    const path = normalizePath(`${folder!.path}/${t("journal.compiledFileName")}`);
+    const created = await app.vault.create(path, carnet);
+    fileName = created.name;
   }
-  new Notice(`Carnet compilé : ${entries.length} jour(s) → ${CARNET_NAME}.md`);
+  new Notice(t("journal.compileSuccess", {
+    count: String(entries.length),
+    s: entries.length === 1 ? "" : "s",
+    file: fileName,
+  }));
   return entries.length;
 }

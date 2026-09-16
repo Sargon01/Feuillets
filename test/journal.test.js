@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFile, TFolder, normalizePath } from "obsidian";
+import { TFile, TFolder, Notice, normalizePath } from "obsidian";
 import {
   getDayEntry,
   getLastEntry,
@@ -11,6 +11,7 @@ import {
   parseDayFileName,
   normalizeJournalSuffix,
 } from "../src/services/journal.js";
+import { setLocale, getLocale } from "../src/i18n/index.js";
 
 /** Vault minimal : les fichiers/dossiers passés sont enregistrés tels
  * quels par chemin ; `create()` pousse le nouveau fichier dans les
@@ -57,6 +58,15 @@ function makeProject(entries = []) {
 
 function makeSettings(overrides = {}) {
   return { projectFolder: "Projet/Manuscrit", journalFolder: "Journal", journalFileSuffix: "", ...overrides };
+}
+
+/** Capture les notifications émises via `new Notice(...)` — l'appelant DOIT
+ * restaurer `Notice.onCreate` dans un `finally` (voir chaque test ci-dessous)
+ * pour ne jamais polluer les tests suivants. */
+function captureNotices() {
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  return notices;
 }
 
 test("journal : liste et lit les notes quotidiennes", async () => {
@@ -198,4 +208,257 @@ test("journal : compileJournal produit des titres sans suffixe", async () => {
   const carnet = app.vault.getAbstractFileByPath("Projet/Journal/Journal d'écriture.md");
   assert.ok(carnet instanceof TFile);
   assert.equal(carnet.content, "## 2026-01-01\n\nUn.\n\n## 2026-01-02\n\nDeux.");
+});
+
+// ================= Internationalisation et compatibilité du carnet =================
+
+test("compileJournal (FR, aucun carnet existant) : crée Journal d'écriture.md, contenu inchangé, notification française, pluriel", async () => {
+  const day1 = new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nUn.");
+  const day2 = new TFile("Projet/Journal/2026-01-02.md", "---\ndate: 2026-01-02\n---\nDeux.");
+  const { app } = makeProject([day1, day2]);
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  try {
+    setLocale("fr");
+    const notices = captureNotices();
+    const count = await compileJournal(app, makeSettings());
+
+    assert.equal(count, 2);
+    const carnet = app.vault.getAbstractFileByPath("Projet/Journal/Journal d'écriture.md");
+    assert.ok(carnet instanceof TFile);
+    assert.equal(carnet.content, "## 2026-01-01\n\nUn.\n\n## 2026-01-02\n\nDeux.");
+    assert.deepEqual(notices, ["Carnet compilé : 2 jours → Journal d'écriture.md"]);
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
+});
+
+test("compileJournal (EN, aucun carnet existant) : crée Writing journal.md, aucun fichier français créé, notification anglaise", async () => {
+  const day1 = new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nOne.");
+  const { app } = makeProject([day1]);
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  try {
+    setLocale("en");
+    const notices = captureNotices();
+    const count = await compileJournal(app, makeSettings());
+
+    assert.equal(count, 1);
+    const carnet = app.vault.getAbstractFileByPath("Projet/Journal/Writing journal.md");
+    assert.ok(carnet instanceof TFile);
+    assert.equal(app.vault.getAbstractFileByPath("Projet/Journal/Journal d'écriture.md"), null, "aucun fichier français créé");
+    assert.deepEqual(notices, ["Journal compiled: 1 day → Writing journal.md"]);
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
+});
+
+test("compileJournal : une seule entrée → « 1 jour »/« 1 day », jamais le pluriel", async () => {
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  try {
+    {
+      const day = new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nUn.");
+      const { app } = makeProject([day]);
+      setLocale("fr");
+      const notices = captureNotices();
+      await compileJournal(app, makeSettings());
+      assert.match(notices[0], /\b1 jour\b/);
+      assert.doesNotMatch(notices[0], /1 jours\b/);
+    }
+    {
+      const day = new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nOne.");
+      const { app } = makeProject([day]);
+      setLocale("en");
+      const notices = captureNotices();
+      await compileJournal(app, makeSettings());
+      assert.match(notices[0], /\b1 day\b/);
+      assert.doesNotMatch(notices[0], /1 days\b/);
+    }
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
+});
+
+test("compileJournal : plusieurs entrées → « jours »/« days »", async () => {
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  try {
+    {
+      const entries = [
+        new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nUn."),
+        new TFile("Projet/Journal/2026-01-02.md", "---\ndate: 2026-01-02\n---\nDeux."),
+        new TFile("Projet/Journal/2026-01-03.md", "---\ndate: 2026-01-03\n---\nTrois."),
+      ];
+      const { app } = makeProject(entries);
+      setLocale("fr");
+      const notices = captureNotices();
+      await compileJournal(app, makeSettings());
+      assert.match(notices[0], /\b3 jours\b/);
+    }
+    {
+      const entries = [
+        new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nOne."),
+        new TFile("Projet/Journal/2026-01-02.md", "---\ndate: 2026-01-02\n---\nTwo."),
+      ];
+      const { app } = makeProject(entries);
+      setLocale("en");
+      const notices = captureNotices();
+      await compileJournal(app, makeSettings());
+      assert.match(notices[0], /\b2 days\b/);
+    }
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
+});
+
+test("compileJournal : changement FR → EN après une première compilation française met à jour le fichier français existant", async () => {
+  const day1 = new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nUn.");
+  const { app } = makeProject([day1]);
+  const settings = makeSettings();
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  try {
+    setLocale("fr");
+    Notice.onCreate = null;
+    await compileJournal(app, settings);
+    const frenchPath = "Projet/Journal/Journal d'écriture.md";
+    const frenchCarnet = app.vault.getAbstractFileByPath(frenchPath);
+    assert.ok(frenchCarnet instanceof TFile);
+
+    setLocale("en");
+    const notices = captureNotices();
+    const count = await compileJournal(app, settings);
+
+    assert.equal(count, 1);
+    assert.equal(app.vault.getAbstractFileByPath(frenchPath), frenchCarnet, "le fichier français existant est réutilisé, jamais renommé");
+    assert.equal(app.vault.getAbstractFileByPath("Projet/Journal/Writing journal.md"), null, "aucun fichier anglais créé");
+    assert.deepEqual(notices, ["Journal compiled: 1 day → Journal d'écriture.md"], "notification anglaise citant le nom français réel");
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
+});
+
+test("compileJournal : changement EN → FR après une première compilation anglaise met à jour le fichier anglais existant", async () => {
+  const day1 = new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nOne.");
+  const { app } = makeProject([day1]);
+  const settings = makeSettings();
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  try {
+    setLocale("en");
+    Notice.onCreate = null;
+    await compileJournal(app, settings);
+    const englishPath = "Projet/Journal/Writing journal.md";
+    const englishCarnet = app.vault.getAbstractFileByPath(englishPath);
+    assert.ok(englishCarnet instanceof TFile);
+
+    setLocale("fr");
+    const notices = captureNotices();
+    const count = await compileJournal(app, settings);
+
+    assert.equal(count, 1);
+    assert.equal(app.vault.getAbstractFileByPath(englishPath), englishCarnet, "le fichier anglais existant est réutilisé, jamais renommé");
+    assert.equal(app.vault.getAbstractFileByPath("Projet/Journal/Journal d'écriture.md"), null, "aucun fichier français créé");
+    assert.deepEqual(notices, ["Carnet compilé : 1 jour → Writing journal.md"], "notification française citant le nom anglais réel");
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
+});
+
+test("compileJournal : quand les deux carnets historiques existent, seul celui de la langue courante est modifié", async () => {
+  const day1 = new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nUn.");
+  const frenchCarnet = new TFile("Projet/Journal/Journal d'écriture.md", "ancien contenu fr");
+  const englishCarnet = new TFile("Projet/Journal/Writing journal.md", "ancien contenu en");
+  const { app, journal } = makeProject([day1, frenchCarnet, englishCarnet]);
+  const settings = makeSettings();
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  Notice.onCreate = null;
+  try {
+    setLocale("fr");
+    await compileJournal(app, settings);
+    assert.notEqual(frenchCarnet.content, "ancien contenu fr", "le carnet français est régénéré");
+    assert.equal(englishCarnet.content, "ancien contenu en", "le carnet anglais n'est jamais touché en FR");
+    assert.equal(journal.children.length, 3, "aucun troisième fichier créé");
+
+    const englishBefore = englishCarnet.content;
+    setLocale("en");
+    await compileJournal(app, settings);
+    assert.notEqual(englishCarnet.content, englishBefore, "le carnet anglais est régénéré");
+    assert.equal(journal.children.length, 3, "toujours aucun troisième fichier créé");
+    assert.ok([...journal.children].includes(frenchCarnet), "le carnet français n'a pas été supprimé");
+    assert.ok([...journal.children].includes(englishCarnet), "le carnet anglais n'a pas été supprimé");
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
+});
+
+test("compileJournal : aucune entrée quotidienne → retourne 0, notification traduite, aucun carnet ni dossier créé", async () => {
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  try {
+    const makeEmptyProject = () => {
+      const root = new TFolder("Projet/Manuscrit");
+      root.parent = new TFolder("Projet");
+      return { app: { vault: createFakeVault([root]) } };
+    };
+
+    {
+      const { app } = makeEmptyProject();
+      setLocale("fr");
+      const notices = captureNotices();
+      const count = await compileJournal(app, makeSettings());
+      assert.equal(count, 0);
+      assert.deepEqual(notices, ["Aucune note de journal à compiler."]);
+      assert.equal(app.vault.getAbstractFileByPath("Projet/Journal"), null, "aucun dossier créé");
+    }
+    {
+      const { app } = makeEmptyProject();
+      setLocale("en");
+      const notices = captureNotices();
+      const count = await compileJournal(app, makeSettings());
+      assert.equal(count, 0);
+      assert.deepEqual(notices, ["No journal entry to compile."]);
+      assert.equal(app.vault.getAbstractFileByPath("Projet/Journal"), null, "aucun dossier créé");
+    }
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
+});
+
+test("compileJournal : le carnet compilé reste exclu de listDayEntries et journalEntryKeys, quelle que soit la locale", async () => {
+  const day1 = new TFile("Projet/Journal/2026-01-01.md", "---\ndate: 2026-01-01\n---\nUn.");
+  const frenchCarnet = new TFile("Projet/Journal/Journal d'écriture.md", "ancien contenu fr");
+  const englishCarnet = new TFile("Projet/Journal/Writing journal.md", "ancien contenu en");
+  const { app } = makeProject([day1, frenchCarnet, englishCarnet]);
+  const settings = makeSettings();
+  const previousLocale = getLocale();
+  const previousOnCreate = Notice.onCreate;
+  Notice.onCreate = null;
+  try {
+    // Les deux carnets historiques préexistent déjà (comme dans un vault
+    // réel) : ni l'un ni l'autre ne doit jamais être lu comme une entrée
+    // quotidienne, avant ou après compilation, dans aucune des deux langues.
+    setLocale("fr");
+    await compileJournal(app, settings);
+    assert.deepEqual(listDayEntries(app, settings).map((f) => f.path), [day1.path]);
+    assert.deepEqual([...journalEntryKeys(app, settings)], ["2026-01-01"]);
+
+    setLocale("en");
+    await compileJournal(app, settings);
+    assert.deepEqual(listDayEntries(app, settings).map((f) => f.path), [day1.path]);
+    assert.deepEqual([...journalEntryKeys(app, settings)], ["2026-01-01"]);
+  } finally {
+    setLocale(previousLocale);
+    Notice.onCreate = previousOnCreate;
+  }
 });
