@@ -162,6 +162,9 @@ export type DefaultSettings = {
   timelineScale: "siecle" | "annee" | "mois" | "jour" | "aucune";
   chronoFolder: string;
   journalFolder: string;
+  /** Suffixe facultatif des fichiers quotidiens du journal, déjà normalisé
+   *  avant enregistrement — voir services/journal.ts normalizeJournalSuffix. */
+  journalFileSuffix: string;
   liveDoubleEnter: boolean;
   chapterNumbering: "continu" | "parPartie" | "aucune";
   binderSearch: string;
@@ -353,6 +356,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   timelineScale: "annee",
   chronoFolder: "Recherche/Chronologie",
   journalFolder: "Journal",
+  journalFileSuffix: "",
   liveDoubleEnter: true,
   chapterNumbering: "continu",
   binderSearch: "",

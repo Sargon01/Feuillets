@@ -2,6 +2,7 @@ import { YAML_PRESETS } from "../scenes-editor.js";
 import { BOARD_MODES } from "../constants.js";
 import { setLocale, detectLocale, t } from "../i18n/index.js";
 import { getProjectMode } from "../services/project-mode.js";
+import { normalizeJournalSuffix } from "../services/journal.js";
 import {
   BINDER_PREVIEW_MAX_LINES,
   binderPreviewFieldChoices,
@@ -413,6 +414,20 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         area.inputEl.addClass("feuillets-input-full");
         area.onChange(async (value) => {
           S.mergeNotesSeparator = value;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.journal") });
+
+    new Setting(container)
+      .setName(t("settings.journalFileSuffix.name"))
+      .setDesc(t("settings.journalFileSuffix.desc"))
+      .addText((text) => {
+        text.setPlaceholder(t("settings.journalFileSuffix.placeholder"));
+        text.setValue(S.journalFileSuffix || "");
+        text.onChange(async (value) => {
+          S.journalFileSuffix = normalizeJournalSuffix(value);
           await this.plugin.saveSettings();
         });
       });

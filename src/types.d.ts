@@ -618,6 +618,10 @@ declare type FeuilletsSettings = {
   pdfPreventHeadingOrphans: boolean;
 
   journalFolder: string;
+  /** Suffixe facultatif des fichiers quotidiens du journal ("log" → "AAAA-
+   *  MM-JJ-log.md"), déjà normalisé (services/journal.ts normalizeJournalSuffix)
+   *  avant d'être enregistré ; "" = comportement historique inchangé. */
+  journalFileSuffix: string;
   wordGoal: number;
   chronoFolder: string;
 

@@ -4,10 +4,82 @@ import { feuilletsAuxiliaryPath, getProjectFolder } from "./folder-structure.js"
 import { dateKey } from "../utils/journal-stats.js";
 import { buildCarnet } from "../utils/journal-carnet.js";
 
-const DAY_RE = /^\d{4}-\d{2}-\d{2}\.md$/;
+/** Nom de fichier d'une note quotidienne, avec ou sans suffixe configurable
+ * (chantier « suffixe des fichiers du journal ») : groupe 1 = date logique
+ * AAAA-MM-JJ, groupe 2 = suffixe (sans le "-" séparateur) ou undefined. */
+const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})(?:-(.+))?\.md$/;
+/** Caractères interdits dans un nom de fichier (Windows étant le plus
+ * restrictif) — neutralisés par normalizeJournalSuffix. Les caractères de
+ * contrôle (0x00-0x1F) sont neutralisés séparément par stripControlChars,
+ * pour éviter une classe de regex contenant des caractères de contrôle. */
+const FORBIDDEN_FILENAME_CHARS_RE = /[<>:"/\\|?*]/g;
+
+/** Retire les caractères de contrôle (0x00-0x1F), non portables dans un nom
+ * de fichier — écrit sans classe de regex pour rester lisible par les
+ * analyseurs statiques (no-control-regex). */
+function stripControlChars(value: string): string {
+  let result = "";
+  for (const ch of value) {
+    if ((ch.codePointAt(0) ?? 0) >= 0x20) result += ch;
+  }
+  return result;
+}
 /** Nom du carnet compilé — fixe, indépendant du nom du dossier
  * (configurable, peut être "Journal" ou autre chose). */
 const CARNET_NAME = "Journal d'écriture";
+
+/** Normalise un suffixe de fichier journal avant son enregistrement dans les
+ * réglages : espaces de bord supprimés, caractères interdits/non portables
+ * neutralisés, tirets répétés fusionnés, aucun point/espace/tiret en
+ * bordure. Le "-" séparateur n'est jamais stocké ici — il est ajouté à la
+ * construction du nom de fichier (voir dayFileName). Idempotente : peut être
+ * réappliquée sans effet à une valeur déjà normalisée. */
+export function normalizeJournalSuffix(raw: string): string {
+  if (typeof raw !== "string") return "";
+  let value = stripControlChars(raw).trim().replace(FORBIDDEN_FILENAME_CHARS_RE, "");
+  value = value.replace(/-{2,}/g, "-");
+  value = value.replace(/^[-.\s]+/, "").replace(/[-.\s]+$/, "");
+  return value;
+}
+
+/** Nom de fichier pour une date et un suffixe donnés (déjà normalisé ou
+ * non — dayFileName normalise défensivement). Suffixe vide = comportement
+ * historique inchangé, "AAAA-MM-JJ.md". */
+function dayFileName(dateStr: string, suffix: string): string {
+  const normalized = normalizeJournalSuffix(suffix || "");
+  return normalized ? `${dateStr}-${normalized}.md` : `${dateStr}.md`;
+}
+
+/** Date logique et suffixe (ou `null`) d'un nom de fichier de note
+ * quotidienne, ou `null` si ce nom ne correspond pas au format attendu. */
+export function parseDayFileName(name: string): { date: string; suffix: string | null } | null {
+  const match = DAY_FILE_RE.exec(name);
+  if (!match) return null;
+  return { date: match[1], suffix: match[2] ?? null };
+}
+
+/** Toutes les notes quotidiennes existantes pour UNE date logique, triées
+ * par nom de fichier (ordre arbitraire mais déterministe entre variantes). */
+function dayEntryCandidates(folder: TFolder, dateStr: string): TFile[] {
+  return folder.children
+    .filter((f): f is TFile => f instanceof TFile && parseDayFileName(f.name)?.date === dateStr)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** Parmi plusieurs variantes existantes pour une même date, celle à exposer
+ * dans le Journal (jamais deux entrées pour un même jour) — ordre de
+ * préférence : suffixe actuellement configuré, puis ancien fichier sans
+ * suffixe, puis n'importe quel autre fichier suffixé. */
+function preferredDayEntry(candidates: TFile[], suffix: string): TFile | null {
+  if (candidates.length === 0) return null;
+  if (suffix) {
+    const configured = candidates.find((f) => parseDayFileName(f.name)?.suffix === suffix);
+    if (configured) return configured;
+  }
+  const bare = candidates.find((f) => parseDayFileName(f.name)?.suffix === null);
+  if (bare) return bare;
+  return candidates[0];
+}
 
 /** Dossier du journal : le chemin configuré, résolu comme frère du dossier
  * projet en priorité (même convention que Recherche/Snapshots), sinon
@@ -45,12 +117,25 @@ export async function ensureJournalFolder(app: App, settings: FeuilletsSettings)
   }
 }
 
+/** Chemin de la note quotidienne d'une date : celui d'une variante déjà
+ * existante (n'importe quel suffixe, jamais renommée ni dupliquée — règles
+ * 6/7 du chantier suffixe) si une note existe déjà pour ce jour, sinon le
+ * chemin à utiliser pour EN créer une avec le suffixe actuellement
+ * configuré. */
 export function dayEntryPath(app: App, settings: FeuilletsSettings, date: Date): string | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
-  const existing = getJournalRoot(app, settings);
-  const base = existing ? existing.path : feuilletsAuxiliaryPath(root, "journal");
-  return normalizePath(`${base}/${dateKey(date)}.md`);
+  const key = dateKey(date);
+  const existingFolder = getJournalRoot(app, settings);
+  if (existingFolder) {
+    const preferred = preferredDayEntry(
+      dayEntryCandidates(existingFolder, key),
+      normalizeJournalSuffix(settings.journalFileSuffix || "")
+    );
+    if (preferred) return preferred.path;
+  }
+  const base = existingFolder ? existingFolder.path : feuilletsAuxiliaryPath(root, "journal");
+  return normalizePath(`${base}/${dayFileName(key, settings.journalFileSuffix || "")}`);
 }
 
 export async function ensureDayEntry(app: App, settings: FeuilletsSettings, date: Date): Promise<TFile | null> {
@@ -63,14 +148,29 @@ export async function ensureDayEntry(app: App, settings: FeuilletsSettings, date
   return await app.vault.create(path, lines.join("\n"));
 }
 
-/** Fichiers de notes quotidiennes du dossier journal, triés par date — le
- * nom de fichier AAAA-MM-JJ.md trie déjà correctement en ordre chronologique. */
+/** Fichiers de notes quotidiennes du dossier journal, triés par date logique
+ * — une seule entrée par jour même si plusieurs variantes de suffixe
+ * coexistent sur le disque (règle 8 du chantier suffixe), la clé AAAA-MM-JJ
+ * triant déjà correctement en ordre chronologique. */
 export function listDayEntries(app: App, settings: FeuilletsSettings): TFile[] {
   const folder = getJournalRoot(app, settings);
   if (!folder) return [];
-  return folder.children
-    .filter((f): f is TFile => f instanceof TFile && DAY_RE.test(f.name))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const suffix = normalizeJournalSuffix(settings.journalFileSuffix || "");
+  const byDate = new Map<string, TFile[]>();
+  for (const f of folder.children) {
+    if (!(f instanceof TFile)) continue;
+    const parsed = parseDayFileName(f.name);
+    if (!parsed) continue;
+    const list = byDate.get(parsed.date);
+    if (list) list.push(f);
+    else byDate.set(parsed.date, [f]);
+  }
+  const result: TFile[] = [];
+  for (const key of [...byDate.keys()].sort()) {
+    const preferred = preferredDayEntry(byDate.get(key)!.sort((a, b) => a.name.localeCompare(b.name)), suffix);
+    if (preferred) result.push(preferred);
+  }
+  return result;
 }
 
 function stripFrontmatter(content: string) {
@@ -84,7 +184,8 @@ export async function getLastEntry(app: App, settings: FeuilletsSettings) {
   if (entries.length === 0) return null;
   const file = entries[entries.length - 1];
   const content = await app.vault.read(file);
-  return { file, key: file.basename, body: stripFrontmatter(content) };
+  const key = parseDayFileName(file.name)?.date ?? file.basename;
+  return { file, key, body: stripFrontmatter(content) };
 }
 
 /** Note d'un jour précis, prête à afficher (ou `null` si ce jour n'a pas
@@ -101,7 +202,7 @@ export async function getDayEntry(app: App, settings: FeuilletsSettings, date: D
 /** Clés AAAA-MM-JJ des jours qui ont déjà une note — pour les indicateurs
  * du calendrier. */
 export function journalEntryKeys(app: App, settings: FeuilletsSettings) {
-  return new Set(listDayEntries(app, settings).map((f) => f.basename));
+  return new Set(listDayEntries(app, settings).map((f) => parseDayFileName(f.name)?.date ?? f.basename));
 }
 
 /** Régénère entièrement le carnet compilé à partir des notes quotidiennes
@@ -116,7 +217,8 @@ export async function compileJournal(app: App, settings: FeuilletsSettings) {
   const sections: Array<{ key: string; body: string }> = [];
   for (const file of entries) {
     const content = await app.vault.read(file);
-    sections.push({ key: file.basename, body: stripFrontmatter(content) });
+    const key = parseDayFileName(file.name)?.date ?? file.basename;
+    sections.push({ key, body: stripFrontmatter(content) });
   }
   const carnet = buildCarnet(sections);
   const folder = (await ensureJournalFolder(app, settings)) || getJournalRoot(app, settings);

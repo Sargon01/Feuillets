@@ -36,7 +36,7 @@ function elements(element) {
   return [element, ...element.children.flatMap(elements)];
 }
 
-function createView({ entries = [], root = new TFolder("Projet/Manuscrit") } = {}) {
+function createView({ entries = [], root = new TFolder("Projet/Manuscrit"), journalFileSuffix = "" } = {}) {
   const journal = new TFolder("Projet/Journal", entries);
   if (root) root.parent = new TFolder("Projet");
   for (const file of entries) file.parent = journal;
@@ -63,7 +63,7 @@ function createView({ entries = [], root = new TFolder("Projet/Manuscrit") } = {
   };
   const calls = { render: 0, compile: 0, ensure: [] };
   const plugin = {
-    settings: { projectFolder: root?.path, journalFolder: "Journal", stats: {}, collapsed: {} },
+    settings: { projectFolder: root?.path, journalFolder: "Journal", journalFileSuffix, stats: {}, collapsed: {} },
     getProjectFolder: () => root,
     async compileJournal() { calls.compile += 1; },
     async ensureJournalEntry(date) { calls.ensure.push(date); return new TFile("Projet/Journal/nouveau.md"); },
@@ -136,6 +136,25 @@ test("JournalView affiche la dernière entrée sans date sélectionnée", async 
     MarkdownRenderer.render = originalRender;
   }
   assert.deepEqual(rendered, [{ body: "Dernière.", path: latest.path }]);
+});
+
+test("JournalView affiche la dernière entrée suffixée avec une date lisible, sans le suffixe", async () => {
+  const entry = new TFile("Projet/Journal/2026-01-03-log.md", "---\ndate: 2026-01-03\n---\nEntrée suffixée.");
+  const { view } = createView({ entries: [entry], journalFileSuffix: "log" });
+  const wrapper = new FakeElement();
+  const originalRender = MarkdownRenderer.render;
+  const rendered = [];
+  MarkdownRenderer.render = async (_app, body, _el, path) => { rendered.push({ body, path }); };
+  try {
+    await view.renderJournalSection(wrapper);
+  } finally {
+    MarkdownRenderer.render = originalRender;
+  }
+  assert.deepEqual(rendered, [{ body: "Entrée suffixée.", path: entry.path }]);
+  const dateSpan = elements(wrapper).find((element) => element.classes.has("feuillets-journal-open-date"));
+  assert.ok(dateSpan, "date affichée");
+  assert.doesNotMatch(dateSpan.text, /invalid/i);
+  assert.match(dateSpan.text, /2026/);
 });
 
 test("JournalView affiche l'entrée correspondant à la date sélectionnée", async () => {
