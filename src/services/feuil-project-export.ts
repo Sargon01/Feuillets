@@ -57,6 +57,11 @@ function cloneMeta(
   delete clone.narrativeState;
   delete clone.projectComposition;
   delete clone.pandocBibliographyPath;
+  /* Données d'activité LOCALES (statistiques quotidiennes du Journal),
+   * jamais des métadonnées éditoriales transportables — voir
+   * ProjectMeta.journalStats (types.d.ts) et le chantier « stats par
+   * projet » (utils/journal-stats.ts / main.ts). */
+  delete clone.journalStats;
 
   if (clone.citekeyBibliographyPath === undefined && meta?.pandocBibliographyPath) {
     const rawLegacy = meta.pandocBibliographyPath.trim();

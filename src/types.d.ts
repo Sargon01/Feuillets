@@ -284,6 +284,16 @@ declare type ProjectMeta = {
    *  aucun mapping, résolution par défaut (clé canonique Feuillets, repli
    *  sur les alias hérités) — voir services/frontmatter.ts fmOf(). */
   propertyMap?: Partial<Record<MappableFrontmatterField, string>>;
+  /** Statistiques quotidiennes du Journal PROPRES à ce projet — source
+   *  canonique unique, voir utils/journal-stats.ts (fonctions pures :
+   *  validateStatsTable, resolveProjectStats, recordDailyTotal…) et
+   *  main.ts (updateJournalStatsForActiveProject, migrateLegacyJournalStats,
+   *  trimStats). `settings.stats` (plus bas) n'est plus qu'un stockage
+   *  historique migré une seule fois vers le projet actif au premier
+   *  chargement valide — jamais recopié vers plusieurs projets. Données
+   *  d'activité locales, non éditoriales : exclues du manifeste `.feuil`
+   *  (services/feuil-project-export.ts, cloneMeta). */
+  journalStats?: Record<string, { start: number; latest: number }>;
 
   [key: string]: unknown;
 };
@@ -687,8 +697,12 @@ declare type FeuilletsSettings = {
   renamePrefix: string;
   chapterNumbering: "continu" | "parPartie" | "aucune";
 
-  /** Historique quotidien de mots pour la série de jours consécutifs
-   * (currentStreak) et le delta du jour (updateStatusBar/updateDailyStats). */
+  /** LEGACY — ancien historique quotidien GLOBAL, sans identité de projet.
+   * Migré une seule fois vers `projectMeta[projet actif].journalStats` dès
+   * qu'un projet actif valide existe (main.ts migrateLegacyJournalStats),
+   * puis vidé : ne plus jamais écrire ici. Seuls currentStreak/
+   * updateStatusBar/le Journal lisaient ce champ — ils lisent désormais
+   * tous projectMeta[…].journalStats via utils/journal-stats.ts. */
   stats: Record<string, { start: number; latest: number }>;
   /** Absent de DEFAULT_SETTINGS (aucune valeur par défaut définie) mais
    * réglable depuis l'onglet réglages et lu tel quel — voir

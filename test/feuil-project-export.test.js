@@ -99,6 +99,13 @@ test("researchFolderLinks est retiré des métadonnées", async () => {
   const { app, settings } = fixture(); const plan = await buildFeuilProjectExportPlan(app, settings, "v", "p", "2026-08-21T00:00:00Z"); assert.equal("researchFolderLinks" in plan.manifest.project.meta, false);
 });
 
+test("journalStats est retiré des métadonnées exportées", async () => {
+  const { app, settings } = fixture();
+  settings.projectMeta[settings.projectFolder].journalStats = { "2026-01-01": { start: 100, latest: 200 } };
+  const plan = await buildFeuilProjectExportPlan(app, settings, "v", "p", "2026-08-21T00:00:00Z");
+  assert.equal("journalStats" in plan.manifest.project.meta, false);
+});
+
 test("orders deviennent portables et sont copiés", async () => {
   const { app, settings } = fixture(); const plan = await buildFeuilProjectExportPlan(app, settings, "v", "p", "2026-08-21T00:00:00Z"); assert.deepEqual(plan.manifest.project.pathSettings.orders, { ".": ["Manuscrit"], Manuscrit: ["01"] }); assert.notEqual(plan.manifest.project.pathSettings.orders["."], settings.orders[app.vault.getAbstractFileByPath(settings.projectFolder).parent.path]);
 });

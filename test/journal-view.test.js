@@ -36,7 +36,7 @@ function elements(element) {
   return [element, ...element.children.flatMap(elements)];
 }
 
-function createView({ entries = [], root = new TFolder("Projet/Manuscrit"), journalFileSuffix = "" } = {}) {
+function createView({ entries = [], root = new TFolder("Projet/Manuscrit"), journalFileSuffix = "", projectMeta } = {}) {
   const journal = new TFolder("Projet/Journal", entries);
   if (root) root.parent = new TFolder("Projet");
   for (const file of entries) file.parent = journal;
@@ -63,7 +63,14 @@ function createView({ entries = [], root = new TFolder("Projet/Manuscrit"), jour
   };
   const calls = { render: 0, compile: 0, ensure: [] };
   const plugin = {
-    settings: { projectFolder: root?.path, journalFolder: "Journal", journalFileSuffix, stats: {}, collapsed: {} },
+    settings: {
+      projectFolder: root?.path,
+      journalFolder: "Journal",
+      journalFileSuffix,
+      stats: {},
+      collapsed: {},
+      projectMeta: projectMeta ?? (root ? { [root.path]: {} } : {}),
+    },
     getProjectFolder: () => root,
     async compileJournal() { calls.compile += 1; },
     async ensureJournalEntry(date) { calls.ensure.push(date); return new TFile("Projet/Journal/nouveau.md"); },
@@ -219,4 +226,25 @@ test("JournalView ouvre une entrée sans modifier son contenu", async () => {
 
   assert.equal(opened[0].file, entry);
   assert.equal(entry.content, "---\ndate: 2026-01-03\n---\nInchangée.");
+});
+
+test("JournalView : le calendrier n'affiche que les statistiques du projet actif, jamais un autre projet ni l'historique legacy", async () => {
+  const root = new TFolder("Projet/Manuscrit");
+  const today = new Date();
+  const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const projectMeta = {
+    [root.path]: { journalStats: { [key]: { start: 1000, latest: 1300 } } },
+    "Autre/Manuscrit": { journalStats: { [key]: { start: 1000, latest: 9999 } } },
+  };
+  const { view, contentEl } = createView({ root, projectMeta });
+  view.plugin.settings.stats = { [key]: { start: 1000, latest: 5000 } };
+
+  await view.render(true);
+
+  const todayCell = elements(contentEl).find((el) => el.classes.has("feuillets-journal-cell-today"));
+  assert.ok(todayCell, "cellule du jour trouvée");
+  const title = todayCell.getAttr("title");
+  assert.match(title, /\b300\b/);
+  assert.doesNotMatch(title, /9999/);
+  assert.doesNotMatch(title, /5000/);
 });

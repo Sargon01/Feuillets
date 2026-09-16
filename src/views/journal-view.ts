@@ -1,8 +1,8 @@
-import { MarkdownRenderer, setIcon, type WorkspaceLeaf } from "obsidian";
+import { MarkdownRenderer, setIcon, type WorkspaceLeaf, type TFolder } from "obsidian";
 import { VIEW_JOURNAL } from "../constants.js";
 import { getDayEntry, getLastEntry, journalEntryKeys } from "../services/journal.js";
 import { t, getLocale } from "../i18n/index.js";
-import { dateKey, statsForDay } from "../utils/journal-stats.js";
+import { dateKey, statsForDay, resolveProjectStats } from "../utils/journal-stats.js";
 import { formatNumber } from "../utils/text-metrics.js";
 import { iconBtn, isEditing, openFileActivating } from "../utils/dom.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -10,22 +10,6 @@ import { BaseFeuilletsView } from "./base-feuillets-view.js";
 type JournalViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type RenderGroupHeadResult = { section: HTMLElement; collapsed: boolean };
 type JournalEntry = Awaited<ReturnType<typeof getLastEntry>>;
-type JournalStats = Record<string, { start: number; latest: number }>;
-
-function journalStatsFor(settings: FeuilletsSettings): JournalStats {
-  const stats = settings.stats;
-  if (typeof stats !== "object" || stats === null || Array.isArray(stats)) return {};
-  const validStats: JournalStats = {};
-  for (const [key, value] of Object.entries(stats)) {
-    if (
-      typeof value === "object" && value !== null &&
-      typeof value.start === "number" && typeof value.latest === "number"
-    ) {
-      validStats[key] = { start: value.start, latest: value.latest };
-    }
-  }
-  return validStats;
-}
 
 function dateLocale(): string {
   return getLocale() === "en" ? "en-US" : "fr-FR";
@@ -160,9 +144,10 @@ export class JournalView extends BaseFeuilletsView {
     const year = this.monthCursor.getFullYear();
     const month = this.monthCursor.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const projectStats = resolveProjectStats(settings.projectMeta[root.path]);
     const deltas: number[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
-      deltas.push(statsForDay({ stats: journalStatsFor(settings) }, dateKey(new Date(year, month, day))).delta);
+      deltas.push(statsForDay(projectStats, dateKey(new Date(year, month, day))).delta);
     }
 
     const weekRow = wrapper.createDiv({ cls: "feuillets-journal-grid feuillets-journal-weekdays" });
@@ -313,25 +298,26 @@ export class JournalView extends BaseFeuilletsView {
        les deux dans la modale ouverte d'un clic sur la barre d'état — ce
        panneau ne garde que l'historique, pour laisser toute la place au
        calendrier du Journal juste au-dessus. */
-    this.renderHistorySection(wrapper, settings);
+    this.renderHistorySection(wrapper, settings, root);
   }
 
   /** Petit histogramme des mots écrits par jour (14 derniers jours) —
    * complémentaire du calendrier du Journal juste au-dessus, pas un
    * doublon : un aperçu de régularité, pas une navigation par jour. */
-  renderHistorySection(wrapper: HTMLElement, settings: FeuilletsSettings): void {
+  renderHistorySection(wrapper: HTMLElement, settings: FeuilletsSettings, root: TFolder): void {
     const { section, collapsed } = this.renderGroupHead(
       wrapper, "progression:history", "bar-chart-3", t("journal.recentHistory"), settings
     );
     if (collapsed) return;
 
+    const projectStats = resolveProjectStats(settings.projectMeta[root.path]);
     const days = 14;
     const today = new Date();
     const entries: Array<{ date: Date; delta: number }> = [];
     for (let index = days - 1; index >= 0; index--) {
       const date = new Date(today);
       date.setDate(date.getDate() - index);
-      entries.push({ date, delta: statsForDay({ stats: journalStatsFor(settings) }, dateKey(date)).delta });
+      entries.push({ date, delta: statsForDay(projectStats, dateKey(date)).delta });
     }
     const max = Math.max(1, ...entries.map((entry) => entry.delta));
 

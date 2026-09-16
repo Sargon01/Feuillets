@@ -18,6 +18,7 @@ import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
 import { migrateLegacyProjectTypes } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
+import { dateKey, statsForDay, resolveProjectStats, validateStatsTable, recordDailyTotal, mergeLegacyStats, trimStatsTable, dailyWordDelta } from "./utils/journal-stats.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
   nextFootnoteNumber,
@@ -321,6 +322,14 @@ type StaleableView = View & {
   renderAllSubViews?: (force?: boolean) => void | Promise<void>;
 };
 
+/** Panneau latéral unifié (SidebarFeuilletsView) vu depuis refreshJournalViews
+ * — seul son onglet `activeTab` EFFECTIVEMENT affiché doit être rerendu,
+ * jamais tout le panneau (voir renderJournalViews : pas de renderAllViews). */
+type JournalHostView = View & {
+  activeTab?: string;
+  render?: (force?: boolean) => void | Promise<void>;
+};
+
 /** `getConfig`/`setConfig` : API interne non déclarée dans obsidian.d.ts,
  * voir commentaire de getVaultConfig/setVaultConfig plus bas. */
 type VaultWithConfig = Vault & {
@@ -540,6 +549,22 @@ class FeuilletsPlugin extends Plugin {
   _originalGetDisplayText?: ((this: MarkdownView) => string) | null;
   _patchedGetDisplayText?: ((this: MarkdownView) => string) | null;
   _refreshTimer?: number;
+  /** Timer DÉDIÉ à l'actualisation debouncée des statistiques quotidiennes
+   *  du Journal (voir scheduleJournalStatsUpdate) — indépendant de
+   *  _refreshTimer (Board/Binder) et jamais recalculé sur editor-change. */
+  _journalStatsTimer?: number;
+  /** File « single flight » des statistiques du Journal — Promise du
+   *  passage en cours (`null`/absent = aucun passage en cours), voir
+   *  updateJournalStatsForActiveProject/runJournalStatsPasses. */
+  _journalStatsRun?: Promise<void> | null;
+  /** Un passage supplémentaire est nécessaire dès la fin du passage en
+   *  cours — plusieurs demandes rapprochées se regroupent en une seule
+   *  relance (jamais une file, un simple booléen). */
+  _journalStatsRerunNeeded?: boolean;
+  /** Déchargement du plugin (stopJournalStatsForUnload) : plus aucun
+   *  nouveau passage, et tout calcul déjà en cours ignore son résultat sans
+   *  écrire ni rafraîchir l'interface. */
+  _journalStatsUnloaded?: boolean;
   _lastMarkdownLeaf?: WorkspaceLeaf;
   _lastCitedSourceByFile?: Map<string, string>;
   _pendingParagraphBreak?: { editor: Editor; cursor: { line: number; ch: number } };
@@ -1467,6 +1492,13 @@ class FeuilletsPlugin extends Plugin {
         }
       }
 
+      /* Déclenchement direct (pas scheduleJournalStatsUpdate) : ce point de
+         démarrage est unique, rien à regrouper avec un autre événement à cet
+         instant précis — le debounce dédié sert les rafales d'événements
+         Vault rapprochés (create/delete/rename/modify), pas ce déclencheur
+         isolé. */
+      if (hasProject) void this.updateJournalStatsForActiveProject();
+
       this.adjustSidebarWidth();
       await this.loadDeferredViews();
     });
@@ -1568,7 +1600,10 @@ class FeuilletsPlugin extends Plugin {
     };
 
     this.registerEvent(this.app.vault.on("create", (file) => {
-      if (this.isLayoutReady) refresh();
+      if (this.isLayoutReady) {
+        refresh();
+        this.scheduleJournalStatsUpdate();
+      }
       void this.maybeAutoInitializeResearchFile(file);
     }));
 
@@ -1581,6 +1616,7 @@ class FeuilletsPlugin extends Plugin {
           void this.updateStatusBar();
         }
         this.refreshView();
+        this.scheduleJournalStatsUpdate();
       }
       for (const settings of knownProjectContexts()) {
         void removeLayoutAfterDelete(this.app, settings, file.path).catch((error: unknown) => {
@@ -1612,7 +1648,10 @@ class FeuilletsPlugin extends Plugin {
 
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
       if (file instanceof TFile) this.projectDraftAutoRenamer?.handleRename(file, oldPath);
-      if (this.isLayoutReady) refresh();
+      if (this.isLayoutReady) {
+        refresh();
+        this.scheduleJournalStatsUpdate();
+      }
       void this.maybeAutoInitializeResearchFile(file);
       /* Un renommage/déplacement dans le coffre rend obsolètes les chemins
          mémorisés des associations Binder→Recherche : on les remappe pour
@@ -1648,6 +1687,10 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (file instanceof TFile) this.projectDraftAutoRenamer?.schedule(file);
       this.refreshView(2500);
+      if (this.isLayoutReady && file instanceof TFile && file.extension === "md") {
+        const root = this.getProjectFolder();
+        if (root && file.path.startsWith(`${root.path}/`)) this.scheduleJournalStatsUpdate();
+      }
     }));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
     this.registerEvent(this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file)));
@@ -2610,6 +2653,7 @@ class FeuilletsPlugin extends Plugin {
     window.clearTimeout(this._refreshTimer);
     window.clearTimeout(this._statusTimer);
     window.clearTimeout(this._concTimer);
+    this.stopJournalStatsForUnload();
     document.body.removeClass("feuillets-indent");
     document.body.removeClass("feuillets-concentration");
     this.removeConcentrationCounter();
@@ -3223,15 +3267,17 @@ class FeuilletsPlugin extends Plugin {
     document.body.toggleClass("feuillets-dim-tab-actions", !!this.settings.uiDimTabActions);
   }
 
+  /** Série de jours consécutifs avec un delta positif — PROPRE au projet
+   *  actif (jamais l'ancien historique global settings.stats, voir §1/§2 du
+   *  chantier « stats par projet »). Aucun projet actif -> aucune série. */
   currentStreak(): number {
-    const stats = this.settings.stats || {};
+    const root = this.getProjectFolder();
+    if (!root) return 0;
+    const stats = resolveProjectStats(this.settings.projectMeta[root.path]);
     let streak = 0;
     const d = new Date();
     for (;;) {
-      const p = (n) => String(n).padStart(2, "0");
-      const key = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-      const st = stats[key];
-      const delta = st ? Math.max(0, st.latest - st.start) : 0;
+      const delta = statsForDay(stats, dateKey(d)).delta;
       if (delta <= 0) break;
       streak++;
       d.setDate(d.getDate() - 1);
@@ -3310,10 +3356,10 @@ class FeuilletsPlugin extends Plugin {
     let txt = goal > 0 ? t("main.statusBar.wordsWithGoal", { wc: String(wc), goal: String(goal) }) : t("main.statusBar.words", { wc: String(wc) });
     txt += ` · ${t("main.statusBar.chars", { count: formatNumber(chars) })}`;
     const key = todayKey();
-    const st = (this.settings.stats || {})[key];
+    const st = resolveProjectStats(this.settings.projectMeta[root.path])[key];
     if (st) {
       const total = await this.wordCountOfFolder(root);
-      const delta = total - st.start;
+      const delta = dailyWordDelta(st.start, total);
       txt += ` · ${t("main.statusBar.todayDelta", { sign: delta >= 0 ? "+" : "", delta: String(delta) })}`;
     }
     this.statusEl.setText(txt);
@@ -3449,14 +3495,16 @@ class FeuilletsPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  /** `statsRetention` s'applique séparément à CHAQUE journalStats de projet
+   *  (§8 chantier « stats par projet »), plus l'ancien historique global
+   *  settings.stats tant qu'il n'a pas encore été migré. */
   trimStats(): void {
-    const stats = this.settings.stats;
     const keep = Number(this.settings.statsRetention);
-    if (!stats || !keep || keep <= 0) return;
-    const keys = Object.keys(stats);
-    if (keys.length <= keep) return;
-    keys.sort();
-    for (const k of keys.slice(0, keys.length - keep)) delete stats[k];
+    if (!keep || keep <= 0) return;
+    for (const meta of Object.values(this.settings.projectMeta)) {
+      if (meta?.journalStats) meta.journalStats = trimStatsTable(meta.journalStats, keep);
+    }
+    if (this.settings.stats) this.settings.stats = trimStatsTable(this.settings.stats, keep);
   }
 
   refreshView(delay = 800) {
@@ -3637,6 +3685,7 @@ class FeuilletsPlugin extends Plugin {
     this.syncProjectEditorScope();
     void this.updateStatusBar();
     this.carnetLifecycle?.refresh();
+    this.scheduleJournalStatsUpdate();
     return true;
   }
 
@@ -4445,21 +4494,157 @@ class FeuilletsPlugin extends Plugin {
     return total;
   }
 
-  async updateDailyStats(currentTotal: number): Promise<number> {
-    const key = todayKey();
-    const stats = this.settings.stats || {};
-    if (!stats[key]) {
-      stats[key] = { start: currentTotal, latest: currentTotal };
-      this.settings.stats = stats;
-      await this.saveSettings();
-      return 0;
+  /* ---- Statistiques quotidiennes du Journal, par projet ----
+     Chantier « stats par projet » : main.ts est l'unique propriétaire de
+     l'actualisation (plus aucune dépendance au rendu du Board, voir
+     views/board-view.ts). Les méthodes suivantes couvrent le cycle de vie
+     complet : migration ponctuelle de l'historique legacy, file « single
+     flight » (aucun wordCountOfFolder()/saveSettings() concurrent issus de
+     ce mécanisme, voir Correctif « concurrence »), debounce dédié,
+     rafraîchissement ciblé et arrêt propre au déchargement. */
+
+  /** Migre l'historique global legacy `settings.stats` vers
+   *  `projectMeta[projet actif].journalStats`. Un projet actif valide est
+   *  requis pour agir DU TOUT (sinon migration différée, rien supprimé,
+   *  §13). Trois cas ensuite :
+   *  - `settings.stats` réellement vide -> aucun changement (`false`) ;
+   *  - au moins une entrée VALIDE -> fusion (mergeLegacyStats, les dates
+   *    déjà propres au projet priment) puis `settings.stats` vidé (`true`) ;
+   *  - entrées présentes mais TOUTES invalides -> rien à fusionner, mais
+   *    `settings.stats` est quand même vidé : cette purge compte comme une
+   *    modification à sauvegarder (`true`), jamais un faux `false` qui
+   *    laisserait des déchets illisibles en place indéfiniment (Correctif
+   *    « legacy invalide »).
+   *  Ne sauvegarde jamais elle-même — l'appelant décide du moment de
+   *  saveSettings(), une seule fois. */
+  migrateLegacyJournalStats(): boolean {
+    const rawStats = this.settings.stats;
+    const hasLegacyEntries = typeof rawStats === "object" && rawStats !== null && Object.keys(rawStats).length > 0;
+    if (!hasLegacyEntries) return false;
+    const root = this.getProjectFolder();
+    if (!root) return false;
+    const legacy = validateStatsTable(rawStats);
+    if (Object.keys(legacy).length > 0) {
+      if (!this.settings.projectMeta[root.path]) this.settings.projectMeta[root.path] = {};
+      const meta = this.settings.projectMeta[root.path];
+      meta.journalStats = mergeLegacyStats(validateStatsTable(meta.journalStats), legacy);
     }
-    if (stats[key].latest !== currentTotal) {
-      stats[key].latest = currentTotal;
-      this.settings.stats = stats;
-      await this.saveSettings();
+    this.settings.stats = {};
+    return true;
+  }
+
+  /** Point d'entrée PUBLIC unique du mécanisme — file « single flight » : si
+   *  un passage est déjà en cours, cet appel ne lance JAMAIS un second
+   *  wordCountOfFolder()/saveSettings() concurrent, il mémorise qu'un
+   *  passage supplémentaire est nécessaire (`_journalStatsRerunNeeded`, un
+   *  simple booléen — plusieurs demandes rapprochées pendant le même
+   *  passage ne provoquent jamais plus d'UN seul passage supplémentaire) et
+   *  retourne la MÊME Promise que le passage en cours : tous les appelants
+   *  concurrents attendent ainsi la même opération, qui ne se résout
+   *  qu'après le passage le plus récent — jamais un résultat périmé. Ne
+   *  démarre aucun passage après déchargement (§10). */
+  async updateJournalStatsForActiveProject(): Promise<void> {
+    if (this._journalStatsUnloaded) return;
+    if (this._journalStatsRun) {
+      this._journalStatsRerunNeeded = true;
+      return this._journalStatsRun;
     }
-    return currentTotal - stats[key].start;
+    this._journalStatsRun = this.runJournalStatsPasses();
+    return this._journalStatsRun;
+  }
+
+  /** Boucle du « single flight » : un passage, puis — SEULEMENT si une
+   *  nouvelle demande a été enregistrée pendant ce passage — un unique
+   *  passage supplémentaire avec l'état le plus récent. Jamais de délai
+   *  artificiel ni de boucle d'attente active : chaque itération n'est
+   *  qu'une continuation directe de la Promise du passage précédent. */
+  async runJournalStatsPasses(): Promise<void> {
+    try {
+      do {
+        this._journalStatsRerunNeeded = false;
+        await this.runJournalStatsPass();
+      } while (this._journalStatsRerunNeeded && !this._journalStatsUnloaded);
+    } finally {
+      this._journalStatsRun = null;
+    }
+  }
+
+  /** UN passage : migre le legacy si nécessaire, capture le chemin et la
+   *  racine du projet actif AVANT le calcul asynchrone (wordCountOfFolder),
+   *  puis revérifie le projet actif ET l'état de déchargement APRÈS (§6) —
+   *  un résultat périmé (projet changé, ou plugin déchargé pendant le
+   *  calcul) n'écrit jamais rien et ne rafraîchit jamais l'interface ;
+   *  la Promise de lecture elle-même n'est jamais annulée, son résultat est
+   *  simplement ignoré (§10). Si le total n'a pas changé (et qu'aucune
+   *  migration n'a eu lieu), aucune sauvegarde ni rafraîchissement. */
+  async runJournalStatsPass(): Promise<void> {
+    const migrated = this.migrateLegacyJournalStats();
+    const projectPath = this.settings.projectFolder;
+    const root = this.getProjectFolder();
+    if (!projectPath || !root) {
+      if (migrated) await this.saveSettings();
+      return;
+    }
+    const total = await this.wordCountOfFolder(root);
+    if (this._journalStatsUnloaded) return;
+    if (this.settings.projectFolder !== projectPath) {
+      if (migrated) await this.saveSettings();
+      return;
+    }
+    if (!this.settings.projectMeta[projectPath]) this.settings.projectMeta[projectPath] = {};
+    const meta = this.settings.projectMeta[projectPath];
+    const { table, changed } = recordDailyTotal(validateStatsTable(meta.journalStats), todayKey(), total);
+    if (!changed && !migrated) return;
+    meta.journalStats = table;
+    await this.saveSettings();
+    if (this._journalStatsUnloaded) return;
+    void this.updateStatusBar();
+    this.refreshJournalViews();
+  }
+
+  /** Programme une actualisation DEBOUNCÉE des statistiques quotidiennes du
+   *  projet actif — timer DÉDIÉ (_journalStatsTimer), indépendant de
+   *  refreshView()/_refreshTimer (Board/Binder) : des événements rapprochés
+   *  (plusieurs fichiers créés/modifiés d'affilée) se regroupent en UN seul
+   *  calcul (le « single flight » ci-dessus regroupe en plus tout
+   *  chevauchement de calculs déjà lancés). Jamais appelée depuis
+   *  editor-change — les statistiques portent sur l'état PERSISTÉ du Vault,
+   *  pas une valeur transitoire de l'éditeur. Aucun nouveau timer après
+   *  déchargement (§10). */
+  scheduleJournalStatsUpdate(delay = 1500): void {
+    if (this._journalStatsUnloaded) return;
+    window.clearTimeout(this._journalStatsTimer);
+    this._journalStatsTimer = window.setTimeout(() => {
+      void this.updateJournalStatsForActiveProject();
+    }, delay);
+  }
+
+  /** Partie du déchargement propre aux statistiques du Journal (§10) :
+   *  annule le timer programmé, empêche tout nouveau passage d'être lancé
+   *  (scheduleJournalStatsUpdate/updateJournalStatsForActiveProject
+   *  deviennent des no-op) et fait ignorer par un passage déjà en cours son
+   *  résultat — sans rien écrire ni rafraîchir l'interface après ce point
+   *  (voir runJournalStatsPass). La Promise wordCountOfFolder en cours
+   *  n'est jamais annulée : son résultat est simplement ignoré. */
+  stopJournalStatsForUnload(): void {
+    this._journalStatsUnloaded = true;
+    window.clearTimeout(this._journalStatsTimer);
+  }
+
+  /** Rafraîchit UNIQUEMENT les vues Journal effectivement ouvertes (§7) —
+   *  jamais renderAllViews() : Board/Binder/etc. n'ont rien à voir avec une
+   *  actualisation des statistiques quotidiennes. Couvre l'ancien type de
+   *  vue autonome VIEW_JOURNAL (compat) et le panneau latéral unifié,
+   *  seulement quand son onglet Journal est effectivement affiché. */
+  refreshJournalViews(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_JOURNAL)) {
+      const view = leaf.view as StaleableView;
+      if (view && typeof view.render === "function") void view.render(true);
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)) {
+      const view = leaf.view as JournalHostView;
+      if (view && view.activeTab === "journal" && typeof view.render === "function") void view.render();
+    }
   }
 
   pushHistory(entry: MoveHistoryEntry): void {

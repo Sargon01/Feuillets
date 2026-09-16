@@ -57,6 +57,7 @@ function buildBoard() {
   settings.projectFolder = root.path;
   settings.projectMeta = { [root.path]: { hiddenBoardModes: [] } };
 
+  const calls = { wordCountOfFolder: 0, updateDailyStats: 0 };
   const plugin = {
     settings,
     getProjectFolder: () => root,
@@ -64,8 +65,8 @@ function buildBoard() {
     getOrderedChildren: () => [],
     flattenFiles: () => [],
     getWordCounts: async () => new Map(),
-    wordCountOfFolder: async () => 0,
-    updateDailyStats: async () => {},
+    wordCountOfFolder: async () => { calls.wordCountOfFolder += 1; return 0; },
+    updateDailyStats: async () => { calls.updateDailyStats += 1; },
     buildNumbering: () => new Map(),
     labelsOf: () => [],
     tagsOf: () => [],
@@ -93,7 +94,7 @@ function buildBoard() {
   view.renderCheminDeFer = () => {};
   view.renderTimeline = () => {};
 
-  return { view, contentEl, settings, root };
+  return { view, contentEl, settings, root, calls };
 }
 
 function modeButtons(contentEl) {
@@ -116,6 +117,20 @@ test("BoardView : aucune architecture centrale Documents/Édition ne subsiste", 
   ]) {
     assert.equal(source.includes(forbidden), false, `${forbidden} supprimé du Board`);
   }
+});
+
+test("BoardView : aucune trace des statistiques quotidiennes du Journal (chantier « stats par projet »)", () => {
+  const source = readFileSync("src/views/board-view.ts", "utf8");
+  for (const forbidden of ["wordCountOfFolder", "updateDailyStats"]) {
+    assert.equal(source.includes(forbidden), false, `${forbidden} retiré du Board`);
+  }
+});
+
+test("BoardView.render() n'appelle plus wordCountOfFolder ni updateDailyStats", async () => {
+  const { view, calls } = buildBoard();
+  await view.render(true);
+  assert.equal(calls.wordCountOfFolder, 0);
+  assert.equal(calls.updateDailyStats, 0);
 });
 
 test("BoardView : la barre ne contient plus que les modes/outils du Board, jamais Documents ni Édition", async () => {

@@ -889,9 +889,6 @@ export class BoardView extends BaseFeuilletsView {
     }
 
     const bumpTotal = (_n?: number) => {};
-    void this.plugin.wordCountOfFolder(scope.manuscriptRoot).then((wc: number) => {
-      void this.plugin.updateDailyStats(wc);
-    });
 
     if (this.filterActive()) {
       container.createDiv({ cls: "feuillets-filter-note", text: t("board.filterActiveNote") });
