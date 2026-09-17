@@ -377,12 +377,46 @@ export async function findAppearances(app: App, settings: FeuilletsSettings, ent
 }
 
 const RESEARCH_IMAGE_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "avif"]);
+const RESEARCH_DOCUMENT_EXTS = new Set([
+  "pdf",
+  "doc",
+  "docx",
+  "odt",
+  "rtf",
+  "xls",
+  "xlsx",
+  "ods",
+  "csv",
+  "tsv",
+  "ppt",
+  "pptx",
+  "odp",
+  "epub",
+]);
 
-/** Indique si un fichier est pris en compte dans le panneau Recherche (markdown, image ou PDF). */
+/** Returns whether a file can be shown in Research surfaces.
+ * Attachments are still opened by Obsidian so the registered viewer can
+ * handle their extension. */
 export function isResearchFile(file: unknown): file is TFile {
   if (!(file instanceof TFile)) return false;
   const ext = file.extension.toLowerCase();
-  return ext === "md" || ext === "pdf" || RESEARCH_IMAGE_EXTS.has(ext);
+  return ext === "md" || RESEARCH_DOCUMENT_EXTS.has(ext) || RESEARCH_IMAGE_EXTS.has(ext);
+}
+
+/** Returns whether the file must open in an Obsidian view instead of the
+ * editable Markdown sheet embedded in the Research panel. */
+export function isResearchAttachment(file: unknown): boolean {
+  return isResearchFile(file) && file.extension.toLowerCase() !== "md";
+}
+
+/** Returns the Lucide icon that best identifies a Research file family. */
+export function researchFileIcon(file: TFile): string {
+  const ext = file.extension.toLowerCase();
+  if (RESEARCH_IMAGE_EXTS.has(ext)) return "image";
+  if (["xls", "xlsx", "ods", "csv", "tsv"].includes(ext)) return "table-2";
+  if (["ppt", "pptx", "odp"].includes(ext)) return "presentation";
+  if (ext === "epub") return "book-open";
+  return "file-text";
 }
 
 /** Indique si un fichier est un média image supporté. */

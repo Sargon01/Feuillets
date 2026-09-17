@@ -1840,6 +1840,11 @@ body:not(.feuillets-indent) .feuillets-indent-widget {
   color: var(--text-muted);
 }
 
+.feuillets-binder-research-row .feuillets-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 .feuillets-binder-research-root {
   margin-top: var(--size-4-3);
   border-top: 1px solid var(--background-modifier-border);
@@ -4262,11 +4267,21 @@ body.feuillets-text-width
   align-items: center;
   justify-content: space-between;
   gap: var(--size-4-1);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .feuillets-research-item-header .feuillets-research-item-name {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-research-item-header > .clickable-icon,
+.feuillets-binder-research-actions {
+  flex: 0 0 auto;
 }
 
 /* Bouton ⋯ : discret hors survol, pleinement visible au survol du header

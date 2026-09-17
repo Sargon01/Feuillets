@@ -24,6 +24,7 @@ import {
   resolveBinderPreviewField,
 } from "../utils/binder-preview.js";
 import { RESEARCH_FOLDERS, translatedResearchFolderName } from "../utils/project-modes.js";
+import { isResearchAttachment, isResearchFile, researchFileIcon } from "../services/research.js";
 
 type ProjectNode = TFile | TFolder;
 
@@ -1926,7 +1927,9 @@ export class FeuilletsView extends BaseFeuilletsView {
       row.style.paddingLeft = `${6 + depth * 14}px`;
       const icon = row.createDiv({ cls: "feuillets-cell-icon" });
       setIcon(icon, iconName ?? (depth === 0 ? rootIcon : isFolder ? "folder" : "file-text"));
-      row.createSpan({ cls: isFolder ? "feuillets-folder-name" : "feuillets-item-name" }).setText(label);
+      const name = row.createSpan({ cls: isFolder ? "feuillets-folder-name" : "feuillets-item-name" });
+      name.setText(label);
+      name.setAttr("title", label);
       return row;
     };
 
@@ -1978,6 +1981,10 @@ export class FeuilletsView extends BaseFeuilletsView {
           .setIcon("columns-2")
           .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file))
       );
+      if (isResearchAttachment(file)) {
+        menu.showAtMouseEvent(e);
+        return;
+      }
       menu.addItem((item) =>
         item
           .setTitle(t("binder.research.compareWith"))
@@ -2042,7 +2049,12 @@ export class FeuilletsView extends BaseFeuilletsView {
     rootRow.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, researchRoot));
 
     const renderChildren = (folder: TFolder, depth: number, host: HTMLElement) => {
-      for (const child of this.plugin.getOrderedChildren(folder)) {
+      const orderedChildren = this.plugin.getOrderedChildren(folder);
+      const orderedPaths = new Set(orderedChildren.map((child) => child.path));
+      const attachments = folder.children
+        .filter((child): child is TFile => child instanceof TFile && isResearchFile(child) && !orderedPaths.has(child.path))
+        .sort((a, b) => a.name.localeCompare(b.name, "fr", { numeric: true }));
+      for (const child of [...orderedChildren, ...attachments]) {
         if (child instanceof TFolder) {
           if (excludedRootPaths.has(child.path)) continue;
           const row = renderRow(host, translatedResearchFolderName(RESEARCH_FOLDERS, child.name), depth, true);
@@ -2058,7 +2070,14 @@ export class FeuilletsView extends BaseFeuilletsView {
           row.addEventListener("contextmenu", (e) => showResearchFolderMenu(e, child));
           if (!isCollapsed) renderChildren(child, depth + 1, host);
         } else if (child instanceof TFile) {
-          const row = renderRow(host, fileLabel(child), depth, false);
+          const row = renderRow(host, fileLabel(child), depth, false, researchFileIcon(child));
+          const actionsBtn = row.createSpan({ cls: "feuillets-cell-icon clickable-icon feuillets-binder-research-actions" });
+          setIcon(actionsBtn, "more-horizontal");
+          actionsBtn.setAttr("aria-label", t("binder.vault.fileActions"));
+          actionsBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            showResearchFileMenu(e, child);
+          });
           // Toujours dans un nouvel onglet : consulter une fiche de
           // recherche ne doit jamais remplacer la scène en cours d'écriture.
           row.addEventListener("click", () => {

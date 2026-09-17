@@ -450,6 +450,34 @@ test("B: ResearchView renders isolated workspace research and gives access to ac
   assert.equal(sectionBHeaders.length, 0, "Sibling Section-B-Research must not appear");
 });
 
+test("B2: the complete Research panel lists office attachments from the workspace research folder", async () => {
+  const fixture = createFixture();
+  const guide = new TFile("RESEARCH/Work-A-Research/Guide.docx", "");
+  const workbook = new TFile("RESEARCH/Work-A-Research/Data.xlsx", "");
+  guide.parent = fixture.workAResearch;
+  workbook.parent = fixture.workAResearch;
+  fixture.workAResearch.children.push(guide, workbook);
+
+  const { view, contentEl } = createResearchView(fixture, {
+    currentWorkspace: fixture.workA,
+    activeFile: fixture.docA,
+  });
+
+  const prevDoc = globalThis.document;
+  globalThis.document = { activeElement: null };
+  try {
+    await view.render();
+  } finally {
+    globalThis.document = prevDoc;
+  }
+
+  const names = contentEl
+    .querySelectorAll(".feuillets-research-item-name")
+    .map((element) => element.text);
+  assert.ok(names.includes("Guide.docx"), "DOCX must be listed by the complete Research panel");
+  assert.ok(names.includes("Data.xlsx"), "XLSX must be listed by the complete Research panel");
+});
+
 test("C: ResearchView displays section research without duplication when the section itself is isolated", async () => {
   const fixture = createFixture();
   const links = fixture.settings.projectMeta[fixture.project.path].researchFolderLinks;

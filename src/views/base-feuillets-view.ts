@@ -13,7 +13,14 @@ import { promptForPage } from "../ui/citation-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { openSnapshotComparison } from "./comparison-view.js";
 import { listSnapshotFiles } from "../services/project-files.js";
-import { isResearchFile, isImageFile, isPdfFile, researchFolderPath } from "../services/research.js";
+import {
+  isResearchFile,
+  isResearchAttachment,
+  isImageFile,
+  isPdfFile,
+  researchFileIcon,
+  researchFolderPath,
+} from "../services/research.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem, openScopeWithPreviewBesideLeaf } from "./preview-view.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
@@ -514,7 +521,11 @@ export abstract class BaseFeuilletsView extends ItemView {
         new Notice(t("binder.research.invalidName"));
         return;
       }
-      const fileName = cleanName.endsWith(".md") ? cleanName : `${cleanName}.md`;
+      const extension = file.extension.toLowerCase();
+      const extensionSuffix = extension ? `.${extension}` : "";
+      const fileName = extensionSuffix && cleanName.toLowerCase().endsWith(extensionSuffix)
+        ? cleanName
+        : `${cleanName}${extensionSuffix}`;
       const parentPath = file.parent?.path;
       if (!parentPath) return;
       const destPath = normalizePath(`${parentPath}/${fileName}`);
@@ -563,16 +574,20 @@ export abstract class BaseFeuilletsView extends ItemView {
           .setTitle(t("shared.duplicate"))
           .setIcon("copy")
           .onClick(async () => {
-            const content = await this.app.vault.read(file);
             const copySuffix = t("binder.research.copySuffix");
             let name = `${file.basename} (${copySuffix})`;
-            let dest = normalizePath(`${file.parent!.path}/${name}.md`);
+            const extensionSuffix = file.extension ? `.${file.extension}` : "";
+            let dest = normalizePath(`${file.parent!.path}/${name}${extensionSuffix}`);
             let k = 2;
             while (this.app.vault.getAbstractFileByPath(dest)) {
               name = `${file.basename} (${copySuffix} ${k++})`;
-              dest = normalizePath(`${file.parent!.path}/${name}.md`);
+              dest = normalizePath(`${file.parent!.path}/${name}${extensionSuffix}`);
             }
-            await this.app.vault.create(dest, content);
+            if (file.extension.toLowerCase() === "md") {
+              await this.app.vault.create(dest, await this.app.vault.read(file));
+            } else {
+              await this.app.vault.createBinary(dest, await this.app.vault.readBinary(file));
+            }
             new Notice(t("shared.duplicated", { name }));
             void this.render(true);
           })
@@ -1601,22 +1616,21 @@ export abstract class BaseFeuilletsView extends ItemView {
     external?: boolean
   ): void {
     const isMedia = isImageFile(f) || isPdfFile(f);
+    const isAttachment = isResearchAttachment(f);
     const row = list.createDiv({ cls: "feuillets-research-item" });
     if (!external) this.attachResearchDragSource(row, f);
     const header = row.createDiv({ cls: "feuillets-research-item-header" });
 
-    if (isImageFile(f)) {
+    if (isAttachment) {
       const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
-      setIcon(iconSpan, "image");
-    } else if (isPdfFile(f)) {
-      const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
-      setIcon(iconSpan, "file-text");
+      setIcon(iconSpan, researchFileIcon(f));
     }
 
     const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
     nameEl.setText(this.plugin.titleFor(f));
+    nameEl.setAttr("title", this.plugin.titleFor(f));
 
-    this.addPreviewBtn(header, f);
+    if (!isAttachment || isMedia) this.addPreviewBtn(header, f);
 
     /* Menu contextuel ⋯ sur chaque fichier : Renommer, Dupliquer, Corbeille.
        Pour un fichier d'un dossier associé externe (lecture seule), le
@@ -1656,7 +1670,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         e.stopPropagation();
         openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
       });
-    } else if (Array.isArray(folderOrFiles)) {
+    } else if (isAttachment || Array.isArray(folderOrFiles)) {
       const openFileBtn = this.iconBtn(
         header,
         "external-link",
@@ -1686,7 +1700,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
 
     row.addEventListener("click", (e) => {
-      if (isMedia || Keymap.isModEvent(e)) {
+      if (isAttachment || Keymap.isModEvent(e)) {
         openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
         return;
       }

@@ -1125,6 +1125,63 @@ test("double vue : la section Recherche projette un dossier associé externe apr
   assert.ok(findAll(extRow, (el) => el.icon === "link").length > 0, "icône link sur le dossier externe");
 });
 
+test("split view lists office and EPUB files inside a linked Research folder", async () => {
+  const researchRoot = new TFolder("NEFES/_Recherche");
+  researchRoot.children = [];
+  const linked = new TFolder("Vault/ONM");
+  const files = [
+    new TFile("Vault/ONM/Guide.docx"),
+    new TFile("Vault/ONM/Data.xlsx"),
+    new TFile("Vault/ONM/Slides.pptx"),
+    new TFile("Vault/ONM/Book.epub"),
+  ];
+  linked.children = files;
+  for (const file of files) file.parent = linked;
+  const { view, contentEl, plugin } = createSplitFixture({
+    researchRoot,
+    linkedResearch: [{ folder: linked, binderNodes: [] }],
+  });
+  plugin.getOrderedChildren = (folder) =>
+    folder.children.filter((child) => child instanceof TFolder || child.extension === "md");
+
+  await view.render(true);
+
+  const treePane = findAll(contentEl, (el) => el.classes.has("feuillets-tree-pane"))[0];
+  const names = researchRowNames(treePane);
+  assert.ok(names.includes("Guide.docx"));
+  assert.ok(names.includes("Data.xlsx"));
+  assert.ok(names.includes("Slides.pptx"));
+  assert.ok(names.includes("Book.epub"));
+
+  const guideRow = findAll(treePane, (el) =>
+    el.classes.has("feuillets-binder-research-row") &&
+    findAll(el, (node) => node.classes.has("feuillets-item-name"))[0]?.text === "Guide.docx"
+  )[0];
+  assert.ok(guideRow, "the DOCX row is rendered");
+  assert.ok(
+    findAll(guideRow, (el) => el.attrs["aria-label"] === t("binder.vault.fileActions")).length === 1,
+    "the navigation menu stays available beside the truncated title"
+  );
+
+  const actions = findAll(
+    guideRow,
+    (el) => el.attrs["aria-label"] === t("binder.vault.fileActions")
+  )[0];
+  const menus = [];
+  const original = Menu.prototype.showAtMouseEvent;
+  Menu.prototype.showAtMouseEvent = function () { menus.push(this); };
+  try {
+    actions.events.get("click")({ preventDefault() {}, stopPropagation() {} });
+    assert.deepEqual(
+      menus[0].items.map((item) => item.title),
+      [t("binder.research.openNewTab"), t("binder.research.openSplit")],
+      "attachments expose the same tab and side-by-side navigation as Vault files"
+    );
+  } finally {
+    Menu.prototype.showAtMouseEvent = original;
+  }
+});
+
 test("double vue : un dossier associé externe ne devient jamais un élément du volet droit (Binder)", async () => {
   const researchRoot = new TFolder("NEFES/_Recherche");
   researchRoot.children = [];

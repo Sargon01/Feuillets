@@ -324,6 +324,49 @@ test("renderAssociatedResearchFolders affiche un dossier associé externe avec s
   );
 });
 
+test("linked Research folders list office, OpenDocument, and EPUB attachments", () => {
+  const docs = new TFolder("Vault/Docs");
+  const files = [
+    new TFile("Vault/Docs/Guide.docx"),
+    new TFile("Vault/Docs/Notes.odt"),
+    new TFile("Vault/Docs/Data.xlsx"),
+    new TFile("Vault/Docs/Data.ods"),
+    new TFile("Vault/Docs/Slides.pptx"),
+    new TFile("Vault/Docs/Slides.odp"),
+    new TFile("Vault/Docs/Book.epub"),
+  ];
+  docs.children = files;
+  for (const file of files) file.parent = docs;
+  const binderFolder = new TFolder(CHAPITRE_A);
+  const { view, contentEl } = createResearchViewHarness({
+    linkedFolders: [{ folder: docs, binderNodes: [binderFolder] }],
+  });
+
+  view.renderAssociatedResearchFolders(contentEl, null);
+
+  const names = findAll(contentEl, (element) =>
+    element.classes.has("feuillets-research-item-name")
+  ).map((element) => element.text);
+  assert.deepEqual(names, [
+    "Book.epub",
+    "Data.ods",
+    "Data.xlsx",
+    "Guide.docx",
+    "Notes.odt",
+    "Slides.odp",
+    "Slides.pptx",
+  ]);
+
+  const guideName = findAll(contentEl, (element) =>
+    element.classes.has("feuillets-research-item-name") && element.text === "Guide.docx"
+  )[0];
+  assert.equal(
+    guideName.getAttr("title"),
+    "Guide.docx",
+    "the complete name remains available as a tooltip"
+  );
+});
+
 test("renderAssociatedResearchFolders place un dossier associé sous Espaces dans la Recherche globale", () => {
   const baseResearch = new TFolder("Projet/_Recherche");
   const docs = new TFolder("Projet/_Recherche/Chapitre 1");
