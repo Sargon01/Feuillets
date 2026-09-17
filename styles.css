@@ -6340,6 +6340,42 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   font-size: var(--font-ui-small);
 }
 
+/* ===== modale « Déplacer vers un projet… » (brouillon) =====
+   Même gabarit que .feuillets-compile-selection-modal (largeur, liste
+   défilante) ; les lignes de l'arbre reprennent le survol de
+   .feuillets-project-item, jamais un nouveau style ad hoc. */
+.feuillets-move-draft-modal {
+  width: 520px;
+  max-width: 90vw;
+}
+
+.feuillets-move-draft-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--size-4-2);
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.feuillets-move-draft-target {
+  padding: 6px 10px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.feuillets-move-draft-target:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.feuillets-move-draft-target.is-root {
+  font-weight: var(--font-semibold);
+}
+
 /* ===== panneau Projet & export =====
    Même vocabulaire visuel que les autres panneaux : lignes façon volet
    arbre/tags (texte + icône, surbrillance seulement au survol) et

@@ -13,6 +13,8 @@ import { promptForPage } from "../ui/citation-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { openSnapshotComparison } from "./comparison-view.js";
 import { listSnapshotFiles } from "../services/project-files.js";
+import { isProjectDraft } from "../services/project-drafts.js";
+import { MoveDraftToProjectModal } from "../ui/move-draft-modal.js";
 import {
   isResearchFile,
   isResearchAttachment,
@@ -2923,6 +2925,19 @@ export abstract class BaseFeuilletsView extends ItemView {
           void this.plugin.moveSceneFile(file);
         })
     );
+    /* « Déplacer vers un projet… » : uniquement pour un brouillon
+       (_Feuillets/Drafts) — un feuillet du manuscrit se déplace déjà par
+       glisser-déposer ou « Déplacer » ci-dessus, jamais entre projets. */
+    if (isGroup === false && isProjectDraft(plugin.getProjectFolder(), file)) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.contextMenu.moveToProject"))
+          .setIcon("folder-symlink")
+          .onClick(() => {
+            new MoveDraftToProjectModal(this.app, plugin, file).open();
+          })
+      );
+    }
     menu.addItem((item) =>
       item
         .setTitle(t("shared.duplicate"))

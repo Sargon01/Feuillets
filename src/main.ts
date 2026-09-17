@@ -30,7 +30,7 @@ import {
   findReferences,
 } from "./utils/footnotes.js";
 import { openFileActivating, openFileActivatingWithCursor, selectRange } from "./utils/dom.js";
-import { createQuickDraftFile, isProjectDraft, nextAvailablePromotedDraftPath, ProjectDraftAutoRenamer } from "./services/project-drafts.js";
+import { createQuickDraftFile, isProjectDraft, moveDraftToProjectFolder, nextAvailablePromotedDraftPath, ProjectDraftAutoRenamer } from "./services/project-drafts.js";
 import type { FeuilletsEditorSurface } from "./utils/scrivenings-editor-adapter.js";
 import { ScriveningsSegmentEditorAdapter } from "./utils/scrivenings-editor-adapter.js";
 import { NotesView } from "./views/notes-view.js";
@@ -4757,6 +4757,41 @@ class FeuilletsPlugin extends Plugin {
     }
     const movedName = movedNow instanceof TFile ? this.titleFor(movedNow) : "";
     new Notice(t("main.notice.moved", { name: movedName || node.name }));
+  }
+
+  /** « Déplacer vers un projet… » (menu contextuel d'un brouillon) —
+   * opération dédiée à racines source/cible EXPLICITES (voir
+   * moveDraftToProjectFolder, services/project-drafts.ts), jamais moveNode
+   * ci-dessus qui suppose toujours le projet ACTIF des deux côtés. Le
+   * brouillon quitte `_Feuillets/Drafts` : sa racine éditoriale change, il
+   * devient un feuillet ordinaire du projet cible (compilable normalement,
+   * plus jamais projeté comme brouillon). Contenu, frontmatter et statut du
+   * brouillon restent strictement inchangés — voir
+   * moveDraftToProjectFolder, qui ne touche jamais `fm.order` ni aucune
+   * autre propriété YAML. */
+  async moveDraftToProject(file: TFile, destProjectRootPath: string, destFolderPath: string): Promise<boolean> {
+    const moved = await moveDraftToProjectFolder(this.app, this.settings, file, destFolderPath);
+    if (!moved) {
+      new Notice(t("main.notice.draftMoveDestinationGone"));
+      return false;
+    }
+    await this.saveSettings();
+    /* `destFolder` vient d'être résolu avec succès par
+       moveDraftToProjectFolder : sa racine de projet existe donc forcément
+       aussi (un dossier n'existe jamais sans ses ancêtres) — switchProject
+       ne peut échouer ici que si le projet disparaît entre les deux appels,
+       cas extrême sans notice dédiée, comme ailleurs dans le plugin. */
+    await this.switchProject(destProjectRootPath);
+    const leaf = this.getLeafForOpeningFile();
+    openFileActivating(this.app, leaf, moved);
+    this.renderAllViews(true);
+    new Notice(
+      t("main.notice.draftMovedToProject", {
+        name: this.titleFor(moved) || moved.basename,
+        project: this.projectDisplayName(destProjectRootPath),
+      })
+    );
+    return true;
   }
 
   chapterPattern(): RegExp {

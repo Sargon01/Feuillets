@@ -2,7 +2,7 @@ import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { stripFrontmatter } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
-import { feuilletsAuxiliaryPath } from "./folder-structure.js";
+import { feuilletsAuxiliaryPath, getOrderedChildren } from "./folder-structure.js";
 
 const DEFAULT_DRAFT_STEM = "Sans titre";
 const DEFAULT_MAX_STEM_LENGTH = 80;
@@ -97,6 +97,55 @@ export function nextAvailablePromotedDraftPath(app: App, destination: TFolder, f
     if (!app.vault.getAbstractFileByPath(path)) return path;
     index += 1;
   }
+}
+
+/** Déplace un brouillon vers un dossier d'un projet quelconque (même projet
+ * ou un autre) — opération dédiée à racine de destination EXPLICITE, jamais
+ * `plugin.moveNode` (qui suppose toujours le projet ACTIF, source et
+ * destination confondues). `destFolderPath` est résolu à nouveau ici, jamais
+ * un `TFolder` capturé plus tôt par l'appelant (modale ouverte, dossier
+ * supprimé entretemps) : une destination disparue renvoie `null` au lieu de
+ * planter ou de créer un chemin fantôme.
+ *
+ * `app.fileManager.renameFile` seul déplace le fichier (préserve les liens
+ * Obsidian) — AUCUN `processFrontMatter` : le frontmatter et le contenu du
+ * brouillon restent identiques bit à bit, aucune propriété n'est jamais
+ * adaptée au projet cible (ni `order`, ni `status`, ni quoi que ce soit
+ * d'autre). Une collision de nom est résolue par
+ * `nextAvailablePromotedDraftPath` (Titre 2.md, Titre 3.md…), jamais un
+ * écrasement — divergence assumée avec `moveNode`, qui abandonne plutôt
+ * l'opération sur collision hors promotion de brouillon.
+ *
+ * Le fichier déplacé est ajouté à LA FIN de `settings.orders` du dossier
+ * cible (seule donnée touchée pour le positionner — jamais `fm.order` dans
+ * le fichier lui-même) : le comparateur de tri de `getOrderedChildren`
+ * consulte `settings.orders` en priorité, donc cela suffit à garantir sa
+ * position sans toucher au frontmatter. */
+export async function moveDraftToProjectFolder(
+  app: App,
+  settings: FeuilletsSettings,
+  file: TFile,
+  destFolderPath: string
+): Promise<TFile | null> {
+  const destFolder = app.vault.getAbstractFileByPath(normalizePath(destFolderPath));
+  if (!(destFolder instanceof TFolder)) return null;
+  if (!(file.parent instanceof TFolder)) return null;
+
+  const straightPath = normalizePath(`${destFolder.path}/${file.name}`);
+  const destPath = app.vault.getAbstractFileByPath(straightPath)
+    ? nextAvailablePromotedDraftPath(app, destFolder, file)
+    : straightPath;
+
+  await app.fileManager.renameFile(file, destPath);
+  const moved = app.vault.getAbstractFileByPath(destPath);
+  if (!(moved instanceof TFile)) return null;
+
+  const siblings = getOrderedChildren(app, settings, destFolder, false).filter(
+    (child) => child.path !== moved.path
+  );
+  settings.orders[destFolder.path] = [...siblings.map((child) => child.name), moved.name];
+
+  return moved;
 }
 
 export async function createQuickDraftFile(app: App, manuscriptRoot: TFolder): Promise<TFile> {
