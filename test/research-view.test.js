@@ -58,6 +58,19 @@ class FakeElement {
     return null;
   }
 
+  querySelectorAll(selector) {
+    const classNames = selector.split(",").map((s) => s.trim().replace(/^\./, ""));
+    const matches = [];
+    const walk = (el) => {
+      for (const child of el.children) {
+        if (classNames.some((cls) => child.classes.has(cls))) matches.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return matches;
+  }
+
   focus() {
     if (globalThis.document) globalThis.document.activeElement = this;
   }
@@ -1277,7 +1290,7 @@ function fakeDataTransfer() {
   };
 }
 
-test("attachResearchDragSource — TFile Recherche : MIME application/x-feuillets-file posé", () => {
+test("attachResearchDragSource — TFile Recherche : MIME application/x-feuillets-file posé, lien complet, effectAllowed copyMove", () => {
   const harness = createDropHarness({ vault: {} });
   try {
     const file = new TFile("Projet/_Recherche/Personnages/Fiche.md");
@@ -1288,8 +1301,10 @@ test("attachResearchDragSource — TFile Recherche : MIME application/x-feuillet
 
     assert.equal(harness.plugin._researchDragPath, file.path, "le déplacement interne Recherche reste inchangé");
     assert.ok(dt.hasType("text/plain"), "text/plain historique préservé");
+    assert.equal(dt.getData("text/plain"), "[[Projet/_Recherche/Personnages/Fiche.md|Fiche.md]]", "lien wiki sur le chemin vault complet, jamais le seul nom, avec le nom de fichier en alias affiché");
     assert.ok(dt.hasType("application/x-feuillets-file"), "MIME FileNode posé pour un TFile");
     assert.equal(dt.getData("application/x-feuillets-file"), file.path, "chemin vault exact");
+    assert.equal(dt.effectAllowed, "copyMove", "un dépôt dans un éditeur reste une copie de lien");
   } finally {
     harness.cleanup();
   }
@@ -1306,7 +1321,98 @@ test("attachResearchDragSource — TFolder Recherche : jamais le MIME FileNode, 
 
     assert.equal(harness.plugin._researchDragPath, folder.path, "le déplacement interne de sous-dossier reste inchangé");
     assert.ok(dt.hasType("text/plain"), "text/plain toujours posé pour le déplacement interne");
+    assert.equal(dt.getData("text/plain"), folder.path, "un sous-dossier n'a pas de lien wiki cohérent : chemin brut conservé");
     assert.ok(!dt.hasType("application/x-feuillets-file"), "jamais le MIME FileNode pour un TFolder");
+    assert.equal(dt.effectAllowed, "copyMove");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("attachResearchDragSource — image : payload text/plain en embed \"![[chemin complet]]\"", () => {
+  const harness = createDropHarness({ vault: {} });
+  try {
+    const file = new TFile("Projet/_Recherche/Images/Portrait.png");
+    const row = new FakeElement();
+    harness.view.attachResearchDragSource(row, file);
+    const dt = fakeDataTransfer();
+    row.events.get("dragstart")({ dataTransfer: dt, stopPropagation() {} });
+
+    assert.equal(dt.getData("text/plain"), "![[Projet/_Recherche/Images/Portrait.png]]");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("attachResearchDragSource — tout autre type (PDF, DOCX, ODT, EPUB, tableur, présentation, Canvas, Base, Excalidraw, Markdown) : lien aliasé \"[[chemin complet|nom]]\", le nom seul s'affiche dans le feuillet", () => {
+  const harness = createDropHarness({ vault: {} });
+  const names = [
+    "Source.pdf",
+    "Manuscrit.docx",
+    "Notes.odt",
+    "Livre.epub",
+    "Donnees.xlsx",
+    "Diapo.pptx",
+    "Tableau.canvas",
+    "Vue.base",
+    "Croquis.excalidraw.md",
+    "Fiche.md",
+  ];
+  try {
+    for (const name of names) {
+      const file = new TFile(`Projet/_Recherche/Documents/${name}`);
+      const row = new FakeElement();
+      harness.view.attachResearchDragSource(row, file);
+      const dt = fakeDataTransfer();
+      row.events.get("dragstart")({ dataTransfer: dt, stopPropagation() {} });
+      assert.equal(
+        dt.getData("text/plain"),
+        `[[Projet/_Recherche/Documents/${name}|${name}]]`,
+        `${name} doit cibler le chemin complet mais n'afficher que le nom de fichier`
+      );
+    }
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("attachResearchDragSource — exemples exacts (PDF, Excalidraw) : le feuillet n'affiche que le nom de fichier", () => {
+  const harness = createDropHarness({ vault: {} });
+  try {
+    const pdf = new TFile("textes/_Feuillets/Recherche/Soy/Notes/soy.pdf");
+    const row = new FakeElement();
+    harness.view.attachResearchDragSource(row, pdf);
+    const dt = fakeDataTransfer();
+    row.events.get("dragstart")({ dataTransfer: dt, stopPropagation() {} });
+    assert.equal(dt.getData("text/plain"), "[[textes/_Feuillets/Recherche/Soy/Notes/soy.pdf|soy.pdf]]");
+
+    const drawing = new TFile("textes/_Feuillets/Recherche/Soy/Notes/Dessin.excalidraw.md");
+    const row2 = new FakeElement();
+    harness.view.attachResearchDragSource(row2, drawing);
+    const dt2 = fakeDataTransfer();
+    row2.events.get("dragstart")({ dataTransfer: dt2, stopPropagation() {} });
+    assert.equal(dt2.getData("text/plain"), "[[textes/_Feuillets/Recherche/Soy/Notes/Dessin.excalidraw.md|Dessin.excalidraw.md]]");
+  } finally {
+    harness.cleanup();
+  }
+});
+
+test("attachResearchDragSource — allowInternalMove=false (fichier d'un dossier associé externe) : glissable vers un éditeur, jamais source de déplacement interne", () => {
+  const harness = createDropHarness({ vault: {} });
+  try {
+    const file = new TFile("Ailleurs/Dossier documentaire/Source.pdf");
+    const row = new FakeElement();
+    harness.view.attachResearchDragSource(row, file, false);
+    const dt = fakeDataTransfer();
+    row.events.get("dragstart")({ dataTransfer: dt, stopPropagation() {} });
+
+    assert.equal(dt.getData("text/plain"), "[[Ailleurs/Dossier documentaire/Source.pdf|Source.pdf]]", "le lien reste disponible pour un dépôt dans un éditeur, avec le seul nom affiché");
+    assert.equal(dt.effectAllowed, "copyMove");
+    assert.equal(harness.plugin._researchDragPath, undefined, "jamais candidat au déplacement interne Recherche");
+    assert.ok(!dt.hasType("application/x-feuillets-file"), "jamais le MIME FileNode pour un fichier externe");
+
+    row.events.get("dragend")();
+    assert.equal(harness.plugin._researchDragPath, undefined, "dragend ne doit pas toucher un état qu'il n'a jamais posé");
   } finally {
     harness.cleanup();
   }

@@ -39,7 +39,7 @@ export function renderCollapsibleHead(container: ObsidianElement, {
   collapseKey: string;
   settings: CollapsibleSettings;
   onToggle: () => void | Promise<void>;
-  onCreate?: () => void;
+  onCreate?: (event: MouseEvent) => void;
 }) {
   const section = container.createDiv({ cls: classes.section });
   const head = section.createDiv({ cls: classes.head });
@@ -57,7 +57,7 @@ export function renderCollapsibleHead(container: ObsidianElement, {
     addBtn.setAttr("aria-label", `Créer une fiche ${title.toLowerCase()}`);
     addBtn.addEventListener("click", (e) => {
       e.stopPropagation();
-      onCreate();
+      onCreate(e);
     });
   }
 

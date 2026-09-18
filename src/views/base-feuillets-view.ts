@@ -18,11 +18,18 @@ import { MoveDraftToProjectModal } from "../ui/move-draft-modal.js";
 import {
   isResearchFile,
   isResearchAttachment,
-  isImageFile,
-  isPdfFile,
+  isResearchPreviewable,
   researchFileIcon,
+  researchFileLinkMarkdown,
+  researchFileTypeLabel,
   researchFolderPath,
 } from "../services/research.js";
+import {
+  createResearchBase,
+  createResearchCanvas,
+  delegateNewExcalidrawDrawing,
+  isExcalidrawActive,
+} from "../services/research-create.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem, openScopeWithPreviewBesideLeaf } from "./preview-view.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
@@ -415,6 +422,63 @@ export abstract class BaseFeuilletsView extends ItemView {
     })();
   }
 
+  /** Menu du bouton « + » d'une surface Recherche (racine, sous-dossier,
+   * dossier associé — les trois seuls appelants, voir renderSection et
+   * renderResearchSubfolder) : Nouvelle fiche (modèle spécialisé inchangé,
+   * `createFiche`), Nouveau Canvas, Nouvelle Base, Nouveau dessin Excalidraw
+   * (seulement si le greffon est actif) et Nouveau sous-dossier (flux
+   * existant, `plugin.newFolder`). */
+  private showResearchCreateMenu(evt: MouseEvent, folder: TFolder, createFiche: () => void | Promise<void>): void {
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.research.newSheetMenuItem"))
+        .setIcon("file-text")
+        .onClick(() => { void createFiche(); })
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.research.newCanvas"))
+        .setIcon("layout-dashboard")
+        .onClick(() => {
+          void (async () => {
+            const file = await createResearchCanvas(this.app, folder);
+            openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+            void this.render(true);
+          })();
+        })
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.research.newBase"))
+        .setIcon("database")
+        .onClick(() => {
+          void (async () => {
+            const file = await createResearchBase(this.app, folder);
+            openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+            void this.render(true);
+          })();
+        })
+    );
+    if (isExcalidrawActive(this.app)) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.research.newExcalidraw"))
+          .setIcon("shapes")
+          .onClick((clickEvt) => {
+            delegateNewExcalidrawDrawing(this.app, folder, clickEvt as MouseEvent);
+          })
+      );
+    }
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.newSubfolder"))
+        .setIcon("folder-plus")
+        .onClick(() => this.plugin.newFolder(folder))
+    );
+    menu.showAtMouseEvent(evt);
+  }
+
   private promptRenameResearchFolder(folder: TFolder): void {
     new RenameFolderModal(this.app, folder.name, async (rawName) => {
       const newName = rawName.trim();
@@ -543,13 +607,25 @@ export abstract class BaseFeuilletsView extends ItemView {
   }
 
   /** Menu contextuel d'un fichier de recherche : Ouvrir (nouvel onglet/côte
-   * à côte), puis Renommer/Dupliquer/Corbeille.
+   * à côte), puis les actions supplémentaires du type de ligne (Apparitions,
+   * citer une source — voir `extraItems`, renderResearchFileRow), puis
+   * Renommer/Dupliquer/Corbeille. Seul point d'entrée du menu "..." : une
+   * ligne Recherche ne porte plus aucun autre bouton d'action direct
+   * (correctif de simplification des lignes) — jamais de doublon entre
+   * `extraItems` et ce qui suit.
    * `navigationOnly` (dossier Recherche EXTERNE associé depuis le Binder,
    * hors racine Recherche du projet — voir renderAssociatedResearchFolders,
    * renderSection) : ne garde que les deux premières entrées de navigation
    * — jamais de renommer/dupliquer/corbeille sur un dossier documentaire
-   * externe, en lecture/navigation seule. */
-  showResearchFileContextMenu(e: MouseEvent, file: TFile, navigationOnly = false): void {
+   * externe, en lecture/navigation seule ; `extraItems` (lecture seule,
+   * Apparitions/citer) reste disponible même dans ce cas, comme avant la
+   * simplification des lignes. */
+  showResearchFileContextMenu(
+    e: MouseEvent,
+    file: TFile,
+    navigationOnly = false,
+    extraItems?: (menu: Menu) => void
+  ): void {
     const menu = new Menu();
     menu.addItem((item) =>
       item
@@ -563,6 +639,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setIcon("columns-2")
         .onClick(() => openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file))
     );
+    if (extraItems) extraItems(menu);
     if (!navigationOnly) {
       menu.addSeparator();
       menu.addItem((item) =>
@@ -1105,15 +1182,18 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     if (sourcesFolder) {
-      /* Sources est la SEULE bibliothèque de travail —
-         icône "+" par fiche pour la citer directement (voir aussi le
-         bouton "citation" de la barre d'outils, qui cherche dedans). */
-      const citeRowAction = (header: HTMLElement, file: TFile) => {
-        const citeBtn = this.iconBtn(header, "quote", "Citer cette source…");
-        citeBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.plugin.quickCiteSource(file);
-        });
+      /* Sources est la SEULE bibliothèque de travail — entrée "Citer cette
+         source…" dans le menu "..." de chaque fiche (voir aussi le bouton
+         "citation" de la barre d'outils, qui cherche dedans). Plus un
+         bouton direct sur la ligne depuis la simplification des lignes
+         Recherche : voir renderResearchFileRow/showResearchFileContextMenu. */
+      const citeRowAction = (menu: Menu, file: TFile) => {
+        menu.addItem((item) =>
+          item
+            .setTitle("Citer cette source…")
+            .setIcon("quote")
+            .onClick(() => { this.plugin.quickCiteSource(file); })
+        );
       };
       this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, async () =>
         this.promptCreateResearchFile(
@@ -1505,7 +1585,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     folderOrFiles: TFolder | TFile[],
     onCreate?: () => Promise<void>,
     iconKey?: string,
-    rowAction?: (header: HTMLElement, file: TFile) => void,
+    rowAction?: (menu: Menu, file: TFile) => void,
     headerExtra?: (head: HTMLElement) => void,
     external?: boolean
   ): void {
@@ -1532,7 +1612,11 @@ export abstract class BaseFeuilletsView extends ItemView {
         await this.plugin.saveSettings();
         void this.render();
       },
-      onCreate: onCreate ? () => { void onCreate(); } : undefined,
+      onCreate: onCreate
+        ? (folderOrFiles instanceof TFolder
+          ? (event: MouseEvent) => this.showResearchCreateMenu(event, folderOrFiles, onCreate)
+          : () => { void onCreate(); })
+        : undefined,
     });
 
     if (headerExtra) headerExtra(head);
@@ -1606,102 +1690,53 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
   }
 
-  /** Affiche une ligne de fichier dans une rubrique de recherche.
-   * `external` : fichier d'un dossier associé hors racine Recherche — pas
-   * de source de glisser-déposer, pour ne jamais déplacer un fichier hors
-   * de son dossier documentaire d'origine. */
+  /** Affiche une ligne de fichier dans une rubrique de recherche — structure
+   * volontairement réduite à 4 éléments : [type] [nom] [œil si
+   * prévisualisable] […]. Plus aucun bouton chaîne ni bouton d'ouverture
+   * directe : "..." regroupe désormais toutes les actions (nouvel onglet,
+   * côte à côte, renommer, dupliquer, corbeille, Apparitions, citer une
+   * source), jamais dupliquées ailleurs sur la ligne.
+   * `external` : fichier d'un dossier associé hors racine Recherche — reste
+   * glissable vers un éditeur (copie de lien, voir attachResearchDragSource),
+   * mais jamais une source de déplacement interne : ne déplace jamais un
+   * fichier hors de son dossier documentaire d'origine. */
   private renderResearchFileRow(
     list: HTMLElement,
     f: TFile,
-    folderOrFiles: TFolder | TFile[],
-    rowAction?: (header: HTMLElement, file: TFile) => void,
+    _folderOrFiles: TFolder | TFile[],
+    rowAction?: (menu: Menu, file: TFile) => void,
     external?: boolean
   ): void {
-    const isMedia = isImageFile(f) || isPdfFile(f);
     const isAttachment = isResearchAttachment(f);
     const row = list.createDiv({ cls: "feuillets-research-item" });
-    if (!external) this.attachResearchDragSource(row, f);
+    this.attachResearchDragSource(row, f, !external);
     const header = row.createDiv({ cls: "feuillets-research-item-header" });
 
-    if (isAttachment) {
-      const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
+    /* Colonne type : TOUJOURS rendue, pour tout fichier Recherche — y
+       compris Markdown (un dessin Excalidraw n'a pas d'icône sans ça, voir
+       researchFileIcon). Exactement UN indicateur par fichier : soit
+       l'icône Lucide (image, Canvas, Base, Excalidraw, ou "file-text" pour
+       une fiche ordinaire), soit — pour les formats documentaires non
+       Markdown dont l'icône générique ne se distingue pas d'un simple
+       document — un petit indicateur textuel fixe (researchFileTypeLabel),
+       jamais les deux. Largeur fixe et compacte (styles.css). */
+    const iconSpan = header.createSpan({ cls: "feuillets-research-item-icon" });
+    const typeLabel = researchFileTypeLabel(f);
+    if (typeLabel) {
+      iconSpan.addClass("feuillets-research-item-type-badge");
+      iconSpan.setText(typeLabel);
+    } else {
       setIcon(iconSpan, researchFileIcon(f));
     }
 
+    /* Nom : SEUL élément cliquable de la ligne (jamais toute la ligne) —
+       une fiche Markdown ouvre la vue Recherche in situ (outils de
+       citation compris, voir renderFileView), une pièce jointe ouvre son
+       visualiseur natif Obsidian, comportements strictement inchangés. */
     const nameEl = header.createDiv({ cls: "feuillets-research-item-name" });
     nameEl.setText(this.plugin.titleFor(f));
     nameEl.setAttr("title", this.plugin.titleFor(f));
-
-    if (!isAttachment || isMedia) this.addPreviewBtn(header, f);
-
-    /* Menu contextuel ⋯ sur chaque fichier : Renommer, Dupliquer, Corbeille.
-       Pour un fichier d'un dossier associé externe (lecture seule), le
-       bouton reste affiché mais le menu se limite à la navigation (Ouvrir
-       dans un nouvel onglet / côte à côte) — voir showResearchFileContextMenu
-       navigationOnly. */
-    if (!isMedia) {
-      const fileActionsBtn = this.iconBtn(header, "more-horizontal", t("shared.research.folderActions"));
-      fileActionsBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.showResearchFileContextMenu(e, f, external);
-      });
-    }
-
-    if (isMedia) {
-      const insertLinkBtn = this.iconBtn(
-        header,
-        "link",
-        isImageFile(f)
-          ? t("shared.research.insertImageTooltip")
-          : t("shared.research.insertPdfLinkTooltip")
-      );
-      insertLinkBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const fname = f.name;
-        const link = isImageFile(f) ? `![[${fname}]]` : `[[${fname}]]`;
-        this.plugin.insertIntoActiveEditor(link);
-        new Notice(t("shared.research.linkInserted", { name: fname }));
-      });
-
-      const openFileBtn = this.iconBtn(
-        header,
-        "external-link",
-        t("shared.research.openFile")
-      );
-      openFileBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
-      });
-    } else if (isAttachment || Array.isArray(folderOrFiles)) {
-      const openFileBtn = this.iconBtn(
-        header,
-        "external-link",
-        t("shared.openNewTab")
-      );
-      openFileBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        openFileActivating(this.app, this.app.workspace.getLeaf("tab"), f);
-      });
-    } else {
-      const appearBtn = this.iconBtn(
-        header,
-        "list",
-        t("shared.research.appearancesTooltip")
-      );
-      appearBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        new AppearancesModal(this.app, this.plugin, f).open();
-      });
-      if (rowAction) rowAction(header, f);
-    }
-
-    row.addClass("internal-link");
-    row.setAttr("data-href", f.path);
-    row.setAttr("data-path", f.path);
-    row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
-    row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
-
-    row.addEventListener("click", (e) => {
+    nameEl.addEventListener("click", (e) => {
       if (isAttachment || Keymap.isModEvent(e)) {
         openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
         return;
@@ -1709,6 +1744,46 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.viewingFile = f;
       void this.render();
     });
+
+    /* Œil : seulement pour les formats réellement prévisualisables
+       (isResearchPreviewable) — masqué (feuillets-research-item-eye,
+       display: none en dehors du survol/focus, styles.css) pour ne
+       réserver AUCUNE largeur tant que la ligne n'est pas sollicitée. */
+    if (isResearchPreviewable(f)) {
+      this.addPreviewBtn(header, f).addClass("feuillets-research-item-eye");
+    }
+
+    /* "..." : TOUJOURS présent, pour absolument tout type de fichier —
+       seule commande visible en permanence (feuillets-research-item-menu-
+       btn, styles.css). Regroupe toutes les actions restantes, y compris
+       celles qui vivaient auparavant en boutons directs sur la ligne
+       (Apparitions, citer une source) ; jamais de doublon avec l'œil ou le
+       nom. Pour un dossier associé externe (lecture seule), le menu se
+       limite à la navigation — voir showResearchFileContextMenu
+       navigationOnly. */
+    const fileActionsBtn = this.iconBtn(header, "more-horizontal", t("shared.research.folderActions"));
+    fileActionsBtn.addClass("feuillets-research-item-menu-btn");
+    fileActionsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this.showResearchFileContextMenu(e, f, external, (menu) => {
+        if (!isAttachment || rowAction) menu.addSeparator();
+        if (!isAttachment) {
+          menu.addItem((item) =>
+            item
+              .setTitle(t("shared.research.appearancesTooltip"))
+              .setIcon("list")
+              .onClick(() => { new AppearancesModal(this.app, this.plugin, f).open(); })
+          );
+        }
+        if (rowAction) rowAction(menu, f);
+      });
+    });
+
+    row.addClass("internal-link");
+    row.setAttr("data-href", f.path);
+    row.setAttr("data-path", f.path);
+    row.setAttr("data-search", foldAccents(this.plugin.titleFor(f)));
+    row.setAttr("data-tags", this.plugin.tagsOf(f).map(foldAccents).join(","));
   }
 
   /** Affiche récursivement un sous-dossier de recherche avec son chevron,
@@ -1756,9 +1831,10 @@ export abstract class BaseFeuilletsView extends ItemView {
     nameEl.setText(folder.name);
 
     const createButton = this.iconBtn(header, "plus", t("binder.research.newFile"));
+    createButton.addClass("feuillets-research-item-action");
     createButton.addEventListener("click", (event) => {
       event.stopPropagation();
-      this.promptCreateResearchFileInFolder(folder);
+      this.showResearchCreateMenu(event, folder, () => this.promptCreateResearchFileInFolder(folder));
     });
 
     header.addEventListener("click", () => {
@@ -1791,6 +1867,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         "more-horizontal",
         t("shared.research.folderActions")
       );
+      actions.addClass("feuillets-research-item-menu-btn");
       actions.addEventListener("click", (e) => {
         e.stopPropagation();
         this.showResearchFolderContextMenu(e, folder);
@@ -1801,6 +1878,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         "more-horizontal",
         t("shared.research.folderActions")
       );
+      actions.addClass("feuillets-research-item-menu-btn");
       actions.addEventListener("click", (e) => {
         e.stopPropagation();
         const menu = new Menu();
@@ -1949,28 +2027,52 @@ export abstract class BaseFeuilletsView extends ItemView {
     return btn;
   }
 
-  /** Rend une fiche — ou un sous-dossier — de recherche déplaçable : au
-   * dragstart, on mémorise son chemin sur le plugin (état partagé entre les
-   * rubriques, comme dragState pour le binder). Le vrai déplacement est
-   * fait par la cible de dépôt. */
-  attachResearchDragSource(row: HTMLElement, file: TAbstractFile): void {
+  /** Rend une fiche — ou un sous-dossier — de recherche déplaçable.
+   *
+   * `text/plain` transporte, pour un vrai fichier, de quoi le déposer
+   * directement dans un éditeur Obsidian sous forme de lien
+   * (researchFileLinkMarkdown, source UNIQUE partagée par tous les flux
+   * d'insertion de lien encore utilisés) : le chemin Vault reste toujours
+   * COMPLET pour cibler sans ambiguïté (Obsidian entretient ensuite ce
+   * lien lui-même aux renommages/déplacements), mais seul le nom de
+   * fichier s'affiche dans le feuillet — embed `![[chemin]]` pour une
+   * image, lien aliasé `[[chemin|nom]]` pour tout le reste (PDF, DOCX,
+   * ODT, EPUB, tableur, présentation, Canvas, Base, Excalidraw, Markdown).
+   * `effectAllowed` vaut "copyMove" : un dépôt dans un éditeur reste une
+   * COPIE de lien (jamais un déplacement du fichier, jamais hors du
+   * panneau Recherche). Un sous-dossier n'a pas de lien wiki cohérent :
+   * son `text/plain` reste son chemin brut. Ce payload est posé pour
+   * TOUTE ligne rendue, y compris celles d'un dossier associé externe.
+   *
+   * `allowInternalMove` (faux pour un fichier d'un dossier externe, voir
+   * renderResearchFileRow) pilote SÉPARÉMENT le déplacement INTERNE entre
+   * dossiers Recherche (`_researchDragPath`, le MIME privé, lus par
+   * attachResearchDropTarget) : un dossier externe reste, lui, strictement
+   * jamais une source de déplacement — seul son lien peut être copié vers
+   * un éditeur, le fichier documentaire d'origine ne bouge jamais. */
+  attachResearchDragSource(row: HTMLElement, file: TAbstractFile, allowInternalMove = true): void {
     row.draggable = true;
     row.addEventListener("dragstart", (e) => {
-      this.plugin._researchDragPath = file.path;
-      e.dataTransfer!.effectAllowed = "move";
-      e.dataTransfer!.setData("text/plain", file.path);
-      /* Correctif « drag Binder/Recherche → vrai FileNode » : UNIQUEMENT
-         pour un fichier (jamais un sous-dossier, §4) — un Carnet ouvert qui
-         reçoit ce MIME privé y crée un vrai FileNode Canvas (voir main.ts,
-         handleCarnetFileDrop), jamais un TextNode `[[lien]]`. Le
-         déplacement interne Recherche existant (`_researchDragPath`,
-         attachResearchDropTarget) reste totalement inchangé. */
-      if (file instanceof TFile) e.dataTransfer!.setData(FEUILLETS_FILE_DRAG_MIME, file.path);
+      e.dataTransfer!.effectAllowed = "copyMove";
+      e.dataTransfer!.setData(
+        "text/plain",
+        file instanceof TFile ? researchFileLinkMarkdown(file) : file.path
+      );
+      if (allowInternalMove) {
+        this.plugin._researchDragPath = file.path;
+        /* Correctif « drag Binder/Recherche → vrai FileNode » : UNIQUEMENT
+           pour un fichier (jamais un sous-dossier, §4) — un Carnet ouvert
+           qui reçoit ce MIME privé y crée un vrai FileNode Canvas (voir
+           main.ts, handleCarnetFileDrop), jamais un TextNode `[[lien]]`. Le
+           déplacement interne Recherche existant (`_researchDragPath`,
+           attachResearchDropTarget) reste totalement inchangé. */
+        if (file instanceof TFile) e.dataTransfer!.setData(FEUILLETS_FILE_DRAG_MIME, file.path);
+      }
       row.addClass("feuillets-dragging");
       e.stopPropagation();
     });
     row.addEventListener("dragend", () => {
-      this.plugin._researchDragPath = null;
+      if (allowInternalMove) this.plugin._researchDragPath = null;
       this.contentEl
         .querySelectorAll(".feuillets-dragover, .feuillets-dragging")
         .forEach((el) => {

@@ -393,6 +393,10 @@ const RESEARCH_DOCUMENT_EXTS = new Set([
   "odp",
   "epub",
 ]);
+/** Fichiers structurés natifs d'Obsidian (Canvas, Base) : jamais du texte
+ * libre, jamais un « document » au sens RESEARCH_DOCUMENT_EXTS — reconnus à
+ * part pour garder à chaque ensemble un sens honnête. */
+const RESEARCH_STRUCTURED_EXTS = new Set(["canvas", "base"]);
 
 /** Returns whether a file can be shown in Research surfaces.
  * Attachments are still opened by Obsidian so the registered viewer can
@@ -400,7 +404,7 @@ const RESEARCH_DOCUMENT_EXTS = new Set([
 export function isResearchFile(file: unknown): file is TFile {
   if (!(file instanceof TFile)) return false;
   const ext = file.extension.toLowerCase();
-  return ext === "md" || RESEARCH_DOCUMENT_EXTS.has(ext) || RESEARCH_IMAGE_EXTS.has(ext);
+  return ext === "md" || RESEARCH_DOCUMENT_EXTS.has(ext) || RESEARCH_IMAGE_EXTS.has(ext) || RESEARCH_STRUCTURED_EXTS.has(ext);
 }
 
 /** Returns whether the file must open in an Obsidian view instead of the
@@ -409,14 +413,47 @@ export function isResearchAttachment(file: unknown): boolean {
   return isResearchFile(file) && file.extension.toLowerCase() !== "md";
 }
 
-/** Returns the Lucide icon that best identifies a Research file family. */
+/** Fichier de dessin Excalidraw : un `.md` ordinaire pour tout le reste du
+ * plugin (isResearchFile/isResearchAttachment le traitent comme n'importe
+ * quelle fiche Markdown, jamais modifiés ici) — reconnu seulement pour lui
+ * donner une icône distincte dans Recherche. Reconnaît aussi une variante
+ * renommée par collision (« Dessin.excalidraw 1.md » — le suffixe numéroté
+ * s'insère AVANT « .md », voir uniqueFileName/nextAvailablePromotedDraftPath,
+ * jamais après) : un simple `.endsWith(".excalidraw.md")` la manquerait.
+ * L'ouverture reste celle, déjà existante, du greffon Excalidraw natif :
+ * jamais changée ici. */
+export function isExcalidrawMarkdownFile(file: unknown): file is TFile {
+  if (!(file instanceof TFile)) return false;
+  if (file.extension.toLowerCase() !== "md") return false;
+  return /\.excalidraw(?: \d+)?\.md$/i.test(file.name);
+}
+
+/** Returns the Lucide icon that best identifies a Research file family.
+ * `pencil` (jamais `pencil-ruler`, absent des icônes Obsidian sûres) pour
+ * un dessin Excalidraw. */
 export function researchFileIcon(file: TFile): string {
   const ext = file.extension.toLowerCase();
   if (RESEARCH_IMAGE_EXTS.has(ext)) return "image";
   if (["xls", "xlsx", "ods", "csv", "tsv"].includes(ext)) return "table-2";
   if (["ppt", "pptx", "odp"].includes(ext)) return "presentation";
   if (ext === "epub") return "book-open";
+  if (ext === "canvas") return "layout-dashboard";
+  if (ext === "base") return "database";
+  if (isExcalidrawMarkdownFile(file)) return "pencil";
   return "file-text";
+}
+
+/** Indicateur textuel fixe (« PDF », « DOCX »…) pour les fichiers
+ * documentaires non Markdown dont l'icône générique Lucide ne se
+ * distingue pas d'un simple document — remplace researchFileIcon() dans la
+ * colonne icône des lignes Recherche (renderResearchFileRow) pour CES
+ * extensions précises. Jamais pour une image, un Canvas, une Base ou un
+ * dessin Excalidraw : ceux-ci gardent leur icône dédiée. `null` si `file`
+ * n'appartient pas à RESEARCH_DOCUMENT_EXTS. */
+export function researchFileTypeLabel(file: unknown): string | null {
+  if (!(file instanceof TFile)) return null;
+  const ext = file.extension.toLowerCase();
+  return RESEARCH_DOCUMENT_EXTS.has(ext) ? ext.toUpperCase() : null;
 }
 
 /** Indique si un fichier est un média image supporté. */
@@ -425,8 +462,45 @@ export function isImageFile(file: unknown): file is TFile {
   return RESEARCH_IMAGE_EXTS.has(file.extension.toLowerCase());
 }
 
+/** Source UNIQUE du Markdown produit pour insérer un fichier Recherche dans
+ * un feuillet — partagée par tous les flux d'insertion de lien qui restent
+ * après la simplification des lignes Recherche (aujourd'hui : le payload
+ * `text/plain` du glisser-déposer, voir attachResearchDragSource). Le
+ * chemin Vault reste TOUJOURS complet (jamais le seul nom, pour ne créer
+ * aucun lien ambigu — Obsidian entretient ensuite ce lien lui-même aux
+ * renommages/déplacements) ; seul ce qui s'AFFICHE change : une image
+ * s'incruste (`![[chemin]]`), tout le reste se lie avec le nom de fichier
+ * en alias (`[[chemin|nom]]`) pour ne jamais exposer le chemin complet
+ * dans le texte du feuillet. */
+export function researchFileLinkMarkdown(file: TFile): string {
+  /* Vérifie l'extension directement plutôt que via isImageFile(file) : ce
+     prédicat `file is TFile` ne narrows rien d'utile ici (`file` est déjà
+     un TFile) et fait dégénérer la branche "faux" en `never` dès qu'elle
+     accède à `file.path`/`file.name` — un vrai piège TypeScript, pas
+     seulement un style différent. */
+  const isEmbed = RESEARCH_IMAGE_EXTS.has(file.extension.toLowerCase());
+  return isEmbed ? `![[${file.path}]]` : `[[${file.path}|${file.name}]]`;
+}
+
 /** Indique si un fichier est un document PDF. */
 export function isPdfFile(file: unknown): file is TFile {
   if (!(file instanceof TFile)) return false;
   return file.extension.toLowerCase() === "pdf";
+}
+
+/** Décision UNIQUE et centralisée pour le bouton œil des lignes Recherche
+ * (addPreviewBtn) — « prévisualisable » signifie ici : le mécanisme natif
+ * d'aperçu d'Obsidian (Aperçu de page / hover-link) sait effectivement
+ * afficher ce type. Couvre le Markdown (fiche ordinaire ou dessin
+ * Excalidraw — y compris une variante renommée par collision comme
+ * « Dessin.excalidraw 1.md » : l'extension reste "md" dans tous les cas,
+ * aucun cas particulier à écrire ici), les images supportées, le PDF, le
+ * Canvas et la Base. Jamais DOCX/ODT/EPUB/tableur/présentation/RTF —
+ * Obsidian n'a pas d'aperçu natif pour ces formats. Utilisé par la SEULE
+ * ligne de rendu de fichier Recherche (renderResearchFileRow), donc déjà
+ * partagée par les rubriques, les sous-dossiers et les dossiers associés. */
+export function isResearchPreviewable(file: unknown): file is TFile {
+  if (!(file instanceof TFile)) return false;
+  const ext = file.extension.toLowerCase();
+  return ext === "md" || ext === "pdf" || ext === "canvas" || ext === "base" || RESEARCH_IMAGE_EXTS.has(ext);
 }

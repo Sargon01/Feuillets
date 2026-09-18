@@ -448,7 +448,11 @@ export class Menu {
 }
 Menu.lastShown = null;
 
-export class Keymap {}
+export class Keymap {
+  static isModEvent(e) {
+    return !!(e && (e.ctrlKey || e.metaKey));
+  }
+}
 
 export class FuzzySuggestModal {}
 

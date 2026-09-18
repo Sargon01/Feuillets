@@ -4081,11 +4081,15 @@ body.feuillets-text-width
   background: color-mix(in srgb, var(--interactive-accent) 5%, transparent);
 }
 
-/* Icône dossier des lignes de recherche (fiches média ET sous-dossiers) —
-   même gabarit que .feuillets-cell-icon svg du binder. */
+/* Colonne type des lignes de recherche (fiches média ET sous-dossiers) —
+   largeur fixe et compacte (~22-24px) quel que soit son contenu (icône
+   Lucide ou indicateur textuel, voir feuillets-research-item-type-badge
+   ci-dessous) : jamais de colonne qui grandit avec le nom du fichier. */
 .feuillets-research-item-icon {
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 22px;
   color: var(--text-faint);
   flex-shrink: 0;
 }
@@ -4099,6 +4103,20 @@ body.feuillets-text-width
    couleur d'accent, sans remonter aux lignes parentes imbriquées. */
 .feuillets-research-item-header:hover .feuillets-research-item-icon {
   color: var(--interactive-accent);
+}
+
+/* Indicateur textuel fixe (« PDF », « DOCX »… — researchFileTypeLabel) :
+   remplace l'icône Lucide générique dans la MÊME colonne, de MÊME largeur
+   fixe (feuillets-research-item-icon ci-dessus), pour les formats
+   documentaires non Markdown qui ne s'en distinguaient pas visuellement.
+   Jamais un badge après le titre (masqué par un nom long) — cette colonne
+   reste de largeur fixe quel que soit le nom du fichier, en petites
+   capitales discrètes. */
+.feuillets-research-item-type-badge {
+  font-size: 8px;
+  font-weight: var(--font-semibold, 600);
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
 }
 
 /* Sous-dossiers de recherche : ligne repliable (chevron + icône dossier,
@@ -4117,6 +4135,17 @@ body.feuillets-text-width
   color: var(--text-faint);
   flex-shrink: 0;
   cursor: pointer;
+  /* Recale la ligne du sous-dossier d'environ 6px vers la gauche — exactement
+     le padding horizontal de .feuillets-research-item-header ci-dessus, donc
+     sans dépasser son bord. Comme il est le premier enfant flex du header,
+     ce seul décalage entraîne AUSSI l'icône et le nom qui le suivent (le
+     nom, en flex-grow, absorbe l'espace libéré côté droit) : les trois se
+     déplacent ensemble, en préservant leur alignement interne, sans toucher
+     à la position des boutons "+"/"…" (qui suivent le nom, pas le chevron),
+     au trait vertical ou à l'indentation entre niveaux (feuillets-research-
+     nested, non modifié) — et sans affecter les fichiers ni les rubriques
+     principales, qui n'utilisent jamais cette classe. */
+  margin-left: -6px;
 }
 
 .feuillets-research-subfolder-chevron svg {
@@ -4135,6 +4164,16 @@ body.feuillets-text-width
 
 .feuillets-research-subfolder.feuillets-dragover {
   box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
+/* Lisibilité de l'arborescence, en restant compact : un fin repère
+   vertical marque chaque niveau de sous-dossiers, avec une indentation
+   cohérente d'environ 11px par niveau (cumulative à chaque nouvelle
+   imbrication — chaque niveau ajoute la même marge). */
+.feuillets-research-nested {
+  margin-left: 5px;
+  padding-left: 5px;
+  border-left: 1px solid var(--background-modifier-border);
 }
 
 .feuillets-research-item-path {
@@ -4232,6 +4271,21 @@ body.feuillets-text-width
   padding: 2px 0;
 }
 
+/* Lisibilité de l'arborescence : dossiers et fichiers n'ont plus le même
+   poids visuel — un dossier (graisse semibold, contraste plus net) se
+   repère d'un coup d'œil au milieu de ses fichiers (graisse normale,
+   légèrement plus discrets). Le survol (accent, ci-dessous) prime toujours
+   sur ces deux réglages. */
+.feuillets-research-item:not(.feuillets-research-subfolder) .feuillets-research-item-name {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.feuillets-research-subfolder > .feuillets-research-item-header > .feuillets-research-item-name {
+  font-weight: var(--font-semibold, 600);
+  color: var(--text-normal);
+}
+
 .feuillets-research-item-header:hover .feuillets-research-item-name {
   color: var(--interactive-accent);
 }
@@ -4284,16 +4338,60 @@ body.feuillets-text-width
   flex: 0 0 auto;
 }
 
-/* Bouton ⋯ : discret hors survol, pleinement visible au survol du header
-   exact sous la souris (pas des lignes parentes imbriquées). */
-.feuillets-research-container .feuillets-research-item .clickable-icon {
-  opacity: 0.35;
+/* Commande du "+" d'un sous-dossier (feuillets-research-item-action, posée
+   dans renderResearchSubfolder — les lignes de FICHIER n'utilisent plus
+   cette classe depuis la simplification des lignes, voir
+   feuillets-research-item-eye ci-dessous) : invisible par défaut pour ne
+   pas peser visuellement autant que l'arborescence elle-même, révélée au
+   survol ou au focus clavier de LA LIGNE entière (:focus-within du
+   header). Ni bouton ni comportement de clic changé — uniquement
+   l'opacité. */
+.feuillets-research-container .feuillets-research-item .feuillets-research-item-action {
+  opacity: 0;
   transition: opacity 0.15s ease;
 }
 
-.feuillets-research-container .feuillets-research-item-header:hover .clickable-icon,
-.feuillets-research-container .feuillets-research-item .clickable-icon:hover,
-.feuillets-research-container .feuillets-research-item .clickable-icon:focus-visible {
+.feuillets-research-container .feuillets-research-item-header:hover .feuillets-research-item-action,
+.feuillets-research-container .feuillets-research-item-header:focus-within .feuillets-research-item-action {
+  opacity: 1;
+}
+
+/* Tactile ou pointeur sans survol fiable : rien à découvrir au survol sur
+   un appareil qui n'en a pas — la commande reste visible. */
+@media (hover: none) {
+  .feuillets-research-container .feuillets-research-item .feuillets-research-item-action {
+    opacity: 1;
+  }
+}
+
+/* Œil d'une ligne de FICHIER (feuillets-research-item-eye, posée dans
+   renderResearchFileRow, seulement pour isResearchPreviewable) :
+   `display: none` — pas une simple opacité — hors survol/focus, pour ne
+   réserver ABSOLUMENT AUCUNE largeur et laisser le nom respirer. Révélée
+   au survol de la ligne ou au focus clavier de LA LIGNE (:focus-within),
+   juste avant "..." qui reste, lui, le seul repère TOUJOURS visible
+   (feuillets-research-item-menu-btn). Ni bouton ni comportement de clic
+   changé — uniquement la présence dans la mise en page. */
+.feuillets-research-item-eye {
+  display: none;
+}
+
+.feuillets-research-container .feuillets-research-item-header:hover .feuillets-research-item-eye,
+.feuillets-research-container .feuillets-research-item-header:focus-within .feuillets-research-item-eye {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Tactile ou pointeur sans survol fiable : l'œil reste accessible sans
+   geste de survol impossible à réaliser. */
+@media (hover: none) {
+  .feuillets-research-item-eye {
+    display: inline-flex;
+    align-items: center;
+  }
+}
+
+.feuillets-research-item-menu-btn {
   opacity: 1;
 }
 

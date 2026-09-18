@@ -68,17 +68,19 @@ export function safeFileName(title: string): string {
   return cleaned || "Idée";
 }
 
-/** Nom de fichier .md sans collision dans un dossier donné : "Nom.md", puis
- * "Nom 2.md", "Nom 3.md"… `exists` teste un chemin normalisé complet — pur,
- * ne touche pas le vault (le vault réel ou un faux en test lui sont passés
- * indifféremment). */
-export function uniqueFileName(exists: (path: string) => boolean, folderPath: string, baseName: string): string {
+/** Nom de fichier sans collision dans un dossier donné : "Nom.<ext>", puis
+ * "Nom 2.<ext>", "Nom 3.<ext>"… `exists` teste un chemin normalisé complet —
+ * pur, ne touche pas le vault (le vault réel ou un faux en test lui sont
+ * passés indifféremment). `extension` reste "md" par défaut pour les appels
+ * historiques (feuillets créés depuis un Canvas) ; les créations Recherche
+ * Canvas/Base passent "canvas"/"base" sans dupliquer cette logique. */
+export function uniqueFileName(exists: (path: string) => boolean, folderPath: string, baseName: string, extension = "md"): string {
   const safe = safeFileName(baseName);
-  let candidate = normalizePath(`${folderPath}/${safe}.md`);
+  let candidate = normalizePath(`${folderPath}/${safe}.${extension}`);
   if (!exists(candidate)) return candidate;
   let n = 2;
   for (;;) {
-    candidate = normalizePath(`${folderPath}/${safe} ${n}.md`);
+    candidate = normalizePath(`${folderPath}/${safe} ${n}.${extension}`);
     if (!exists(candidate)) return candidate;
     n++;
   }
