@@ -16,7 +16,7 @@ import {
   isFrontMatter,
   FRONT_PAGE_TYPES,
   feuilletsAuxiliaryPath,
-  MANUSCRIPT_FOLDER_NAME,
+  isStructuredManuscriptRoot,
 } from "./folder-structure.js";
 import { isProjectDraft } from "./project-drafts.js";
 import { ensureFolder } from "./project-files.js";
@@ -369,7 +369,7 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
   if (!root) return null;
   const parent = root.parent;
   const base =
-    root.name === MANUSCRIPT_FOLDER_NAME && parent instanceof TFolder && parent.path !== "" && parent.path !== "/"
+    isStructuredManuscriptRoot(root) && parent instanceof TFolder && parent.path !== "" && parent.path !== "/"
       ? parent
       : root;
   const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "output"));

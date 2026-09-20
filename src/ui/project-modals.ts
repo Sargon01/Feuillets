@@ -8,7 +8,8 @@ import { FolderSuggest } from "./folder-suggest.js";
 import { createMinimalProject, CreateProjectError, ensureCanonicalProjectBase, initResearchSubfolders } from "../services/project-files.js";
 import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType } from "../services/project-settings.js";
 import { openFileActivatingWithCursor } from "../utils/dom.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
 import { ProjectConfigContent, type ProjectConfigPage } from "./project-config-content.js";
 import {
   citationRelativePath,
@@ -328,11 +329,16 @@ export class TransformToProjectModal extends Modal {
       if (!S.projects.includes(this.folderPath)) {
         S.projects.push(this.folderPath);
       }
+
+      /* Locale captured ONCE before any awaited operation — every built-in name
+         this conversion creates comes from this single, immutable catalogue. */
+      const names = projectCreationNames(getLocale());
+
       S.projectFolder = this.folderPath;
       await this.plugin.saveSettings();
 
-      const { researchPath } = await ensureCanonicalProjectBase(this.app, folder);
-      await initResearchSubfolders(this.app, researchPath, chosenMode);
+      const { researchPath } = await ensureCanonicalProjectBase(this.app, folder, names);
+      await initResearchSubfolders(this.app, researchPath, chosenMode, names);
 
       this.plugin.renderAllViews(true);
       this.plugin.updateStatusBar();

@@ -2652,6 +2652,11 @@ export const en = {
   "projectCreation.sectionSources": "Sources",
   "projectCreation.notebook": "Notebook",
   "projectCreation.draftStem": "Untitled",
+  "projectCreation.titlePage": "Title Page",
+  "projectCreation.chapter1": "Chapter 1",
+  "projectCreation.scene1": "Scene 1",
+  "projectCreation.part1": "Part 1",
+  "projectCreation.untitledText": "New text",
 
   /* Stable-identity taxonomy (src/services/project-taxonomy.ts) — display
      names of the built-in statuses and labels, resolved by stable id

@@ -10,15 +10,28 @@ import {
   editionFolderPath,
   getEditionRoot,
   feuilletsAuxiliaryPath,
+  feuilletsAuxiliaryPathFor,
   feuilletsAuxiliaryRootPath,
+  isStructuredManuscriptRoot,
   FEUILLETS_RESOURCE_SUBFOLDERS,
-  MANUSCRIPT_FOLDER_NAME,
-  FRONT_FOLDER_NAME,
+  FEUILLETS_AUXILIARY_FOLDER_NAME,
 } from "./folder-structure.js";
 import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType } from "./project-settings.js";
 import { workspaceNewSheetIncludeSources, workspacePlanningField, workspaceWordGoalDefault } from "./folder-workspaces.js";
 import { openFileActivating } from "../utils/dom.js";
-import { applyModeDefaults, resolveType, PROJECT_MODES, RESEARCH_FOLDERS, projectBoardDefaults, projectCreationStyle, researchFolderNames } from "../utils/project-modes.js";
+import {
+  applyModeDefaults,
+  resolveType,
+  PROJECT_MODES,
+  RESEARCH_FOLDERS,
+  RESEARCH_SECTION_CATALOGUE_KEYS,
+  isResearchFolderKey,
+  projectBoardDefaults,
+  projectCreationStyle,
+  researchFolderNames,
+} from "../utils/project-modes.js";
+import { getLocale } from "../i18n/index.js";
+import { projectCreationNames, type ProjectCreationNames } from "../i18n/project-creation.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
   const p = normalizePath(path);
@@ -41,8 +54,14 @@ export async function ensureFolder(app: App, path: string): Promise<TAbstractFil
  * Edition, Journal, Snapshots, Backups, Versions, Sortie, Drafts.
  */
 function findExistingResearchFolder(app: App, manuscritRoot: TFolder): TFolder | null {
-  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(manuscritRoot, "research"));
-  if (canonical instanceof TFolder) return canonical;
+  /* Canonical auxiliary path under either locale this batch can CREATE
+     ("Recherche" or "Research", see project-creation.ts) — a project
+     created under one locale must still be found after the interface
+     locale changes. */
+  for (const locale of ["fr", "en"] as const) {
+    const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPathFor(manuscritRoot, "research", projectCreationNames(locale)));
+    if (canonical instanceof TFolder) return canonical;
+  }
   const legacyNames = ["_Recherche", "_Research", "Recherche", "Research"];
   const bases = [
     manuscritRoot.path,
@@ -57,20 +76,29 @@ function findExistingResearchFolder(app: App, manuscritRoot: TFolder): TFolder |
   return null;
 }
 
+/** `names`: the project-creation catalogue for the locale active when this
+ * operation began (see `projectCreationNames`, src/i18n/project-creation.ts)
+ * — captured once by the caller, never re-read from the global locale here.
+ * Used only to name a folder this call actually CREATES; an already-existing
+ * folder (under this locale's name, the other locale's name, or a legacy
+ * variant) is always reused as-is, never renamed or duplicated. */
 export async function ensureCanonicalProjectBase(
   app: App,
-  manuscritRoot: TFolder
+  manuscritRoot: TFolder,
+  names: ProjectCreationNames = projectCreationNames(getLocale())
 ): Promise<{ researchPath: string; resourcesPath: string }> {
   const existingResearch = findExistingResearchFolder(app, manuscritRoot);
-  const researchPath = existingResearch ? existingResearch.path : feuilletsAuxiliaryPath(manuscritRoot, "research");
+  const researchPath = existingResearch ? existingResearch.path : feuilletsAuxiliaryPathFor(manuscritRoot, "research", names);
   await ensureFolder(app, researchPath);
 
   const existingResources = getResourcesRoot(app, manuscritRoot);
-  const resourcesPath = existingResources ? existingResources.path : feuilletsAuxiliaryPath(manuscritRoot, "resources");
+  const resourcesPath = existingResources ? existingResources.path : feuilletsAuxiliaryPathFor(manuscritRoot, "resources", names);
   await ensureFolder(app, resourcesPath);
 
-  for (const { name, variants } of FEUILLETS_RESOURCE_SUBFOLDERS) {
-    await ensureFolder(app, resourcesSubfolderPath(app, resourcesPath, name, ...variants));
+  for (const { key, name, variants } of FEUILLETS_RESOURCE_SUBFOLDERS) {
+    const newName = names.resourceSubfolders[key];
+    const legacyNames = [...variants, name].filter((candidate) => candidate !== newName);
+    await ensureFolder(app, resourcesSubfolderPath(app, resourcesPath, newName, ...legacyNames));
   }
 
   return { researchPath, resourcesPath };
@@ -80,7 +108,7 @@ export async function ensureCanonicalProjectBase(
  * structuré, le dossier actif lui-même dans tous les autres cas. */
 function snapshotWriteBase(root: TFolder): TFolder {
   const parent = root.parent;
-  return root.name === MANUSCRIPT_FOLDER_NAME
+  return isStructuredManuscriptRoot(root)
     && parent instanceof TFolder
     && parent.path !== ""
     && parent.path !== "/"
@@ -341,14 +369,18 @@ export async function ensureProjectBaseFolders(
   app: App,
   volumePath: string,
   manuscritPath: string,
+  names: ProjectCreationNames = projectCreationNames(getLocale()),
   withFront = true
 ): Promise<{ frontPath: string | null }> {
   await ensureFolder(app, volumePath);
   await ensureFolder(app, manuscritPath);
   const virtualRoot = app.vault.getAbstractFileByPath(manuscritPath);
   if (!(virtualRoot instanceof TFolder)) throw new Error("Manuscrit introuvable après création.");
-  await ensureCanonicalProjectBase(app, virtualRoot);
-  const frontPath = withFront ? normalizePath(`${manuscritPath}/${FRONT_FOLDER_NAME}`) : null;
+  await ensureCanonicalProjectBase(app, virtualRoot, names);
+  /* `frontMatter` is currently identical in both locales ("Front"), so this
+     never actually varies today — routed through the catalogue anyway so
+     there is exactly one source of truth for this name. */
+  const frontPath = withFront ? normalizePath(`${manuscritPath}/${names.frontMatter}`) : null;
   if (frontPath) await ensureFolder(app, frontPath);
   return { frontPath };
 }
@@ -469,15 +501,19 @@ export async function createMinimalProject(
   const trimmedAuthor = (author || "").trim();
   const projectType = resolveType(type);
   const creationStyle = projectCreationStyle(projectType);
+  /* Locale captured ONCE for this whole creation operation — every built-in
+     name below comes from this single, immutable catalogue, never from a
+     repeated call to the global t()/getLocale(). */
+  const names = projectCreationNames(getLocale());
 
   // --- Racine réelle : Manuscrit, Recherche, Ressources en frères ---
-  const manuscritPath = normalizePath(`${volumePath}/${MANUSCRIPT_FOLDER_NAME}`);
-  const { frontPath } = await ensureProjectBaseFolders(app, volumePath, manuscritPath, creationStyle !== "free");
+  const manuscritPath = normalizePath(`${volumePath}/${names.manuscript}`);
+  const { frontPath } = await ensureProjectBaseFolders(app, volumePath, manuscritPath, names, creationStyle !== "free");
 
   if (frontPath) {
     // --- Page de titre ---
     await app.vault.create(
-      normalizePath(`${frontPath}/Page de titre.md`),
+      normalizePath(`${frontPath}/${names.titlePage}.md`),
       titlePageContent(trimmedName, trimmedAuthor)
     );
   }
@@ -487,24 +523,24 @@ export async function createMinimalProject(
   let firstFolderPath: string;
   let firstFile: TFile;
   if (isFiction) {
-    firstFolderPath = normalizePath(`${manuscritPath}/Chapitre 1`);
+    firstFolderPath = normalizePath(`${manuscritPath}/${names.chapter1}`);
     await ensureFolder(app, firstFolderPath);
     firstFile = await app.vault.create(
-      normalizePath(`${firstFolderPath}/Scène 1.md`),
-      manuscriptFileContent("Scène 1", 1, true, settings.wordGoal)
+      normalizePath(`${firstFolderPath}/${names.scene1}.md`),
+      manuscriptFileContent(names.scene1, 1, true, settings.wordGoal)
     );
   } else if (creationStyle === "nonfiction") {
-    firstFolderPath = normalizePath(`${manuscritPath}/Partie 1`);
+    firstFolderPath = normalizePath(`${manuscritPath}/${names.part1}`);
     await ensureFolder(app, firstFolderPath);
     firstFile = await app.vault.create(
-      normalizePath(`${firstFolderPath}/Chapitre 1.md`),
-      manuscriptFileContent("Chapitre 1", 1, false, settings.wordGoal)
+      normalizePath(`${firstFolderPath}/${names.chapter1}.md`),
+      manuscriptFileContent(names.chapter1, 1, false, settings.wordGoal)
     );
   } else {
     firstFolderPath = manuscritPath;
     firstFile = await app.vault.create(
-      normalizePath(`${manuscritPath}/Nouveau texte.md`),
-      "# Nouveau texte\n\n"
+      normalizePath(`${manuscritPath}/${names.untitledText}.md`),
+      `# ${names.untitledText}\n\n`
     );
   }
 
@@ -535,9 +571,9 @@ export async function createMinimalProject(
   // --- Sous-dossiers de Recherche selon le mode ---
   const manuscriptFolder = app.vault.getAbstractFileByPath(manuscritPath);
   const researchPath = manuscriptFolder instanceof TFolder
-    ? feuilletsAuxiliaryPath(manuscriptFolder, "research")
-    : normalizePath(`${volumePath}/_Feuillets/Recherche`);
-  await initResearchSubfolders(app, researchPath, type);
+    ? feuilletsAuxiliaryPathFor(manuscriptFolder, "research", names)
+    : normalizePath(`${volumePath}/${FEUILLETS_AUXILIARY_FOLDER_NAME}/${names.auxiliary.research}`);
+  await initResearchSubfolders(app, researchPath, type, names);
 
   return { volumePath, manuscritPath, firstFolderPath, firstFile };
 }
@@ -556,7 +592,8 @@ export async function createMinimalProject(
 export async function initResearchSubfolders(
   app: App,
   researchPath: string,
-  mode: string | null | undefined
+  mode: string | null | undefined,
+  names: ProjectCreationNames = projectCreationNames(getLocale())
 ): Promise<void> {
   const resolvedMode = resolveType(mode);
   const projectMode = PROJECT_MODES[resolvedMode];
@@ -565,10 +602,14 @@ export async function initResearchSubfolders(
   const defaultKeys = projectMode.defaultResearchFolders ?? [];
 
   for (const key of defaultKeys) {
-    const names = researchFolderNames(RESEARCH_FOLDERS, key);
+    /* Recognition stays comprehensive regardless of locale: canonical
+       French, current English, and every historical variant — see
+       researchFolderNames, utils/project-modes.ts. Only the choice of what
+       to CREATE, below, follows the active locale's catalogue. */
+    const recognizedNames = researchFolderNames(RESEARCH_FOLDERS, key);
 
     let exists = false;
-    for (const name of names) {
+    for (const name of recognizedNames) {
       const path = normalizePath(`${researchPath}/${name}`);
       const existing = app.vault.getAbstractFileByPath(path);
       if (existing instanceof TFolder) {
@@ -577,9 +618,13 @@ export async function initResearchSubfolders(
       }
     }
 
-    if (!exists && names.length > 0) {
-      const newFolderPath = normalizePath(`${researchPath}/${names[0]}`);
-      await ensureFolder(app, newFolderPath);
+    if (!exists) {
+      const catalogueKey = isResearchFolderKey(key) ? RESEARCH_SECTION_CATALOGUE_KEYS[key] : undefined;
+      const newName = catalogueKey ? names.researchSections[catalogueKey] : recognizedNames[0];
+      if (newName) {
+        const newFolderPath = normalizePath(`${researchPath}/${newName}`);
+        await ensureFolder(app, newFolderPath);
+      }
     }
   }
 }
@@ -600,17 +645,23 @@ export async function initProjectStructure(
   const manuscritRoot = getProjectFolder(app, settings);
   if (!manuscritRoot) return;
 
-  const { researchPath, resourcesPath: resPath } = await ensureCanonicalProjectBase(app, manuscritRoot);
+  /* Locale captured ONCE for this whole operation — see createMinimalProject
+     for the identical rationale. */
+  const names = projectCreationNames(getLocale());
+
+  const { researchPath, resourcesPath: resPath } = await ensureCanonicalProjectBase(app, manuscritRoot, names);
 
   /* Sous-dossiers de Recherche selon le mode du projet — variantes historiques
      reconnues avant toute création pour éviter les doublons. */
   const projectMode = settings.projectMeta[manuscritRoot.path]?.type;
-  await initResearchSubfolders(app, researchPath, projectMode);
+  await initResearchSubfolders(app, researchPath, projectMode, names);
 
   /* Paths stables pour les writeTemplate ci-dessous. */
   const templateSub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "templates")!;
+  const templateNewName = names.resourceSubfolders.templates;
+  const templateLegacyNames = [...templateSub.variants, templateSub.name].filter((candidate) => candidate !== templateNewName);
   const templateFolderPath = resourcesSubfolderPath(
-    app, resPath, templateSub.name, ...templateSub.variants
+    app, resPath, templateNewName, ...templateLegacyNames
   );
 
   const writeTemplate = async (path: string, content: string): Promise<void> => {
@@ -782,7 +833,7 @@ export async function initProjectStructure(
     /* Front — enfant direct de Manuscrit (pas un voisin), paraît dans le
        Binder au même niveau que les Parties, juste avant elles. */
     const manuscritForFront = getProjectFolder(app, settings)!;
-    const frontFolderPath = normalizePath(`${manuscritForFront.path}/Front`);
+    const frontFolderPath = normalizePath(`${manuscritForFront.path}/${names.frontMatter}`);
     await ensureFolder(app, frontFolderPath);
 
     /* Page de titre pré-remplie : générée via le seul générateur titlePageContent()
@@ -795,16 +846,22 @@ export async function initProjectStructure(
     const projectTitle = identity?.title?.trim() || realRootName;
     const projectAuthor = identity?.author?.trim() || settings.projectMeta[manuscritForFront.path]?.author || "";
 
-    const titlePagePath = normalizePath(`${frontFolderPath}/Page de titre.md`);
-    const titlePageEnPath = normalizePath(`${frontFolderPath}/Title Page.md`);
+    /* Both locales' title-page names are recognized before writing — an
+       existing page (whichever locale created it) is never duplicated. */
+    const titlePageCandidates = [
+      normalizePath(`${frontFolderPath}/${names.titlePage}.md`),
+      normalizePath(`${frontFolderPath}/${projectCreationNames("fr").titlePage}.md`),
+      normalizePath(`${frontFolderPath}/${projectCreationNames("en").titlePage}.md`),
+    ];
+    const titlePageExists = titlePageCandidates.some((path) => app.vault.getAbstractFileByPath(path));
 
-    if (!app.vault.getAbstractFileByPath(titlePagePath) && !app.vault.getAbstractFileByPath(titlePageEnPath)) {
-      await writeTemplate(titlePagePath, titlePageContent(projectTitle, projectAuthor));
+    if (!titlePageExists) {
+      await writeTemplate(titlePageCandidates[0], titlePageContent(projectTitle, projectAuthor));
     }
   }
 
   const listParts = [
-    ...(projectCreationStyle(initializedProjectType) === "free" ? [] : ["Front"]),
+    ...(projectCreationStyle(initializedProjectType) === "free" ? [] : [names.frontMatter]),
     researchPath.split("/").pop(),
     resPath.split("/").pop(),
   ].filter(Boolean).join(", ");

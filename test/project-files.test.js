@@ -6,6 +6,7 @@ import { createMinimalProject, CreateProjectError, duplicateProjectFolder, getVe
 import { NewSheetModal } from "../src/ui/basic-modals.js";
 import { getProjectFolder, getProjectRoot, getManuscriptRoot, roleOfFolder, roleOfFile, getEditionRoot, getFeuilletsFolderNames } from "../src/services/folder-structure.js";
 import { setLocale } from "../src/i18n/index.js";
+import { projectCreationNames } from "../src/i18n/project-creation.js";
 import { PROJECT_MODES, researchFolderNames } from "../src/utils/project-modes.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 import { BoardView } from "../src/views/board-view.js";
@@ -711,8 +712,10 @@ test("createMinimalProject (EN) : _Research et _Resources sous le volume, noms a
 
   await createMinimalProject(app, settings, { name: "Novel EN", type: "fiction" });
 
-  assert.ok(vault.getAbstractFileByPath("Novel EN/_Feuillets/Recherche") instanceof TFolder, "Recherche sous _Feuillets");
-  assert.ok(vault.getAbstractFileByPath("Novel EN/_Feuillets/Ressources") instanceof TFolder, "Ressources sous _Feuillets");
+  assert.ok(vault.getAbstractFileByPath("Novel EN/_Feuillets/Research") instanceof TFolder, "Research under _Feuillets");
+  assert.ok(vault.getAbstractFileByPath("Novel EN/_Feuillets/Resources") instanceof TFolder, "Resources under _Feuillets");
+  assert.equal(vault.getAbstractFileByPath("Novel EN/_Feuillets/Recherche"), null, "no French Recherche under EN");
+  assert.equal(vault.getAbstractFileByPath("Novel EN/_Feuillets/Ressources"), null, "no French Ressources under EN");
   assert.equal(vault.getAbstractFileByPath("_Recherche"), null, "pas de _Recherche en EN");
   assert.equal(vault.getAbstractFileByPath("_Ressources"), null, "pas de _Ressources en EN");
 
@@ -1049,7 +1052,7 @@ test("initResearchSubfolders (FR, mode libre) : dossier transformé crée seulem
 // Tests — Phase 1B : Noms physiques canoniques des dossiers Feuillets
 // =========================================================================
 
-test("Phase 1B - Test A & B : création en locale FR et EN produit des chemins physiques identiques", async () => {
+test("Phase 1B - Test A & B: creating in FR and EN locales each produces its own physical structure in its language", async () => {
   const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
 
   // A. Création en FR
@@ -1070,14 +1073,25 @@ test("Phase 1B - Test A & B : création en locale FR et EN produit des chemins p
     assert.ok(vaultFR.getAbstractFileByPath(p) instanceof TFolder, `FR a bien créé ${p}`);
   }
 
-  // B. Création en EN
+  // B. Creation in EN — its own English structure, never the FR paths
   setLocale("en");
   const vaultEN = createFakeVault([]).vault;
   const appEN = { vault: vaultEN };
   await createMinimalProject(appEN, settings, { name: "ProjetEN", type: "fiction" });
 
+  const pathsEN = [
+    "ProjetEN/_Feuillets/Research",
+    "ProjetEN/_Feuillets/Resources/Images",
+    "ProjetEN/_Feuillets/Resources/Templates",
+    "ProjetEN/_Feuillets/Resources/Layouts",
+    "ProjetEN/_Feuillets/Resources/Exports",
+    "ProjetEN/_Feuillets/Resources/Internal resources",
+  ];
+  for (const p of pathsEN) {
+    assert.ok(vaultEN.getAbstractFileByPath(p) instanceof TFolder, `EN created its own English structure ${p}`);
+  }
   for (const p of pathsFR.map((path) => path.replace("ProjetFR", "ProjetEN"))) {
-    assert.ok(vaultEN.getAbstractFileByPath(p) instanceof TFolder, `EN a créé exactement le même chemin canonique ${p}`);
+    assert.equal(vaultEN.getAbstractFileByPath(p), null, `EN must never create the FR path ${p}`);
   }
 });
 
@@ -1131,7 +1145,7 @@ test("Phase 1B - Test D : un ancien dossier Template existant est réutilisé sa
   assert.equal(vault.getAbstractFileByPath("ProjetLegacy/_Feuillets/Ressources/Modèles"), null, "aucun Modèles concurrent créé");
 });
 
-test("Phase 1B - Test E : aucun dossier _Research, Research, _Resources, Resources, Templates ou Layouts sur projet neuf", async () => {
+test("Phase 1B - Test E (EN): no sibling _Research, Research, _Resources, Resources folders, and no Modèles/Mises en page duplicate alongside Templates/Layouts", async () => {
   setLocale("en");
   const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
   const { vault } = createFakeVault([]);
@@ -1139,16 +1153,20 @@ test("Phase 1B - Test E : aucun dossier _Research, Research, _Resources, Resourc
 
   await createMinimalProject(app, settings, { name: "ProjetNeuf", type: "fiction" });
 
+  assert.ok(vault.getAbstractFileByPath("ProjetNeuf/_Feuillets/Resources/Templates") instanceof TFolder, "Templates (EN) created");
+  assert.ok(vault.getAbstractFileByPath("ProjetNeuf/_Feuillets/Resources/Layouts") instanceof TFolder, "Layouts (EN) created");
+
   const prohibitedPaths = [
     "ProjetNeuf/_Research",
     "ProjetNeuf/Research",
     "ProjetNeuf/_Resources",
     "ProjetNeuf/Resources",
-    "ProjetNeuf/_Feuillets/Ressources/Templates",
-    "ProjetNeuf/_Feuillets/Ressources/Layouts",
+    "ProjetNeuf/_Feuillets/Ressources",
+    "ProjetNeuf/_Feuillets/Resources/Modèles",
+    "ProjetNeuf/_Feuillets/Resources/Mises en page",
   ];
   for (const p of prohibitedPaths) {
-    assert.equal(vault.getAbstractFileByPath(p), null, `${p} ne doit pas être créé sur un projet neuf`);
+    assert.equal(vault.getAbstractFileByPath(p), null, `${p} must not be created for a new project in EN`);
   }
 });
 
@@ -1156,55 +1174,60 @@ test("Phase 1B - Test E : aucun dossier _Research, Research, _Resources, Resourc
 // Tests — Phase 1C : Catégories Recherche créées par défaut
 // =========================================================================
 
-test("Phase 1C : nouveau Fiction crée exactement Personnages, Lieux, Événements, Lore, Glossaire (aucune Bibliographie), identique en FR et EN", async () => {
+test("Phase 1C: new Fiction creates exactly Personnages/Characters, Lieux/Places, Événements/Events, Lore, Glossaire/Glossary, in each locale's language", async () => {
   for (const lang of ["fr", "en"]) {
     setLocale(lang);
+    const names = projectCreationNames(lang);
     const { vault } = createFakeVault([]);
     const app = { vault };
     const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
 
     await createMinimalProject(app, settings, { name: `Fiction_${lang}`, type: "fiction" });
 
+    const researchRoot = `Fiction_${lang}/_Feuillets/${names.auxiliary.research}`;
     const expected = [
-      `Fiction_${lang}/_Feuillets/Recherche/Personnages`,
-      `Fiction_${lang}/_Feuillets/Recherche/Lieux`,
-      `Fiction_${lang}/_Feuillets/Recherche/Événements`,
-      `Fiction_${lang}/_Feuillets/Recherche/Lore`,
-      `Fiction_${lang}/_Feuillets/Recherche/Glossaire`,
+      `${researchRoot}/${names.researchSections.characters}`,
+      `${researchRoot}/${names.researchSections.places}`,
+      `${researchRoot}/${names.researchSections.events}`,
+      `${researchRoot}/${names.researchSections.lore}`,
+      `${researchRoot}/${names.researchSections.glossary}`,
     ];
     for (const p of expected) {
-      assert.ok(vault.getAbstractFileByPath(p) instanceof TFolder, `${p} créé en locale ${lang}`);
+      assert.ok(vault.getAbstractFileByPath(p) instanceof TFolder, `${p} created in locale ${lang}`);
     }
 
-    assert.equal(vault.getAbstractFileByPath(`Fiction_${lang}/_Feuillets/Recherche/Bibliographie`), null, "pas de Bibliographie automatique");
-    assert.equal(vault.getAbstractFileByPath(`Fiction_${lang}/_Feuillets/Recherche/Bibliography`), null, "pas de Bibliography automatique");
-    assert.equal(vault.getAbstractFileByPath(`Fiction_${lang}/_Feuillets/Recherche/Characters`), null, "pas de Characters anglais concurrent");
+    assert.equal(vault.getAbstractFileByPath(`${researchRoot}/${names.researchSections.bibliography}`), null, "no automatic Bibliography");
+    const otherLocaleCharacters = projectCreationNames(lang === "fr" ? "en" : "fr").researchSections.characters;
+    assert.equal(vault.getAbstractFileByPath(`${researchRoot}/${otherLocaleCharacters}`), null, "no competing Personnages/Characters section from the other locale");
   }
 });
 
-test("Phase 1C : nouveau Non-fiction crée exactement Notes + Sources (aucune Bibliographie), identique en FR et EN", async () => {
+test("Phase 1C: new Non-fiction creates exactly Notes + Sources, in each locale's language", async () => {
   for (const lang of ["fr", "en"]) {
     setLocale(lang);
+    const names = projectCreationNames(lang);
     const { vault } = createFakeVault([]);
     const app = { vault };
     const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };
 
     await createMinimalProject(app, settings, { name: `NonFiction_${lang}`, type: "nonfiction" });
 
+    const researchRoot = `NonFiction_${lang}/_Feuillets/${names.auxiliary.research}`;
     const expected = [
-      `NonFiction_${lang}/_Feuillets/Recherche/Notes`,
-      `NonFiction_${lang}/_Feuillets/Recherche/Sources`,
+      `${researchRoot}/${names.researchSections.notes}`,
+      `${researchRoot}/${names.researchSections.sources}`,
     ];
     for (const p of expected) {
-      assert.ok(vault.getAbstractFileByPath(p) instanceof TFolder, `${p} créé en locale ${lang}`);
+      assert.ok(vault.getAbstractFileByPath(p) instanceof TFolder, `${p} created in locale ${lang}`);
     }
 
-    assert.equal(vault.getAbstractFileByPath(`NonFiction_${lang}/_Feuillets/Recherche/Bibliographie`), null, "pas de Bibliographie automatique");
-    assert.equal(vault.getAbstractFileByPath(`NonFiction_${lang}/_Feuillets/Recherche/Personnages`), null, "pas de Personnages en non-fiction");
+    assert.equal(vault.getAbstractFileByPath(`${researchRoot}/${names.researchSections.bibliography}`), null, "no automatic Bibliography");
+    assert.equal(vault.getAbstractFileByPath(`${researchRoot}/${names.researchSections.characters}`), null, "no Personnages/Characters in non-fiction");
   }
 });
 
 test("Phase 1C : nouveau Libre laisse le dossier Recherche vide", async () => {
+  setLocale("fr");
   const { vault } = createFakeVault([]);
   const app = { vault };
   const settings = { ...DEFAULT_SETTINGS, orders: {}, folderPositions: {}, projectMeta: {} };

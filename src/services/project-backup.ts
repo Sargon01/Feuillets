@@ -2,7 +2,7 @@ import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import JSZip from "jszip";
 import { ensureFolder } from "./project-files.js";
-import { feuilletsAuxiliaryPath, MANUSCRIPT_FOLDER_NAME } from "./folder-structure.js";
+import { feuilletsAuxiliaryPath, isStructuredManuscriptRoot } from "./folder-structure.js";
 
 /** Dossier des sauvegardes .zip automatiques d'un projet — même convention
  * que _Recherche/_Versions/_Snapshots (voisin du dossier manuscrit s'il y
@@ -14,7 +14,7 @@ type BackupSettings = { backupKeepCount?: number };
  * quel reste toujours sa propre racine. La racine du coffre est exclue. */
 function getBackupSourceRoot(root: TFolder): TFolder {
   const parent = root.parent;
-  return root.name === MANUSCRIPT_FOLDER_NAME
+  return isStructuredManuscriptRoot(root)
     && parent instanceof TFolder
     && parent.path !== ""
     && parent.path !== "/"

@@ -2,6 +2,7 @@ import { TFolder, TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { fmOf } from "./frontmatter.js";
 import { naturalCompare } from "../utils/core.js";
+import { projectCreationNames, type ProjectCreationNames } from "../i18n/project-creation.js";
 
 type ProjectNode = TFile | TFolder;
 
@@ -39,9 +40,20 @@ export const FEUILLETS_AUXILIARY_FOLDERS = {
   drafts: "Drafts",
 } as const;
 
+/** Every locale's manuscript folder name, derived once from the same
+ * project-creation catalogue used for creation (src/i18n/project-creation.ts)
+ * — never a second hardcoded name list. Used only to RECOGNIZE an existing
+ * manuscript root regardless of which locale created it; never to decide
+ * what to create (see createMinimalProject, services/project-files.ts,
+ * which captures the active locale's name once per operation). */
+const KNOWN_MANUSCRIPT_FOLDER_NAMES: readonly string[] = [
+  projectCreationNames("fr").manuscript,
+  projectCreationNames("en").manuscript,
+];
+
 export function isStructuredManuscriptRoot(root: TFolder | null | undefined): boolean {
   if (!root) return false;
-  return root.name === MANUSCRIPT_FOLDER_NAME;
+  return KNOWN_MANUSCRIPT_FOLDER_NAMES.includes(root.name);
 }
 
 /** Base unique des nouveaux dossiers auxiliaires. Les emplacements
@@ -62,6 +74,21 @@ export function feuilletsAuxiliaryPath(
   kind: keyof typeof FEUILLETS_AUXILIARY_FOLDERS
 ): string {
   return normalizePath(`${feuilletsAuxiliaryRootPath(root)}/${FEUILLETS_AUXILIARY_FOLDERS[kind]}`);
+}
+
+/** Same path as `feuilletsAuxiliaryPath`, but the folder name comes from an
+ * explicit, already-resolved project-creation catalogue (`names`) instead
+ * of the hardcoded French default — for CREATION call sites that captured
+ * the active locale once via `projectCreationNames(locale)`. Recognition of
+ * an already-existing auxiliary folder (whichever locale created it) stays
+ * the responsibility of each resolver (e.g. getResourcesRoot below), never
+ * this function. */
+export function feuilletsAuxiliaryPathFor(
+  root: TFolder,
+  kind: keyof typeof FEUILLETS_AUXILIARY_FOLDERS,
+  names: ProjectCreationNames
+): string {
+  return normalizePath(`${feuilletsAuxiliaryRootPath(root)}/${names.auxiliary[kind]}`);
 }
 export const FEUILLETS_RESOURCE_FOLDERS = {
   images: "Images",
@@ -170,15 +197,15 @@ export function hasKnownProject(settings: FeuilletsSettings | null | undefined):
   return !!(settings.projectFolder || (settings.projects && settings.projects.length > 0));
 }
 
-/** Nom affiché d'un projet : le dossier de volume (parent), pas
- * "Manuscrit" — sinon tous les projets s'appellent pareil dès qu'on
- * suit la convention Manuscrit/Recherche/Snapshots en frères. Repli sur
- * le dernier segment si le chemin ne suit pas cette convention. */
+/** Project display name: the volume (parent) folder, not "Manuscrit" or
+ * "Manuscript" — otherwise all projects share the same name when following
+ * the structured sibling convention. Falls back to the last segment if the
+ * path does not follow this convention. */
 export function projectDisplayName(path: string): string {
   const parts = normalizePath(path || "").split("/").filter(Boolean);
   if (parts.length === 0) return path;
   const last = parts[parts.length - 1];
-  if (last.toLowerCase() === "manuscrit" && parts.length > 1) {
+  if (KNOWN_MANUSCRIPT_FOLDER_NAMES.some((name) => name.toLowerCase() === last.toLowerCase()) && parts.length > 1) {
     return parts[parts.length - 2];
   }
   return last;
@@ -192,8 +219,14 @@ export function projectDisplayName(path: string): string {
  * appliqué ici à un vrai dossier : jamais renommé de force sur le disque). */
 export function getResourcesRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
-  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "resources"));
-  if (canonical instanceof TFolder) return canonical;
+  /* Canonical auxiliary path under either locale this batch can CREATE
+     ("Ressources" or "Resources", see project-creation.ts) — a project
+     created under one locale must still be found after the interface
+     locale changes. */
+  for (const locale of ["fr", "en"] as const) {
+    const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPathFor(root, "resources", projectCreationNames(locale)));
+    if (canonical instanceof TFolder) return canonical;
+  }
   const base = root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
     ? root.parent.path
     : root.path;

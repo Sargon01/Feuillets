@@ -52,6 +52,17 @@ export type ProjectCreationNames = {
   notebook: string;
   /** Basename stem for a new, untitled draft. */
   draftStem: string;
+  /** Basename stem of a new project's title-page file (Front folder). */
+  titlePage: string;
+  /** First chapter: a fiction project's first top-level folder, and a
+   * non-fiction project's first file basename inside "part1". */
+  chapter1: string;
+  /** Fiction: basename of the first scene file inside "chapter1". */
+  scene1: string;
+  /** Non-fiction: first top-level folder, containing "chapter1". */
+  part1: string;
+  /** Free-form project: basename and heading of the single initial file. */
+  untitledText: string;
 };
 
 /** Returns the full set of project-creation names for `locale`, resolved
@@ -94,5 +105,10 @@ export function projectCreationNames(locale: Locale): ProjectCreationNames {
     },
     notebook: translate(locale, "projectCreation.notebook"),
     draftStem: translate(locale, "projectCreation.draftStem"),
+    titlePage: translate(locale, "projectCreation.titlePage"),
+    chapter1: translate(locale, "projectCreation.chapter1"),
+    scene1: translate(locale, "projectCreation.scene1"),
+    part1: translate(locale, "projectCreation.part1"),
+    untitledText: translate(locale, "projectCreation.untitledText"),
   };
 }

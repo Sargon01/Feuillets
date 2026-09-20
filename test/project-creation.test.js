@@ -4,10 +4,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { projectCreationNames } from "../src/i18n/project-creation.js";
 
-/* Pure, locale-aware catalogue for future project-creation lots. This
-   batch only builds the catalogue — it is not wired to any creation path,
-   so these tests exercise it in complete isolation: no fake app, no fake
-   vault, no settings object anywhere in this file. */
+/* Pure, locale-aware catalogue wired into the real creation paths (see
+   test/project-files-creation-locale.test.js for the behavior-level
+   Vault/settings proof). This file exercises the catalogue itself in
+   complete isolation: no fake app, no fake vault, no settings object. */
 
 const EXPECTED_EN = {
   manuscript: "Manuscript",
@@ -45,6 +45,11 @@ const EXPECTED_EN = {
   },
   notebook: "Notebook",
   draftStem: "Untitled",
+  titlePage: "Title Page",
+  chapter1: "Chapter 1",
+  scene1: "Scene 1",
+  part1: "Part 1",
+  untitledText: "New text",
 };
 
 const EXPECTED_FR = {
@@ -83,6 +88,11 @@ const EXPECTED_FR = {
   },
   notebook: "Carnet",
   draftStem: "Sans titre",
+  titlePage: "Page de titre",
+  chapter1: "Chapitre 1",
+  scene1: "Scène 1",
+  part1: "Partie 1",
+  untitledText: "Nouveau texte",
 };
 
 test("projectCreationNames(\"en\") returns the complete expected English catalogue", () => {
@@ -107,6 +117,11 @@ test("English and French catalogues are distinct overall, even though a few indi
   assert.notEqual(en.auxiliary.output, fr.auxiliary.output);
   assert.notEqual(en.resourceSubfolders.templates, fr.resourceSubfolders.templates);
   assert.notEqual(en.researchSections.characters, fr.researchSections.characters);
+  assert.notEqual(en.titlePage, fr.titlePage);
+  assert.notEqual(en.chapter1, fr.chapter1);
+  assert.notEqual(en.scene1, fr.scene1);
+  assert.notEqual(en.part1, fr.part1);
+  assert.notEqual(en.untitledText, fr.untitledText);
 });
 
 test("every top-level and nested field is present and a non-empty string, for both locales", () => {
@@ -138,6 +153,10 @@ test("every top-level and nested field is present and a non-empty string, for bo
     assert.notEqual(names.notebook, "");
     assert.equal(typeof names.draftStem, "string");
     assert.notEqual(names.draftStem, "");
+    for (const key of ["titlePage", "chapter1", "scene1", "part1", "untitledText"]) {
+      assert.equal(typeof names[key], "string", key);
+      assert.notEqual(names[key], "", key);
+    }
   }
 });
 

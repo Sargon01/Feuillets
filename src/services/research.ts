@@ -4,6 +4,7 @@ import { foldAccents } from "../utils/core.js";
 import { fmOf, titleFor, tagsOf, stripFrontmatter } from "./frontmatter.js";
 import { feuilletsAuxiliaryPath, getProjectFolder, flattenFiles } from "./folder-structure.js";
 import { getLocale } from "../i18n/index.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
 import { RESEARCH_FOLDERS, researchFolderNames } from "../utils/project-modes.js";
 
 const UNDERSCORED_RESEARCH_ROOT_NAMES = ["_Recherche", "_Research"] as const;
@@ -153,20 +154,24 @@ export async function migrateLegacyResearchEntries(
   return { moved, collisions };
 }
 
-/** Rubrique libre de Recherche dédiée aux fiches créées depuis le Carnet
- * (pont Canvas, voir services/canvas-bridge.ts) — "Carnet" en français,
- * "Notebook" en anglais. Reconnus comme ÉQUIVALENTS : un changement de
- * langue d'Obsidian ne doit jamais créer les deux rubriques en double,
- * l'une ou l'autre déjà présente est toujours réutilisée telle quelle. */
-const NOTEBOOK_FOLDER_NAMES = { fr: "Carnet", en: "Notebook" } as const;
-const NOTEBOOK_FOLDER_VARIANTS = Object.values(NOTEBOOK_FOLDER_NAMES);
+/** Free-form Research rubric dedicated to notes created from the Notebook
+ * (Canvas bridge, see services/canvas-bridge.ts) — "Carnet" in French,
+ * "Notebook" in English, both derived from the single source of truth for
+ * creation names (src/i18n/project-creation.ts), never a second hardcoded
+ * catalogue here. Recognized as EQUIVALENTS: an Obsidian language change
+ * must never create duplicate rubrics; whichever is already present is
+ * always reused as-is. */
+const NOTEBOOK_FOLDER_VARIANTS: readonly string[] = [
+  projectCreationNames("fr").notebook,
+  projectCreationNames("en").notebook,
+];
 
-/** Nom de la rubrique Carnet/Notebook pour la locale active — jamais utilisé
- * pour DÉCIDER si un dossier existant est reconnu (voir
- * `isNotebookRubricName`/`findNotebookResearchFolder`, qui acceptent les
- * deux noms), seulement pour savoir lequel CRÉER quand aucun n'existe. */
+/** Name of the Notebook rubric for the ACTIVE locale when none exists yet
+ * — never used to DECIDE whether an existing folder is recognized (see
+ * `isNotebookRubricName`/`findNotebookResearchFolder`, which accept both
+ * names), only to know which one to CREATE. */
 export function notebookFolderName(): string {
-  return getLocale() === "fr" ? NOTEBOOK_FOLDER_NAMES.fr : NOTEBOOK_FOLDER_NAMES.en;
+  return projectCreationNames(getLocale()).notebook;
 }
 
 /** Vrai si `name` est l'un des noms reconnus de la rubrique Carnet/Notebook
@@ -174,7 +179,7 @@ export function notebookFolderName(): string {
  * researchFolderNames, utils/project-modes.js). Fonction pure, exportée
  * pour les tests. */
 export function isNotebookRubricName(name: string): boolean {
-  return (NOTEBOOK_FOLDER_VARIANTS as readonly string[]).includes(name);
+  return NOTEBOOK_FOLDER_VARIANTS.includes(name);
 }
 
 /** Dossier Carnet/Notebook déjà présent sous la racine Recherche du projet

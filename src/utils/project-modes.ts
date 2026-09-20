@@ -1,4 +1,5 @@
 import { getLocale } from "../i18n/index.js";
+import type { ProjectCreationNames } from "../i18n/project-creation.js";
 
 export type ProjectType = "fiction" | "nonfiction" | "free";
 
@@ -94,6 +95,27 @@ export const CANONICAL_RESEARCH_LABELS: Record<string, string> = {
   notes: "Notes",
   sources: "Sources",
   bibliographie: "Bibliographie",
+};
+
+/** Maps each `ResearchFolderKey` to the matching key of the project-creation
+ * catalogue's `researchSections` (src/i18n/project-creation.ts) — the two
+ * enumerations use different key spellings (this module's are historical
+ * French words, the catalogue's are English), so callers that need the
+ * locale-resolved CREATION name for a research section go through this
+ * table instead of duplicating the section list a third time. */
+export function isResearchFolderKey(key: string): key is ResearchFolderKey {
+  return key in RESEARCH_FOLDERS;
+}
+
+export const RESEARCH_SECTION_CATALOGUE_KEYS: Record<ResearchFolderKey, keyof ProjectCreationNames["researchSections"]> = {
+  bibliographie: "bibliography",
+  glossaire: "glossary",
+  evenements: "events",
+  personnages: "characters",
+  lieux: "places",
+  codex: "lore",
+  notes: "notes",
+  sources: "sources",
 };
 
 const RESEARCH_FOLDER_VARIANTS: Record<string, string[]> = {

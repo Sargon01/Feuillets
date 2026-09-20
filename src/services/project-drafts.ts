@@ -3,8 +3,19 @@ import type { App } from "obsidian";
 import { stripFrontmatter } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { feuilletsAuxiliaryPath, getOrderedChildren } from "./folder-structure.js";
+import { getLocale } from "../i18n/index.js";
+import { projectCreationNames, type ProjectCreationNames } from "../i18n/project-creation.js";
 
-const DEFAULT_DRAFT_STEM = "Sans titre";
+/** Every locale's draft stem, derived once from the project-creation
+ * catalogue (src/i18n/project-creation.ts) — never a second hardcoded
+ * name. Used only to RECOGNIZE a still-untouched quick draft regardless of
+ * which locale created it (isDefaultQuickDraftName below); never to decide
+ * what to create (see createQuickDraftFile, which receives an
+ * already-resolved catalogue). */
+const KNOWN_DRAFT_STEMS: readonly string[] = [
+  projectCreationNames("fr").draftStem,
+  projectCreationNames("en").draftStem,
+];
 const DEFAULT_MAX_STEM_LENGTH = 80;
 type DraftTimer = number;
 
@@ -77,9 +88,10 @@ export function nextAvailableDraftPath(
   app: App,
   draftsFolder: TFolder,
   preferredStem?: string,
-  ignoreFile?: TFile
+  ignoreFile?: TFile,
+  names: ProjectCreationNames = projectCreationNames(getLocale())
 ): string {
-  const stem = sanitizeDraftFileStem(preferredStem || "") || DEFAULT_DRAFT_STEM;
+  const stem = sanitizeDraftFileStem(preferredStem || "") || names.draftStem;
   let index = 1;
   while (true) {
     const suffix = index === 1 ? "" : ` ${index}`;
@@ -148,15 +160,23 @@ export async function moveDraftToProjectFolder(
   return moved;
 }
 
-export async function createQuickDraftFile(app: App, manuscriptRoot: TFolder): Promise<TFile> {
+export async function createQuickDraftFile(
+  app: App,
+  manuscriptRoot: TFolder,
+  names: ProjectCreationNames = projectCreationNames(getLocale())
+): Promise<TFile> {
   const draftsFolder = await ensureDraftsFolder(app, manuscriptRoot);
-  const path = nextAvailableDraftPath(app, draftsFolder, DEFAULT_DRAFT_STEM);
+  const path = nextAvailableDraftPath(app, draftsFolder, names.draftStem, undefined, names);
   return app.vault.create(path, initialQuickDraftContent());
 }
 
+const DEFAULT_QUICK_DRAFT_NAME_PATTERN = new RegExp(
+  `^(?:${KNOWN_DRAFT_STEMS.map((stem) => stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?: \\d+)?$`
+);
+
 export function isDefaultQuickDraftName(file: TFile): boolean {
   if (file.extension.toLowerCase() !== "md") return false;
-  return /^Sans titre(?: \d+)?$/.test(file.basename);
+  return DEFAULT_QUICK_DRAFT_NAME_PATTERN.test(file.basename);
 }
 
 interface AutoRenameState {

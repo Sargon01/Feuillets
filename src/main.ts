@@ -148,7 +148,8 @@ import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { RESEARCH_FOLDERS, matchesResearchLabel } from "./utils/project-modes.js";
-import { setLocale, detectLocale, t } from "./i18n/index.js";
+import { setLocale, detectLocale, getLocale, t } from "./i18n/index.js";
+import { projectCreationNames } from "./i18n/project-creation.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
@@ -5936,7 +5937,7 @@ class FeuilletsPlugin extends Plugin {
       return null;
     }
     try {
-      const file = await createQuickDraftFile(this.app, root);
+      const file = await createQuickDraftFile(this.app, root, projectCreationNames(getLocale()));
       const leaf = this.getLeafForOpeningFile();
       await openFileActivatingWithCursor(this.app, leaf, file);
       return file;
