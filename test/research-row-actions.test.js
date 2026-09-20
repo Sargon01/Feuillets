@@ -162,6 +162,7 @@ const nonPreviewableNames = [
   ["Diapo.pptx", "PPTX"],
   ["Diapo.odp", "ODP"],
   ["Notes.rtf", "RTF"],
+  ["Sources.bib", "BibTeX"],
 ];
 
 for (const [name, label] of nonPreviewableNames) {
@@ -188,6 +189,7 @@ test("aucun bouton chaîne ni bouton d'ouverture directe, pour aucun type de fic
     "Donnees.xlsx",
     "Diapo.pptx",
     "Notes.rtf",
+    "Sources.bib",
   ];
   for (const name of names) {
     const { byIcon, buttons } = renderRow(new TFile(`Projet/_Recherche/${name}`));
@@ -212,6 +214,7 @@ test("\"...\" reste toujours disponible, pour absolument tous les types", () => 
     "Donnees.xlsx",
     "Diapo.pptx",
     "Notes.rtf",
+    "Sources.bib",
   ];
   for (const name of names) {
     const { byIcon } = renderRow(new TFile(`Projet/_Recherche/${name}`));
@@ -273,6 +276,25 @@ test("ouvrir côte à côte (non-régression) : disponible depuis le menu ⋯ d'
   assert.deepEqual(openCalls, [["split", "vertical"]], "doit ouvrir dans une vue scindée");
 });
 
+/* ===== BibTeX (.bib) : ni lecteur ni détection de greffon tiers — juste le
+   mécanisme d'ouverture générique déjà utilisé par toute pièce jointe
+   Recherche (openFileActivating), et le menu "..." commun. ===== */
+
+test("un fichier .bib est traité comme n'importe quelle pièce jointe : clic sur le nom délègue à openFileActivating, le menu \"...\" reste générique", () => {
+  const { header, byIcon, openCalls } = renderRow(new TFile("Projet/_Recherche/Sources.bib"));
+  nameElOf(header).click();
+  assert.deepEqual(openCalls, [["tab"]], "un .bib s'ouvre comme n'importe quelle pièce jointe, jamais un lecteur BibTeX dédié");
+
+  const moreBtn = byIcon("more-horizontal");
+  assert.ok(moreBtn, "le menu \"...\" générique reste disponible pour .bib");
+  moreBtn.click();
+  assert.ok(Menu.lastShown, "le menu contextuel générique doit s'ouvrir");
+  assert.ok(
+    Menu.lastShown.items.some((i) => i.title === t("binder.research.openSplit")),
+    "les mêmes commandes génériques (ouvrir côte à côte…) doivent être proposées, sans aucune commande spécifique BibTeX"
+  );
+});
+
 /* ===== rendu : l'icône Excalidraw est effectivement appliquée par
    renderResearchFileRow (pas seulement calculée par researchFileIcon —
    c'est précisément le bug corrigé ici : l'icône était calculée mais
@@ -303,7 +325,7 @@ test("rendu : exactement une colonne icône par fichier", () => {
 
 /* ===== indicateurs de type (fichiers documentaires non Markdown) ===== */
 
-test("indicateurs de type : PDF/DOCX/ODT/RTF/EPUB/XLSX/PPTX affichent un petit texte fixe dans la colonne icône, jamais une icône Lucide", () => {
+test("indicateurs de type : PDF/DOCX/ODT/RTF/EPUB/XLSX/PPTX/BIB affichent un petit texte fixe dans la colonne icône, jamais une icône Lucide", () => {
   const cases = [
     ["Source.pdf", "PDF"],
     ["Manuscrit.docx", "DOCX"],
@@ -312,6 +334,7 @@ test("indicateurs de type : PDF/DOCX/ODT/RTF/EPUB/XLSX/PPTX affichent un petit t
     ["Livre.epub", "EPUB"],
     ["Donnees.xlsx", "XLSX"],
     ["Diapo.pptx", "PPTX"],
+    ["Sources.bib", "BIB"],
   ];
   for (const [name, label] of cases) {
     const { header } = renderRow(new TFile(`Projet/_Recherche/${name}`));

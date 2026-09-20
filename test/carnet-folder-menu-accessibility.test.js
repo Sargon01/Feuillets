@@ -72,7 +72,7 @@ function createTreeModeFixture() {
     projectFolder: root.path, projects: [], projectMeta: {}, binderLayout: "tree",
     binderSelectedPath: root.path, binderCompact: false, binderTreeWidth: 170,
     binderTreeCollapsed: false, binderListCollapsed: false, binderSplitRecursive: true,
-    collapsed: {}, orders: {}, folderPositions: {},
+    collapsed: {}, orders: {}, folderPositions: {}, researchOrder: {},
   };
 
   const contentEl = new FakeElement();
@@ -187,7 +187,7 @@ test("Binder (tree) — clic simple, chevron et drag&drop du dossier restent pos
 /* ============================ B. RECHERCHE ============================ */
 
 function createResearchFolderHarness({ canUseFolderCarnetResult, hasFolderCarnet = false, folder }) {
-  const settings = { researchSearch: "", researchTagFilter: "", collapsed: {}, projectMeta: {}, labels: [], canUseFolderCarnetResult };
+  const settings = { researchSearch: "", researchTagFilter: "", collapsed: {}, orders: {}, researchOrder: {}, projectMeta: {}, labels: [], canUseFolderCarnetResult };
   const plugin = {
     settings,
     getProjectFolder: () => null,

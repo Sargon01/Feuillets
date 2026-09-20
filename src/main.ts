@@ -659,6 +659,12 @@ class FeuilletsPlugin extends Plugin {
   _binderMultiSelect?: Set<string>;
   _binderMultiSelectAnchor?: { parentPath: string; index: number };
   _researchDragPath?: string | null;
+  /** Drag state for Research space/folder REORDERING (Monter/Descendre's
+   *  drag-and-drop counterpart) — deliberately separate from
+   *  `_researchDragPath` (the existing internal file/folder MOVE mechanism)
+   *  so a reorder drag is never misread as a move, and vice versa. See
+   *  services/research-order.ts. */
+  _researchOrderDrag?: { parentKey: string; key: string } | null;
   dragState?: {
     parentPath: string;
     multi?: boolean;

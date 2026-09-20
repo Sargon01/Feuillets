@@ -43,6 +43,7 @@ class FakeElement {
     const child = new FakeElement(options);
     child.tag = tag;
     if (options.cls) child.addClass(options.cls);
+    child.parent = this;
     this.children.push(child);
     return child;
   }
@@ -67,6 +68,14 @@ class FakeElement {
     if (!this.events.has(type)) this.events.set(type, []);
     this.events.get(type).push(callback);
   }
+  dispatch(type, ...args) {
+    for (const callback of this.events?.get(type) ?? []) callback(...args);
+  }
+  remove() {
+    this.removed = true;
+    if (this.parent) this.parent.children = this.parent.children.filter((c) => c !== this);
+  }
+  click() {}
 }
 
 function folder(path, children = []) {
@@ -108,7 +117,12 @@ function buildView({ excalidrawActive = false, excalidrawAddsItem = excalidrawAc
   };
   const newFolderCalls = [];
   const renderCalls = [];
-  const plugin = { app, settings: {}, newFolder: (f) => { newFolderCalls.push(f); } };
+  const plugin = {
+    app,
+    settings: {},
+    newFolder: (f) => { newFolderCalls.push(f); },
+    renderAllViews: (force) => { renderCalls.push(force); },
+  };
   const contentEl = new FakeElement();
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
@@ -132,6 +146,7 @@ test("showResearchCreateMenu : 5 entrées dans l'ordre (fiche, Canvas, Base, Exc
     t("shared.research.newBase"),
     t("shared.research.newExcalidraw"),
     t("binder.newSubfolder"),
+    t("shared.research.importFiles"),
   ]);
 
   items[0].callback();
@@ -148,6 +163,7 @@ test("showResearchCreateMenu : masque « Nouveau dessin Excalidraw » quand le g
     t("shared.research.newCanvas"),
     t("shared.research.newBase"),
     t("binder.newSubfolder"),
+    t("shared.research.importFiles"),
   ]);
 });
 
@@ -269,3 +285,148 @@ test("renderResearchSubfolder route son bouton « + » vers showResearchCreateMe
     "renderResearchSubfolder doit ouvrir le même menu de création que la racine"
   );
 });
+
+/* ===== « Importer des fichiers… » : orchestration DOM (le sélecteur
+   natif et son câblage). La logique métier (extensions, collisions,
+   traitement séquentiel, préservation des octets) est déjà couverte de
+   façon exhaustive par test/research-import.test.js ; ici on vérifie
+   uniquement que showResearchCreateMenu déclenche le bon <input>, que sa
+   fin de vie est correcte dans tous les cas (annulation, sélection vide,
+   sélection réelle), et qu'elle rafraîchit/notifie exactement comme
+   demandé. */
+
+/** Fournit un `document.body` factice (même patron que
+ * test/annotation-popover-flow.test.js) le temps du test —
+ * promptImportFilesIntoResearchFolder construit son `<input>` dedans. */
+async function withFakeDocument(run) {
+  const previousDocument = globalThis.document;
+  const body = new FakeElement({ tag: "body" });
+  globalThis.document = { body };
+  try { return await run(body); }
+  finally { globalThis.document = previousDocument; }
+}
+
+function fakeSelectedFile(name, text) {
+  return {
+    name,
+    async arrayBuffer() {
+      return new TextEncoder().encode(text).buffer;
+    },
+  };
+}
+
+function importItemOf(menu) {
+  return itemsOf(menu).find((i) => i.title === t("shared.research.importFiles"));
+}
+
+test("showResearchCreateMenu : « Importer des fichiers… » figure dans le menu, avec l'icône « upload »", () => {
+  const { view, root } = buildView();
+  view.showResearchCreateMenu({ type: "click" }, root, () => {});
+  const item = importItemOf(Menu.lastShown);
+  assert.ok(item, "l'entrée « Importer des fichiers… » doit être présente");
+  assert.equal(item.icon, "upload");
+});
+
+test("Importer des fichiers… : annulation du sélecteur (événement « cancel », aucun fichier choisi) -> aucune notification, l'<input> est retiré", () => withFakeDocument(async (body) => {
+  const { view, root, renderCalls } = buildView();
+  const notices = [];
+  const previousOnCreate = Notice.onCreate;
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    view.showResearchCreateMenu({ type: "click" }, root, () => {});
+    importItemOf(Menu.lastShown).callback();
+
+    const input = body.children.find((el) => el.tag === "input");
+    assert.ok(input, "un <input> temporaire doit être créé");
+    assert.equal(input.hasClass("feuillets-research-import-input"), true);
+
+    input.dispatch("cancel");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(notices.length, 0);
+    assert.equal(input.removed, true);
+    assert.equal(body.children.includes(input), false);
+    assert.deepEqual(renderCalls, []);
+  } finally {
+    Notice.onCreate = previousOnCreate;
+  }
+}));
+
+test("Importer des fichiers… : sélection vide (« change » sans fichier) -> aucune notification, l'<input> est retiré", () => withFakeDocument(async (body) => {
+  const { view, root, renderCalls } = buildView();
+  const notices = [];
+  const previousOnCreate = Notice.onCreate;
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    view.showResearchCreateMenu({ type: "click" }, root, () => {});
+    importItemOf(Menu.lastShown).callback();
+
+    const input = body.children.find((el) => el.tag === "input");
+    input.files = [];
+    input.dispatch("change");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(notices.length, 0);
+    assert.equal(input.removed, true);
+    assert.deepEqual(renderCalls, []);
+  } finally {
+    Notice.onCreate = previousOnCreate;
+  }
+}));
+
+test("Importer des fichiers… : sélection réelle -> copie dans le dossier ciblé, un seul rafraîchissement, une seule notification récapitulative, jamais d'ouverture automatique", () => withFakeDocument(async (body) => {
+  const { view, root, renderCalls, leafOpenFileCalls } = buildView();
+  const notices = [];
+  const previousOnCreate = Notice.onCreate;
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    view.showResearchCreateMenu({ type: "click" }, root, () => {});
+    importItemOf(Menu.lastShown).callback();
+
+    const input = body.children.find((el) => el.tag === "input");
+    input.files = [
+      fakeSelectedFile("Notes.md", "# Notes"),
+      fakeSelectedFile("Rapport.docx", "binary-ish content"),
+    ];
+    input.dispatch("change");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.ok(view.app.vault.getAbstractFileByPath("Recherche/Notes.md"));
+    assert.ok(view.app.vault.getAbstractFileByPath("Recherche/Rapport.docx"));
+    assert.deepEqual(renderCalls, [true], "exactement un rafraîchissement, pas un par fichier importé");
+    assert.equal(leafOpenFileCalls.length, 0, "aucun fichier importé ne doit être ouvert automatiquement");
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0], t("shared.research.importSummary", { imported: "2", skipped: "0", failed: "0" }));
+    assert.equal(input.removed, true);
+  } finally {
+    Notice.onCreate = previousOnCreate;
+  }
+}));
+
+test("Importer des fichiers… : un fichier en échec n'annule pas les autres, et n'empêche pas un rafraîchissement s'il y a au moins un succès", () => withFakeDocument(async (body) => {
+  const { view, root, renderCalls } = buildView();
+  const notices = [];
+  const previousOnCreate = Notice.onCreate;
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    view.showResearchCreateMenu({ type: "click" }, root, () => {});
+    importItemOf(Menu.lastShown).callback();
+
+    const input = body.children.find((el) => el.tag === "input");
+    const failing = fakeSelectedFile("Cassé.md", "peu importe");
+    failing.arrayBuffer = async () => { throw new Error("lecture impossible"); };
+    input.files = [failing, fakeSelectedFile("Bon.md", "# Bon")];
+    input.dispatch("change");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    assert.equal(view.app.vault.getAbstractFileByPath("Recherche/Cassé.md"), null);
+    assert.ok(view.app.vault.getAbstractFileByPath("Recherche/Bon.md"));
+    assert.deepEqual(renderCalls, [true]);
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0], t("shared.research.importSummary", { imported: "1", skipped: "0", failed: "1" }));
+  } finally {
+    Notice.onCreate = previousOnCreate;
+  }
+}));

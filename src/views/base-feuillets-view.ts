@@ -30,6 +30,8 @@ import {
   delegateNewExcalidrawDrawing,
   isExcalidrawActive,
 } from "../services/research-create.js";
+import { importFilesIntoResearchFolder, researchImportAccept } from "../services/research-import.js";
+import { applyResearchOrder, reorderResearchKeys, RESEARCH_ORDER_DRAG_MIME } from "../services/research-order.js";
 import { resourcesFolderPath, resourcesSubfolderPath } from "../services/folder-structure.js";
 import { addOpenWithPreviewItem, openScopeWithPreviewBesideLeaf } from "./preview-view.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
@@ -43,6 +45,21 @@ import { collectScopeCitedBibtexEntries } from "../services/citekey-bibliography
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
 
 export type ResearchScopeMode = "workspace" | "project";
+
+/** Context a Research space/folder row needs to be reorderable among its
+ * current siblings — visual order only, never a Vault move (see
+ * services/research-order.ts). `parentKey` identifies the sibling group
+ * (a real folder path for actual folder children, or a synthetic key for a
+ * virtual top-level grouping); `key` is this row's own identity within that
+ * group (always a real folder path); `siblingKeys` is the FULL group, in
+ * the order currently displayed, computed once per render pass by the
+ * caller so drag-and-drop and Monter/Descendre always act on exactly what
+ * the user sees. */
+export type ResearchOrderContext = {
+  parentKey: string;
+  key: string;
+  siblingKeys: string[];
+};
 
 export type ResearchRenderOptions = {
   scopeMode?: ResearchScopeMode;
@@ -476,7 +493,48 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setIcon("folder-plus")
         .onClick(() => this.plugin.newFolder(folder))
     );
+    menu.addSeparator();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("shared.research.importFiles"))
+        .setIcon("upload")
+        .onClick(() => this.promptImportFilesIntoResearchFolder(folder))
+    );
     menu.showAtMouseEvent(evt);
+  }
+
+  /** Opens the native, OS-level multiple-file picker and copies whatever
+   * gets selected into `folder` — never moving or deleting the sources.
+   * The `<input>` is temporary: created, clicked, and always removed
+   * afterward (on a real selection, a change with zero files, or a
+   * cancel), so nothing lingers in the DOM. Business logic (extension
+   * validation, name cleanup, collision handling, sequential copy) lives
+   * entirely in services/research-import.ts; this method only wires the
+   * picker and reports the result. */
+  private promptImportFilesIntoResearchFolder(folder: TFolder): void {
+    const input = document.body.createEl("input", {
+      type: "file",
+      cls: "feuillets-research-import-input",
+    });
+    input.multiple = true;
+    input.accept = researchImportAccept();
+    const cleanup = (): void => { input.remove(); };
+    input.addEventListener("change", () => {
+      const selected = input.files ? Array.from(input.files) : [];
+      cleanup();
+      if (selected.length === 0) return;
+      void (async () => {
+        const summary = await importFilesIntoResearchFolder(this.app, folder, selected);
+        if (summary.imported > 0) this.plugin.renderAllViews(true);
+        new Notice(t("shared.research.importSummary", {
+          imported: String(summary.imported),
+          skipped: String(summary.skipped),
+          failed: String(summary.failed),
+        }));
+      })();
+    });
+    input.addEventListener("cancel", cleanup);
+    input.click();
   }
 
   private promptRenameResearchFolder(folder: TFolder): void {
@@ -945,6 +1003,13 @@ export abstract class BaseFeuilletsView extends ItemView {
     const baseResearch = researchRoot
       ? researchRoot.path
       : researchFolderPath(this.app, this.plugin.settings, root) || root.path;
+    /* Clé de parent pour le réordonnancement visuel des espaces de premier
+       niveau (Sources, Personnages, dossiers personnalisés…) — un même
+       espace peut apparaître dans plusieurs portées (racine du projet,
+       Espace de travail actif) ; ancrer la clé sur `baseResearch` garde
+       chaque portée indépendante, jamais mélangée avec l'ordre des
+       sous-dossiers réels (services/research-order.ts). */
+    const sectionsParentKey = `research-sections:${baseResearch}`;
     const associatedWorkspaceFolder = options.associatedResearchFolder || null;
     const displayedResearchPath = associatedWorkspaceFolder?.path || baseResearch;
     const baseResearchFile = associatedWorkspaceFolder || this.app.vault.getAbstractFileByPath(baseResearch);
@@ -1181,6 +1246,17 @@ export abstract class BaseFeuilletsView extends ItemView {
       return;
     }
 
+    /* Chaque espace de premier niveau (Sources, Personnages, dossiers
+       personnalisés…) est décrit AVANT d'être rendu, pour pouvoir calculer
+       l'ordre visuel persisté (researchOrder) sur l'ensemble avant le
+       premier appel à renderSection — sans quoi la liste de frères
+       transmise à chaque section (pour le glisser-déposer et Monter/
+       Descendre) ne pourrait pas refléter l'ordre réellement affiché.
+       `key` reste toujours le chemin RÉEL d'un dossier existant : jamais
+       encodé dans un nom ni un frontmatter (services/research-order.ts). */
+    type ResearchSpace = { key: string; render: (siblingKeys: string[]) => void | Promise<void> };
+    const spaces: ResearchSpace[] = [];
+
     if (sourcesFolder) {
       /* Sources est la SEULE bibliothèque de travail — entrée "Citer cette
          source…" dans le menu "..." de chaque fiche (voir aussi le bouton
@@ -1195,104 +1271,160 @@ export abstract class BaseFeuilletsView extends ItemView {
             .onClick(() => { this.plugin.quickCiteSource(file); })
         );
       };
-      this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, async () =>
-        this.promptCreateResearchFile(
-          sourcesFolder,
-          rf.sources.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, "sources", rf.sources.newName)
-        ), "sources", citeRowAction
-      );
+      spaces.push({
+        key: sourcesFolder.path,
+        render: async (siblingKeys) => {
+          this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, async () =>
+            this.promptCreateResearchFile(
+              sourcesFolder,
+              rf.sources.newName,
+              await getResearchTemplate(this.app, this.plugin.settings, "sources", rf.sources.newName)
+            ), "sources", citeRowAction, undefined, undefined,
+            { parentKey: sectionsParentKey, key: sourcesFolder.path, siblingKeys }
+          );
 
-      await this.renderFootnotesOverviewSection(body, root);
-      /* "Bibliographie" ici N'EST PLUS un dossier de fiches manuelles —
-         c'est la vue agrégée des sources citées + le bouton pour générer
-         le fichier final (voir renderBibliographySection). Créer une
-         nouvelle référence se fait dans Sources, jamais ici. */
-      await this.renderBibliographySection(body, root, [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])]);
+          await this.renderFootnotesOverviewSection(body, root);
+          /* "Bibliographie" ici N'EST PLUS un dossier de fiches manuelles —
+             c'est la vue agrégée des sources citées + le bouton pour générer
+             le fichier final (voir renderBibliographySection). Créer une
+             nouvelle référence se fait dans Sources, jamais ici. Ni l'aperçu
+             des notes ni cet agrégat ne sont adossés à un dossier propre :
+             ils suivent toujours "Sources", jamais réordonnés séparément. */
+          await this.renderBibliographySection(body, root, [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])]);
+        },
+      });
     } else if (bibliographieFolder) {
       /* Sans dossier Sources, Bibliographie garde son sens d'origine —
          un dossier de fiches
          manuelles pour des lectures complémentaires, sans lien avec le
          texte. */
-      this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
-        this.promptCreateResearchFile(
-          bibliographieFolder,
-          rf.bibliographie.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, "bibliographie", rf.bibliographie.newName)
-        ), "bibliographie"
-      );
+      spaces.push({
+        key: bibliographieFolder.path,
+        render: (siblingKeys) => {
+          this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
+            this.promptCreateResearchFile(
+              bibliographieFolder,
+              rf.bibliographie.newName,
+              await getResearchTemplate(this.app, this.plugin.settings, "bibliographie", rf.bibliographie.newName)
+            ), "bibliographie", undefined, undefined, undefined,
+            { parentKey: sectionsParentKey, key: bibliographieFolder.path, siblingKeys }
+          );
+        },
+      });
     }
 
     if (personnagesFolder) {
-      this.renderSection(body, researchFolderLabel(rf, "personnages"), personnagesFolder, async () =>
-        this.promptCreateResearchFile(
-          personnagesFolder,
-          rf.personnages.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, "personnages", rf.personnages.newName)
-        ), "personnages"
-      );
+      spaces.push({
+        key: personnagesFolder.path,
+        render: (siblingKeys) => {
+          this.renderSection(body, researchFolderLabel(rf, "personnages"), personnagesFolder, async () =>
+            this.promptCreateResearchFile(
+              personnagesFolder,
+              rf.personnages.newName,
+              await getResearchTemplate(this.app, this.plugin.settings, "personnages", rf.personnages.newName)
+            ), "personnages", undefined, undefined, undefined,
+            { parentKey: sectionsParentKey, key: personnagesFolder.path, siblingKeys }
+          );
+        },
+      });
     }
 
     if (lieuxFolder) {
-      this.renderSection(body, researchFolderLabel(rf, "lieux"), lieuxFolder, async () =>
-        this.promptCreateResearchFile(
-          lieuxFolder,
-          rf.lieux.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, "lieux", rf.lieux.newName)
-        ), "lieux"
-      );
+      spaces.push({
+        key: lieuxFolder.path,
+        render: (siblingKeys) => {
+          this.renderSection(body, researchFolderLabel(rf, "lieux"), lieuxFolder, async () =>
+            this.promptCreateResearchFile(
+              lieuxFolder,
+              rf.lieux.newName,
+              await getResearchTemplate(this.app, this.plugin.settings, "lieux", rf.lieux.newName)
+            ), "lieux", undefined, undefined, undefined,
+            { parentKey: sectionsParentKey, key: lieuxFolder.path, siblingKeys }
+          );
+        },
+      });
     }
 
     if (codexFolder) {
-      this.renderSection(body, researchFolderLabel(rf, "codex"), codexFolder, async () =>
-        this.promptCreateResearchFile(
-          codexFolder,
-          rf.codex.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, "codex", rf.codex.newName)
-        ), "codex"
-      );
+      spaces.push({
+        key: codexFolder.path,
+        render: (siblingKeys) => {
+          this.renderSection(body, researchFolderLabel(rf, "codex"), codexFolder, async () =>
+            this.promptCreateResearchFile(
+              codexFolder,
+              rf.codex.newName,
+              await getResearchTemplate(this.app, this.plugin.settings, "codex", rf.codex.newName)
+            ), "codex", undefined, undefined, undefined,
+            { parentKey: sectionsParentKey, key: codexFolder.path, siblingKeys }
+          );
+        },
+      });
     }
 
     if (glossaireFolder) {
-      this.renderSection(body, researchFolderLabel(rf, "glossaire"), glossaireFolder, async () =>
-        this.promptCreateResearchFile(
-          glossaireFolder,
-          rf.glossaire.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, "glossaire", rf.glossaire.newName)
-        ), "glossaire"
-      );
+      spaces.push({
+        key: glossaireFolder.path,
+        render: (siblingKeys) => {
+          this.renderSection(body, researchFolderLabel(rf, "glossaire"), glossaireFolder, async () =>
+            this.promptCreateResearchFile(
+              glossaireFolder,
+              rf.glossaire.newName,
+              await getResearchTemplate(this.app, this.plugin.settings, "glossaire", rf.glossaire.newName)
+            ), "glossaire", undefined, undefined, undefined,
+            { parentKey: sectionsParentKey, key: glossaireFolder.path, siblingKeys }
+          );
+        },
+      });
     }
 
     if (chronoFolder) {
-      this.renderSection(body, researchFolderLabel(rf, "evenements"), chronoFolder, async () =>
-        this.promptCreateResearchFile(
-          chronoFolder,
-          rf.evenements.newName,
-          await getResearchTemplate(this.app, this.plugin.settings, "evenements", rf.evenements.newName)
-        ), "evenements"
-      );
+      spaces.push({
+        key: chronoFolder.path,
+        render: (siblingKeys) => {
+          this.renderSection(body, researchFolderLabel(rf, "evenements"), chronoFolder, async () =>
+            this.promptCreateResearchFile(
+              chronoFolder,
+              rf.evenements.newName,
+              await getResearchTemplate(this.app, this.plugin.settings, "evenements", rf.evenements.newName)
+            ), "evenements", undefined, undefined, undefined,
+            { parentKey: sectionsParentKey, key: chronoFolder.path, siblingKeys }
+          );
+        },
+      });
     }
 
     // Rendu des dossiers de recherche personnalisés
     for (const folder of customFolders) {
       const folderTag = foldAccents(folder.name.toLowerCase().replace(/\s+/g, "-"));
-      this.renderSection(body, folder.name, folder, async () => {
-        const defaultName = `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`;
-        this.promptCreateResearchFile(
-          folder,
-          defaultName,
-          [
-            "---",
-            `title: "${defaultName}"`,
-            "synopsis: ",
-            "tags:",
-            `  - ${folderTag}`,
-            "---",
-            ""
-          ].join("\n")
-        );
-      }, folderTag
-      );
+      spaces.push({
+        key: folder.path,
+        render: (siblingKeys) => {
+          this.renderSection(body, folder.name, folder, async () => {
+            const defaultName = `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`;
+            this.promptCreateResearchFile(
+              folder,
+              defaultName,
+              [
+                "---",
+                `title: "${defaultName}"`,
+                "synopsis: ",
+                "tags:",
+                `  - ${folderTag}`,
+                "---",
+                ""
+              ].join("\n")
+            );
+          }, folderTag, undefined, undefined, undefined,
+          { parentKey: sectionsParentKey, key: folder.path, siblingKeys }
+          );
+        },
+      });
+    }
+
+    const orderedSpaces = applyResearchOrder(sectionsParentKey, spaces, (s) => s.key, S.researchOrder);
+    const spaceSiblingKeys = orderedSpaces.map((s) => s.key);
+    for (const space of orderedSpaces) {
+      await space.render(spaceSiblingKeys);
     }
 
     if (showProjectAssociations) {
@@ -1397,9 +1529,9 @@ export abstract class BaseFeuilletsView extends ItemView {
       .sort((a, b) => a.folder.name.localeCompare(b.folder.name, "fr"));
     if (associated.length === 0) return;
 
+    const S = this.plugin.settings;
     let groupBody = container;
     if (grouped) {
-      const S = this.plugin.settings;
       const collapseKey = "research:spaces";
       const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
       const { section, head } = renderCollapsibleHead(container, {
@@ -1429,7 +1561,17 @@ export abstract class BaseFeuilletsView extends ItemView {
         candidateIndex !== index && folder.path.startsWith(`${candidate.folder.path}/`)
       )
     );
-    for (const { folder, binderNodes } of roots) {
+    /* Réordonnancement visuel réservé au groupe "Espaces" affiché
+       (`grouped`) : le seul contexte où ces dossiers associés apparaissent
+       comme une liste de frères au même niveau — jamais pour l'appel
+       "à plat" (grouped=false, imbriqué sous un dossier associé déjà
+       ouvert), dont l'ordre reste alphabétique comme avant. */
+    const linkedParentKey = `research-linked:${baseResearchFolder ? baseResearchFolder.path : ""}`;
+    const orderedRoots = grouped
+      ? applyResearchOrder(linkedParentKey, roots, (r) => r.folder.path, S.researchOrder)
+      : roots;
+    const rootSiblingKeys = orderedRoots.map((r) => r.folder.path);
+    for (const { folder, binderNodes } of orderedRoots) {
       const labels = binderNodes
         .map((n) => (n instanceof TFile ? this.plugin.titleFor(n) : n.name))
         .sort((a, b) => a.localeCompare(b, "fr"));
@@ -1452,7 +1594,9 @@ export abstract class BaseFeuilletsView extends ItemView {
               .createSpan({ cls: "feuillets-research-linked-badge" })
               .setText(t("shared.research.linkedCount", { count: String(labels.length) }));
           }
-        }
+        },
+        undefined,
+        grouped ? { parentKey: linkedParentKey, key: folder.path, siblingKeys: rootSiblingKeys } : undefined
       );
     }
   }
@@ -1587,7 +1731,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     iconKey?: string,
     rowAction?: (menu: Menu, file: TFile) => void,
     headerExtra?: (head: HTMLElement) => void,
-    external?: boolean
+    external?: boolean,
+    orderContext?: ResearchOrderContext
   ): void {
     const collapseKey =
       folderOrFiles instanceof TFolder
@@ -1596,7 +1741,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const S = this.plugin.settings;
     const collapsed = !this.researchFilterActive && !!S.collapsed[collapseKey];
 
-    const { section, head } = renderCollapsibleHead(container, {
+    const { section, head, titleEl } = renderCollapsibleHead(container, {
       classes: {
         section: "feuillets-notes-section feuillets-research-section",
         head: "feuillets-notes-section-head",
@@ -1638,8 +1783,15 @@ export abstract class BaseFeuilletsView extends ItemView {
       const actions = this.iconBtn(head, "more-horizontal", t("shared.research.folderActions"));
       actions.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.showResearchFolderContextMenu(e, folderOrFiles);
+        this.showResearchFolderContextMenu(e, folderOrFiles, orderContext);
       });
+      /* Réordonnancement visuel (jamais un déplacement Vault) : seul le
+         libellé devient une poignée de glisser-déposer — jamais toute la
+         ligne, pour ne jamais interférer avec le mécanisme EXISTANT de
+         déplacement interne (attachResearchDragSource/attachResearchDrop-
+         Target, attaché à `section` juste plus bas) : voir
+         attachResearchOrderHandle. */
+      if (orderContext) this.attachResearchOrderHandle(titleEl, head, orderContext);
     }
 
     if (collapsed) return;
@@ -1653,13 +1805,25 @@ export abstract class BaseFeuilletsView extends ItemView {
     if (destFolder && !external) this.attachResearchDropTarget(section, destFolder);
 
     if (folderOrFiles instanceof TFolder) {
-      /* Afficher les sous-dossiers avant les fichiers (ordre
-         alphabétique conservé à chaque niveau). */
+      /* Afficher les sous-dossiers avant les fichiers — ordre alphabétique
+         comme base déterministe (services/research-order.ts), puis l'ordre
+         visuel persisté par-dessus, s'il existe. Jamais pour un dossier
+         externe : ces sous-dossiers restent, comme avant, en lecture
+         seule uniquement. */
       const subfolders = folderOrFiles.children
         .filter((c): c is TFolder => c instanceof TFolder)
         .sort((a, b) => a.name.localeCompare(b.name, "fr"));
-      for (const sf of subfolders) {
-        this.renderResearchSubfolder(list, sf, external);
+      const orderedSubfolders = external
+        ? subfolders
+        : applyResearchOrder(folderOrFiles.path, subfolders, (f) => f.path, S.researchOrder);
+      const subfolderSiblingKeys = orderedSubfolders.map((f) => f.path);
+      for (const sf of orderedSubfolders) {
+        this.renderResearchSubfolder(
+          list,
+          sf,
+          external,
+          external ? undefined : { parentKey: folderOrFiles.path, key: sf.path, siblingKeys: subfolderSiblingKeys }
+        );
       }
     }
 
@@ -1798,7 +1962,8 @@ export abstract class BaseFeuilletsView extends ItemView {
   private renderResearchSubfolder(
     parentList: HTMLElement,
     folder: TFolder,
-    external?: boolean
+    external?: boolean,
+    orderContext?: ResearchOrderContext
   ): void {
     const S = this.plugin.settings;
     const collapseKey = `research-folder:${folder.path}`;
@@ -1857,6 +2022,11 @@ export abstract class BaseFeuilletsView extends ItemView {
     if (!external) {
       this.attachResearchDragSource(subItem, folder);
       this.attachResearchDropTarget(subItem, folder);
+      /* Réordonnancement visuel — poignée sur le seul libellé (jamais toute
+         la ligne, déjà draggable ci-dessus pour le déplacement existant) :
+         voir attachResearchOrderHandle et le commentaire équivalent dans
+         renderSection. */
+      if (orderContext) this.attachResearchOrderHandle(nameEl, header, orderContext);
     }
 
     /* Menu d'actions (⋮) identique à celui des dossiers racines — absent
@@ -1870,7 +2040,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       actions.addClass("feuillets-research-item-menu-btn");
       actions.addEventListener("click", (e) => {
         e.stopPropagation();
-        this.showResearchFolderContextMenu(e, folder);
+        this.showResearchFolderContextMenu(e, folder, orderContext);
       });
     } else {
       const actions = this.iconBtn(
@@ -1897,12 +2067,23 @@ export abstract class BaseFeuilletsView extends ItemView {
       cls: "feuillets-research-list feuillets-research-nested",
     });
 
-    /* Rendu récursif : sous-dossiers d'abord, puis fichiers. */
+    /* Rendu récursif : sous-dossiers d'abord, puis fichiers. Ordre
+       alphabétique comme base déterministe, puis l'ordre visuel persisté
+       (services/research-order.ts) — jamais pour un dossier externe. */
     const subfolders = folder.children
       .filter((c): c is TFolder => c instanceof TFolder)
       .sort((a, b) => a.name.localeCompare(b.name, "fr"));
-    for (const sf of subfolders) {
-      this.renderResearchSubfolder(nestedList, sf, external);
+    const orderedSubfolders = external
+      ? subfolders
+      : applyResearchOrder(folder.path, subfolders, (f) => f.path, S.researchOrder);
+    const subfolderSiblingKeys = orderedSubfolders.map((f) => f.path);
+    for (const sf of orderedSubfolders) {
+      this.renderResearchSubfolder(
+        nestedList,
+        sf,
+        external,
+        external ? undefined : { parentKey: folder.path, key: sf.path, siblingKeys: subfolderSiblingKeys }
+      );
     }
 
     const files = folder.children
@@ -1962,7 +2143,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     new Notice(t("shared.research.folderPasted", { name }));
   }
 
-  private showResearchFolderContextMenu(e: MouseEvent, folder: TFolder): void {
+  private showResearchFolderContextMenu(e: MouseEvent, folder: TFolder, orderContext?: ResearchOrderContext): void {
     const menu = new Menu();
     this.addFolderCarnetMenuItem(menu, folder);
     const carnetPlugin = this.plugin as unknown as { canUseFolderCarnet?: (folder: TFolder) => boolean };
@@ -2003,6 +2184,41 @@ export abstract class BaseFeuilletsView extends ItemView {
           new Notice(t("shared.contextMenu.folderTrashed", { name: folder.name }));
         })
     );
+    /* Alternative accessible/mobile au glisser-déposer (attachResearchOrder-
+       Handle) : même réordonnancement purement visuel entre frères, jamais
+       un déplacement Vault. "Monter" est désactivé pour le premier élément,
+       "Descendre" pour le dernier — jamais absent, pour garder une forme de
+       menu stable (même convention que "Coller le dossier" ci-dessus). */
+    if (orderContext) {
+      const index = orderContext.siblingKeys.indexOf(orderContext.key);
+      const canMoveUp = index > 0;
+      const canMoveDown = index >= 0 && index < orderContext.siblingKeys.length - 1;
+      menu.addSeparator();
+      menu.addItem((item) => {
+        item.setTitle(t("shared.research.moveUp")).setIcon("arrow-up");
+        if (!canMoveUp) {
+          item.setDisabled(true);
+        } else {
+          item.onClick(() => {
+            const targetKey = orderContext.siblingKeys[index - 1];
+            const newOrder = reorderResearchKeys(orderContext.siblingKeys, orderContext.key, targetKey, "before");
+            void this.persistResearchOrder(orderContext.parentKey, newOrder);
+          });
+        }
+      });
+      menu.addItem((item) => {
+        item.setTitle(t("shared.research.moveDown")).setIcon("arrow-down");
+        if (!canMoveDown) {
+          item.setDisabled(true);
+        } else {
+          item.onClick(() => {
+            const targetKey = orderContext.siblingKeys[index + 1];
+            const newOrder = reorderResearchKeys(orderContext.siblingKeys, orderContext.key, targetKey, "after");
+            void this.persistResearchOrder(orderContext.parentKey, newOrder);
+          });
+        }
+      });
+    }
     menu.showAtMouseEvent(e);
   }
 
@@ -2148,6 +2364,91 @@ export abstract class BaseFeuilletsView extends ItemView {
         await this.app.fileManager.renameFile(source, dest);
         this.plugin.renderAllViews(true);
       })();
+    });
+  }
+
+  /** Persiste un nouvel ordre pour `parentKey` (la liste COMPLÈTE des frères,
+   * dans leur nouvel ordre affiché) et rafraîchit seulement cette vue —
+   * jamais toutes les vues (`plugin.renderAllViews`), même mécanique que le
+   * repli/dépli (onToggle, ci-dessus) : un changement d'ordre reste, comme
+   * lui, un réglage purement visuel de CETTE vue, pas une écriture dans le
+   * coffre. Ne touche jamais `settings.orders` (Binder), ni le Vault. */
+  private async persistResearchOrder(parentKey: string, newOrder: string[]): Promise<void> {
+    this.plugin.settings.researchOrder[parentKey] = newOrder;
+    await this.plugin.saveSettings();
+    void this.render();
+  }
+
+  /** Rend `handleEl` (le SEUL libellé d'un espace/dossier Recherche — jamais
+   * toute la ligne) glissable pour réordonner `orderContext.key` parmi ses
+   * frères `orderContext.siblingKeys`, et `dropRowEl` (la ligne — en-tête —
+   * de ce même espace/dossier) une cible de dépôt avant/après.
+   *
+   * Volontairement DISJOINT du mécanisme existant de déplacement interne
+   * (attachResearchDragSource/attachResearchDropTarget, attaché à toute la
+   * ligne pour les fichiers ET les sous-dossiers) : l'état de glisser
+   * `_researchOrderDrag` (jamais `_researchDragPath`) et le MIME
+   * RESEARCH_ORDER_DRAG_MIME (jamais FEUILLETS_FILE_DRAG_MIME ni
+   * `text/plain`) garantissent qu'aucun chemin de fichier n'est jamais lu
+   * comme une demande de déplacement — et réciproquement. `stopPropagation`
+   * sur `dragstart` empêche aussi l'écouteur existant, posé sur un ancêtre
+   * (toute la ligne), de recevoir le même geste par bouillonnement DOM
+   * (même précaution que attachResearchDragSource lui-même, plus haut).
+   *
+   * Ne déplace jamais rien dans le Vault : seul `settings.researchOrder`
+   * change, via persistResearchOrder ci-dessus. */
+  private attachResearchOrderHandle(
+    handleEl: HTMLElement,
+    dropRowEl: HTMLElement,
+    orderContext: ResearchOrderContext
+  ): void {
+    const clearDropIndicator = (): void => {
+      dropRowEl.removeClass("feuillets-research-order-drop-before");
+      dropRowEl.removeClass("feuillets-research-order-drop-after");
+    };
+
+    handleEl.addClass("feuillets-research-order-handle");
+    handleEl.draggable = true;
+    handleEl.addEventListener("dragstart", (e) => {
+      e.stopPropagation();
+      e.dataTransfer!.effectAllowed = "move";
+      e.dataTransfer!.setData(RESEARCH_ORDER_DRAG_MIME, orderContext.key);
+      this.plugin._researchOrderDrag = { parentKey: orderContext.parentKey, key: orderContext.key };
+      handleEl.addClass("feuillets-dragging");
+    });
+    handleEl.addEventListener("dragend", (e) => {
+      e.stopPropagation();
+      this.plugin._researchOrderDrag = null;
+      handleEl.removeClass("feuillets-dragging");
+      clearDropIndicator();
+    });
+
+    dropRowEl.addEventListener("dragover", (e) => {
+      const drag = this.plugin._researchOrderDrag;
+      if (!drag || drag.parentKey !== orderContext.parentKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer!.dropEffect = "move";
+      const rect = dropRowEl.getBoundingClientRect();
+      const before = e.clientY - rect.top < rect.height / 2;
+      dropRowEl.toggleClass("feuillets-research-order-drop-before", before);
+      dropRowEl.toggleClass("feuillets-research-order-drop-after", !before);
+    });
+    dropRowEl.addEventListener("dragleave", (e) => {
+      if (!(e.relatedTarget instanceof Node) || !dropRowEl.contains(e.relatedTarget)) clearDropIndicator();
+    });
+    dropRowEl.addEventListener("drop", (e) => {
+      const drag = this.plugin._researchOrderDrag;
+      this.plugin._researchOrderDrag = null;
+      clearDropIndicator();
+      if (!drag || drag.parentKey !== orderContext.parentKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (drag.key === orderContext.key) return;
+      const rect = dropRowEl.getBoundingClientRect();
+      const position = e.clientY - rect.top < rect.height / 2 ? "before" : "after";
+      const newOrder = reorderResearchKeys(orderContext.siblingKeys, drag.key, orderContext.key, position);
+      void this.persistResearchOrder(orderContext.parentKey, newOrder);
     });
   }
 

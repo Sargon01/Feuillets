@@ -4166,6 +4166,27 @@ body.feuillets-text-width
   box-shadow: inset 0 2px 0 var(--interactive-accent);
 }
 
+/* Réordonnancement visuel des espaces et dossiers Recherche — jamais un
+   déplacement Vault (attachResearchOrderHandle, base-feuillets-view.ts).
+   Poignée de glisser : uniquement le libellé, jamais toute la ligne — donc
+   des classes distinctes de feuillets-dragover/feuillets-dragging ci-dessus,
+   qui restent le mécanisme EXISTANT de déplacement interne. */
+.feuillets-research-order-handle {
+  cursor: grab;
+}
+
+.feuillets-research-order-handle.feuillets-dragging {
+  opacity: 0.4;
+}
+
+.feuillets-research-order-drop-before {
+  box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
+.feuillets-research-order-drop-after {
+  box-shadow: inset 0 -2px 0 var(--interactive-accent);
+}
+
 /* Lisibilité de l'arborescence, en restant compact : un fin repère
    vertical marque chaque niveau de sous-dossiers, avec une indentation
    cohérente d'environ 11px par niveau (cumulative à chaque nouvelle
@@ -4393,6 +4414,13 @@ body.feuillets-text-width
 
 .feuillets-research-item-menu-btn {
   opacity: 1;
+}
+
+/* Temporary native file-picker input (promptImportFilesIntoResearchFolder,
+   base-feuillets-view.ts) — created, clicked, and removed on every
+   selection or cancel, never meant to be seen. */
+.feuillets-research-import-input {
+  display: none;
 }
 
 /* ===== modale des apparitions ===== */

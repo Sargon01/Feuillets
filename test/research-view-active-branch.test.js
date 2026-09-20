@@ -191,6 +191,8 @@ function createFixture() {
     researchSearch: "",
     researchTagFilter: "",
     collapsed: {},
+    orders: {},
+    researchOrder: {},
     projectMeta: {
       [project.path]: {
         researchFolderLinks: {

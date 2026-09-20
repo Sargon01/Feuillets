@@ -245,7 +245,7 @@ function createResearchHarness({ preexisting = [], mode = "fiction" } = {}) {
     getMarkdownFiles: () => [],
   };
   const plugin = {
-    settings: { researchSearch: "", researchTagFilter: "", collapsed: {}, projectMeta: {}, labels: [] },
+    settings: { researchSearch: "", researchTagFilter: "", collapsed: {}, orders: {}, researchOrder: {}, projectMeta: {}, labels: [] },
     getProjectFolder: () => new TFolder("Projet"),
     getResearchRoot: () =>
       vault.getAbstractFileByPath("Projet/_Recherche") ||
@@ -424,6 +424,8 @@ function createRenderHarness(vault = {}, collapseState = {}) {
     researchSearch: "",
     researchTagFilter: "",
     collapsed: collapseState,
+    orders: {},
+    researchOrder: {},
     projectMeta: {},
     labels: [],
   };
@@ -558,6 +560,50 @@ test("un fichier Markdown dans un sous-dossier est affiché", () => {
   );
   assert.ok(name);
   assert.equal(name.text, "Héros");
+});
+
+test("un fichier .bib à la racine d'une rubrique est affiché", () => {
+  const main = new TFolder("Projet/_Recherche/Bibliographie");
+  const bib = new TFile("Projet/_Recherche/Bibliographie/Sources.bib");
+  main.children = [bib];
+
+  const { view, contentEl } = createRenderHarness();
+  view.renderSection(contentEl, "Bibliographie", main);
+
+  const list = findResearchList(contentEl);
+  assert.ok(list, "La liste de recherche doit exister");
+  const fileItem = list.children.find(
+    (c) => c.classes.has("feuillets-research-item") && !c.classes.has("feuillets-research-subfolder")
+  );
+  assert.ok(fileItem, "le fichier .bib doit apparaître dans la rubrique");
+  const header = fileItem.children.find((h) => h.classes.has("feuillets-research-item-header"));
+  const name = header.children.find((n) => n.classes.has("feuillets-research-item-name"));
+  assert.equal(name.text, "Sources.bib");
+});
+
+test("un fichier .bib dans un sous-dossier est affiché", () => {
+  const main = new TFolder("Projet/_Recherche/Personnages");
+  const sub = new TFolder("Projet/_Recherche/Personnages/Principaux");
+  const bib = new TFile("Projet/_Recherche/Personnages/Principaux/Sources.bib");
+  sub.children = [bib];
+  main.children = [sub];
+
+  const { view, contentEl } = createRenderHarness();
+  view.renderSection(contentEl, "Personnages", main);
+
+  const list = findResearchList(contentEl);
+  assert.ok(list, "La liste de recherche doit exister");
+  const subfolderItem = list.children.find((c) => c.classes.has("feuillets-research-subfolder"));
+  assert.ok(subfolderItem);
+  const nestedList = subfolderItem.children.find((c) => c.classes.has("feuillets-research-nested"));
+  assert.ok(nestedList);
+  const fileItem = nestedList.children.find(
+    (c) => c.classes.has("feuillets-research-item") && !c.classes.has("feuillets-research-subfolder")
+  );
+  assert.ok(fileItem, "le fichier .bib doit apparaître dans le sous-dossier");
+  const header = fileItem.children.find((h) => h.classes.has("feuillets-research-item-header"));
+  const name = header.children.find((n) => n.classes.has("feuillets-research-item-name"));
+  assert.equal(name.text, "Sources.bib");
 });
 
 test("chaque sous-dossier possède son menu d'actions", () => {
@@ -1104,6 +1150,8 @@ function createDropHarness({ vault = {} } = {}) {
     researchSearch: "",
     researchTagFilter: "",
     collapsed: {},
+    orders: {},
+    researchOrder: {},
     projectMeta: {},
     labels: [],
   };
@@ -1344,13 +1392,14 @@ test("attachResearchDragSource — image : payload text/plain en embed \"![[chem
   }
 });
 
-test("attachResearchDragSource — tout autre type (PDF, DOCX, ODT, EPUB, tableur, présentation, Canvas, Base, Excalidraw, Markdown) : lien aliasé \"[[chemin complet|nom]]\", le nom seul s'affiche dans le feuillet", () => {
+test("attachResearchDragSource — tout autre type (PDF, DOCX, ODT, EPUB, BibTeX, tableur, présentation, Canvas, Base, Excalidraw, Markdown) : lien aliasé \"[[chemin complet|nom]]\", le nom seul s'affiche dans le feuillet", () => {
   const harness = createDropHarness({ vault: {} });
   const names = [
     "Source.pdf",
     "Manuscrit.docx",
     "Notes.odt",
     "Livre.epub",
+    "Sources.bib",
     "Donnees.xlsx",
     "Diapo.pptx",
     "Tableau.canvas",

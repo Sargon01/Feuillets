@@ -392,19 +392,37 @@ const RESEARCH_DOCUMENT_EXTS = new Set([
   "pptx",
   "odp",
   "epub",
+  "bib",
 ]);
 /** Fichiers structurés natifs d'Obsidian (Canvas, Base) : jamais du texte
  * libre, jamais un « document » au sens RESEARCH_DOCUMENT_EXTS — reconnus à
  * part pour garder à chaque ensemble un sens honnête. */
 const RESEARCH_STRUCTURED_EXTS = new Set(["canvas", "base"]);
 
+/** Single source of truth for "is this extension one Research recognizes" —
+ * case-insensitive, takes a bare extension (no leading dot). Shared by
+ * isResearchFile (below), the file-picker `accept` attribute, and the
+ * post-selection validation of imported files (see
+ * services/research-import.ts) — never a second, divergent extension list. */
+export function isResearchExtension(extension: string): boolean {
+  const ext = extension.toLowerCase();
+  return ext === "md" || RESEARCH_DOCUMENT_EXTS.has(ext) || RESEARCH_IMAGE_EXTS.has(ext) || RESEARCH_STRUCTURED_EXTS.has(ext);
+}
+
+/** Every extension Research recognizes, without a leading dot — used to
+ * build the native file-picker `accept` attribute (services/research-
+ * import.ts). Order is not meaningful; content mirrors isResearchExtension
+ * exactly, since both read the same three sets. */
+export function researchAcceptedExtensions(): string[] {
+  return ["md", ...RESEARCH_IMAGE_EXTS, ...RESEARCH_DOCUMENT_EXTS, ...RESEARCH_STRUCTURED_EXTS];
+}
+
 /** Returns whether a file can be shown in Research surfaces.
  * Attachments are still opened by Obsidian so the registered viewer can
  * handle their extension. */
 export function isResearchFile(file: unknown): file is TFile {
   if (!(file instanceof TFile)) return false;
-  const ext = file.extension.toLowerCase();
-  return ext === "md" || RESEARCH_DOCUMENT_EXTS.has(ext) || RESEARCH_IMAGE_EXTS.has(ext) || RESEARCH_STRUCTURED_EXTS.has(ext);
+  return isResearchExtension(file.extension);
 }
 
 /** Returns whether the file must open in an Obsidian view instead of the

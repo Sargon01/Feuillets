@@ -593,6 +593,11 @@ declare type FeuilletsSettings = {
   orders: Record<string, string[]>;
   folderPositions: Record<string, number>;
   collapsed: Record<string, boolean>;
+  /** Ordre visuel des espaces et dossiers Recherche — jamais le Binder ni
+   *  la compilation (voir services/research-order.ts). { clé de parent
+   *  (chemin réel de dossier, ou clé virtuelle pour le niveau des espaces) :
+   *  [clés des enfants, dans l'ordre affiché] }. */
+  researchOrder: Record<string, string[]>;
 
   /** Valeurs utilisées pour l'initialisation de l'arborescence projet. */
   manuscriptTitle: string;

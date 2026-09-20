@@ -211,6 +211,7 @@ function createMockAppAndPlugin(vault, settings, initialActiveFile = null) {
   if (!settings.collapsed) settings.collapsed = {};
   if (!settings.orders) settings.orders = {};
   if (!settings.folderPositions) settings.folderPositions = {};
+  if (!settings.researchOrder) settings.researchOrder = {};
   const plugin = {
     settings,
     app,

@@ -49,7 +49,8 @@ export function renderCollapsibleHead(container: ObsidianElement, {
     setIcon(iconSpan, icon);
   }
 
-  head.createSpan({ cls: classes.title }).setText(title);
+  const titleEl = head.createSpan({ cls: classes.title });
+  titleEl.setText(title);
 
   if (onCreate) {
     const addBtn = head.createEl("button", { cls: "clickable-icon" });
@@ -69,7 +70,7 @@ export function renderCollapsibleHead(container: ObsidianElement, {
     })();
   });
 
-  return { section, head };
+  return { section, head, titleEl };
 }
 
 export function iconBtn(parent: ObsidianElement, icon: string, tooltip: string, onClick?: (event: MouseEvent) => void) {

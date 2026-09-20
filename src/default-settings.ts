@@ -15,6 +15,7 @@ export type DefaultSettings = {
   folderPositions: Record<string, number>;
   folderGoals: Record<string, number>;
   collapsed: Record<string, boolean>;
+  researchOrder: Record<string, string[]>;
   boardMode: "board" | "outline" | "arcs" | "timeline";
   boardWholeManuscript: boolean;
   statusFilter: string;
@@ -223,6 +224,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   folderPositions: {},
   folderGoals: {},
   collapsed: {},
+  researchOrder: {},
   boardMode: "board",
   boardWholeManuscript: false,
   statusFilter: "Tous",

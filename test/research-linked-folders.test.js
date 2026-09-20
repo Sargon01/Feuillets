@@ -204,6 +204,13 @@ class FakeElement {
   removeClass(className) {
     for (const part of String(className).split(/\s+/)) this.classes.delete(part);
   }
+  toggleClass(className, on) {
+    if (on) this.addClass(className);
+    else this.removeClass(className);
+  }
+  getBoundingClientRect() {
+    return this.rect || { top: 0, height: 24 };
+  }
   createDiv(options = {}) {
     const child = new FakeElement(options);
     child.parent = this;
@@ -257,6 +264,8 @@ function createResearchViewHarness({ linkedFolders = [] } = {}) {
     researchSearch: "",
     researchTagFilter: "",
     collapsed: {},
+    orders: {},
+    researchOrder: {},
     projectMeta: {},
     labels: [],
   };
@@ -293,7 +302,7 @@ function createResearchViewHarness({ linkedFolders = [] } = {}) {
   view.showResearchFolderContextMenu = () => {};
   view.showResearchFileContextMenu = () => {};
 
-  return { view, contentEl, plugin };
+  return { view, contentEl, plugin, settings };
 }
 
 /* --- A/G (rendu) : le dossier associé apparaît et son contenu est
@@ -324,7 +333,7 @@ test("renderAssociatedResearchFolders affiche un dossier associé externe avec s
   );
 });
 
-test("linked Research folders list office, OpenDocument, and EPUB attachments", () => {
+test("linked Research folders list office, OpenDocument, EPUB, and BibTeX attachments", () => {
   const docs = new TFolder("Vault/Docs");
   const files = [
     new TFile("Vault/Docs/Guide.docx"),
@@ -334,6 +343,7 @@ test("linked Research folders list office, OpenDocument, and EPUB attachments", 
     new TFile("Vault/Docs/Slides.pptx"),
     new TFile("Vault/Docs/Slides.odp"),
     new TFile("Vault/Docs/Book.epub"),
+    new TFile("Vault/Docs/Sources.bib"),
   ];
   docs.children = files;
   for (const file of files) file.parent = docs;
@@ -355,6 +365,7 @@ test("linked Research folders list office, OpenDocument, and EPUB attachments", 
     "Notes.odt",
     "Slides.odp",
     "Slides.pptx",
+    "Sources.bib",
   ]);
 
   const guideName = findAll(contentEl, (element) =>
@@ -658,4 +669,86 @@ test("renderAssociatedResearchFolders : l'en-tête suit la locale active (aucun 
   } finally {
     setLocale(previous);
   }
+});
+
+/* --- I. Réordonnancement visuel : un dossier associé se réordonne parmi
+   les autres, sous Espaces — jamais un déplacement Vault (services/
+   research-order.ts, base-feuillets-view.ts attachResearchOrderHandle). */
+
+test("un dossier Recherche associé se réordonne parmi les autres espaces, sous Espaces, sans déplacer son dossier réel", () => {
+  const baseResearch = new TFolder("Projet/_Recherche");
+  const alpha = new TFolder("Vault/Alpha");
+  const beta = new TFolder("Vault/Beta");
+  const chapitreA = new TFolder(CHAPITRE_A);
+  const chapitreB = new TFolder(CHAPITRE_B);
+
+  const { view, contentEl, settings } = createResearchViewHarness({
+    linkedFolders: [
+      { folder: alpha, binderNodes: [chapitreA] },
+      { folder: beta, binderNodes: [chapitreB] },
+    ],
+  });
+  view.render = async () => {};
+
+  view.renderAssociatedResearchFolders(contentEl, baseResearch);
+
+  const groupHead = findAll(contentEl, (c) => c.getAttr("data-research-group") === "spaces")[0];
+  const groupSection = groupHead.parent.parent;
+  const titleAlpha = findAll(groupSection, (c) => c.classes.has("feuillets-notes-section-title") && c.text === "Alpha")[0];
+  const headBeta = findAll(groupSection, (c) => c.classes.has("feuillets-notes-section-head"))
+    .find((c) => c.children.some((child) => child.text === "Beta"));
+  assert.ok(titleAlpha && headBeta, "les deux dossiers associés (alphabétiques par défaut : Alpha puis Beta) sont rendus");
+
+  // Place "Alpha" after "Beta" — drag onto the BOTTOM half of Beta's head.
+  const dt = { data: {}, effectAllowed: null, dropEffect: null, setData(k, v) { this.data[k] = v; }, getData(k) { return this.data[k] ?? ""; } };
+  headBeta.rect = { top: 0, height: 24 };
+  titleAlpha.events.get("dragstart")({ dataTransfer: dt, stopPropagation() {} });
+  headBeta.events.get("dragover")({ dataTransfer: dt, clientY: 20, preventDefault() {}, stopPropagation() {} });
+  headBeta.events.get("drop")({ dataTransfer: dt, clientY: 20, preventDefault() {}, stopPropagation() {} });
+
+  const parentKey = `research-linked:${baseResearch.path}`;
+  assert.deepEqual(settings.researchOrder[parentKey], [beta.path, alpha.path]);
+  // Neither folder's real Vault identity ever changes.
+  assert.equal(alpha.path, "Vault/Alpha");
+  assert.equal(beta.path, "Vault/Beta");
+
+  // Re-rendering reflects the new persisted order end-to-end.
+  const contentEl2 = new FakeElement();
+  view.renderAssociatedResearchFolders(contentEl2, baseResearch);
+  const groupHead2 = findAll(contentEl2, (c) => c.getAttr("data-research-group") === "spaces")[0];
+  const groupSection2 = groupHead2.parent.parent;
+  const titles = findAll(groupSection2, (c) => c.classes.has("feuillets-notes-section-title") && c.text !== t("shared.research.workspaces"))
+    .map((c) => c.text);
+  assert.deepEqual(titles, ["Beta", "Alpha"]);
+});
+
+test("l'ordre des dossiers associés ne modifie jamais settings.orders (Binder) ni le chemin des dossiers", () => {
+  const baseResearch = new TFolder("Projet/_Recherche");
+  const alpha = new TFolder("Vault/Alpha");
+  const beta = new TFolder("Vault/Beta");
+  const chapitreA = new TFolder(CHAPITRE_A);
+  const chapitreB = new TFolder(CHAPITRE_B);
+
+  const { view, contentEl, settings } = createResearchViewHarness({
+    linkedFolders: [
+      { folder: alpha, binderNodes: [chapitreA] },
+      { folder: beta, binderNodes: [chapitreB] },
+    ],
+  });
+  settings.orders["Projet/Manuscrit"] = ["ChapitreA", "ChapitreB"];
+  const ordersSnapshot = JSON.parse(JSON.stringify(settings.orders));
+  view.render = async () => {};
+
+  view.renderAssociatedResearchFolders(contentEl, baseResearch);
+  const groupSection = findAll(contentEl, (c) => c.getAttr("data-research-group") === "spaces")[0].parent.parent;
+  const titleAlpha = findAll(groupSection, (c) => c.classes.has("feuillets-notes-section-title") && c.text === "Alpha")[0];
+  const headBeta = findAll(groupSection, (c) => c.classes.has("feuillets-notes-section-head"))
+    .find((c) => c.children.some((child) => child.text === "Beta"));
+  headBeta.rect = { top: 0, height: 24 };
+  const dt = { data: {}, effectAllowed: null, dropEffect: null, setData(k, v) { this.data[k] = v; }, getData(k) { return this.data[k] ?? ""; } };
+  titleAlpha.events.get("dragstart")({ dataTransfer: dt, stopPropagation() {} });
+  headBeta.events.get("dragover")({ dataTransfer: dt, clientY: 20, preventDefault() {}, stopPropagation() {} });
+  headBeta.events.get("drop")({ dataTransfer: dt, clientY: 20, preventDefault() {}, stopPropagation() {} });
+
+  assert.deepEqual(settings.orders, ordersSnapshot, "le Binder garde exactement son propre ordre");
 });
