@@ -1,5 +1,12 @@
+/* Mutable so tests can simulate an unsupported/unavailable Obsidian
+   language (detectLocale's own fallback path) without reassigning the
+   `getLanguage` export binding itself — ES module bindings are read-only,
+   but this object's own property can still be mutated through them.
+   Defaults to "fr" (the long-standing default for every other test). */
+export const languageStub = { value: "fr" };
+
 export function getLanguage() {
-  return "fr";
+  return languageStub.value;
 }
 
 /* Stub minimal — pas toute la bibliothèque Lucide : crée un <svg> réel et

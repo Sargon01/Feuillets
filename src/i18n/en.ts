@@ -1,6 +1,8 @@
-/** Dictionnaire anglais — traduction progressive, voir i18n/index.js.
- * Une clé absente ici retombe automatiquement sur le français, jamais un
- * écran à moitié traduit avec la clé brute affichée. */
+/** English dictionary — the deterministic technical fallback language (see
+ * i18n/index.js: `translate`/`t` fall back to this dictionary whenever the
+ * active locale's own dictionary is missing a key). Every key from fr.js
+ * must exist here too (enforced by `satisfies Record<keyof typeof fr,
+ * string>` below), so this fallback is never itself missing a translation. */
 import type { fr } from "./fr.js";
 
 export const en = {
@@ -2617,4 +2619,37 @@ export const en = {
   "layoutDirective.pairing.ratio": "Ratio",
   "layoutDirective.pairing.remove": "Remove layout",
   "layoutDirective.pageBreak": "Page break",
+
+  /* Project-creation name catalogue (src/i18n/project-creation.ts) — a
+     pure, locale-aware source of the folder/name strings future creation
+     lots will use. Not yet wired to any creation path in this batch. */
+  "projectCreation.manuscript": "Manuscript",
+  "projectCreation.frontMatter": "Front",
+  "projectCreation.research": "Research",
+  "projectCreation.resources": "Resources",
+  "projectCreation.feuilletsRoot": "_Feuillets",
+  "projectCreation.auxiliaryResearch": "Research",
+  "projectCreation.auxiliaryResources": "Resources",
+  "projectCreation.auxiliaryEdition": "Edition",
+  "projectCreation.auxiliaryJournal": "Journal",
+  "projectCreation.auxiliarySnapshots": "Snapshots",
+  "projectCreation.auxiliaryBackups": "Backups",
+  "projectCreation.auxiliaryOutput": "Output",
+  "projectCreation.auxiliaryVersions": "Versions",
+  "projectCreation.auxiliaryDrafts": "Drafts",
+  "projectCreation.resourceImages": "Images",
+  "projectCreation.resourceTemplates": "Templates",
+  "projectCreation.resourceLayouts": "Layouts",
+  "projectCreation.resourceExports": "Exports",
+  "projectCreation.resourceAssets": "Internal resources",
+  "projectCreation.sectionBibliography": "Bibliography",
+  "projectCreation.sectionGlossary": "Glossary",
+  "projectCreation.sectionEvents": "Events",
+  "projectCreation.sectionCharacters": "Characters",
+  "projectCreation.sectionPlaces": "Places",
+  "projectCreation.sectionLore": "Lore",
+  "projectCreation.sectionNotes": "Notes",
+  "projectCreation.sectionSources": "Sources",
+  "projectCreation.notebook": "Notebook",
+  "projectCreation.draftStem": "Untitled",
 } satisfies Record<keyof typeof fr, string>;
