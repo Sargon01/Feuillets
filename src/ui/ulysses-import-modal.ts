@@ -1,6 +1,6 @@
 import { Modal, Notice, type App } from "obsidian";
 import JSZip from "jszip";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { importUlyssesStyleText } from "../services/ulysses-style-import.js";
 
 type UlyssesImportPlugin = {
@@ -104,8 +104,9 @@ export class UlyssesImportModal extends Modal {
     this.busy = true;
     this.updateSubmitState();
     try {
+      const opLocale = getLocale();
       const text = await ulyssesStyleTextFromFile(this.selectedFile);
-      const result = await importUlyssesStyleText(this.app, this.plugin.settings, text, this.selectedFile.name);
+      const result = await importUlyssesStyleText(this.app, this.plugin.settings, text, this.selectedFile.name, opLocale);
       if (!result) throw new Error("Dossier projet introuvable.");
       await this.plugin.saveSettings();
       new Notice(t("editionLayout.imported", { label: result.label }));

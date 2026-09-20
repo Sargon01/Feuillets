@@ -39,9 +39,10 @@ function makeProject(researchFolderName) {
   return { app, settings, manuscript, research };
 }
 
-test("notebookFolderName : suit la locale active (fr → Carnet, en → Notebook)", () => {
-  assert.equal(withLocale("fr", () => notebookFolderName()), "Carnet");
-  assert.equal(withLocale("en", () => notebookFolderName()), "Notebook");
+test("notebookFolderName : respects explicit locale, defaults to English FALLBACK_LOCALE", () => {
+  assert.equal(notebookFolderName("fr"), "Carnet");
+  assert.equal(notebookFolderName("en"), "Notebook");
+  assert.equal(notebookFolderName(), "Notebook");
 });
 
 test("isNotebookRubricName : reconnaît Carnet et Notebook, rien d'autre", () => {

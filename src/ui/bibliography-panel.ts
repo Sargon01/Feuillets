@@ -1,5 +1,5 @@
 import { type App, type TFolder } from "obsidian";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { bibliographyEntriesForEditorialRoot, bibliographyReferenceCount } from "../services/bibliography-generator.js";
 import type { OuvrageCompositionBinding } from "../services/ouvrage-composition.js";
 
@@ -53,7 +53,7 @@ export class BibliographyPanel {
 
   referenceCount(): number {
     return bibliographyReferenceCount(
-      bibliographyEntriesForEditorialRoot(this.app, this.plugin.settings, this.editorialRoot)
+      bibliographyEntriesForEditorialRoot(this.app, this.plugin.settings, this.editorialRoot, getLocale())
     );
   }
 

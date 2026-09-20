@@ -1,12 +1,15 @@
 import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
-import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, FEUILLETS_RESOURCE_FOLDERS } from "./folder-structure.js";
+import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, detectProjectStructureLocale } from "./folder-structure.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
+import { FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
 
 export function getResearchTemplate(
   app: App,
   settings: FeuilletsSettings,
   sectionKey: string,
   defaultName: string,
+  fallbackLocale?: Locale
 ): Promise<string>;
 /** Compatibility overload for callers from the pre-G5 test/runtime surface. */
 export function getResearchTemplate(
@@ -15,25 +18,37 @@ export function getResearchTemplate(
   _legacyPreset: unknown,
   sectionKey: string,
   defaultName: string,
+  fallbackLocale?: Locale
 ): Promise<string>;
 export async function getResearchTemplate(
   app: App,
   settings: FeuilletsSettings,
   sectionKeyOrLegacy: unknown,
   defaultNameOrSectionKey: string,
-  legacyDefaultName?: string,
+  legacyDefaultNameOrFallback?: string,
+  explicitFallback?: Locale
 ): Promise<string> {
+  const isLegacyThreeArg = typeof legacyDefaultNameOrFallback === "string" && !["fr", "en"].includes(legacyDefaultNameOrFallback);
   const sectionKey = typeof sectionKeyOrLegacy === "string" ? sectionKeyOrLegacy : defaultNameOrSectionKey;
-  const defaultName = typeof sectionKeyOrLegacy === "string" ? defaultNameOrSectionKey : legacyDefaultName || "";
+  const defaultName = typeof sectionKeyOrLegacy === "string" ? defaultNameOrSectionKey : (isLegacyThreeArg ? legacyDefaultNameOrFallback : "");
+  const fallbackLocale = typeof sectionKeyOrLegacy === "string"
+    ? (legacyDefaultNameOrFallback === "fr" || legacyDefaultNameOrFallback === "en" ? legacyDefaultNameOrFallback : undefined)
+    : explicitFallback;
   const root = getProjectFolder(app, settings);
   if (root) {
-    const resPath = resourcesFolderPath(app, root);
+    const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+    const resPath = resourcesFolderPath(app, root, fallback);
     if (resPath) {
+      const projectLocale = detectProjectStructureLocale(app, root, fallback);
+      const names = projectCreationNames(projectLocale);
+      const primary = names.resourceSubfolders.templates;
+      const altLocale: Locale = projectLocale === "fr" ? "en" : "fr";
+      const alt = projectCreationNames(altLocale).resourceSubfolders.templates;
       const templatesPath = resourcesSubfolderPath(
         app,
         resPath,
-        FEUILLETS_RESOURCE_FOLDERS.templates,
-        "Templates",
+        primary,
+        alt,
         "Template"
       );
 

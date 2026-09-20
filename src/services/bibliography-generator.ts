@@ -1,6 +1,8 @@
 import { TFile, TFolder, normalizePath, type App } from "obsidian";
 import { getResearchRoot } from "./research.js";
-import { getProjectFolder, feuilletsAuxiliaryPath } from "./folder-structure.js";
+import { getProjectFolder, feuilletsAuxiliaryPathFor, candidateLocalesForProject } from "./folder-structure.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
+import type { Locale } from "../i18n/index.js";
 import { resolveWorkspaceResearchFolder } from "./workspace-research.js";
 import { toValue } from "../utils/scene-fields.js";
 
@@ -152,7 +154,8 @@ export function bibliographyEntries(app: App, settings: FeuilletsSettings): Bibl
 export function bibliographyEntriesForEditorialRoot(
   app: App,
   settings: FeuilletsSettings,
-  editorialRoot?: TFolder | null
+  editorialRoot?: TFolder | null,
+  fallbackLocale?: Locale
 ): BibliographyEntry[] {
   const globalRoot = getProjectFolder(app, settings);
   if (!editorialRoot || !globalRoot || editorialRoot.path === globalRoot.path) {
@@ -163,11 +166,15 @@ export function bibliographyEntriesForEditorialRoot(
   const direct = resolveBibliographySourceInResearchRoot(app, editorialRoot);
   if (direct) return filterBibliographyFilesFromFolder(app, direct);
 
-  // 2. Dossier de recherche auxiliaire canonique de l'ouvrage
-  const canonicalAux = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(editorialRoot, "research"));
-  if (canonicalAux instanceof TFolder) {
-    const fromAux = resolveBibliographySourceInResearchRoot(app, canonicalAux);
-    if (fromAux) return filterBibliographyFilesFromFolder(app, fromAux);
+  // 2. Canonical auxiliary research folder for the project
+  const orderedLocales = candidateLocalesForProject(editorialRoot, fallbackLocale);
+  for (const locale of orderedLocales) {
+    const auxPath = feuilletsAuxiliaryPathFor(editorialRoot, "research", projectCreationNames(locale));
+    const canonicalAux = app.vault.getAbstractFileByPath(auxPath);
+    if (canonicalAux instanceof TFolder) {
+      const fromAux = resolveBibliographySourceInResearchRoot(app, canonicalAux);
+      if (fromAux) return filterBibliographyFilesFromFolder(app, fromAux);
+    }
   }
 
   // 3. Dossier de recherche lié dans les métadonnées pour cet ouvrage

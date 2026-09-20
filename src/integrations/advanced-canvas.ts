@@ -1,6 +1,6 @@
 import { Notice, TFolder, TFile } from "obsidian";
 import type { App, EventRef, Menu, TAbstractFile } from "obsidian";
-import { t } from "../i18n/index.js";
+import { t, getLocale, type Locale } from "../i18n/index.js";
 import { getProjectFolder } from "../services/folder-structure.js";
 import { canvasPathFor, type CanvasData, type CanvasNode } from "../services/canvas-board.js";
 import { CanvasBridgeModal, CanvasNodeToManuscriptModal } from "../ui/canvas-bridge-modal.js";
@@ -348,8 +348,8 @@ async function applyNodeDirectly(
  * directement la racine Recherche : les fiches libres créées depuis le
  * Carnet vivent dans leur propre rubrique, reconnue quelle que soit la
  * langue active (voir services/research.ts, ensureNotebookResearchFolder). */
-async function resolveResearchDestination(app: App, settings: FeuilletsSettings): Promise<TFolder | null> {
-  return ensureNotebookResearchFolder(app, settings);
+async function resolveResearchDestination(app: App, settings: FeuilletsSettings, fallbackLocale?: Locale): Promise<TFolder | null> {
+  return ensureNotebookResearchFolder(app, settings, fallbackLocale);
 }
 
 /** Titre affiché pour un node admissible (idée texte ou feuillet déjà dans
@@ -960,7 +960,8 @@ export function registerAdvancedCanvasIntegration(plugin: FeuilletsPluginLike): 
             .setIcon("flask-conical")
             .onClick(() => {
               void (async () => {
-                const dest = await resolveResearchDestination(plugin.app, plugin.settings);
+                const opLocale = getLocale();
+                const dest = await resolveResearchDestination(plugin.app, plugin.settings, opLocale);
                 if (!dest) {
                   new Notice(t("modal.canvasBridge.invalidFolder"));
                   return;

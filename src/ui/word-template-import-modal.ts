@@ -1,5 +1,5 @@
 import { Modal, Notice, type App } from "obsidian";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { importWordTemplate } from "../services/word-template-import.js";
 
 type Plugin = {
@@ -93,11 +93,13 @@ export class WordTemplateImportModal extends Modal {
     this.busy = true;
     this.updateSubmitState();
     try {
+      const opLocale = getLocale();
       const result = await importWordTemplate(
         this.app,
         this.plugin.settings,
         this.selectedFile.name,
         await this.selectedFile.arrayBuffer(),
+        opLocale
       );
       if (!result) throw new Error("Dossier projet introuvable.");
       await this.plugin.saveSettings();

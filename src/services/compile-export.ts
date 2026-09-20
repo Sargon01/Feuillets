@@ -15,9 +15,13 @@ import {
   flattenFiles,
   isFrontMatter,
   FRONT_PAGE_TYPES,
-  feuilletsAuxiliaryPath,
+  feuilletsAuxiliaryPathFor,
+  detectProjectStructureLocale,
   isStructuredManuscriptRoot,
+  candidateLocalesForProject,
 } from "./folder-structure.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
+import { FALLBACK_LOCALE, getLocale, type Locale } from "../i18n/index.js";
 import { isProjectDraft } from "./project-drafts.js";
 import { ensureFolder } from "./project-files.js";
 import { preserveBlankLinesForFrontPage } from "./export-render.js";
@@ -362,9 +366,10 @@ async function writeResolvingCaseCollision(
 /**
  * @param {import("obsidian").App} app
  * @param {import("./types.d.ts").FeuilletsSettings} settings
+ * @param {Locale} [fallbackLocale]
  * @returns {Promise<TFolder|null>}
  */
-export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
+export async function getOutputFolder(app: App, settings: FeuilletsSettings, fallbackLocale?: Locale) {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const parent = root.parent;
@@ -372,11 +377,26 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings) {
     isStructuredManuscriptRoot(root) && parent instanceof TFolder && parent.path !== "" && parent.path !== "/"
       ? parent
       : root;
-  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "output"));
-  if (canonical instanceof TFolder) return canonical;
-  const legacy = app.vault.getAbstractFileByPath(normalizePath(`${base.path}/_Sortie`));
-  if (legacy instanceof TFolder) return legacy;
-  return await ensureFolder(app, feuilletsAuxiliaryPath(root, "output"));
+
+  const orderedLocales = candidateLocalesForProject(root, fallbackLocale);
+  for (const locale of orderedLocales) {
+    const canonical = app.vault.getAbstractFileByPath(
+      feuilletsAuxiliaryPathFor(root, "output", projectCreationNames(locale))
+    );
+    if (canonical instanceof TFolder) return canonical;
+  }
+
+  const legacyNames = orderedLocales[0] === "en"
+    ? ["_Output", "Output", "_Sortie", "Sortie"]
+    : ["_Sortie", "Sortie", "_Output", "Output"];
+  for (const name of legacyNames) {
+    const legacy = app.vault.getAbstractFileByPath(normalizePath(`${base.path}/${name}`));
+    if (legacy instanceof TFolder) return legacy;
+  }
+
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const projectLocale = detectProjectStructureLocale(app, root, fallback);
+  return await ensureFolder(app, feuilletsAuxiliaryPathFor(root, "output", projectCreationNames(projectLocale)));
 }
 
 export type CompileOptions = {
@@ -410,6 +430,7 @@ export async function compile(
   }
   /* Racine GLOBALE Feuillets : réglages, presets, mise en page, brouillons
      globaux et dossier de sortie restent toujours rattachés à elle. */
+  const opLocale = getLocale();
   const globalRoot = getProjectFolder(app, settings);
   if (!globalRoot) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
@@ -931,7 +952,7 @@ export async function compile(
         const contextualCitations = await resolveCitedSourceFilesForCompileFiles(app, settings, filesToCompile);
         const bibliographyEntriesForCompilation = contextualCitations.hasIndexedOccurrences
           ? bibliographyEntriesForFiles(app, contextualCitations.sourceFiles)
-          : bibliographyEntriesForEditorialRoot(app, settings, editorialRoot);
+          : bibliographyEntriesForEditorialRoot(app, settings, editorialRoot, opLocale);
 
         const compiledBibtexEntries: BibliographyEntry[] = [];
         const bibCatalogCache = new Map<string, readonly BibtexCatalogEntry[]>();
@@ -1026,7 +1047,7 @@ export async function compile(
     return { outPath: "", manuscript, segments, compiledFilePaths: Object.freeze([...compiledFilePaths]) };
   }
   const fileName = resolveOutputBaseName(outputFileName, composition.fileName);
-  const outputFolder = await getOutputFolder(app, settings);
+  const outputFolder = await getOutputFolder(app, settings, opLocale);
   const realOutBase = outputFolder ? outputFolder.path : globalRoot.path;
   const realOutPath = normalizePath(`${realOutBase}/${fileName}.md`);
   let writtenOutPath = realOutPath;
@@ -1501,7 +1522,8 @@ export async function exportPandocPackageWithScope(
       citationReport,
     });
 
-    const outputFolder = await getOutputFolder(app, settings);
+    const opLocale = getLocale();
+    const outputFolder = await getOutputFolder(app, settings, opLocale);
     const outBase = outputFolder ? outputFolder.path : folder.path;
     const safeBase = resolveOutputBaseName(baseName, composition.fileName);
     const zipBaseName = safeBase.toLowerCase().endsWith("-pandoc") ? safeBase : `${safeBase}-pandoc`;
@@ -1700,7 +1722,8 @@ async function exportViaNative(
       : segmentFile?.path && app.vault.getAbstractFileByPath(normalizePath(segmentFile.path)) instanceof TFile
         ? normalizePath(segmentFile.path)
         : folder.path;
-    const outputFolder = await getOutputFolder(app, settings);
+    const opLocale = getLocale();
+    const outputFolder = await getOutputFolder(app, settings, opLocale);
     const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
     const baseName = resolveOutputBaseName(baseNameOverride, composition.fileName);
     const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType, sceneBreakBefore }) =>

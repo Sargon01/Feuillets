@@ -1,6 +1,6 @@
 import { Modal, Notice, TFolder, normalizePath } from "obsidian";
 import type { App, TFile } from "obsidian";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { FolderSuggest } from "./folder-suggest.js";
 import type { CanvasData, CanvasNode } from "../services/canvas-board.js";
 import {
@@ -11,7 +11,7 @@ import {
   applySelectedIdeas,
   type BridgeMode,
 } from "../services/canvas-bridge.js";
-import { getProjectFolder } from "../services/folder-structure.js";
+import { getProjectFolder, detectProjectStructureLocale } from "../services/folder-structure.js";
 import { ensureNotebookResearchFolder, findNotebookResearchFolder, notebookFolderName, researchFolderPath } from "../services/research.js";
 import type { MinimalRuntimeCanvas } from "../services/canvas-runtime.js";
 
@@ -107,10 +107,13 @@ export class CanvasBridgeModal extends Modal {
       folderInput.value = root ? root.path : "";
       new FolderSuggest(this.app, folderInput);
     } else {
-      const notebook = findNotebookResearchFolder(this.app, this.settings);
+      const opLocale = getLocale();
+      const root = getProjectFolder(this.app, this.settings);
+      const projectLocale = root ? detectProjectStructureLocale(this.app, root, opLocale) : opLocale;
+      const notebook = findNotebookResearchFolder(this.app, this.settings, projectLocale);
       const researchPath = notebook
         ? notebook.path
-        : `${researchFolderPath(this.app, this.settings, getProjectFolder(this.app, this.settings)) || ""}/${notebookFolderName()}`;
+        : `${researchFolderPath(this.app, this.settings, root, projectLocale) || ""}/${notebookFolderName(projectLocale)}`;
       contentEl.createEl("p", {
         cls: "feuillets-muted",
         text: t("modal.canvasBridge.researchDestination", { path: researchPath }),
@@ -173,7 +176,7 @@ export class CanvasBridgeModal extends Modal {
         return;
       }
     } else {
-      destFolder = await ensureNotebookResearchFolder(this.app, this.settings);
+      destFolder = await ensureNotebookResearchFolder(this.app, this.settings, getLocale());
       if (!destFolder) {
         new Notice(t("modal.canvasBridge.invalidFolder"));
         return;

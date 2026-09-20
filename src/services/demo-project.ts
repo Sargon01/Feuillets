@@ -3,6 +3,7 @@ import type { App, TAbstractFile } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
 import { getResearchRoot, getChronoFolder, researchFolderPath } from "./research.js";
 import { ensureFolder, initProjectStructure } from "./project-files.js";
+import type { Locale } from "../i18n/index.js";
 import { applyModeDefaults, researchFolderNames } from "../utils/project-modes.js";
 import { getProjectMode } from "./project-mode.js";
 import { CANDIDE_CHAPTER_BODIES, CANDIDE_FRONT_FILES, CANDIDE_RESEARCH } from "./candide-content.js";
@@ -130,7 +131,13 @@ function candideSceneLines({ ordre, titre, titreBinder, sousTitre, label, fil, p
   return lines;
 }
 
-async function generateCandide(app: App, S: FeuilletsSettings, plugin: DemoPlugin, manuscritPath: string): Promise<void> {
+async function generateCandide(
+  app: App,
+  S: FeuilletsSettings,
+  plugin: DemoPlugin,
+  manuscritPath: string,
+  fallbackLocale?: Locale
+): Promise<void> {
   S.projectFolder = manuscritPath;
   if (!S.projectMeta) S.projectMeta = {};
   S.projectMeta[manuscritPath] = {
@@ -183,7 +190,7 @@ async function generateCandide(app: App, S: FeuilletsSettings, plugin: DemoPlugi
 
   /* ---------- Recherche : fiches réelles (Personnages, Lieux, Lore, Chronologie) ---------- */
 
-  const researchPath = researchFolderPath(app, S, root);
+  const researchPath = researchFolderPath(app, S, root, fallbackLocale);
   if (!researchPath) throw new Error("Dossier Recherche introuvable.");
   const researchRoot = getResearchRoot(app, S) || (await ensureFolder(app, researchPath));
 
@@ -244,7 +251,8 @@ async function generateCandide(app: App, S: FeuilletsSettings, plugin: DemoPlugi
 export async function createDemoProject(
   app: App,
   settings: FeuilletsSettings,
-  plugin: DemoPlugin
+  plugin: DemoPlugin,
+  fallbackLocale?: Locale
 ): Promise<void> {
   const S = settings;
   const volumeName = CANDIDE_VOLUME_NAME;
@@ -286,7 +294,7 @@ export async function createDemoProject(
   try {
     await ensureFolder(app, volumePath);
     await ensureFolder(app, manuscritPath);
-    await generator(app, S, plugin, manuscritPath);
+    await generator(app, S, plugin, manuscritPath, fallbackLocale);
     succeeded = true;
   } catch (err) {
     console.error("Feuillets: échec de la génération du projet d'exemple :", err);

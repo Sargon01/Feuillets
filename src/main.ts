@@ -71,7 +71,7 @@ import { FeuilletsSettingTab } from "./settings/feuillets-setting-tab.js";
 import { initScenesEditor, type ScenesEditorPlugin } from "./scenes-editor.js";
 import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js";
 import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
-import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters } from "./services/folder-structure.js";
+import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters, detectProjectStructureLocale } from "./services/folder-structure.js";
 import { resolveEditorialRoot, isOuvrageRoot } from "./services/editorial-roots.js";
 import { effectiveComposition } from "./services/ouvrage-composition.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
@@ -148,7 +148,7 @@ import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
 import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { RESEARCH_FOLDERS, matchesResearchLabel } from "./utils/project-modes.js";
-import { setLocale, detectLocale, getLocale, t } from "./i18n/index.js";
+import { setLocale, detectLocale, getLocale, t, type Locale } from "./i18n/index.js";
 import { projectCreationNames } from "./i18n/project-creation.js";
 import { ImportOutlineModal } from "./ui/import-outline-modal.js";
 import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./ui/project-modals.js";
@@ -1390,12 +1390,13 @@ class FeuilletsPlugin extends Plugin {
       id: "migrate-research",
       name: t("main.cmd.migrateResearch"),
       callback: async () => {
+        const opLocale = getLocale();
         const root = this.getProjectFolder();
         if (!root) {
           new Notice(t("main.notice.projectFolderNotFound"));
           return;
         }
-        const destinationRoot = researchFolderPath(this.app, this.settings, root);
+        const destinationRoot = researchFolderPath(this.app, this.settings, root, opLocale);
         if (!destinationRoot) return;
         await this.ensureFolder(destinationRoot);
         const result = await migrateLegacyResearchEntries(this.app, root, destinationRoot);
@@ -1419,7 +1420,8 @@ class FeuilletsPlugin extends Plugin {
       id: "export-builtin-templates",
       name: t("main.cmd.exportBuiltinTemplates"),
       callback: async () => {
-        const n = await exportBuiltInTemplates(this.app, this.settings);
+        const opLocale = getLocale();
+        const n = await exportBuiltInTemplates(this.app, this.settings, opLocale);
         new Notice(
           n > 0
             ? t("main.notice.templatesExported", { count: String(n) })
@@ -2632,7 +2634,8 @@ class FeuilletsPlugin extends Plugin {
     else if (matchesResearchLabel(rf, "glossaire", parentName)) sectionKey = "glossaire";
     else if (matchesResearchLabel(rf, "evenements", parentName)) sectionKey = "evenements";
     if (!sectionKey) return;
-    const template = await getResearchTemplate(this.app, this.settings, sectionKey, file.basename);
+    const opLocale = getLocale();
+    const template = await getResearchTemplate(this.app, this.settings, sectionKey, file.basename, opLocale);
     if (template) {
       try {
         await this.app.vault.modify(file, template);
@@ -4170,7 +4173,8 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     try {
-      const outputFolder = await getOutputFolder(this.app, this.settings);
+      const opLocale = getLocale();
+      const outputFolder = await getOutputFolder(this.app, this.settings, opLocale);
       const outBase = outputFolder ? outputFolder.path : root.path;
       const path = normalizePath(`${outBase}/Bibliographie.md`);
       const existing = this.app.vault.getAbstractFileByPath(path);
@@ -4877,7 +4881,7 @@ class FeuilletsPlugin extends Plugin {
 
   async ensureFolder(path: string): Promise<TAbstractFile> { return ensureFolder(this.app, path); }
   async snapshotFile(file: TFile, root: TFolder): Promise<string> { return snapshotFile(this.app, file, root); }
-  async initProjectStructure(identity?: { title?: string; author?: string }): Promise<void> { return initProjectStructure(this.app, this.settings, identity); }
+  async initProjectStructure(identity?: { title?: string; author?: string }): Promise<void> { return initProjectStructure(this.app, this.settings, identity, getLocale()); }
 
   /** Duplique le dossier manuscrit d'un projet existant (identifié par son
    * chemin) en dossier de référence figé — volontairement PAS ajouté à
@@ -4941,11 +4945,13 @@ class FeuilletsPlugin extends Plugin {
     return (m ? m[1] : versionFolderName).trim() || null;
   }
   async createDemoProject(): Promise<void> {
-    return createDemoProject(this.app, this.settings, this);
+    const opLocale = getLocale();
+    return createDemoProject(this.app, this.settings, this, opLocale);
   }
 
   async generateCanvasBoard(): Promise<void> {
-    const result = await generateCanvasBoard(this.app, this.settings);
+    const opLocale = getLocale();
+    const result = await generateCanvasBoard(this.app, this.settings, opLocale);
     if (!result) return;
     const existing = this.app.workspace.getLeavesOfType("canvas").find(
       (leaf) => (leaf.view as unknown as { file?: TFile }).file?.path === result.file.path
@@ -5053,7 +5059,8 @@ class FeuilletsPlugin extends Plugin {
       if (getFolderCarnetRegistration(meta, context.ownerRelative) && meta.folderCarnets) {
         delete meta.folderCarnets[context.ownerRelative];
       }
-      const created = await createFolderCarnet(this.app, manuscript, meta, projectRoot.path, context.owner);
+      const opLocale = getLocale();
+      const created = await createFolderCarnet(this.app, manuscript, meta, projectRoot.path, context.owner, opLocale);
       if (!created) return;
       file = created.file;
       await this.saveSettings();
@@ -5649,7 +5656,8 @@ class FeuilletsPlugin extends Plugin {
    * Carnet GLOBAL, donc le manuscrit entier (§2). */
   async openVisualOutline(): Promise<void> {
     const root = this.getProjectFolder(); if (!root) return;
-    const board = await generateCanvasBoard(this.app, this.settings); if (!board) return;
+    const opLocale = getLocale();
+    const board = await generateCanvasBoard(this.app, this.settings, opLocale); if (!board) return;
     let session: CanvasSession; try { session = await resolveCanvasSession(this.app, board.file); } catch { return; }
     const data = session.data;
     const existing = findPlanNode(data);
@@ -5673,7 +5681,8 @@ class FeuilletsPlugin extends Plugin {
     if (file.extension !== "md") return;
     const root = this.getProjectFolder();
     if (!root || !file.path.startsWith(`${root.path}/`)) return;
-    const result = await generateCanvasBoard(this.app, this.settings);
+    const opLocale = getLocale();
+    const result = await generateCanvasBoard(this.app, this.settings, opLocale);
     if (!result) return;
     const session = await resolveCanvasSession(this.app, result.file);
     const outcome = await addFileNodeToNotebook(this.app, result.file, file.path, session.view);
@@ -5696,7 +5705,8 @@ class FeuilletsPlugin extends Plugin {
     if (files.length === 0) return;
     const root = this.getProjectFolder();
     if (!root) return;
-    const result = await generateCanvasBoard(this.app, this.settings);
+    const opLocale = getLocale();
+    const result = await generateCanvasBoard(this.app, this.settings, opLocale);
     if (!result) return;
     const session = await resolveCanvasSession(this.app, result.file);
     const outcome = await addFileNodesToNotebook(this.app, result.file, files.map((f) => f.path), session.view);
@@ -5737,7 +5747,8 @@ class FeuilletsPlugin extends Plugin {
   async captureIdeaToNotebook(rawText: string): Promise<void> {
     const root = this.getProjectFolder();
     if (!root) return;
-    const result = await generateCanvasBoard(this.app, this.settings);
+    const opLocale = getLocale();
+    const result = await generateCanvasBoard(this.app, this.settings, opLocale);
     if (!result) return;
     const session = await resolveCanvasSession(this.app, result.file);
     await addTextNodeToNotebook(this.app, result.file, rawText, session.view);
@@ -5937,7 +5948,9 @@ class FeuilletsPlugin extends Plugin {
       return null;
     }
     try {
-      const file = await createQuickDraftFile(this.app, root, projectCreationNames(getLocale()));
+      const fallbackLocale = getLocale();
+      const projectLocale = detectProjectStructureLocale(this.app, root, fallbackLocale);
+      const file = await createQuickDraftFile(this.app, root, projectCreationNames(projectLocale), fallbackLocale);
       const leaf = this.getLeafForOpeningFile();
       await openFileActivatingWithCursor(this.app, leaf, file);
       return file;
@@ -6102,7 +6115,7 @@ class FeuilletsPlugin extends Plugin {
   }
   async compileJournal() { return compileJournal(this.app, this.settings); }
   activePresetConfig(): PresetConfig { return activePresetConfig(this.settings); }
-  async getOutputFolder() { return getOutputFolder(this.app, this.settings); }
+  async getOutputFolder(fallbackLocale?: Locale) { return getOutputFolder(this.app, this.settings, fallbackLocale ?? getLocale()); }
   async compile() { return compile(this.app, this.settings); }
   async exportFile(format = "docx") { return exportFile(this.app, this.settings, format); }
   projectMetaFor(folder: TFolder): ProjectMeta { return projectMetaFor(this.settings, folder); }

@@ -18,7 +18,7 @@ const LOCALES: Record<Locale, LocaleDict> = { fr, en };
  * language in `detectLocale`, and the fallback for a key missing from the
  * selected locale's dictionary. The absolute last resort stays the key
  * itself — never a French string. */
-const FALLBACK_LOCALE: Locale = "en";
+export const FALLBACK_LOCALE: Locale = "en";
 
 function isSupportedLocale(value: string): value is Locale {
   return value === "fr" || value === "en";

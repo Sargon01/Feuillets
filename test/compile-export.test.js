@@ -359,7 +359,7 @@ test("getOutputFolder : projet libre (pas de dossier Manuscrit) — _Sortie est 
 
   const settings = { projectFolder: project.path };
 
-  const folder = await getOutputFolder(app, settings);
+  const folder = await getOutputFolder(app, settings, "fr");
 
   assert.ok(folder);
   assert.equal(folder.path, "MonProjet/_Feuillets/Sortie");

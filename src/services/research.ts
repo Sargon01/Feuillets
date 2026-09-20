@@ -2,13 +2,19 @@ import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { foldAccents } from "../utils/core.js";
 import { fmOf, titleFor, tagsOf, stripFrontmatter } from "./frontmatter.js";
-import { feuilletsAuxiliaryPath, getProjectFolder, flattenFiles } from "./folder-structure.js";
-import { getLocale } from "../i18n/index.js";
+import {
+  feuilletsAuxiliaryPathFor,
+  detectProjectStructureLocale,
+  getProjectFolder,
+  flattenFiles,
+  candidateLocalesForProject,
+  isStructuredManuscriptRoot,
+} from "./folder-structure.js";
+import { FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
-import { RESEARCH_FOLDERS, researchFolderNames } from "../utils/project-modes.js";
+import { DEFAULT_SETTINGS } from "../default-settings.js";
 
 const UNDERSCORED_RESEARCH_ROOT_NAMES = ["_Recherche", "_Research"] as const;
-const SIBLING_RESEARCH_ROOT_NAMES = [...UNDERSCORED_RESEARCH_ROOT_NAMES, "Recherche", "Research"] as const;
 const CHRONO_FOLDER_NAMES = ["Événements", "Chronologie", "Events", "Timeline", "Chronology", "_Chronologie"] as const;
 
 /** Dossier des jalons historiques : le chemin configuré d'abord, puis
@@ -51,9 +57,15 @@ export function getResearchRootForProject(
   app: App,
   settings: FeuilletsSettings,
   projectRoot: TFolder,
+  fallbackLocale?: Locale
 ): TFolder | null {
-  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(projectRoot, "research"));
-  if (canonical instanceof TFolder) return canonical;
+  const orderedLocales = candidateLocalesForProject(projectRoot, fallbackLocale);
+  for (const locale of orderedLocales) {
+    const canonical = app.vault.getAbstractFileByPath(
+      feuilletsAuxiliaryPathFor(projectRoot, "research", projectCreationNames(locale))
+    );
+    if (canonical instanceof TFolder) return canonical;
+  }
   for (const name of UNDERSCORED_RESEARCH_ROOT_NAMES) {
     const f = app.vault.getAbstractFileByPath(normalizePath(`${projectRoot.path}/${name}`));
     if (f instanceof TFolder) return f;
@@ -61,9 +73,19 @@ export function getResearchRootForProject(
   /* "Recherche"/"Research" without underscore: recognized ONLY next to
      the project folder, never inside it — inside, the absence of a prefix
      would make it appear as a false Part in the manuscript,
-     which is exactly what the underscore exists to prevent. */
-  if (projectRoot.parent) {
-    for (const name of SIBLING_RESEARCH_ROOT_NAMES) {
+     which is exactly what the underscore exists to prevent.
+     Inspect projectRoot.parent ONLY when projectRoot is a recognized structured
+     manuscript root (e.g. Project/Manuscrit), never for an adopted/free project root. */
+  if (
+    isStructuredManuscriptRoot(projectRoot) &&
+    projectRoot.parent &&
+    projectRoot.parent.path !== "" &&
+    projectRoot.parent.path !== "/"
+  ) {
+    const legacySiblingNames = orderedLocales[0] === "en"
+      ? ["_Research", "Research", "_Recherche", "Recherche"]
+      : ["_Recherche", "Recherche", "_Research", "Research"];
+    for (const name of legacySiblingNames) {
       const f = app.vault.getAbstractFileByPath(
         normalizePath(`${projectRoot.parent.path}/${name}`)
       );
@@ -83,17 +105,23 @@ export function getResearchRoot(app: App, settings: FeuilletsSettings): TFolder 
 
 /** Chemin du dossier de recherche à utiliser pour une ÉCRITURE (création) :
  * reprend le dossier déjà présent sur le disque quel que soit son nom,
- * sinon "Research" (nouveaux projets) — voisin du dossier manuscrit. */
-export function researchFolderPath(app: App, settings: FeuilletsSettings, root: TFolder | null | undefined): string | null {
-  const existing = getResearchRoot(app, settings);
+ * sinon utilise la langue structurelle du projet. */
+export function researchFolderPath(
+  app: App,
+  settings: FeuilletsSettings,
+  root: TFolder | null | undefined,
+  fallbackLocale?: Locale
+): string | null {
+  if (!root) return null;
+  const existing = getResearchRootForProject(app, settings, root, fallbackLocale);
   if (existing) return existing.path;
-  if (root) {
-    for (const name of UNDERSCORED_RESEARCH_ROOT_NAMES) {
-      const candidate = app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${name}`));
-      if (candidate instanceof TFolder) return candidate.path;
-    }
+  for (const name of UNDERSCORED_RESEARCH_ROOT_NAMES) {
+    const candidate = app.vault.getAbstractFileByPath(normalizePath(`${root.path}/${name}`));
+    if (candidate instanceof TFolder) return candidate.path;
   }
-  return root ? feuilletsAuxiliaryPath(root, "research") : null;
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const projectLocale = detectProjectStructureLocale(app, root, fallback);
+  return feuilletsAuxiliaryPathFor(root, "research", projectCreationNames(projectLocale));
 }
 
 /** Chemin de la rubrique Chronologie à utiliser pour une écriture. Une
@@ -102,14 +130,19 @@ export function researchFolderPath(app: App, settings: FeuilletsSettings, root: 
 export function chronologyFolderPath(
   app: App,
   settings: FeuilletsSettings,
-  root: TFolder | null | undefined
+  root: TFolder | null | undefined,
+  fallbackLocale?: Locale
 ): string | null {
   const existing = getChronoFolder(app, settings);
   if (existing) return existing.path;
-  const researchPath = researchFolderPath(app, settings, root);
+  if (settings.chronoFolder && settings.chronoFolder !== DEFAULT_SETTINGS.chronoFolder) {
+    return settings.chronoFolder;
+  }
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const researchPath = researchFolderPath(app, settings, root, fallback);
   if (!researchPath || !root) return null;
-  const names = researchFolderNames(RESEARCH_FOLDERS, "evenements");
-  const preferredName = names[0] || (getLocale() === "fr" ? "Chronologie" : "Timeline");
+  const projectLocale = detectProjectStructureLocale(app, root, fallback);
+  const preferredName = projectCreationNames(projectLocale).researchSections.events;
   return normalizePath(`${researchPath}/${preferredName}`);
 }
 
@@ -166,12 +199,12 @@ const NOTEBOOK_FOLDER_VARIANTS: readonly string[] = [
   projectCreationNames("en").notebook,
 ];
 
-/** Name of the Notebook rubric for the ACTIVE locale when none exists yet
- * — never used to DECIDE whether an existing folder is recognized (see
- * `isNotebookRubricName`/`findNotebookResearchFolder`, which accept both
- * names), only to know which one to CREATE. */
-export function notebookFolderName(): string {
-  return projectCreationNames(getLocale()).notebook;
+/** Name of the Notebook rubric for the given locale (defaults to FALLBACK_LOCALE = "en")
+ * when none exists yet — never used to DECIDE whether an existing folder is
+ * recognized (see `isNotebookRubricName`/`findNotebookResearchFolder`, which
+ * accept both names), only to know which one to CREATE. Never calls getLocale(). */
+export function notebookFolderName(locale: Locale = FALLBACK_LOCALE): string {
+  return projectCreationNames(locale).notebook;
 }
 
 /** Vrai si `name` est l'un des noms reconnus de la rubrique Carnet/Notebook
@@ -185,10 +218,19 @@ export function isNotebookRubricName(name: string): boolean {
 /** Dossier Carnet/Notebook déjà présent sous la racine Recherche du projet
  * actif, quel que soit son nom (FR ou EN) — jamais créé ici, seulement
  * reconnu. `null` si aucun des deux n'existe encore. */
-export function findNotebookResearchFolder(app: App, settings: FeuilletsSettings): TFolder | null {
+export function findNotebookResearchFolder(
+  app: App,
+  settings: FeuilletsSettings,
+  fallbackLocale?: Locale
+): TFolder | null {
   const root = getProjectFolder(app, settings);
-  const basePath = researchFolderPath(app, settings, root);
+  const basePath = researchFolderPath(app, settings, root, fallbackLocale);
   if (!basePath) return null;
+  const orderedLocales = candidateLocalesForProject(root, fallbackLocale);
+  for (const loc of orderedLocales) {
+    const f = app.vault.getAbstractFileByPath(normalizePath(`${basePath}/${projectCreationNames(loc).notebook}`));
+    if (f instanceof TFolder) return f;
+  }
   for (const name of NOTEBOOK_FOLDER_VARIANTS) {
     const f = app.vault.getAbstractFileByPath(normalizePath(`${basePath}/${name}`));
     if (f instanceof TFolder) return f;
@@ -198,17 +240,31 @@ export function findNotebookResearchFolder(app: App, settings: FeuilletsSettings
 
 /** Garantit la rubrique Carnet/Notebook : réutilise celle déjà présente
  * (FR ou EN, quelle que soit la langue active), sinon crée celle qui
- * correspond à la locale actuelle — jamais les deux à la fois. Ne crée
- * jamais un doublon "Carnet" + "Notebook" au fil des changements de
+ * correspond à la langue structurelle du projet — jamais les deux à la fois.
+ * Ne crée jamais un doublon "Carnet" + "Notebook" au fil des changements de
  * langue. `null` seulement si aucune racine Recherche n'est déterminable
  * (pas de projet actif). */
-export async function ensureNotebookResearchFolder(app: App, settings: FeuilletsSettings): Promise<TFolder | null> {
-  const existing = findNotebookResearchFolder(app, settings);
+export async function ensureNotebookResearchFolder(
+  app: App,
+  settings: FeuilletsSettings,
+  fallbackLocale?: Locale
+): Promise<TFolder | null> {
+  const existing = findNotebookResearchFolder(app, settings, fallbackLocale);
   if (existing) return existing;
   const root = getProjectFolder(app, settings);
-  const basePath = researchFolderPath(app, settings, root);
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const basePath = researchFolderPath(app, settings, root, fallback);
   if (!basePath) return null;
-  const path = normalizePath(`${basePath}/${notebookFolderName()}`);
+  const researchFile = app.vault.getAbstractFileByPath(basePath);
+  let projectLocale: Locale;
+  if (researchFile instanceof TFolder && (researchFile.name === "Research" || researchFile.name === "_Research")) {
+    projectLocale = "en";
+  } else if (researchFile instanceof TFolder && (researchFile.name === "Recherche" || researchFile.name === "_Recherche")) {
+    projectLocale = "fr";
+  } else {
+    projectLocale = root ? detectProjectStructureLocale(app, root, fallback) : fallback;
+  }
+  const path = normalizePath(`${basePath}/${notebookFolderName(projectLocale)}`);
   let base = app.vault.getAbstractFileByPath(basePath);
   if (!base) base = await app.vault.createFolder(basePath);
   if (!(base instanceof TFolder)) return null;

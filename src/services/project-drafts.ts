@@ -2,8 +2,8 @@ import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { stripFrontmatter } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
-import { feuilletsAuxiliaryPath, getOrderedChildren } from "./folder-structure.js";
-import { getLocale } from "../i18n/index.js";
+import { feuilletsAuxiliaryPath, getOrderedChildren, detectProjectStructureLocale } from "./folder-structure.js";
+import { FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
 import { projectCreationNames, type ProjectCreationNames } from "../i18n/project-creation.js";
 
 /** Every locale's draft stem, derived once from the project-creation
@@ -89,9 +89,12 @@ export function nextAvailableDraftPath(
   draftsFolder: TFolder,
   preferredStem?: string,
   ignoreFile?: TFile,
-  names: ProjectCreationNames = projectCreationNames(getLocale())
+  names?: ProjectCreationNames,
+  fallbackLocale?: Locale
 ): string {
-  const stem = sanitizeDraftFileStem(preferredStem || "") || names.draftStem;
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const resolvedNames = names ?? projectCreationNames(detectProjectStructureLocale(app, draftsFolder, fallback));
+  const stem = sanitizeDraftFileStem(preferredStem || "") || resolvedNames.draftStem;
   let index = 1;
   while (true) {
     const suffix = index === 1 ? "" : ` ${index}`;
@@ -163,10 +166,13 @@ export async function moveDraftToProjectFolder(
 export async function createQuickDraftFile(
   app: App,
   manuscriptRoot: TFolder,
-  names: ProjectCreationNames = projectCreationNames(getLocale())
+  names?: ProjectCreationNames,
+  fallbackLocale?: Locale
 ): Promise<TFile> {
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const resolvedNames = names ?? projectCreationNames(detectProjectStructureLocale(app, manuscriptRoot, fallback));
   const draftsFolder = await ensureDraftsFolder(app, manuscriptRoot);
-  const path = nextAvailableDraftPath(app, draftsFolder, names.draftStem, undefined, names);
+  const path = nextAvailableDraftPath(app, draftsFolder, resolvedNames.draftStem, undefined, resolvedNames, fallback);
   return app.vault.create(path, initialQuickDraftContent());
 }
 

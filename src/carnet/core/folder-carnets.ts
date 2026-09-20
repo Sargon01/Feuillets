@@ -1,7 +1,8 @@
-import { normalizePath, TFile, TFolder } from "obsidian";
-import type { App } from "obsidian";
-import { FEUILLETS_RESOURCE_FOLDERS, feuilletsAuxiliaryPath } from "../../services/folder-structure.js";
+import { normalizePath, TFile, TFolder, type App } from "obsidian";
+import { feuilletsAuxiliaryRootPath, candidateLocalesForProject } from "../../services/folder-structure.js";
 import { ensureFolder } from "../../services/project-files.js";
+import { projectCreationNames, type ProjectCreationNames } from "../../i18n/project-creation.js";
+import type { Locale } from "../../i18n/index.js";
 
 export type FolderCarnetRegistration = { id: string; version: 1 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -18,12 +19,76 @@ export function relativeScopeToFolderPath(projectRoot: string, relative: string)
 function validRegistration(value: unknown): value is FolderCarnetRegistration { return !!value && typeof value === "object" && (value as { version?: unknown }).version === 1 && typeof (value as { id?: unknown }).id === "string" && UUID.test((value as { id: string }).id); }
 export function getFolderCarnetRegistration(meta: ProjectMeta | undefined, relative: string): FolderCarnetRegistration | null { const candidate = meta?.folderCarnets?.[relative]; return validRelative(relative) && validRegistration(candidate) ? candidate : null; }
 export function hasFolderCarnetRegistration(meta: ProjectMeta | undefined, relative: string): boolean { return getFolderCarnetRegistration(meta, relative) !== null; }
-export function folderCarnetCanvasPath(manuscriptRoot: TFolder, id: string): string | null { if (!UUID.test(id)) return null; return normalizePath(`${feuilletsAuxiliaryPath(manuscriptRoot, "resources")}/${FEUILLETS_RESOURCE_FOLDERS.assets}/Carnets/${id}.canvas`); }
-export async function createFolderCarnet(app: App, manuscriptRoot: TFolder, meta: ProjectMeta, projectRootPath: string, folder: TFolder): Promise<{ registration: FolderCarnetRegistration; file: TFile } | null> {
+
+export function folderCarnetCanvasPath(
+  manuscriptRoot: TFolder,
+  id: string,
+  namesOrFallbackLocale?: ProjectCreationNames | Locale,
+  fallbackLocale?: Locale
+): string | null {
+  if (!UUID.test(id)) return null;
+  const fallback = typeof namesOrFallbackLocale === "string" ? namesOrFallbackLocale : fallbackLocale;
+  const names = typeof namesOrFallbackLocale === "object" ? namesOrFallbackLocale : undefined;
+  const orderedLocales = candidateLocalesForProject(manuscriptRoot, fallback);
+  const resolvedNames = names ?? projectCreationNames(orderedLocales[0]);
+  return normalizePath(
+    `${feuilletsAuxiliaryRootPath(manuscriptRoot)}/${resolvedNames.auxiliary.resources}/${resolvedNames.resourceSubfolders.assets}/Carnets/${id}.canvas`
+  );
+}
+
+/** Read-only resolver to locate an existing folder carnet canvas file on disk. */
+export function findExistingFolderCarnetCanvas(
+  vault: VaultLookup,
+  manuscriptRoot: TFolder,
+  id: string,
+  fallbackLocale?: Locale
+): TFile | null {
+  if (!UUID.test(id)) return null;
+  const auxRoot = feuilletsAuxiliaryRootPath(manuscriptRoot);
+  const orderedLocales = candidateLocalesForProject(manuscriptRoot, fallbackLocale);
+  const resFolderNames = orderedLocales.map((loc) => projectCreationNames(loc).auxiliary.resources);
+  const legacyResNames = orderedLocales[0] === "en"
+    ? ["_Resources", "Resources", "_Ressources", "Ressources"]
+    : ["_Ressources", "Ressources", "_Resources", "Resources"];
+  const allResNames = [...new Set([...resFolderNames, ...legacyResNames])];
+
+  const assetsFolderNames = orderedLocales.map((loc) => projectCreationNames(loc).resourceSubfolders.assets);
+  const legacyAssetNames = orderedLocales[0] === "en"
+    ? ["Assets", "Visuels"]
+    : ["Visuels", "Assets"];
+  const allAssetNames = [...new Set([...assetsFolderNames, ...legacyAssetNames])];
+
+  for (const resName of allResNames) {
+    for (const assetName of allAssetNames) {
+      const candidatePath = normalizePath(`${auxRoot}/${resName}/${assetName}/Carnets/${id}.canvas`);
+      const af = vault.getAbstractFileByPath(candidatePath);
+      if (af instanceof TFile) return af;
+    }
+  }
+  return null;
+}
+
+export async function createFolderCarnet(
+  app: App,
+  manuscriptRoot: TFolder,
+  meta: ProjectMeta,
+  projectRootPath: string,
+  folder: TFolder,
+  namesOrFallbackLocale?: ProjectCreationNames | Locale,
+  fallbackLocale?: Locale
+): Promise<{ registration: FolderCarnetRegistration; file: TFile } | null> {
   const relative = folderPathToRelativeScope(projectRootPath, folder.path); if (!relative) return null;
   const existing = getFolderCarnetRegistration(meta, relative); if (existing) return null;
   const registration: FolderCarnetRegistration = { id: crypto.randomUUID(), version: 1 };
-  const path = folderCarnetCanvasPath(manuscriptRoot, registration.id); if (!path) return null;
+  const fallback = typeof namesOrFallbackLocale === "string" ? namesOrFallbackLocale : fallbackLocale;
+  const names = typeof namesOrFallbackLocale === "object" ? namesOrFallbackLocale : undefined;
+  const existingCanvas = findExistingFolderCarnetCanvas(app.vault, manuscriptRoot, registration.id, fallback);
+  if (existingCanvas) {
+    if (!meta.folderCarnets) meta.folderCarnets = {};
+    meta.folderCarnets[relative] = registration;
+    return { registration, file: existingCanvas };
+  }
+  const path = folderCarnetCanvasPath(manuscriptRoot, registration.id, names, fallback); if (!path) return null;
   await ensureFolder(app, path.slice(0, path.lastIndexOf("/")));
   const existingFile = app.vault.getAbstractFileByPath(path);
   const file = existingFile instanceof TFile ? existingFile : await app.vault.create(path, "{\n\t\"nodes\": [],\n\t\"edges\": []\n}");
@@ -31,12 +96,31 @@ export async function createFolderCarnet(app: App, manuscriptRoot: TFolder, meta
   meta.folderCarnets[relative] = registration;
   return { registration, file };
 }
+
 export function resolveFolderCarnet(app: Pick<App, "vault">, manuscriptRoot: TFolder, meta: ProjectMeta | undefined, projectRootPath: string, folder: TFolder): TFile | null {
   const relative = folderPathToRelativeScope(projectRootPath, folder.path); if (!relative) return null;
-  const registration = getFolderCarnetRegistration(meta, relative); const path = registration && folderCarnetCanvasPath(manuscriptRoot, registration.id);
-  const file = path ? app.vault.getAbstractFileByPath(path) : null; return file instanceof TFile ? file : null;
+  const registration = getFolderCarnetRegistration(meta, relative);
+  if (!registration) return null;
+  const existing = findExistingFolderCarnetCanvas(app.vault, manuscriptRoot, registration.id);
+  if (existing) return existing;
+  const path = folderCarnetCanvasPath(manuscriptRoot, registration.id);
+  const file = path ? app.vault.getAbstractFileByPath(path) : null;
+  return file instanceof TFile ? file : null;
 }
-export function isFolderCarnetCanvasFile(manuscriptRoot: TFolder, meta: ProjectMeta | undefined, file: TFile | null | undefined): boolean { if (!file || !meta?.folderCarnets) return false; return Object.values(meta.folderCarnets).some((reg) => validRegistration(reg) && folderCarnetCanvasPath(manuscriptRoot, reg.id) === file.path); }
+
+export function isFolderCarnetCanvasFile(manuscriptRoot: TFolder, meta: ProjectMeta | undefined, file: TFile | null | undefined): boolean {
+  if (!file || !meta?.folderCarnets) return false;
+  const auxRoot = feuilletsAuxiliaryRootPath(manuscriptRoot);
+  const isInsideCarnets = file.path.startsWith(`${auxRoot}/`) && file.path.includes("/Carnets/") && file.extension === "canvas";
+  return Object.values(meta.folderCarnets).some((reg) => {
+    if (!validRegistration(reg)) return false;
+    if (folderCarnetCanvasPath(manuscriptRoot, reg.id) === file.path) return true;
+    if (folderCarnetCanvasPath(manuscriptRoot, reg.id, projectCreationNames("en")) === file.path) return true;
+    if (folderCarnetCanvasPath(manuscriptRoot, reg.id, projectCreationNames("fr")) === file.path) return true;
+    if (isInsideCarnets && file.name === `${reg.id}.canvas`) return true;
+    return false;
+  });
+}
 
 /** Correctif « suppression/recréation d'un Carnet de dossier » : quand le
  * fichier `<uuid>.canvas` d'une registration est supprimé (jamais le
@@ -53,11 +137,20 @@ export function removeFolderCarnetRegistrationsForDeletedFile(meta: ProjectMeta,
   const registrations = meta.folderCarnets;
   if (!registrations) return [];
   const path = normalizePath(filePath);
+  const auxRoot = feuilletsAuxiliaryRootPath(manuscriptRoot);
+  const isInsideCarnets = path.startsWith(`${auxRoot}/`) && path.includes("/Carnets/") && path.endsWith(".canvas");
+  const fileName = path.split("/").pop();
   const removed: string[] = [];
   for (const relative of Object.keys(registrations)) {
     const registration = getFolderCarnetRegistration(meta, relative);
     if (!registration) continue;
-    if (folderCarnetCanvasPath(manuscriptRoot, registration.id) === path) removed.push(relative);
+    const matchesDefault = folderCarnetCanvasPath(manuscriptRoot, registration.id) === path;
+    const matchesEn = folderCarnetCanvasPath(manuscriptRoot, registration.id, projectCreationNames("en")) === path;
+    const matchesFr = folderCarnetCanvasPath(manuscriptRoot, registration.id, projectCreationNames("fr")) === path;
+    const matchesUuid = isInsideCarnets && fileName === `${registration.id}.canvas`;
+    if (matchesDefault || matchesEn || matchesFr || matchesUuid) {
+      removed.push(relative);
+    }
   }
   for (const relative of removed) delete registrations[relative];
   return removed;
@@ -234,11 +327,16 @@ export function getFolderCarnetDisplayLabel(owner: TFolder, allOwners: TFolder[]
  * tant que la paire reste résolue par `resolveCanonicalFolderCarnetOwner`. */
 export function resolveFolderCarnetTitleContext(vault: VaultLookup, manuscriptRoot: TFolder, projectRootPath: string, meta: ProjectMeta | undefined, file: TFile): CanonicalFolderCarnetOwner | null {
   if (!meta?.folderCarnets) return null;
+  const auxRoot = feuilletsAuxiliaryRootPath(manuscriptRoot);
+  const isInsideCarnets = file.path.startsWith(`${auxRoot}/`) && file.path.includes("/Carnets/") && file.extension === "canvas";
   for (const relative of Object.keys(meta.folderCarnets)) {
     const registration = getFolderCarnetRegistration(meta, relative);
     if (!registration) continue;
-    const path = folderCarnetCanvasPath(manuscriptRoot, registration.id);
-    if (path !== file.path) continue;
+    const matchesDefault = folderCarnetCanvasPath(manuscriptRoot, registration.id) === file.path;
+    const matchesEn = folderCarnetCanvasPath(manuscriptRoot, registration.id, projectCreationNames("en")) === file.path;
+    const matchesFr = folderCarnetCanvasPath(manuscriptRoot, registration.id, projectCreationNames("fr")) === file.path;
+    const matchesUuid = isInsideCarnets && file.name === `${registration.id}.canvas`;
+    if (!matchesDefault && !matchesEn && !matchesFr && !matchesUuid) continue;
     const absolute = relativeScopeToFolderPath(projectRootPath, relative);
     if (!absolute) return null;
     const node = vault.getAbstractFileByPath(absolute);

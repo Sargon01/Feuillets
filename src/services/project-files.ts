@@ -12,6 +12,7 @@ import {
   feuilletsAuxiliaryPath,
   feuilletsAuxiliaryPathFor,
   feuilletsAuxiliaryRootPath,
+  detectProjectStructureLocale,
   isStructuredManuscriptRoot,
   FEUILLETS_RESOURCE_SUBFOLDERS,
   FEUILLETS_AUXILIARY_FOLDER_NAME,
@@ -30,7 +31,7 @@ import {
   projectCreationStyle,
   researchFolderNames,
 } from "../utils/project-modes.js";
-import { getLocale } from "../i18n/index.js";
+import { getLocale, FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
 import { projectCreationNames, type ProjectCreationNames } from "../i18n/project-creation.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
@@ -85,18 +86,21 @@ function findExistingResearchFolder(app: App, manuscritRoot: TFolder): TFolder |
 export async function ensureCanonicalProjectBase(
   app: App,
   manuscritRoot: TFolder,
-  names: ProjectCreationNames = projectCreationNames(getLocale())
+  names?: ProjectCreationNames,
+  fallbackLocale?: Locale
 ): Promise<{ researchPath: string; resourcesPath: string }> {
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const resolvedNames = names ?? projectCreationNames(detectProjectStructureLocale(app, manuscritRoot, fallback));
   const existingResearch = findExistingResearchFolder(app, manuscritRoot);
-  const researchPath = existingResearch ? existingResearch.path : feuilletsAuxiliaryPathFor(manuscritRoot, "research", names);
+  const researchPath = existingResearch ? existingResearch.path : feuilletsAuxiliaryPathFor(manuscritRoot, "research", resolvedNames);
   await ensureFolder(app, researchPath);
 
-  const existingResources = getResourcesRoot(app, manuscritRoot);
-  const resourcesPath = existingResources ? existingResources.path : feuilletsAuxiliaryPathFor(manuscritRoot, "resources", names);
+  const existingResources = getResourcesRoot(app, manuscritRoot, fallback);
+  const resourcesPath = existingResources ? existingResources.path : feuilletsAuxiliaryPathFor(manuscritRoot, "resources", resolvedNames);
   await ensureFolder(app, resourcesPath);
 
   for (const { key, name, variants } of FEUILLETS_RESOURCE_SUBFOLDERS) {
-    const newName = names.resourceSubfolders[key];
+    const newName = resolvedNames.resourceSubfolders[key];
     const legacyNames = [...variants, name].filter((candidate) => candidate !== newName);
     await ensureFolder(app, resourcesSubfolderPath(app, resourcesPath, newName, ...legacyNames));
   }
@@ -593,11 +597,17 @@ export async function initResearchSubfolders(
   app: App,
   researchPath: string,
   mode: string | null | undefined,
-  names: ProjectCreationNames = projectCreationNames(getLocale())
+  names?: ProjectCreationNames,
+  fallbackLocale?: Locale
 ): Promise<void> {
   const resolvedMode = resolveType(mode);
   const projectMode = PROJECT_MODES[resolvedMode];
   if (!projectMode) return;
+
+  const isEn = researchPath.endsWith("/" + projectCreationNames("en").auxiliary.research) || researchPath.endsWith("/" + projectCreationNames("en").research);
+  const isFr = researchPath.endsWith("/" + projectCreationNames("fr").auxiliary.research) || researchPath.endsWith("/" + projectCreationNames("fr").research);
+  const loc: Locale = isEn ? "en" : (isFr ? "fr" : (fallbackLocale ?? FALLBACK_LOCALE));
+  const resolvedNames = names ?? projectCreationNames(loc);
 
   const defaultKeys = projectMode.defaultResearchFolders ?? [];
 
@@ -620,7 +630,7 @@ export async function initResearchSubfolders(
 
     if (!exists) {
       const catalogueKey = isResearchFolderKey(key) ? RESEARCH_SECTION_CATALOGUE_KEYS[key] : undefined;
-      const newName = catalogueKey ? names.researchSections[catalogueKey] : recognizedNames[0];
+      const newName = catalogueKey ? resolvedNames.researchSections[catalogueKey] : recognizedNames[0];
       if (newName) {
         const newFolderPath = normalizePath(`${researchPath}/${newName}`);
         await ensureFolder(app, newFolderPath);
@@ -632,7 +642,8 @@ export async function initResearchSubfolders(
 export async function initProjectStructure(
   app: App,
   settings: FeuilletsSettings,
-  identity?: { title?: string; author?: string }
+  identity?: { title?: string; author?: string },
+  fallbackLocale?: Locale
 ): Promise<void> {
   /* Racine réelle = dossier qui contient Manuscrit (ex. Projets/Mon recueil).
      getProjectRoot exclut la racine du coffre (path vide) : les dossiers ne
@@ -645,16 +656,16 @@ export async function initProjectStructure(
   const manuscritRoot = getProjectFolder(app, settings);
   if (!manuscritRoot) return;
 
-  /* Locale captured ONCE for this whole operation — see createMinimalProject
-     for the identical rationale. */
-  const names = projectCreationNames(getLocale());
+  const initialFallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const projectLocale = detectProjectStructureLocale(app, manuscritRoot, initialFallback);
+  const names = projectCreationNames(projectLocale);
 
-  const { researchPath, resourcesPath: resPath } = await ensureCanonicalProjectBase(app, manuscritRoot, names);
+  const { researchPath, resourcesPath: resPath } = await ensureCanonicalProjectBase(app, manuscritRoot, names, projectLocale);
 
   /* Sous-dossiers de Recherche selon le mode du projet — variantes historiques
      reconnues avant toute création pour éviter les doublons. */
   const projectMode = settings.projectMeta[manuscritRoot.path]?.type;
-  await initResearchSubfolders(app, researchPath, projectMode, names);
+  await initResearchSubfolders(app, researchPath, projectMode, names, projectLocale);
 
   /* Paths stables pour les writeTemplate ci-dessous. */
   const templateSub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "templates")!;

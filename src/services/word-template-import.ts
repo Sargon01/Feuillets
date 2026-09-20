@@ -2,6 +2,7 @@ import JSZip from "jszip";
 import type { App } from "obsidian";
 import { extractAllTags, extractTag, getAttr } from "../utils/xml.js";
 import { createCustomTemplateFromV2 } from "./export-templates-custom.js";
+import type { Locale } from "../i18n/index.js";
 
 type StyleDefinition = { id: string; basedOn?: string; rPr: string; pPr: string };
 type StyleValues = {
@@ -291,8 +292,8 @@ export async function parseWordTemplate(data: ArrayBuffer | Uint8Array): Promise
   return template;
 }
 
-export async function importWordTemplate(app: App, settings: FeuilletsSettings, fileName: string, data: ArrayBuffer | Uint8Array) {
+export async function importWordTemplate(app: App, settings: FeuilletsSettings, fileName: string, data: ArrayBuffer | Uint8Array, fallbackLocale?: Locale) {
   const label = fileName.replace(/\.(docx|dotx)$/i, "") || "Word";
   const key = label.toLowerCase().replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "word";
-  return createCustomTemplateFromV2(app, settings, key, label, await parseWordTemplate(data));
+  return createCustomTemplateFromV2(app, settings, key, label, await parseWordTemplate(data), fallbackLocale);
 }

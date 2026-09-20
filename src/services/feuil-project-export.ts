@@ -66,7 +66,16 @@ function cloneMeta(
   if (clone.citekeyBibliographyPath === undefined && meta?.pandocBibliographyPath) {
     const rawLegacy = meta.pandocBibliographyPath.trim();
     if (rawLegacy !== "" && isValidCitationRelativePath(rawLegacy)) {
-      const projectResearch = resolveWorkspaceCitationResearchFolder(app, settings, manuscriptRoot, null);
+      let projectResearch = resolveWorkspaceCitationResearchFolder(app, settings, manuscriptRoot, null);
+      if (!projectResearch && manuscriptRoot.parent && manuscriptRoot.parent.path !== "" && manuscriptRoot.parent.path !== "/") {
+        for (const name of ["_Research", "Research", "_Recherche", "Recherche"]) {
+          const candidate = app.vault.getAbstractFileByPath(normalizePath(`${manuscriptRoot.parent.path}/${name}`));
+          if (candidate instanceof TFolder) {
+            projectResearch = candidate;
+            break;
+          }
+        }
+      }
       if (projectResearch) {
         let legacyFile: TFile | null = null;
         const targetPath = normalizePath(`${projectResearch.path}/${normalizePath(rawLegacy)}`);
@@ -146,7 +155,16 @@ function linkedResearch(
 ): LinkedResearchResolution {
   const links: Record<string, string> = { ...(meta?.researchFolderLinks || {}) };
   if (Object.keys(links).length === 0) {
-    const historical = getResearchRootForProject(app, settings, manuscriptRoot);
+    let historical = getResearchRootForProject(app, settings, manuscriptRoot);
+    if (!historical && manuscriptRoot.parent && manuscriptRoot.parent.path !== "" && manuscriptRoot.parent.path !== "/") {
+      for (const name of ["_Research", "Research", "_Recherche", "Recherche"]) {
+        const candidate = app.vault.getAbstractFileByPath(normalizePath(`${manuscriptRoot.parent.path}/${name}`));
+        if (candidate instanceof TFolder) {
+          historical = candidate;
+          break;
+        }
+      }
+    }
     if (historical && !isInside(historical.path, projectRoot.path)) {
       links[manuscriptRoot.path] = historical.path;
     }

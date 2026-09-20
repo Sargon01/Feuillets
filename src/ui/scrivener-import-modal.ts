@@ -27,8 +27,9 @@ import {
   type ScrivenerImportReport,
 } from "../services/scrivener-import.js";
 import { getResearchRoot } from "../services/research.js";
-import { getFeuilletsFolderNames, resourcesFolderPath, resourcesSubfolderPath, getOrderedChildren } from "../services/folder-structure.js";
-import { t } from "../i18n/index.js";
+import { internalResourcesFolderPath, getOrderedChildren } from "../services/folder-structure.js";
+import { t, getLocale } from "../i18n/index.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
 import { FolderSuggest } from "./folder-suggest.js";
 
 type ScrivxItem = NonNullable<ReturnType<typeof parseScrivx>["draft"]>;
@@ -640,8 +641,10 @@ export class ScrivenerImportModal extends Modal {
       throw new Error(t("modal.newProject.alreadyExists", { path: volumePath }));
     }
 
+    const fallbackLocale = getLocale();
+    const creationNames = projectCreationNames(fallbackLocale);
     await plugin.ensureFolder(volumePath);
-    const manuscritPath = normalizePath(`${volumePath}/Manuscrit`);
+    const manuscritPath = normalizePath(`${volumePath}/${creationNames.manuscript}`);
     await plugin.ensureFolder(manuscritPath);
 
     if (S.projectFolder && !S.projects.includes(S.projectFolder)) {
@@ -653,13 +656,8 @@ export class ScrivenerImportModal extends Modal {
     applyModeDefaults(S, mode);
     await plugin.saveSettings();
 
-    /* Structure conventionnelle Feuillets — jamais de chemin "Research"/
-       "Resources" recalculé ici (voir §2.A du chantier S1) : les vrais
-       dossiers Recherche/Ressources sont ceux retrouvés (ou créés) par
-       initProjectStructure, via les mêmes helpers centraux que le reste de
-       Feuillets (services/research.ts, services/folder-structure.ts) —
-       fonctionne en FR, en EN, et avec les variantes historiques déjà
-       reconnues (_Recherche, Research, _Resources, Ressources…). */
+    /* Conventional Feuillets structure — research/resources are initialized
+       via initProjectStructure using the detected structural language. */
     const defaultImportedTitle = t("modal.scrivenerImport.importedProject");
     const scrivenerTitle = (parsed.projectTitle && parsed.projectTitle.trim() && parsed.projectTitle.trim() !== defaultImportedTitle)
       ? parsed.projectTitle.trim()
@@ -672,14 +670,7 @@ export class ScrivenerImportModal extends Modal {
     }
 
     const researchRoot = getResearchRoot(app, S);
-    const resourcesPath = resourcesFolderPath(app, manuscritFolder);
-    const folderNames = getFeuilletsFolderNames();
-    // Index 4 = sous-dossier "Ressources internes"/"Assets" (voir
-    // getFeuilletsFolderNames, services/folder-structure.ts) — même
-    // convention d'accès positionnel que templateFolderPath/layoutsPath
-    // dans initProjectStructure (project-files.ts).
-    const assetsSub = folderNames.resourcesSubs[4];
-    const visuelsFolderPath = resourcesSubfolderPath(app, resourcesPath, assetsSub.name, ...assetsSub.variants);
+    const visuelsFolderPath = internalResourcesFolderPath(app, manuscritFolder, fallbackLocale);
     await plugin.ensureFolder(visuelsFolderPath);
 
     let unreadableCount = 0;

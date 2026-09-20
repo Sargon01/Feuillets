@@ -3,8 +3,30 @@ import type { App } from "obsidian";
 import { fmOf } from "./frontmatter.js";
 import { naturalCompare } from "../utils/core.js";
 import { projectCreationNames, type ProjectCreationNames } from "../i18n/project-creation.js";
+import { FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
 
 type ProjectNode = TFile | TFolder;
+
+/** Candidate locales in order of preference for the given project root:
+ * 1. Manuscript-root structural language if identifiable (Manuscript -> "en", Manuscrit -> "fr").
+ * 2. Explicitly passed fallback locale (defaults to FALLBACK_LOCALE = "en").
+ * 3. The alternative locale. */
+export function candidateLocalesForProject(
+  root: TFolder | null | undefined,
+  fallbackLocale?: Locale
+): [Locale, Locale] {
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  if (root) {
+    const nameLower = root.name.toLowerCase();
+    if (nameLower === projectCreationNames("en").manuscript.toLowerCase()) {
+      return ["en", "fr"];
+    }
+    if (nameLower === projectCreationNames("fr").manuscript.toLowerCase()) {
+      return ["fr", "en"];
+    }
+  }
+  return fallback === "fr" ? ["fr", "en"] : ["en", "fr"];
+}
 
 export function getProjectFolder(app: App, settings: FeuilletsSettings | null | undefined): TFolder | null {
   if (!settings || !settings.projectFolder) return null;
@@ -217,20 +239,20 @@ export function projectDisplayName(path: string): string {
  * français) restent reconnus indéfiniment sur les projets déjà créés sous
  * l'un ou l'autre (même principe que LEGACY_FIELD_ALIASES en frontmatter,
  * appliqué ici à un vrai dossier : jamais renommé de force sur le disque). */
-export function getResourcesRoot(app: App, root: TFolder | null | undefined): TFolder | null {
+export function getResourcesRoot(app: App, root: TFolder | null | undefined, fallbackLocale?: Locale): TFolder | null {
   if (!root) return null;
-  /* Canonical auxiliary path under either locale this batch can CREATE
-     ("Ressources" or "Resources", see project-creation.ts) — a project
-     created under one locale must still be found after the interface
-     locale changes. */
-  for (const locale of ["fr", "en"] as const) {
+  const orderedLocales = candidateLocalesForProject(root, fallbackLocale);
+  for (const locale of orderedLocales) {
     const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPathFor(root, "resources", projectCreationNames(locale)));
     if (canonical instanceof TFolder) return canonical;
   }
   const base = root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
     ? root.parent.path
     : root.path;
-  for (const name of ["_Resources", "_Ressources", "Resources", RESOURCES_FOLDER_NAME]) {
+  const legacyNames = orderedLocales[0] === "en"
+    ? ["_Resources", "Resources", "_Ressources", RESOURCES_FOLDER_NAME]
+    : ["_Ressources", RESOURCES_FOLDER_NAME, "_Resources", "Resources"];
+  for (const name of legacyNames) {
     const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${name}`));
     if (f instanceof TFolder) return f;
   }
@@ -291,25 +313,199 @@ export function getFeuilletsFolderNames(): {
   };
 }
 
-export function resourcesFolderPath(app: App, root: TFolder): string;
-export function resourcesFolderPath(app: App, root: null | undefined): null;
-/** Chemin du dossier Ressources à utiliser pour une ÉCRITURE (création
- * d'un fichier/sous-dossier dedans) : reprend le dossier déjà présent sur
- * le disque quel que soit son nom, sinon le nom de la source centrale
- * ("_Ressources"/"_Resources" via getFeuilletsFolderNames). */
-export function resourcesFolderPath(app: App, root: TFolder | null | undefined): string | null {
-  if (!root) return null;
-  const existing = getResourcesRoot(app, root);
-  return existing ? existing.path : feuilletsAuxiliaryPath(root, "resources");
+/**
+ * Detect the structural language of an existing project.
+ * Pure read-only vault inspection: never writes to the vault or settings.
+ * Never calls getLocale() internally; fallbackLocale is mandatory.
+ *
+ * Deterministic precedence:
+ * 1. The language identified by the manuscript-root name ("Manuscript" -> "en", "Manuscrit" -> "fr").
+ * 2. Child or sibling folders matching "Manuscript" vs "Manuscrit".
+ * 3. Canonical auxiliary folders under `_Feuillets`:
+ *    - Research -> "en", Recherche -> "fr"
+ *    - Resources -> "en", Ressources -> "fr"
+ *    - Output -> "en", Sortie -> "fr"
+ * 4. Sibling folders (for legacy or adopted structures):
+ *    - Research -> "en", Recherche -> "fr"
+ *    - Resources -> "en", Ressources -> "fr"
+ *    - Output/_Output -> "en", Sortie/_Sortie -> "fr"
+ * 5. Subfolders in the existing resources folder:
+ *    - Templates -> "en", Modèles -> "fr"
+ *    - Layouts -> "en", Mises en page -> "fr"
+ *    - Internal resources -> "en", Ressources internes -> "fr"
+ * 6. Subfolders in the existing research folder:
+ *    - Characters/Places/Events/Bibliography/Glossary -> "en"
+ *    - Personnages/Lieux/Événements/Bibliographie/Glossaire -> "fr"
+ * 7. The explicitly captured fallback locale.
+ */
+export function detectProjectStructureLocale(
+  app: App,
+  root: TFolder | null | undefined,
+  fallbackLocale: Locale
+): Locale {
+  if (!root) return fallbackLocale;
+
+  const namesEn = projectCreationNames("en");
+  const namesFr = projectCreationNames("fr");
+
+  // 1. Direct manuscript root name
+  if (root.name.toLowerCase() === namesEn.manuscript.toLowerCase()) return "en";
+  if (root.name.toLowerCase() === namesFr.manuscript.toLowerCase()) return "fr";
+
+  // 2. Child manuscript folder (if root is volume root)
+  if (Array.isArray(root.children)) {
+    for (const child of root.children) {
+      if (child instanceof TFolder) {
+        if (child.name.toLowerCase() === namesEn.manuscript.toLowerCase()) return "en";
+        if (child.name.toLowerCase() === namesFr.manuscript.toLowerCase()) return "fr";
+      }
+    }
+  }
+
+  const checkFolderExists = (path: string): boolean => {
+    const af = app.vault.getAbstractFileByPath(normalizePath(path));
+    return af instanceof TFolder;
+  };
+
+  // 3. Canonical auxiliary folders under _Feuillets
+  const auxRoot = feuilletsAuxiliaryRootPath(root);
+
+  const auxEnResearch = checkFolderExists(`${auxRoot}/${namesEn.auxiliary.research}`);
+  const auxFrResearch = checkFolderExists(`${auxRoot}/${namesFr.auxiliary.research}`);
+  if (auxEnResearch && !auxFrResearch) return "en";
+  if (auxFrResearch && !auxEnResearch) return "fr";
+
+  const auxEnResources = checkFolderExists(`${auxRoot}/${namesEn.auxiliary.resources}`);
+  const auxFrResources = checkFolderExists(`${auxRoot}/${namesFr.auxiliary.resources}`);
+  if (auxEnResources && !auxFrResources) return "en";
+  if (auxFrResources && !auxEnResources) return "fr";
+
+  const auxEnOutput = checkFolderExists(`${auxRoot}/${namesEn.auxiliary.output}`);
+  const auxFrOutput = checkFolderExists(`${auxRoot}/${namesFr.auxiliary.output}`);
+  if (auxEnOutput && !auxFrOutput) return "en";
+  if (auxFrOutput && !auxEnOutput) return "fr";
+
+  // 4. Sibling folders (for legacy or non-auxiliary projects)
+  const parent = root.parent;
+  const base = isStructuredManuscriptRoot(root) && parent instanceof TFolder && parent.path !== "" && parent.path !== "/"
+    ? parent.path
+    : root.path;
+
+  const sibEnResearch = checkFolderExists(`${base}/${namesEn.research}`) || checkFolderExists(`${base}/_${namesEn.research}`);
+  const sibFrResearch = checkFolderExists(`${base}/${namesFr.research}`) || checkFolderExists(`${base}/_${namesFr.research}`);
+  if (sibEnResearch && !sibFrResearch) return "en";
+  if (sibFrResearch && !sibEnResearch) return "fr";
+
+  const sibEnResources = checkFolderExists(`${base}/${namesEn.resources}`) || checkFolderExists(`${base}/_${namesEn.resources}`);
+  const sibFrResources = checkFolderExists(`${base}/${namesFr.resources}`) || checkFolderExists(`${base}/_${namesFr.resources}`);
+  if (sibEnResources && !sibFrResources) return "en";
+  if (sibFrResources && !sibEnResources) return "fr";
+
+  const sibEnOutput = checkFolderExists(`${base}/Output`) || checkFolderExists(`${base}/_Output`);
+  const sibFrOutput = checkFolderExists(`${base}/Sortie`) || checkFolderExists(`${base}/_Sortie`);
+  if (sibEnOutput && !sibFrOutput) return "en";
+  if (sibFrOutput && !sibEnOutput) return "fr";
+
+  const directEnResearch =
+    checkFolderExists(`${base}/_Characters`) ||
+    checkFolderExists(`${base}/_Places`) ||
+    checkFolderExists(`${base}/_Timeline`);
+  const directFrResearch =
+    checkFolderExists(`${base}/_Personnages`) ||
+    checkFolderExists(`${base}/_Lieux`) ||
+    checkFolderExists(`${base}/_Chronologie`);
+  if (directEnResearch && !directFrResearch) return "en";
+  if (directFrResearch && !directEnResearch) return "fr";
+
+  // 5. Subfolders in resources
+  const resRoot = getResourcesRoot(app, root, fallbackLocale);
+  if (resRoot) {
+    const resEnTemplates = checkFolderExists(`${resRoot.path}/${namesEn.resourceSubfolders.templates}`);
+    const resFrTemplates = checkFolderExists(`${resRoot.path}/${namesFr.resourceSubfolders.templates}`);
+    if (resEnTemplates && !resFrTemplates) return "en";
+    if (resFrTemplates && !resEnTemplates) return "fr";
+
+    const resEnLayouts = checkFolderExists(`${resRoot.path}/${namesEn.resourceSubfolders.layouts}`);
+    const resFrLayouts = checkFolderExists(`${resRoot.path}/${namesFr.resourceSubfolders.layouts}`);
+    if (resEnLayouts && !resFrLayouts) return "en";
+    if (resFrLayouts && !resEnLayouts) return "fr";
+
+    const resEnAssets = checkFolderExists(`${resRoot.path}/${namesEn.resourceSubfolders.assets}`);
+    const resFrAssets = checkFolderExists(`${resRoot.path}/${namesFr.resourceSubfolders.assets}`);
+    if (resEnAssets && !resFrAssets) return "en";
+    if (resFrAssets && !resEnAssets) return "fr";
+  }
+
+  // 6. Subfolders in research
+  let researchFolder: TFolder | null = null;
+  const orderedLocales = candidateLocalesForProject(root, fallbackLocale);
+  for (const loc of orderedLocales) {
+    const canonical = app.vault.getAbstractFileByPath(
+      feuilletsAuxiliaryPathFor(root, "research", projectCreationNames(loc))
+    );
+    if (canonical instanceof TFolder) {
+      researchFolder = canonical;
+      break;
+    }
+  }
+  if (!researchFolder) {
+    const legacyResearchNames = orderedLocales[0] === "en"
+      ? ["_Research", "Research", "_Recherche", "Recherche"]
+      : ["_Recherche", "Recherche", "_Research", "Research"];
+    for (const name of legacyResearchNames) {
+      const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${name}`));
+      if (f instanceof TFolder) {
+        researchFolder = f;
+        break;
+      }
+    }
+  }
+
+  if (researchFolder) {
+    const checkResearchPair = (enName: string, frName: string): Locale | null => {
+      const enExists = checkFolderExists(`${researchFolder.path}/${enName}`);
+      const frExists = checkFolderExists(`${researchFolder.path}/${frName}`);
+      if (enExists && !frExists) return "en";
+      if (frExists && !enExists) return "fr";
+      return null;
+    };
+
+    const charVote = checkResearchPair(namesEn.researchSections.characters, namesFr.researchSections.characters);
+    if (charVote) return charVote;
+
+    const placeVote = checkResearchPair(namesEn.researchSections.places, namesFr.researchSections.places);
+    if (placeVote) return placeVote;
+
+    const eventVote = checkResearchPair(namesEn.researchSections.events, namesFr.researchSections.events);
+    if (eventVote) return eventVote;
+
+    const bibVote = checkResearchPair(namesEn.researchSections.bibliography, namesFr.researchSections.bibliography);
+    if (bibVote) return bibVote;
+
+    const glossVote = checkResearchPair(namesEn.researchSections.glossary, namesFr.researchSections.glossary);
+    if (glossVote) return glossVote;
+  }
+
+  // 7. Explicit fallback locale
+  return fallbackLocale;
 }
 
-/** Sous-dossier de Ressources dont le nom a changé (Visuels->Assets,
- * Modèles->Layouts) : reprend le nom déjà présent sur le disque s'il y en
- * a un, sinon le nouveau nom anglais. */
-/** `legacyNames` accepte un ou plusieurs anciens noms, dans l'ordre où ils
- * ont été le nom "actuel" au fil des versions (ex. Layout a remplacé
- * Layouts, qui avait lui-même remplacé Modèles) — chacun reste reconnu
- * indéfiniment, quelle que soit la version qui a créé le dossier. */
+export function resourcesFolderPath(app: App, root: TFolder, fallbackLocale?: Locale): string;
+export function resourcesFolderPath(app: App, root: null | undefined, fallbackLocale?: Locale): null;
+/** Path of the Resources folder used for writing: reuses an existing folder
+ * on disk regardless of which locale created it. When creating a new folder,
+ * determines the project's structural language to use the appropriate catalogue name. */
+export function resourcesFolderPath(app: App, root: TFolder | null | undefined, fallbackLocale?: Locale): string | null {
+  if (!root) return null;
+  const existing = getResourcesRoot(app, root, fallbackLocale);
+  if (existing) return existing.path;
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const locale = detectProjectStructureLocale(app, root, fallback);
+  return feuilletsAuxiliaryPathFor(root, "resources", projectCreationNames(locale));
+}
+
+/** Resources subfolder whose name changed over versions: reuses the folder
+ * already present on disk if one exists, otherwise creates the primary name. */
 export function resourcesSubfolderPath(app: App, resourcesPath: string, newName: string, ...legacyNames: string[]): string {
   for (const name of [newName, ...legacyNames]) {
     const f = app.vault.getAbstractFileByPath(normalizePath(`${resourcesPath}/${name}`));
@@ -318,16 +514,23 @@ export function resourcesSubfolderPath(app: App, resourcesPath: string, newName:
   return normalizePath(`${resourcesPath}/${newName}`);
 }
 
-/** Chemin du sous-dossier réservé aux fichiers internes de Feuillets.
- * Reconnaît les variantes historiques sans jamais créer quoi que ce soit. */
-export function internalResourcesFolderPath(app: App, root: TFolder): string {
+/** Path of the internal resources subfolder. Reuses an existing folder if present,
+ * otherwise selects the primary name based on the detected project language. */
+export function internalResourcesFolderPath(app: App, root: TFolder, fallbackLocale?: Locale): string {
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const locale = detectProjectStructureLocale(app, root, fallback);
+  const names = projectCreationNames(locale);
+  const resPath = resourcesFolderPath(app, root, locale);
+  const primaryName = names.resourceSubfolders.assets;
+  const altLocale: Locale = locale === "fr" ? "en" : "fr";
+  const altName = projectCreationNames(altLocale).resourceSubfolders.assets;
   return resourcesSubfolderPath(
     app,
-    resourcesFolderPath(app, root),
-    FEUILLETS_RESOURCE_FOLDERS.assets,
+    resPath,
+    primaryName,
+    altName,
     "Assets",
     "Visuels",
-    "Internal resources",
   );
 }
 

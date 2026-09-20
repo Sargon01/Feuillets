@@ -1,6 +1,6 @@
 import { Menu, Notice, setIcon, setTooltip } from "obsidian";
 import type { App, TFolder, WorkspaceLeaf } from "obsidian";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { VIEW_PREVIEW } from "../constants.js";
 import {
   listExportTemplates,
@@ -201,7 +201,8 @@ export class EditionWorkspaceContent {
   }
 
   private async duplicateTemplate(): Promise<void> {
-    const result = await duplicateExportTemplate(this.app, this.plugin.settings);
+    const opLocale = getLocale();
+    const result = await duplicateExportTemplate(this.app, this.plugin.settings, opLocale);
     if (!result) return;
     await this.plugin.saveSettings();
     new Notice(t("editionLayout.duplicated", { label: result.label }));
@@ -210,6 +211,7 @@ export class EditionWorkspaceContent {
   }
 
   private async createNewTemplate(): Promise<void> {
+    const opLocale = getLocale();
     const label = (await promptText(this.app, t("editionLayout.newTemplate")))?.trim();
     if (!label) return;
     const baseKey = label.toLocaleLowerCase().normalize("NFD")
@@ -221,6 +223,7 @@ export class EditionWorkspaceContent {
       baseKey,
       label,
       createDefaultExportTemplateV2(),
+      opLocale
     );
     if (!result) return;
     await this.plugin.saveSettings();

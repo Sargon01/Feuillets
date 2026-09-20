@@ -1,6 +1,8 @@
 import { TFile, TFolder, Notice, normalizePath, stringifyYaml } from "obsidian";
 import type { App } from "obsidian";
-import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, FEUILLETS_RESOURCE_FOLDERS } from "./folder-structure.js";
+import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, detectProjectStructureLocale } from "./folder-structure.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
+import { FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { BUILTIN_TEMPLATE_CATALOG, EXPORT_TEMPLATES } from "../utils/export-templates.js";
@@ -19,13 +21,20 @@ import { normalizeLegacyTemplate, normalizeV2Template } from "./export-template-
  * résolution du dossier Layouts.
  * @param {App} app
  * @param {FeuilletsSettings} settings
+ * @param {Locale} [fallbackLocale]
  * @returns {string|null} `null` si aucun dossier projet n'est défini.
  */
-export function customTemplatesFolderPath(app: App, settings: FeuilletsSettings): string | null {
+export function customTemplatesFolderPath(app: App, settings: FeuilletsSettings, fallbackLocale?: Locale): string | null {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
-  const resPath = resourcesFolderPath(app, root);
-  return resourcesSubfolderPath(app, resPath, FEUILLETS_RESOURCE_FOLDERS.layouts, "Layouts", "Layout");
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const resPath = resourcesFolderPath(app, root, fallback);
+  const projectLocale = detectProjectStructureLocale(app, root, fallback);
+  const names = projectCreationNames(projectLocale);
+  const primary = names.resourceSubfolders.layouts;
+  const altLocale: Locale = projectLocale === "fr" ? "en" : "fr";
+  const alt = projectCreationNames(altLocale).resourceSubfolders.layouts;
+  return resourcesSubfolderPath(app, resPath, primary, alt, "Layout");
 }
 
 /** Le dossier s'il existe déjà dans le coffre — jamais créé ici.
@@ -280,8 +289,8 @@ export async function resolveExportTemplate(app: App, settings: FeuilletsSetting
  * @param {FeuilletsSettings} settings
  * @returns {Promise<number>} nombre de fichiers créés (0 si tous existaient).
  */
-export async function exportBuiltInTemplates(app: App, settings: FeuilletsSettings): Promise<number> {
-  const path = customTemplatesFolderPath(app, settings);
+export async function exportBuiltInTemplates(app: App, settings: FeuilletsSettings, fallbackLocale?: Locale): Promise<number> {
+  const path = customTemplatesFolderPath(app, settings, fallbackLocale);
   if (!path) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return 0;
@@ -308,10 +317,11 @@ export async function exportBuiltInTemplates(app: App, settings: FeuilletsSettin
  * @param {App} app
  * @param {FeuilletsSettings} settings
  * @param {string} key
+ * @param {Locale} [fallbackLocale]
  * @returns {Promise<TFileType|null>} `null` si aucun dossier projet.
  */
-export async function ensureTemplateFile(app: App, settings: FeuilletsSettings, key: string): Promise<TFile | null> {
-  const folderPath = customTemplatesFolderPath(app, settings);
+export async function ensureTemplateFile(app: App, settings: FeuilletsSettings, key: string, fallbackLocale?: Locale): Promise<TFile | null> {
+  const folderPath = customTemplatesFolderPath(app, settings, fallbackLocale);
   if (!folderPath) return null;
   await ensureFolder(app, folderPath);
   const filePath = normalizePath(`${folderPath}/${key}.md`);
@@ -353,9 +363,10 @@ export async function createCustomTemplateFromV2(
   settings: FeuilletsSettings,
   baseKey: string,
   label: string,
-  template: ExportTemplateV2
+  template: ExportTemplateV2,
+  fallbackLocale?: Locale
 ): Promise<{ key: string; label: string } | null> {
-  const path = customTemplatesFolderPath(app, settings);
+  const path = customTemplatesFolderPath(app, settings, fallbackLocale);
   if (!path) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return null;
@@ -382,6 +393,7 @@ export async function createCustomTemplateFromV2(
  * @param {string} baseKey clé de départ — rendue unique ici si besoin.
  * @param {string} label
  * @param {Record<string, unknown>} fields champs ExportTemplate (sans key/label/custom).
+ * @param {Locale} [fallbackLocale]
  * @returns {Promise<{key:string,label:string}|null>} `null` si aucun dossier projet.
  */
 export async function createCustomTemplateFromFields(
@@ -389,9 +401,10 @@ export async function createCustomTemplateFromFields(
   settings: FeuilletsSettings,
   baseKey: string,
   label: string,
-  fields: Record<string, unknown>
+  fields: Record<string, unknown>,
+  fallbackLocale?: Locale
 ): Promise<{ key: string; label: string } | null> {
-  const path = customTemplatesFolderPath(app, settings);
+  const path = customTemplatesFolderPath(app, settings, fallbackLocale);
   if (!path) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return null;
@@ -412,17 +425,19 @@ export async function createCustomTemplateFromFields(
  * remplace jamais un fichier existant, rend la copie immédiatement active.
  * @param {App} app
  * @param {FeuilletsSettings} settings
+ * @param {Locale} [fallbackLocale]
  * @returns {Promise<{key:string,label:string}|null>} `null` si aucun dossier projet.
  */
 export async function duplicateExportTemplate(
   app: App,
-  settings: FeuilletsSettings
+  settings: FeuilletsSettings,
+  fallbackLocale?: Locale
 ): Promise<{ key: string; label: string } | null> {
   const sourceKey = (settings as { exportTemplate?: string }).exportTemplate || "classique";
   const source = await resolveExportTemplate(app, settings, sourceKey);
   const label = `${source.label} — copie`;
   const sourceV2 = await resolveExportTemplateV2(app, settings, sourceKey);
-  return createCustomTemplateFromV2(app, settings, `${sourceKey}-copie`, label, sourceV2);
+  return createCustomTemplateFromV2(app, settings, `${sourceKey}-copie`, label, sourceV2, fallbackLocale);
 }
 
 /** Écrit `titlePage.styles` (objet {rôle: {fontSizePt, bold, italic, align,
@@ -434,19 +449,20 @@ export async function duplicateExportTemplate(
  * @param {FeuilletsSettings} settings
  * @param {string} key
  * @param {Record<string, TitlePageStyle>} styles
+ * @param {Locale} [fallbackLocale]
  * @returns {Promise<void>}
  */
-export async function updateTemplateTitlePage(app: App, settings: FeuilletsSettings, key: string, styles: Record<string, TitlePageStyle>): Promise<void> {
+export async function updateTemplateTitlePage(app: App, settings: FeuilletsSettings, key: string, styles: Record<string, TitlePageStyle>, fallbackLocale?: Locale): Promise<void> {
   const template = await resolveExportTemplateV2(app, settings, key);
   template.titlePage.styles = JSON.parse(JSON.stringify(styles)) as Record<string, TitlePageStyle>;
-  await saveExportTemplateV2(app, settings, key, template);
+  await saveExportTemplateV2(app, settings, key, template, fallbackLocale);
 }
 
 /** Sauvegarde atomiquement la forme canonique V2 du gabarit sélectionné.
  * Toute écriture d'édition efface les clés legacy du frontmatter, mais une
  * simple lecture d'un ancien fichier ne l'écrit jamais. */
-export async function saveExportTemplateV2(app: App, settings: FeuilletsSettings, key: string, template: ExportTemplateV2): Promise<void> {
-  const file = await ensureTemplateFile(app, settings, key);
+export async function saveExportTemplateV2(app: App, settings: FeuilletsSettings, key: string, template: ExportTemplateV2, fallbackLocale?: Locale): Promise<void> {
+  const file = await ensureTemplateFile(app, settings, key, fallbackLocale);
   if (!file) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return;

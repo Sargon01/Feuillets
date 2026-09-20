@@ -7,7 +7,7 @@ import { renderCollapsibleHead, openFileActivating } from "../utils/dom.js";
 import { getChapters, flattenFiles, isFrontMatter, resourcesFolderPath } from "../services/folder-structure.js";
 import { findRepetitions } from "../utils/repetitions.js";
 import { ensureFolder } from "../services/project-files.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { VIEW_SCRIVENINGS } from "../constants.js";
 import type { CompileScope } from "../services/compile-scope.js";
 
@@ -283,7 +283,8 @@ export class AnalysisView extends BaseFeuilletsView {
       new Notice(t("analysis.dashboard.noActiveProject"));
       return;
     }
-    const dir = resourcesFolderPath(this.app, root);
+    const opLocale = getLocale();
+    const dir = resourcesFolderPath(this.app, root, opLocale);
     await ensureFolder(this.app, dir);
     const path = normalizePath(`${dir}/${t("analysis.dashboard.fileName")}.md`);
     const md = this.dashboardMarkdown(dash);

@@ -1216,7 +1216,8 @@ export class LayoutEditor {
   }
 
   async saveTemplate(): Promise<void> {
-    await saveExportTemplateV2(this.app, this.plugin.settings, this.templateKey, this.template);
+    const opLocale = getLocale();
+    await saveExportTemplateV2(this.app, this.plugin.settings, this.templateKey, this.template, opLocale);
     // La maquette du workspace suit le modèle sauvegardé (format, orientation,
     // bandes, positions) sans passer par une reconstruction complète.
     this.miniature?.refresh();

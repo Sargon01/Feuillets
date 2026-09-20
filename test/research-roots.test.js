@@ -158,8 +158,10 @@ test("split-chronology : résout sous _Feuillets pour un dossier direct et réut
   const direct = new TFolder("Articles");
   const { vault: directVault } = createFakeVault([direct]);
   const directSettings = { projectFolder: direct.path, projectMeta: { [direct.path]: { type: "free" } } };
-  // La destination neuve utilise désormais la catégorie Events universelle.
-  assert.equal(chronologyFolderPath({ vault: directVault }, directSettings, direct), "Articles/_Feuillets/Recherche/Événements");
+  // When no locale is passed, the deterministic technical fallback is English.
+  assert.equal(chronologyFolderPath({ vault: directVault }, directSettings, direct), "Articles/_Feuillets/Research/Events");
+  // When an explicit French operation locale is passed, it resolves the French canonical category.
+  assert.equal(chronologyFolderPath({ vault: directVault }, directSettings, direct, "fr"), "Articles/_Feuillets/Recherche/Événements");
 
   for (const name of ["Chronologie", "Timeline", "Events"]) {
     const project = new TFolder("Projet");

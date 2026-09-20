@@ -3,6 +3,7 @@ export type { CanvasNode, CanvasEdge, CanvasData, LiveCanvasFileView } from "../
 import type { CanvasData, LiveCanvasFileView } from "../carnet/canvas/types.js";
 import type { App, TFolder } from "obsidian";
 import { getProjectFolder, resourcesFolderPath } from "./folder-structure.js";
+import type { Locale } from "../i18n/index.js";
 import { ensureFolder } from "./project-files.js";
 
 /** Valeurs conservées pour les nodes créés explicitement par Feuillets. */
@@ -205,8 +206,8 @@ export async function addTextNodeToNotebook(
 }
 
 /** Chemin stable du Carnet du projet actif. */
-export function canvasPathFor(app: App, root: TFolder): string {
-  return normalizePath(`${resourcesFolderPath(app, root)}/Tableau brainstorming.canvas`);
+export function canvasPathFor(app: App, root: TFolder, fallbackLocale?: Locale): string {
+  return normalizePath(`${resourcesFolderPath(app, root, fallbackLocale)}/Tableau brainstorming.canvas`);
 }
 
 /**
@@ -216,14 +217,15 @@ export function canvasPathFor(app: App, root: TFolder): string {
  */
 export async function generateCanvasBoard(
   app: App,
-  settings: FeuilletsSettings
+  settings: FeuilletsSettings,
+  fallbackLocale?: Locale
 ): Promise<{ file: TFile; added: number; edgesAdded: number; total: number } | null> {
   const root = getProjectFolder(app, settings);
   if (!root) {
     new Notice("Dossier projet introuvable. Vérifie les réglages.");
     return null;
   }
-  const path = canvasPathFor(app, root);
+  const path = canvasPathFor(app, root, fallbackLocale);
   await ensureFolder(app, path.slice(0, path.lastIndexOf("/")));
   const existing = app.vault.getAbstractFileByPath(path);
   const file = existing instanceof TFile
