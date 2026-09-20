@@ -1,5 +1,6 @@
 import type { App } from "obsidian";
 import { projectStatuses as resolveProjectStatuses } from "./services/project-settings.js";
+import { statusStoredValue } from "./services/project-taxonomy.js";
 
 type ProjectStatus = { name?: string; color: string };
 
@@ -41,10 +42,14 @@ export function getProjectStatuses(app: App | null | undefined, settings: Feuill
   const statuses: ProjectStatus[] = app && settings
     ? resolveProjectStatuses(app, settings)
     : (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
-  const names = statuses
-    .map((s) => (s && typeof s.name === "string" ? s.name.trim() : ""))
+  /* Stored value: the stable id for a built-in entry, the literal `name`
+     for a legacy/custom one (services/project-taxonomy.ts) — never a
+     translated display string, so this remains the exact value compared
+     against frontmatter/filters, unchanged for every existing entry. */
+  const values = statuses
+    .map((s) => (s ? statusStoredValue(s).trim() : ""))
     .filter(Boolean);
-  return ["", ...names];
+  return ["", ...values];
 }
 
 /**
@@ -57,7 +62,7 @@ export function getStatusColor(app: App | null | undefined, settings: FeuilletsS
   const statuses: ProjectStatus[] = app && settings
     ? resolveProjectStatuses(app, settings)
     : (settings && Array.isArray(settings.statuses)) ? settings.statuses : [];
-  const found = statuses.find((s) => s.name === name);
+  const found = statuses.find((s) => statusStoredValue(s) === name);
   return found ? found.color : null;
 }
 

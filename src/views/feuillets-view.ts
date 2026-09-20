@@ -9,7 +9,14 @@ import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
 import type { BoardModeKey } from "./board-view.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
+import {
+  normalizeFilterSentinel,
+  statusStoredValue,
+  statusDisplayLabel,
+  labelStoredValue,
+  labelDisplayLabel,
+} from "../services/project-taxonomy.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { getDraftsFolder, isProjectDraft } from "../services/project-drafts.js";
@@ -959,9 +966,9 @@ export class FeuilletsView extends BaseFeuilletsView {
        propres au binder (réglages binderStatusFilter/binderLabelFilter/
        binderProgressFilter, indépendants de ceux du Tableau/plan). */
     const binderFilterIsActive = () =>
-      !!((S.binderStatusFilter && S.binderStatusFilter !== "Tous") ||
-      (S.binderLabelFilter && S.binderLabelFilter !== "Tous") ||
-      (S.binderProgressFilter && S.binderProgressFilter !== "Tous"));
+      !!((S.binderStatusFilter && normalizeFilterSentinel(S.binderStatusFilter) !== "all") ||
+      (S.binderLabelFilter && normalizeFilterSentinel(S.binderLabelFilter) !== "all") ||
+      (S.binderProgressFilter && normalizeFilterSentinel(S.binderProgressFilter) !== "all"));
 
     const filterBtn = this.iconBtn(
       filterBar,
@@ -969,27 +976,49 @@ export class FeuilletsView extends BaseFeuilletsView {
       t("binder.filter.tooltip")
     );
     if (binderFilterIsActive()) filterBtn.addClass("feuillets-mode-active");
-    const filterSentinelLabel = (v: string) =>
-      v === "Tous" ? t("binder.filter.all")
-      : v === "Sans statut" ? t("binder.filter.noStatus")
-      : v === "Sans label" ? t("binder.filter.noLabel")
-      : v === "Atteint" ? t("binder.filter.progressHit")
-      : v === "En dessous" ? t("binder.filter.progressUnder")
-      : v === "Dépassé" ? t("binder.filter.progressOver")
-      : v;
+    /* Accepts a legacy French sentinel, its legacy English equivalent, or
+       an already-stable id (services/project-taxonomy.ts normalizeFilter-
+       Sentinel) — a real status/label/progress value passes through
+       unchanged. `noneKey` disambiguates the shared "none" id between
+       status ("no status") and label ("no label") — see board-view.ts's
+       own filterSentinelLabel for the identical pattern. */
+    const filterSentinelLabel = (v: string, noneKey?: string) => {
+      const normalized = normalizeFilterSentinel(v);
+      if (normalized === "all") return t("binder.filter.all");
+      if (normalized === "none") return noneKey ? t(noneKey) : v;
+      if (normalized === "hit") return t("binder.filter.progressHit");
+      if (normalized === "under") return t("binder.filter.progressUnder");
+      if (normalized === "over") return t("binder.filter.progressOver");
+      return v;
+    };
     filterBtn.addEventListener("click", (e: MouseEvent) => {
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
+      /* The stored/compared filter value is always statusStoredValue(entry):
+         the stable id for a built-in status, the literal name for a
+         legacy/custom one — matching whatever a scene's own `status:`
+         frontmatter actually contains once assigned through
+         makeStatusSelect/the context menu (base-feuillets-view.ts) or the
+         card menu (board-view.ts). Only the menu item's text is
+         translated (statusDisplayLabel); a legacy/custom entry keeps
+         showing and storing its own name unchanged. draftFiles' own
+         scanned status values are already the exact stored form — no
+         transformation needed. */
+      const statusDisplayByValue = new Map<string, string>();
+      for (const status of workspaceStatuses(this.app, S, folder)) {
+        const value = statusStoredValue(status).trim();
+        if (value) statusDisplayByValue.set(value, statusDisplayLabel(status, getLocale()));
+      }
       const effectiveStatuses = [...new Set([
-        ...workspaceStatuses(this.app, S, folder).map((status) => status.name?.trim() || ""),
+        ...workspaceStatuses(this.app, S, folder).map((status) => statusStoredValue(status).trim()),
         ...draftFiles.map((file) => toValue(this.fm(file).status).trim()),
       ])].filter(Boolean);
-      for (const s of ["Tous", ...effectiveStatuses, "Sans statut"]) {
+      for (const s of ["all", ...effectiveStatuses, "none"]) {
         menu.addItem((item) =>
           item
-            .setTitle(filterSentinelLabel(s))
-            .setChecked((S.binderStatusFilter || "Tous") === s)
+            .setTitle(statusDisplayByValue.get(s) ?? filterSentinelLabel(s, "binder.filter.noStatus"))
+            .setChecked(normalizeFilterSentinel(S.binderStatusFilter || "all") === s)
             .onClick(async () => {
               S.binderStatusFilter = s;
               await this.plugin.saveSettings();
@@ -1014,17 +1043,22 @@ export class FeuilletsView extends BaseFeuilletsView {
         for (const label of this.plugin.labelsOf(file)) activeLabels.add(label);
       }
       const labelsList = workspaceLabels(this.app, S, folder);
+      const labelDisplayByValue = new Map<string, string>();
       labelsList.forEach((l) => {
-        if (l.name) activeLabels.add(l.name);
+        const value = labelStoredValue(l).trim();
+        if (value) {
+          activeLabels.add(value);
+          labelDisplayByValue.set(value, labelDisplayLabel(l, getLocale()));
+        }
       });
       const labelList = Array.from(activeLabels).sort((a, b) => a.localeCompare(b, "fr"));
 
       menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
-      for (const lb of ["Tous", ...labelList, "Sans label"]) {
+      for (const lb of ["all", ...labelList, "none"]) {
         menu.addItem((item) =>
           item
-            .setTitle(filterSentinelLabel(lb))
-            .setChecked((S.binderLabelFilter || "Tous") === lb)
+            .setTitle(labelDisplayByValue.get(lb) ?? filterSentinelLabel(lb, "binder.filter.noLabel"))
+            .setChecked(normalizeFilterSentinel(S.binderLabelFilter || "all") === lb)
             .onClick(async () => {
               S.binderLabelFilter = lb;
               await this.plugin.saveSettings();
@@ -1035,11 +1069,11 @@ export class FeuilletsView extends BaseFeuilletsView {
       menu.addSeparator();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.progressHeader")).setDisabled(true));
-      for (const pr of ["Tous", "Atteint", "En dessous", "Dépassé"]) {
+      for (const pr of ["all", "hit", "under", "over"] as const) {
         menu.addItem((item) =>
           item
             .setTitle(filterSentinelLabel(pr))
-            .setChecked((S.binderProgressFilter || "Tous") === pr)
+            .setChecked(normalizeFilterSentinel(S.binderProgressFilter || "all") === pr)
             .onClick(async () => {
               S.binderProgressFilter = pr;
               await this.plugin.saveSettings();
@@ -1055,9 +1089,9 @@ export class FeuilletsView extends BaseFeuilletsView {
             .setTitle(t("binder.filter.reset"))
             .setIcon("filter-x")
             .onClick(async () => {
-              S.binderStatusFilter = "Tous";
-              S.binderLabelFilter = "Tous";
-              S.binderProgressFilter = "Tous";
+              S.binderStatusFilter = "all";
+              S.binderLabelFilter = "all";
+              S.binderProgressFilter = "all";
               await this.plugin.saveSettings();
               void this.render(true);
             })
@@ -1075,9 +1109,9 @@ export class FeuilletsView extends BaseFeuilletsView {
       resetBtn.addEventListener("click", () => {
         void (async () => {
           S.binderSearch = "";
-          S.binderStatusFilter = "Tous";
-          S.binderLabelFilter = "Tous";
-          S.binderProgressFilter = "Tous";
+          S.binderStatusFilter = "all";
+          S.binderLabelFilter = "all";
+          S.binderProgressFilter = "all";
           this._binderSearchOpen = false;
           await this.plugin.saveSettings();
           void this.render(true);
@@ -1176,25 +1210,30 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
         if (!found) return false;
       }
-      const sf = S.binderStatusFilter;
-      if (sf && sf !== "Tous") {
+      /* normalizeFilterSentinel is a no-op for a real status/label/progress
+         value — it only recognizes the "all"/"none"/"hit"/"under"/"over"
+         sentinels and their legacy French/English spellings — so this
+         still compares the exact stored value against frontmatter for a
+         genuine choice, unchanged from before. */
+      const sf = normalizeFilterSentinel(S.binderStatusFilter || "all");
+      if (sf && sf !== "all") {
         const st = toValue(this.fm(file).status);
-        if (sf === "Sans statut" ? st !== "" : st !== sf) return false;
+        if (sf === "none" ? st !== "" : st !== sf) return false;
       }
-      const lf = S.binderLabelFilter;
-      if (lf && lf !== "Tous") {
+      const lf = normalizeFilterSentinel(S.binderLabelFilter || "all");
+      if (lf && lf !== "all") {
         const labels = this.plugin.labelsOf(file);
-        if (lf === "Sans label" ? labels.length !== 0 : !labels.includes(lf)) return false;
+        if (lf === "none" ? labels.length !== 0 : !labels.includes(lf)) return false;
       }
-      const pf = S.binderProgressFilter;
-      if (pf && pf !== "Tous") {
+      const pf = normalizeFilterSentinel(S.binderProgressFilter || "all");
+      if (pf && pf !== "all") {
         const entry = wcCache.get(file.path);
         const goal = this.goalFor(file);
         if (entry !== undefined && goal > 0) {
           const state = this.ringState(entry.wc, goal, file.parent);
-          if (pf === "Atteint" && state !== "hit") return false;
-          if (pf === "En dessous" && state !== "under") return false;
-          if (pf === "Dépassé" && state !== "over") return false;
+          if (pf === "hit" && state !== "hit") return false;
+          if (pf === "under" && state !== "under") return false;
+          if (pf === "over" && state !== "over") return false;
         } else if (goal <= 0) {
           return false;
         }

@@ -39,7 +39,13 @@ import { createFolderScope, createSelectionScope, compileScopesEqual, resolveCom
 import { RESEARCH_FOLDERS, researchFolderLabel, researchFolderNames } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
 import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
+import {
+  statusStoredValue,
+  statusDisplayLabel,
+  labelStoredValue,
+  labelDisplayLabel,
+} from "../services/project-taxonomy.js";
 import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 import { collectScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
@@ -825,46 +831,68 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
   }
 
+  /** A built-in label's `<option>` VALUE (what is stored/compared) is
+   * always its stable id (labelStoredValue) — never its display name; the
+   * option TEXT is the translated name (labelDisplayLabel). A legacy/
+   * custom entry stores and shows its own name, unchanged either way. */
   makeLabelSelect(parent: HTMLElement, file: TFile): HTMLSelectElement {
     const current = this.plugin.labelOf(file);
+    const entries = this.getProjectLabels(file.parent);
+    const displayForValue = (value: string): string => {
+      const entry = entries.find((l) => labelStoredValue(l) === value);
+      return entry ? labelDisplayLabel(entry, getLocale()) : value;
+    };
     const sel = parent.createEl("select", { cls: "feuillets-status" });
     const none = sel.createEl("option", { text: "—" });
     none.value = "";
-    for (const l of this.getProjectLabels(file.parent)) {
-      const opt = sel.createEl("option", { text: l.name });
-      opt.value = l.name;
+    for (const l of entries) {
+      const value = labelStoredValue(l);
+      if (!value) continue;
+      const opt = sel.createEl("option", { text: labelDisplayLabel(l, getLocale()) });
+      opt.value = value;
     }
     sel.value = current;
-    sel.setAttr("title", current || t("shared.label.none"));
+    sel.setAttr("title", current ? displayForValue(current) : t("shared.label.none"));
     const color = current ? this.plugin.labelColor(current, file.parent) : null;
     if (color) sel.style.borderLeft = `4px solid ${color}`;
     sel.addEventListener("change", () => {
       void (async () => {
         await this.setFm(file, "label", sel.value);
-        sel.setAttr("title", sel.value || t("shared.label.none"));
+        sel.setAttr("title", sel.value ? displayForValue(sel.value) : t("shared.label.none"));
         sel.blur();
       })();
     });
     return sel;
   }
 
+  /** Same contract as makeLabelSelect above: a built-in status's `<option>`
+   * value is its stable id, its text the translated name; a legacy/custom
+   * status keeps its own name for both. */
   makeStatusSelect(parent: HTMLElement, file: TFile): HTMLSelectElement {
     const fm = this.fm(file);
-    const statuses = ["", ...workspaceStatuses(this.app, this.plugin.settings, file.parent)
-      .map((status) => status.name?.trim() || "")
-      .filter(Boolean)];
+    const entries = workspaceStatuses(this.app, this.plugin.settings, file.parent);
+    const displayForValue = (value: string): string => {
+      const entry = entries.find((status) => statusStoredValue(status) === value);
+      return entry ? statusDisplayLabel(entry, getLocale()) : value;
+    };
     const sel = parent.createEl("select", { cls: "feuillets-status" });
-    for (const s of statuses) {
-      const opt = sel.createEl("option", { text: s || "—" });
-      opt.value = s;
+    const none = sel.createEl("option", { text: "—" });
+    none.value = "";
+    const values: string[] = [];
+    for (const status of entries) {
+      const value = statusStoredValue(status).trim();
+      if (!value) continue;
+      values.push(value);
+      const opt = sel.createEl("option", { text: statusDisplayLabel(status, getLocale()) });
+      opt.value = value;
     }
     const status = typeof fm.status === "string" ? fm.status : "";
-    sel.value = statuses.includes(status) ? status : "";
-    sel.setAttr("title", sel.value || t("shared.status.none"));
+    sel.value = values.includes(status) ? status : "";
+    sel.setAttr("title", sel.value ? displayForValue(sel.value) : t("shared.status.none"));
     sel.addEventListener("change", () => {
       void (async () => {
         await this.setFm(file, "status", sel.value);
-        sel.setAttr("title", sel.value || t("shared.status.none"));
+        sel.setAttr("title", sel.value ? displayForValue(sel.value) : t("shared.status.none"));
         sel.blur();
       })();
     });
@@ -3268,14 +3296,13 @@ export abstract class BaseFeuilletsView extends ItemView {
     ));
     menu.addSeparator();
     const currentStatus = (this.fm(file).status as string) || "";
-    const allStatuses = ["", ...workspaceStatuses(this.app, this.plugin.settings, file.parent)
-      .map((status) => status.name?.trim() || "")
-      .filter(Boolean)];
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const st of allStatuses.filter(Boolean)) {
+    for (const status of workspaceStatuses(this.app, this.plugin.settings, file.parent)) {
+      const st = statusStoredValue(status).trim();
+      if (!st) continue;
       choices.addItem((item) =>
         item
-          .setTitle(t("shared.contextMenu.statusLabel", { status: st }))
+          .setTitle(t("shared.contextMenu.statusLabel", { status: statusDisplayLabel(status, getLocale()) }))
           .setChecked(!isGroup && st === currentStatus)
           .onClick(async () => {
             if (isGroup) await this.applyBulkStatus(groupFiles, st);
@@ -3286,14 +3313,16 @@ export abstract class BaseFeuilletsView extends ItemView {
     })));
     const currentLabel = plugin.labelOf(file);
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const l of this.getProjectLabels(file.parent)) {
+    for (const labelEntry of this.getProjectLabels(file.parent)) {
+      const l = labelStoredValue(labelEntry).trim();
+      if (!l) continue;
       choices.addItem((item) =>
         item
-          .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
-          .setChecked(!isGroup && l.name === currentLabel)
+          .setTitle(t("shared.contextMenu.labelLabel", { label: labelDisplayLabel(labelEntry, getLocale()) }))
+          .setChecked(!isGroup && l === currentLabel)
           .onClick(async () => {
-            if (isGroup) await this.applyBulkLabel(groupFiles, l.name);
-            else await this.setFm(file, "label", l.name === currentLabel ? "" : l.name);
+            if (isGroup) await this.applyBulkLabel(groupFiles, l);
+            else await this.setFm(file, "label", l === currentLabel ? "" : l);
           })
       );
     }
@@ -3504,14 +3533,13 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     const note = plugin.folderNoteFor(folder);
     const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
-    const allStatuses = ["", ...workspaceStatuses(this.app, plugin.settings, folder)
-      .map((status) => status.name?.trim() || "")
-      .filter(Boolean)];
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const st of allStatuses.filter(Boolean)) {
+    for (const status of workspaceStatuses(this.app, plugin.settings, folder)) {
+      const st = statusStoredValue(status).trim();
+      if (!st) continue;
       choices.addItem((item) =>
         item
-          .setTitle(t("shared.contextMenu.statusLabel", { status: st }))
+          .setTitle(t("shared.contextMenu.statusLabel", { status: statusDisplayLabel(status, getLocale()) }))
           .setChecked(st === currentStatus)
           .onClick(async () => {
             const targetNote = note || await plugin.getOrCreateFolderNote(folder);
@@ -3524,15 +3552,17 @@ export abstract class BaseFeuilletsView extends ItemView {
     })));
     const currentLabel = note ? plugin.labelOf(note) : "";
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
-    for (const l of this.getProjectLabels(folder)) {
+    for (const labelEntry of this.getProjectLabels(folder)) {
+      const l = labelStoredValue(labelEntry).trim();
+      if (!l) continue;
       choices.addItem((item) =>
         item
-          .setTitle(t("shared.contextMenu.labelLabel", { label: l.name }))
-          .setChecked(l.name === currentLabel)
+          .setTitle(t("shared.contextMenu.labelLabel", { label: labelDisplayLabel(labelEntry, getLocale()) }))
+          .setChecked(l === currentLabel)
           .onClick(async () => {
             const targetNote = note || await plugin.getOrCreateFolderNote(folder);
             if (targetNote) {
-              await this.setFm(targetNote, "label", l.name === currentLabel ? "" : l.name);
+              await this.setFm(targetNote, "label", l === currentLabel ? "" : l);
             }
           })
       );

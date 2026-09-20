@@ -76,17 +76,30 @@ declare type SceneFrontmatter = {
   [key: string]: unknown;
 };
 
-/** Label de couleur, tel que stocké dans settings.labels / ProjectMeta.labels. */
+/** A color label, as stored in settings.labels / ProjectMeta.labels.
+ * `name` stays REQUIRED (type unchanged so nothing else breaks): a
+ * LEGACY/custom entry carries real user data there, displayed and stored
+ * exactly as typed, never translated or rewritten. A BUILT-IN entry
+ * (introduced by services/project-taxonomy.ts) ADDITIONALLY carries `id`,
+ * its stable identity — display text and stored value both resolve
+ * through that module, never through `name`, which remains only as an
+ * English compatibility fallback for a surface that still reads `.name`
+ * directly (see project-taxonomy.ts builtinLabelDefaults). */
 declare type Label = {
   name: string;
+  id?: string;
   color: string;
 };
 
-/** Statut personnalisable, tel que stocké dans settings.statuses /
- * ProjectMeta.statuses — voir constants.ts getProjectStatuses/getStatusColor.
- * `name` optionnel comme le type historique `ProjectStatus` (constants.ts). */
+/** A customizable status, as stored in settings.statuses /
+ * ProjectMeta.statuses — see constants.ts getProjectStatuses/getStatusColor
+ * and services/project-taxonomy.ts. Same contract as `Label` above:
+ * `name` for a legacy/custom entry, `id` for a stable built-in entry
+ * (`name` then just a compatibility fallback, never the source of truth
+ * for display). */
 declare type ProjectStatusEntry = {
   name?: string;
+  id?: string;
   color: string;
 };
 

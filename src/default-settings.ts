@@ -1,4 +1,5 @@
 // @ts-check
+import { builtinStatusDefaults, builtinLabelDefaults } from "./services/project-taxonomy.js";
 
 /** Type exhaustif pour DEFAULT_SETTINGS — source de vérité unique pour les réglages. */
 export type DefaultSettings = {
@@ -174,10 +175,17 @@ export type DefaultSettings = {
   researchTagFilter: string;
   binderStatusFilter: string;
   binderLabelFilter: string;
-  binderProgressFilter: "Tous" | "Atteint" | "En dessous" | "Dépassé";
+  /* A stored filter sentinel: the stable id ("all"/"hit"/"under"/"over",
+     see services/project-taxonomy.ts) or a legacy persisted value from an
+     existing data.json, normalized at read time via normalizeFilterSentinel
+     — never migrated, both forms remain valid indefinitely. Typed as a
+     plain string (like binderStatusFilter/binderLabelFilter/labelFilter
+     above) rather than a literal union, so no historical value has to be
+     spelled out in the type. */
+  binderProgressFilter: string;
   labels: Label[];
   labelFilter: string;
-  progressFilter: "Tous" | "Atteint" | "En dessous" | "Dépassé";
+  progressFilter: string;
   compilePresets: unknown[];
   activePreset: number;
   statsRetention: number;
@@ -227,14 +235,13 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   researchOrder: {},
   boardMode: "board",
   boardWholeManuscript: false,
-  statusFilter: "Tous",
-  statuses: [
-    { name: "Idée", color: "#8a8a8a" },
-    { name: "Brouillon", color: "#e08f4f" },
-    { name: "En cours", color: "#d9c04a" },
-    { name: "Révisé", color: "#5a8fd9" },
-    { name: "Terminé", color: "#5aa564" },
-  ],
+  statusFilter: "all",
+  /* Stable built-in ids (idea/draft/in_progress/revised/complete), never a
+     hardcoded display string — see services/project-taxonomy.ts. Only new
+     installs ever read this default: an existing data.json's own
+     `statuses` array (whatever shape it already has) always overrides it
+     on load, so no existing project's statuses are ever touched. */
+  statuses: builtinStatusDefaults(),
   tagFilter: "",
   autoRename: true,
   renamePrefix: "chapitre",
@@ -365,19 +372,16 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   binderSearchContent: true,
   researchSearch: "",
   researchTagFilter: "",
-  binderStatusFilter: "Tous",
-  binderLabelFilter: "Tous",
-  binderProgressFilter: "Tous",
-  labels: [
-    { name: "Rouge", color: "#e0524f" },
-    { name: "Orange", color: "#e08f4f" },
-    { name: "Jaune", color: "#d9c04a" },
-    { name: "Vert", color: "#5aa564" },
-    { name: "Bleu", color: "#5a8fd9" },
-    { name: "Violet", color: "#9a6dd7" },
-  ],
-  labelFilter: "Tous",
-  progressFilter: "Tous",
+  binderStatusFilter: "all",
+  binderLabelFilter: "all",
+  binderProgressFilter: "all",
+  /* Stable built-in ids (red/orange/yellow/green/blue/purple), never a
+     hardcoded display string — see services/project-taxonomy.ts. Only new
+     installs ever read this default: an existing data.json's own
+     `labels` array always overrides it on load. */
+  labels: builtinLabelDefaults(),
+  labelFilter: "all",
+  progressFilter: "all",
   compilePresets: [],
   activePreset: -1,
   statsRetention: 120,

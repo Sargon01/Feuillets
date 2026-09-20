@@ -9,7 +9,7 @@ test("Les éditions Objectifs, Statuts, Labels et Tags sauvegardent sans rerende
     assert.match(source, new RegExp(`private ${method}\\(`));
   }
   assert.match(source, /setValue\(String\(getValue\(\)\)\)\.onChange\(\(v\) => \{[\s\S]*?void this\.plugin\.saveSettings\(\);/);
-  assert.match(source, /arr\[i\]\.name = v\.trim\(\) \|\|[\s\S]*?void this\.plugin\.saveSettings\(\);/);
+  assert.match(source, /entry\.name = v\.trim\(\) \|\|[\s\S]*?void this\.plugin\.saveSettings\(\);/);
   assert.match(source, /favoriteTags = \[[\s\S]*?void this\.plugin\.saveSettings\(\);/);
 });
 

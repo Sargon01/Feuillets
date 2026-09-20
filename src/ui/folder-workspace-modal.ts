@@ -28,7 +28,8 @@ import {
   workspaceWordGoalDefault,
   workspaceScopeToFolderPath,
 } from "../services/folder-workspaces.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
+import { statusDisplayLabel, labelDisplayLabel } from "../services/project-taxonomy.js";
 import {
   listWorkspaceCitationCandidates,
   resolveWorkspaceCitationResources,
@@ -392,8 +393,13 @@ export class FolderWorkspaceModal extends Modal {
       new Setting(container)
         .setName(String(index + 1))
         .setDesc(source)
-        .addText((text) => text.setValue(status.name || "").onChange((value) => {
+        /* A built-in entry shows its translated name (statusDisplayLabel);
+           typing here is an explicit rename that forks it into a plain
+           legacy/custom entry — see project-config-content.ts for the
+           identical contract applied to the global statuses page. */
+        .addText((text) => text.setValue(statusDisplayLabel(status, getLocale())).onChange((value) => {
           const next = this.localStatuses(projectRootPath, relativeScope, list);
+          delete next[index].id;
           next[index].name = value;
           void this.saveLocalField(projectRootPath, relativeScope, "statuses", next);
         }))
@@ -462,8 +468,12 @@ export class FolderWorkspaceModal extends Modal {
       new Setting(container)
         .setName(String(index + 1))
         .setDesc(source)
-        .addText((text) => text.setValue(label.name).onChange((value) => {
+        /* Same contract as renderStatusRows above: a built-in entry shows
+           its translated name, and typing here forks it into a plain
+           legacy/custom entry. */
+        .addText((text) => text.setValue(labelDisplayLabel(label, getLocale())).onChange((value) => {
           const next = this.localLabels(projectRootPath, relativeScope, list);
+          delete next[index].id;
           next[index].name = value;
           void this.saveLocalField(projectRootPath, relativeScope, "labels", next);
         }))

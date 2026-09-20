@@ -22,6 +22,7 @@ import {
   projectWordGoalDefault,
 } from "./project-settings.js";
 import type { ProjectPlanningField } from "./project-settings.js";
+import { statusStoredValue, labelStoredValue } from "./project-taxonomy.js";
 
 export type FolderWorkspaceResolution<T> = {
   value: T | undefined;
@@ -334,13 +335,18 @@ export function workspaceFieldSource<K extends keyof FolderWorkspaceConfig>(
   return resolveFolderWorkspaceValue(context.meta, context.root.path, context.folder.path, key).source;
 }
 
+/* The incoming `name` is a raw stored value — a built-in stable id
+   ("draft") or a legacy/custom entry's exact `name` — never a translated
+   display string. statusStoredValue/labelStoredValue (project-taxonomy.js)
+   resolve the same value for the catalog entry, so this matches a
+   freshly assigned built-in id and a pre-existing legacy value alike. */
 export function workspaceStatusColor(
   app: App,
   settings: FeuilletsSettings,
   folder: TFolder | null,
   name: string,
 ): string | null {
-  const status = workspaceStatuses(app, settings, folder).find((entry) => entry.name === name);
+  const status = workspaceStatuses(app, settings, folder).find((entry) => statusStoredValue(entry) === name);
   return status ? status.color : null;
 }
 
@@ -350,6 +356,6 @@ export function workspaceLabelColor(
   folder: TFolder | null,
   name: string,
 ): string | null {
-  const label = workspaceLabels(app, settings, folder).find((entry) => entry.name === name);
+  const label = workspaceLabels(app, settings, folder).find((entry) => labelStoredValue(entry) === name);
   return label ? label.color : null;
 }

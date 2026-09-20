@@ -2652,4 +2652,20 @@ export const fr = {
   "projectCreation.sectionSources": "Sources",
   "projectCreation.notebook": "Carnet",
   "projectCreation.draftStem": "Sans titre",
+
+  /* Stable-identity taxonomy (src/services/project-taxonomy.ts) — display
+     names of the built-in statuses and labels, resolved by stable id
+     rather than a hardcoded string. Legacy/custom entries never use these
+     keys: they display their own stored name unchanged. */
+  "taxonomy.status.idea": "Idée",
+  "taxonomy.status.draft": "Brouillon",
+  "taxonomy.status.in_progress": "En cours",
+  "taxonomy.status.revised": "Révisé",
+  "taxonomy.status.complete": "Terminé",
+  "taxonomy.label.red": "Rouge",
+  "taxonomy.label.orange": "Orange",
+  "taxonomy.label.yellow": "Jaune",
+  "taxonomy.label.green": "Vert",
+  "taxonomy.label.blue": "Bleu",
+  "taxonomy.label.purple": "Violet",
 } as const;

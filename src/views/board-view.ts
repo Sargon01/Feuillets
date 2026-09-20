@@ -23,7 +23,14 @@ import { openSnapshotComparison } from "./comparison-view.js";
 import { FmFieldModal } from "../ui/fm-field-modal.js";
 import { TagsModal } from "../ui/entity-modals.js";
 import { listSnapshotFiles, type NewSheetOptions } from "../services/project-files.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
+import {
+  normalizeFilterSentinel,
+  statusStoredValue,
+  statusDisplayLabel,
+  labelStoredValue,
+  labelDisplayLabel,
+} from "../services/project-taxonomy.js";
 import { toValue } from "../utils/scene-fields.js";
 import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
 import { resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
@@ -298,19 +305,37 @@ export class BoardView extends BaseFeuilletsView {
     return t(`board.mode.${k}`);
   }
 
-  /** Traduit à l'affichage les valeurs sentinelles internes des filtres
-   * (stockées en français dans les réglages, comme pour le Binder — voir
-   * filterSentinelLabel dans feuillets-view.js) ; un statut/label/POV réel
-   * choisi par l'utilisateur passe inchangé. */
-  filterSentinelLabel(v: string): string {
-    return v === "Tous" ? t("binder.filter.all")
-      : v === "Sans statut" ? t("binder.filter.noStatus")
-      : v === "Sans label" ? t("binder.filter.noLabel")
-      : v === "Sans POV" ? t("board.filter.noPov")
-      : v === "Atteint" ? t("binder.filter.progressHit")
-      : v === "En dessous" ? t("binder.filter.progressUnder")
-      : v === "Dépassé" ? t("binder.filter.progressOver")
-      : v;
+  /** Translates an internal filter sentinel value for display — a legacy
+   * historical value (French or English), a stable id ("all"/"none"/
+   * "hit"/"under"/"over", see services/project-taxonomy.ts
+   * normalizeFilterSentinel), or the stable id already: all three forms
+   * display identically. A real status/label/POV value chosen by the user
+   * passes through unchanged. `noneKey`: the translation of the "none"
+   * sentinel depends on which filter it's for (status/label) — never
+   * guessable from the normalized value alone, which is shared between
+   * the two. POV keeps its own literal sentinel ("Sans POV"), outside the
+   * scope of this normalization. */
+  filterSentinelLabel(v: string, noneKey?: string): string {
+    if (v === "Sans POV") return t("board.filter.noPov");
+    const normalized = normalizeFilterSentinel(v);
+    if (normalized === "all") return t("binder.filter.all");
+    if (normalized === "none") return noneKey ? t(noneKey) : v;
+    if (normalized === "hit") return t("binder.filter.progressHit");
+    if (normalized === "under") return t("binder.filter.progressUnder");
+    if (normalized === "over") return t("binder.filter.progressOver");
+    return v;
+  }
+
+  /** Reverse lookup for a RAW stored status value (frontmatter's own
+   * `status:` field, or a filter's stored value) back to its display text:
+   * a built-in id shows its translated name (statusDisplayLabel), a
+   * legacy/custom value that matches no catalog entry is shown exactly as
+   * stored — never guessed, never rewritten. Used wherever a card/row only
+   * has the raw stored string on hand, not the full catalog entry. */
+  private displayForStoredStatus(folder: TFolder | null, storedValue: string): string {
+    const entry = workspaceStatuses(this.app, this.plugin.settings, folder)
+      .find((status) => statusStoredValue(status) === storedValue);
+    return entry ? statusDisplayLabel(entry, getLocale()) : storedValue;
   }
 
   getIcon(): string {
@@ -367,15 +392,20 @@ export class BoardView extends BaseFeuilletsView {
 
   passesFilter(file: TFile): boolean {
     const S = this.plugin.settings;
-    const statusFilter = S.statusFilter;
-    if (statusFilter && statusFilter !== "Tous") {
+    /* normalizeFilterSentinel is a no-op for a real status/label/progress
+       value (it only recognizes the "all"/"none"/"hit"/"under"/"over"
+       sentinels and their legacy French/English spellings) — so this
+       still compares the exact stored value against frontmatter for a
+       genuine choice, unchanged from before. */
+    const statusFilter = normalizeFilterSentinel(S.statusFilter || "all");
+    if (statusFilter && statusFilter !== "all") {
       const currentStatus = String((this.fm(file).status as string | number | boolean | null | undefined) || "");
-      if (statusFilter === "Sans statut" ? currentStatus !== "" : currentStatus !== statusFilter) return false;
+      if (statusFilter === "none" ? currentStatus !== "" : currentStatus !== statusFilter) return false;
     }
-    const labelFilter = S.labelFilter;
-    if (labelFilter && labelFilter !== "Tous") {
+    const labelFilter = normalizeFilterSentinel(S.labelFilter || "all");
+    if (labelFilter && labelFilter !== "all") {
       const labels = this.plugin.labelsOf(file);
-      if (labelFilter === "Sans label" ? labels.length !== 0 : !labels.includes(labelFilter)) return false;
+      if (labelFilter === "none" ? labels.length !== 0 : !labels.includes(labelFilter)) return false;
     }
     const povFilter = S.povFilter;
     if (povFilter && povFilter !== "Tous") {
@@ -384,15 +414,15 @@ export class BoardView extends BaseFeuilletsView {
     }
     const tagTerm = (S.tagFilter || "").trim().toLowerCase().replace(/^#/, "");
     if (tagTerm && !this.plugin.tagsOf(file).map((l: string) => l.toLowerCase()).some((l: string) => l.includes(tagTerm))) return false;
-    const progressFilter = S.progressFilter;
-    if (progressFilter && progressFilter !== "Tous" && this.wcMap) {
+    const progressFilter = normalizeFilterSentinel(S.progressFilter || "all");
+    if (progressFilter && progressFilter !== "all" && this.wcMap) {
       const wc = this.wcMap.get(file.path);
       const goal = this.goalFor(file);
       if (wc !== undefined && goal > 0) {
         const state = this.ringState(wc, goal, file.parent);
-        if (progressFilter === "Atteint" && state !== "hit") return false;
-        if (progressFilter === "En dessous" && state !== "under") return false;
-        if (progressFilter === "Dépassé" && state !== "over") return false;
+        if (progressFilter === "hit" && state !== "hit") return false;
+        if (progressFilter === "under" && state !== "under") return false;
+        if (progressFilter === "over" && state !== "over") return false;
       } else if (goal <= 0) return false;
     }
     return true;
@@ -401,9 +431,9 @@ export class BoardView extends BaseFeuilletsView {
   filterActive(): boolean {
     const S = this.plugin.settings;
     return !!(
-      (S.statusFilter && S.statusFilter !== "Tous") ||
-      (S.labelFilter && S.labelFilter !== "Tous") ||
-      (S.progressFilter && S.progressFilter !== "Tous") ||
+      (S.statusFilter && normalizeFilterSentinel(S.statusFilter) !== "all") ||
+      (S.labelFilter && normalizeFilterSentinel(S.labelFilter) !== "all") ||
+      (S.progressFilter && normalizeFilterSentinel(S.progressFilter) !== "all") ||
       (S.povFilter && S.povFilter !== "Tous") ||
       (S.tagFilter || "").trim() !== ""
     );
@@ -549,19 +579,41 @@ export class BoardView extends BaseFeuilletsView {
     this.iconBtn(bar, this.filterActive() ? "filter" : "list-filter", t("board.filter.tooltip"), (e: MouseEvent) => {
       const menu = new Menu();
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
-      const effectiveStatuses = workspaceStatuses(this.app, S, workflowFolder)
-        .map((status) => status.name?.trim() || "")
-        .filter(Boolean);
-      for (const st of ["Tous", ...effectiveStatuses, "Sans statut"]) {
+      /* The stored/compared filter value is always statusStoredValue(entry):
+         the stable id for a built-in status, the literal name for a
+         legacy/custom one. This stays in lockstep with every assignment
+         path (bulk status/label menu, card menu, makeStatusSelect/
+         makeLabelSelect in base-feuillets-view.ts) — a scene's `status:`
+         frontmatter, once assigned through any of them, and this filter,
+         always agree. Only the MENU ITEM'S TEXT is translated
+         (statusDisplayLabel); a legacy/custom entry keeps showing and
+         storing its own name, unchanged. */
+      const statusDisplayByValue = new Map<string, string>();
+      const effectiveStatuses: string[] = [];
+      for (const status of workspaceStatuses(this.app, S, workflowFolder)) {
+        const value = statusStoredValue(status).trim();
+        if (!value) continue;
+        effectiveStatuses.push(value);
+        statusDisplayByValue.set(value, statusDisplayLabel(status, getLocale()));
+      }
+      for (const st of ["all", ...effectiveStatuses, "none"]) {
         menu.addItem((item) =>
-          item.setTitle(this.filterSentinelLabel(st)).setChecked((S.statusFilter || "Tous") === st).onClick(async () => {
-            S.statusFilter = st;
-            await this.plugin.saveSettings();
-            void this.render();
-          })
+          item
+            .setTitle(statusDisplayByValue.get(st) ?? this.filterSentinelLabel(st, "binder.filter.noStatus"))
+            .setChecked(normalizeFilterSentinel(S.statusFilter || "all") === st)
+            .onClick(async () => {
+              S.statusFilter = st;
+              await this.plugin.saveSettings();
+              void this.render();
+            })
         );
       }
       menu.addSeparator();
+      const labelDisplayByValue = new Map<string, string>();
+      for (const entry of workspaceLabels(this.app, S, workflowFolder)) {
+        const value = labelStoredValue(entry).trim();
+        if (value) labelDisplayByValue.set(value, labelDisplayLabel(entry, getLocale()));
+      }
       const labels = new Set<string>();
       const projectRoot = this.plugin.getProjectFolder();
       if (projectRoot) {
@@ -574,16 +626,19 @@ export class BoardView extends BaseFeuilletsView {
         };
         collect(projectRoot);
       }
-      workspaceLabels(this.app, S, workflowFolder).forEach((l) => { if (l.name) labels.add(l.name); });
+      for (const value of labelDisplayByValue.keys()) labels.add(value);
       const sortedLabels = Array.from(labels).sort((a, b) => a.localeCompare(b, "fr"));
       menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
-      for (const lb of ["Tous", ...sortedLabels, "Sans label"]) {
+      for (const lb of ["all", ...sortedLabels, "none"]) {
         menu.addItem((item) =>
-          item.setTitle(this.filterSentinelLabel(lb)).setChecked((S.labelFilter || "Tous") === lb).onClick(async () => {
-            S.labelFilter = lb;
-            await this.plugin.saveSettings();
-            void this.render();
-          })
+          item
+            .setTitle(labelDisplayByValue.get(lb) ?? this.filterSentinelLabel(lb, "binder.filter.noLabel"))
+            .setChecked(normalizeFilterSentinel(S.labelFilter || "all") === lb)
+            .onClick(async () => {
+              S.labelFilter = lb;
+              await this.plugin.saveSettings();
+              void this.render();
+            })
         );
       }
       menu.addSeparator();
@@ -614,9 +669,9 @@ export class BoardView extends BaseFeuilletsView {
         menu.addSeparator();
       }
       menu.addItem((item) => item.setTitle(t("binder.filter.progressHeader")).setDisabled(true));
-      for (const pr of ["Tous", "Atteint", "En dessous", "Dépassé"]) {
+      for (const pr of ["all", "hit", "under", "over"] as const) {
         menu.addItem((item) =>
-          item.setTitle(this.filterSentinelLabel(pr)).setChecked((S.progressFilter || "Tous") === pr).onClick(async () => {
+          item.setTitle(this.filterSentinelLabel(pr)).setChecked(normalizeFilterSentinel(S.progressFilter || "all") === pr).onClick(async () => {
             S.progressFilter = pr;
             await this.plugin.saveSettings();
             void this.render();
@@ -637,9 +692,9 @@ export class BoardView extends BaseFeuilletsView {
         menu.addSeparator();
         menu.addItem((item) =>
           item.setTitle(t("binder.filter.reset")).setIcon("filter-x").onClick(async () => {
-            S.statusFilter = "Tous";
-            S.labelFilter = "Tous";
-            S.progressFilter = "Tous";
+            S.statusFilter = "all";
+            S.labelFilter = "all";
+            S.progressFilter = "all";
             S.povFilter = "Tous";
             S.tagFilter = "";
             await this.plugin.saveSettings();
@@ -793,25 +848,27 @@ export class BoardView extends BaseFeuilletsView {
           );
           menu.addSeparator();
 
-          for (const st of workspaceStatuses(this.app, this.plugin.settings, workflowFolder)
-            .map((status) => status.name?.trim() || "")
-            .filter(Boolean)) {
+          for (const status of workspaceStatuses(this.app, this.plugin.settings, workflowFolder)) {
+            const value = statusStoredValue(status).trim();
+            if (!value) continue;
             menu.addItem((item) =>
-              item.setTitle(t("board.selection.statusCount", { status: st, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
+              item.setTitle(t("board.selection.statusCount", { status: statusDisplayLabel(status, getLocale()), count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
                 clearSel();
-                await this.applyBulkStatus(files, st);
+                await this.applyBulkStatus(files, value);
               })
             );
           }
           menu.addSeparator();
 
-          for (const l of this.getProjectLabels(workflowFolder)) {
+          for (const label of this.getProjectLabels(workflowFolder)) {
+            const value = labelStoredValue(label).trim();
+            if (!value) continue;
             menu.addItem((item) =>
-              item.setTitle(t("board.selection.labelCount", { label: l.name, count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
+              item.setTitle(t("board.selection.labelCount", { label: labelDisplayLabel(label, getLocale()), count: String(selSize) })).setDisabled(selSize < 1).onClick(async () => {
                 const files = getSelectedFiles();
                 clearSel();
-                await this.applyBulkLabel(files, l.name);
+                await this.applyBulkLabel(files, value);
               })
             );
           }
@@ -1560,8 +1617,9 @@ export class BoardView extends BaseFeuilletsView {
     const statusValue = toValue(this.fm(file).status);
     if (statusValue) {
       const statusEl = head.createDiv({ cls: "feuillets-card-status" });
-      statusEl.setText(statusValue);
-      statusEl.setAttr("title", statusValue);
+      const statusText = this.displayForStoredStatus(file.parent, statusValue);
+      statusEl.setText(statusText);
+      statusEl.setAttr("title", statusText);
     }
 
     const more = head.createDiv({ cls: "feuillets-card-more clickable-icon" });
@@ -1572,12 +1630,12 @@ export class BoardView extends BaseFeuilletsView {
       const menu = new Menu();
       const currentSt = toValue(this.fm(file).status);
       const S = this.plugin.settings;
-      for (const st of workspaceStatuses(this.app, S, file.parent)
-        .map((status) => status.name?.trim() || "")
-        .filter(Boolean)) {
+      for (const status of workspaceStatuses(this.app, S, file.parent)) {
+        const value = statusStoredValue(status).trim();
+        if (!value) continue;
         menu.addItem((item) =>
-          item.setTitle(t("shared.contextMenu.statusLabel", { status: st })).setChecked(st === currentSt).onClick(async () => {
-            await this.setFm(file, "status", st === currentSt ? "" : st);
+          item.setTitle(t("shared.contextMenu.statusLabel", { status: statusDisplayLabel(status, getLocale()) })).setChecked(value === currentSt).onClick(async () => {
+            await this.setFm(file, "status", value === currentSt ? "" : value);
           })
         );
       }

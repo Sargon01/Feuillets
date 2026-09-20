@@ -1,5 +1,6 @@
 import { Modal, Notice, Setting, TFolder, TFile, type App } from "obsidian";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
+import { statusDisplayLabel, labelDisplayLabel } from "../services/project-taxonomy.js";
 import { MAPPABLE_FIELDS, rawFrontmatterOf } from "../services/frontmatter.js";
 import {
   projectStatuses, projectFavoriteTags, projectWordGoalDefault, projectTolerance,
@@ -207,9 +208,18 @@ export class ProjectConfigContent {
       new Setting(section)
         .setName(String(i + 1))
         .addText((t2) =>
-          t2.setValue(st.name || "").onChange((v) => {
+          /* Built-in entry: shown translated (statusDisplayLabel, by
+             stable id — never a hardcoded string). Typing here is an
+             explicit rename: it forks the entry into a plain
+             legacy/custom one (`id` dropped, the typed text becomes its
+             real, permanent `name`) — it can never silently keep
+             re-translating after that. A legacy/custom entry already
+             shows and stores its own name unchanged, exactly as before. */
+          t2.setValue(statusDisplayLabel(st, getLocale())).onChange((v) => {
             const arr = ensureOverride();
-            arr[i].name = v.trim() || t("settings.statuses.item", { n: String(i + 1) });
+            const entry = arr[i];
+            delete entry.id;
+            entry.name = v.trim() || t("settings.statuses.item", { n: String(i + 1) });
             void this.plugin.saveSettings();
           })
         )
@@ -272,9 +282,14 @@ export class ProjectConfigContent {
       new Setting(section)
         .setName(String(i + 1))
         .addText((t2) =>
-          t2.setValue(l.name).onChange((v) => {
+          /* Same contract as the statuses page above: a built-in entry
+             shows its translated name (labelDisplayLabel), and typing
+             here forks it into a plain legacy/custom entry. */
+          t2.setValue(labelDisplayLabel(l, getLocale())).onChange((v) => {
             const arr = ensureOverride();
-            arr[i].name = v.trim() || t("settings.labels.item", { n: String(i + 1) });
+            const entry = arr[i];
+            delete entry.id;
+            entry.name = v.trim() || t("settings.labels.item", { n: String(i + 1) });
             void this.plugin.saveSettings();
           })
         )

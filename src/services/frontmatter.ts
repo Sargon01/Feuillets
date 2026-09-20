@@ -1,4 +1,5 @@
 import type { App, TFile, TFolder } from "obsidian";
+import { labelStoredValue } from "./project-taxonomy.js";
 
 /** Lecture du frontmatter des feuillets. Vérifié par `tsc` (voir types.d.ts) :
  * ce module est la porte d'entrée de toutes les données YAML du plugin, donc
@@ -344,7 +345,9 @@ export function labelColor(settings: FeuilletsSettings, name: string): string | 
   const meta = rootPath && settings.projectMeta ? settings.projectMeta[rootPath] : null;
   const labels = (meta && meta.labels) ? meta.labels : (settings.labels || []);
 
-  const found = labels.find((l) => l.name === name);
+  // See workspaceLabelColor (folder-workspaces.ts): `name` is a raw stored
+  // value (a built-in stable id or a legacy/custom entry's exact name).
+  const found = labels.find((l) => labelStoredValue(l) === name);
   if (found) return found.color;
   if (name) {
     // Génère une couleur stable issue de la palette de l'utilisateur pour cet arc
