@@ -1965,7 +1965,7 @@ export class NotesView extends BaseFeuilletsView {
       const relative = toManuscriptRelativePath(this.app, this.plugin.settings, file);
       const store = await loadWorkNotes(this.app, this.plugin.settings);
       for (const note of relative === null ? [] : store.notes.filter((n) => n.file === relative)) this.renderWorkNoteText(notesList, file, note.id, note.text, false);
-    } catch { notesList.createDiv({ cls: "feuillets-empty" }).setText("work-notes.json invalide"); }
+    } catch { notesList.createDiv({ cls: "feuillets-empty" }).setText(t("notes.section.workNotesInvalid")); }
     const addLine = notesList.createEl("button", { cls: "feuillets-work-note-add clickable-icon" });
     setIcon(addLine, "plus"); addLine.setAttr("aria-label", t("notes.section.addNote"));
     addLine.addEventListener("click", () => this.renderInlineWorkNote(addLine, file));

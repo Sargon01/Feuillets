@@ -1,6 +1,7 @@
 import { TFile, normalizePath, type App } from "obsidian";
 import { getProjectFolder, internalResourcesFolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
+import { t } from "../i18n/index.js";
 import { createSourceAnchor, resolveSourceAnchor, type SourceAnchor, type ResolvedSourceRange } from "./source-anchor.js";
 
 export type CitationOccurrence = SourceAnchor & {
@@ -89,10 +90,10 @@ export async function saveCitationRegistry(
   registry: CitationRegistry
 ): Promise<void> {
   const path = citationRegistryPath(app, settings);
-  if (!path) throw new Error("Aucun projet Feuillets actif.");
+  if (!path) throw new Error(t("analysis.dashboard.noActiveProject"));
   validateRegistry(registry, path);
   const root = getProjectFolder(app, settings);
-  if (!root) throw new Error("Aucun projet Feuillets actif.");
+  if (!root) throw new Error(t("analysis.dashboard.noActiveProject"));
   const folder = internalResourcesFolderPath(app, root);
   await ensureFolder(app, folder);
   const json = JSON.stringify(registry, null, 2);

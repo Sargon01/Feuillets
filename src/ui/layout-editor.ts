@@ -847,10 +847,14 @@ export class LayoutEditor {
     num(t("modal.layout.sizePt"), () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
 
     new Setting(insp).setName(t("modal.layout.alignment")).then((s) => {
-      const alignments: Array<[string, string]> = [["left", "align-left"], ["center", "align-center"], ["right", "align-right"]];
-      for (const [val, icon] of alignments) {
+      const alignments: Array<[string, string, string]> = [
+        ["left", "align-left", t("modal.layout.alignLeft")],
+        ["center", "align-center", t("modal.layout.alignCenter")],
+        ["right", "align-right", t("modal.layout.alignRight")],
+      ];
+      for (const [val, icon, label] of alignments) {
         s.addExtraButton((b) => {
-          b.setIcon(icon).setTooltip(val).onClick(async () => {
+          b.setIcon(icon).setTooltip(label).onClick(async () => {
             st.align = val;
             this.renderInspector();
             await this.saveModel();

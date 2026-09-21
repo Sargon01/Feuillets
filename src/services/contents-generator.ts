@@ -7,6 +7,7 @@
  * numéros de page ici : ils dépendent de la mise en page (Phase 11).
  */
 import { generatedContentsEntries } from "./generated-contents.js";
+import { translate, getLocale, type Locale } from "../i18n/index.js";
 
 /** Un titre Markdown réellement présent dans le manuscrit compilé, avec son
  * niveau (nombre de `#`, 1 à 6) et son texte, dans l'ordre où il apparaît. */
@@ -40,17 +41,17 @@ function block(title: string, lines: string[]): string {
 /** Sommaire : uniquement les deux premiers niveaux de titres du manuscrit
  * (typiquement parties et chapitres), en liste simple, dans leur ordre
  * réel. */
-export function generateSummary(segments: CompileSegment[]): string {
+export function generateSummary(segments: CompileSegment[], locale: Locale = getLocale()): string {
   const lines = generatedContentsEntries(segments)
     .filter((h) => h.level <= 2)
     .map((h) => `- ${h.text}`);
-  return block("# Sommaire", lines);
+  return block(`# ${translate(locale, "contents.summary.sectionTitle")}`, lines);
 }
 
 /** Table des matières : tous les niveaux de titres présents, indentés selon
  * leur niveau, dans leur ordre réel. */
-export function generateTableOfContents(segments: CompileSegment[]): string {
+export function generateTableOfContents(segments: CompileSegment[], locale: Locale = getLocale()): string {
   const lines = generatedContentsEntries(segments)
     .map((h) => `${"  ".repeat(h.level - 1)}- ${h.text}`);
-  return block("# Table des matières", lines);
+  return block(`# ${translate(locale, "contents.toc.sectionTitle")}`, lines);
 }

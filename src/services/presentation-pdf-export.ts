@@ -502,7 +502,7 @@ async function printPresentationDeck(options: {
   styleEl(iframe, { position: "absolute", left: "-100000px", top: "0", width: "0", height: "0", border: "0" });
   let cleanupScheduled = false;
   try {
-    if (!isPrintableIframe(iframe)) throw new Error("Impossible de préparer la fenêtre d'impression PDF.");
+    if (!isPrintableIframe(iframe)) throw new Error(t("export.pdf.windowPrepFailed"));
     // Référence stable capturée pour les closures ci-dessous (`iframe`, en
     // portée englobante, redevient `HTMLIFrameElement | null` aux yeux du
     // vérificateur de types dans une fermeture asynchrone).
@@ -519,7 +519,7 @@ async function printPresentationDeck(options: {
     const bodyEl = htmlEl.querySelector("body");
     const titleTag = htmlEl.querySelector("title");
     const printStyleEl = htmlEl.querySelector("style");
-    if (!headEl || !bodyEl || !titleTag || !printStyleEl) throw new Error("Squelette HTML d'impression incomplet.");
+    if (!headEl || !bodyEl || !titleTag || !printStyleEl) throw new Error(t("export.pdf.htmlSkeletonIncomplete"));
 
     titleTag.textContent = options.title;
 

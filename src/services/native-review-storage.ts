@@ -1,6 +1,7 @@
 import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { FEUILLETS_AUXILIARY_FOLDER_NAME, feuilletsAuxiliaryRootPath, getManuscriptRoot } from "./folder-structure.js";
+import { t } from "../i18n/index.js";
 
 export type NativeReviewStorageLocation = {
   kind: "author-project" | "reviewer-inbox" | "legacy-global-author";
@@ -130,6 +131,6 @@ export function locateNativeReviewSession(app: App, reviewId: string, settings?:
 
 export async function removeNativeReviewSession(app: App, location: NativeReviewStorageLocation, reviewId: string): Promise<void> {
   const folder = app.vault.getAbstractFileByPath(reviewSessionPaths(location, reviewId).root);
-  if (!(folder instanceof TFolder)) throw new Error("Dossier de session introuvable");
+  if (!(folder instanceof TFolder)) throw new Error(t("nativeReview.sessionFolderNotFound"));
   await app.fileManager.trashFile(folder);
 }

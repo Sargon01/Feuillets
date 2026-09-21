@@ -416,7 +416,7 @@ export class ProjectConfigContent {
     for (const f of files) {
       for (const key of Object.keys(rawFrontmatterOf(this.app, f))) keys.add(key);
     }
-    return [...keys].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
+    return [...keys].sort((a, b) => a.localeCompare(b, getLocale(), { numeric: true }));
   }
 
   /** Propriétés YAML de premier niveau de tous les Markdown du vault, via le cache. */
@@ -425,7 +425,7 @@ export class ProjectConfigContent {
     for (const file of this.app.vault.getMarkdownFiles()) {
       for (const key of Object.keys(rawFrontmatterOf(this.app, file))) keys.add(key);
     }
-    return [...keys].sort((a, b) => a.localeCompare(b, "fr", { numeric: true }));
+    return [...keys].sort((a, b) => a.localeCompare(b, getLocale(), { numeric: true }));
   }
 
   /** §23 : écrit UNIQUEMENT `meta.propertyMap[field]` (ou le supprime,

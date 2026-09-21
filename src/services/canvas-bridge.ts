@@ -1,5 +1,6 @@
 import { normalizePath, TFile } from "obsidian";
 import type { App, TFolder } from "obsidian";
+import { t } from "../i18n/index.js";
 import type { CanvasData, CanvasNode } from "./canvas-board.js";
 import type { MinimalRuntimeCanvas } from "./canvas-runtime.js";
 import { replaceTextNodeWithFileNode } from "./canvas-runtime.js";
@@ -65,7 +66,7 @@ export function bodyAfterTitle(text: string): string {
  * système de fichiers retirés, jamais vide (repli sur "Idée"). */
 export function safeFileName(title: string): string {
   const cleaned = (title || "").replace(/[\\/:*?"<>|]/g, "-").trim();
-  return cleaned || "Idée";
+  return cleaned || t("taxonomy.status.idea");
 }
 
 /** Nom de fichier sans collision dans un dossier donné : "Nom.<ext>", puis
@@ -178,7 +179,7 @@ export async function resolveOrCreateSheetFile(
     const existing = app.vault.getAbstractFileByPath(node.file);
     if (existing instanceof TFile) return { file: existing, wasCreated: false };
   }
-  const title = titleOverride?.trim() || deriveTitle(node.text || "") || "Idée";
+  const title = titleOverride?.trim() || deriveTitle(node.text || "") || t("taxonomy.status.idea");
   const body = node.text || "";
   const path = uniqueFileName(
     (p) => !!app.vault.getAbstractFileByPath(p),

@@ -23,7 +23,8 @@ import {
   type ReviewConfidenceReason,
 } from "../services/docx-review-import.js";
 import { bookmarkIdFor } from "../utils/docx-bookmarks.js";
-import { t, getLocale } from "../i18n/index.js";
+import { t, getLocale, translate, type Locale } from "../i18n/index.js";
+import { detectProjectStructureLocale } from "../services/folder-structure.js";
 import { listSnapshotFiles } from "../services/project-files.js";
 import { writeBinaryFile } from "../services/compile-export.js";
 import { regenerateDocxZip, type RegenerateDecision } from "../services/docx-review-regenerate.js";
@@ -994,14 +995,18 @@ export class DocxReviewView extends BaseFeuilletsView {
       }
 
       // Mission §6 — jamais le nom du fichier original : dossier de sortie
-      // déjà utilisé par les exports natifs (voir compile-export.ts), repli
-      // sur le dossier projet si aucun export n'a encore eu lieu.
-      const outputFolder = await this.plugin.getOutputFolder();
+      const uiLocale = getLocale();
       const projectFolder = this.plugin.getProjectFolder();
-      const outBase = outputFolder ? outputFolder.path : (projectFolder ? projectFolder.path : "");
-      const baseName = this.docxName.replace(/\.docx$/i, "");
-      const outPath = normalizePath(
-        outBase ? `${outBase}/${baseName}-révisé.docx` : `${baseName}-révisé.docx`
+      const projectLocale = projectFolder
+        ? detectProjectStructureLocale(this.app, projectFolder, uiLocale)
+        : uiLocale;
+      const outputFolder = await this.plugin.getOutputFolder(projectLocale);
+      const outPath = resolveRevisedDocxOutputPath(
+        this.app,
+        projectFolder,
+        outputFolder,
+        this.docxName,
+        uiLocale
       );
       try {
         // writeBinaryFile (compile-export.ts, déjà utilisé par les exports
@@ -2283,4 +2288,22 @@ export class DocxReviewView extends BaseFeuilletsView {
       })();
     });
   }
+}
+
+export function resolveRevisedDocxOutputPath(
+  app: App,
+  projectFolder: TFolder | null | undefined,
+  outputFolder: TAbstractFile | null | undefined,
+  docxName: string,
+  uiLocale: Locale = getLocale()
+): string {
+  const projectLocale = projectFolder
+    ? detectProjectStructureLocale(app, projectFolder, uiLocale)
+    : uiLocale;
+  const outBase = outputFolder ? outputFolder.path : (projectFolder ? projectFolder.path : "");
+  const baseName = docxName.replace(/\.docx$/i, "");
+  const suffix = translate(projectLocale, "docxReview.revisedSuffix");
+  return normalizePath(
+    outBase ? `${outBase}/${baseName}${suffix}.docx` : `${baseName}${suffix}.docx`
+  );
 }

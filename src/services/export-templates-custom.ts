@@ -2,7 +2,7 @@ import { TFile, TFolder, Notice, normalizePath, stringifyYaml } from "obsidian";
 import type { App } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, detectProjectStructureLocale } from "./folder-structure.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
-import { FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
+import { FALLBACK_LOCALE, t, type Locale } from "../i18n/index.js";
 import { fmOf } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { BUILTIN_TEMPLATE_CATALOG, EXPORT_TEMPLATES } from "../utils/export-templates.js";
@@ -292,7 +292,7 @@ export async function resolveExportTemplate(app: App, settings: FeuilletsSetting
 export async function exportBuiltInTemplates(app: App, settings: FeuilletsSettings, fallbackLocale?: Locale): Promise<number> {
   const path = customTemplatesFolderPath(app, settings, fallbackLocale);
   if (!path) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return 0;
   }
   await ensureFolder(app, path);
@@ -368,7 +368,7 @@ export async function createCustomTemplateFromV2(
 ): Promise<{ key: string; label: string } | null> {
   const path = customTemplatesFolderPath(app, settings, fallbackLocale);
   if (!path) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return null;
   }
   await ensureFolder(app, path);
@@ -406,7 +406,7 @@ export async function createCustomTemplateFromFields(
 ): Promise<{ key: string; label: string } | null> {
   const path = customTemplatesFolderPath(app, settings, fallbackLocale);
   if (!path) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return null;
   }
   await ensureFolder(app, path);
@@ -435,7 +435,8 @@ export async function duplicateExportTemplate(
 ): Promise<{ key: string; label: string } | null> {
   const sourceKey = (settings as { exportTemplate?: string }).exportTemplate || "classique";
   const source = await resolveExportTemplate(app, settings, sourceKey);
-  const label = `${source.label} — copie`;
+  const copySuffix = t("binder.research.copySuffix");
+  const label = `${source.label} — ${copySuffix}`;
   const sourceV2 = await resolveExportTemplateV2(app, settings, sourceKey);
   return createCustomTemplateFromV2(app, settings, `${sourceKey}-copie`, label, sourceV2, fallbackLocale);
 }
@@ -464,7 +465,7 @@ export async function updateTemplateTitlePage(app: App, settings: FeuilletsSetti
 export async function saveExportTemplateV2(app: App, settings: FeuilletsSettings, key: string, template: ExportTemplateV2, fallbackLocale?: Locale): Promise<void> {
   const file = await ensureTemplateFile(app, settings, key, fallbackLocale);
   if (!file) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return;
   }
   const normalized = normalizeV2Template(JSON.parse(JSON.stringify(template)) as ExportTemplateV2);

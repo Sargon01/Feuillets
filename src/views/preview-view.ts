@@ -1832,7 +1832,7 @@ export class PreviewView extends ItemView {
       if (generation !== this.refreshGeneration) return;
     }
 
-    if (hasRemainingDocumentLayoutMarker(containerEl)) throw new Error("Marqueur de mise en page Document résiduel dans le DOM.");
+    if (hasRemainingDocumentLayoutMarker(containerEl)) throw new Error("Residual document layout marker in DOM.");
     if (tpl.profile === "document") composeDocumentMedia(containerEl, images);
 
     /* Page de titre générique : seulement pour le manuscrit complet, et

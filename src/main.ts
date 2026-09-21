@@ -2300,8 +2300,8 @@ class FeuilletsPlugin extends Plugin {
       const lines = next.question?.mode === "lines" ? next.question.lines : undefined;
       const amount = next.question?.mode === "space" ? next.question.amount : undefined;
       const unit = next.question?.mode === "space" ? next.question.unit : undefined;
-      if (next.question?.mode === "lines" && (lines === undefined || !Number.isInteger(lines) || lines <= 0)) { new Notice("Le nombre de lignes doit être un entier positif."); return; }
-      if (next.question?.mode === "space" && (amount === undefined || !Number.isInteger(amount) || amount <= 0 || !unit)) { new Notice("La hauteur de réponse doit être une valeur positive."); return; }
+      if (next.question?.mode === "lines" && (lines === undefined || !Number.isInteger(lines) || lines <= 0)) { new Notice(t("modal.layoutDirective.linesPositiveInteger")); return; }
+      if (next.question?.mode === "space" && (amount === undefined || !Number.isInteger(amount) || amount <= 0 || !unit)) { new Notice(t("modal.layoutDirective.spacePositiveValue")); return; }
       await applyDocumentLayoutChanges(this.app, this.settings, root.path, file, editor.getValue(), target, next);
       await this.refreshDocumentLayoutPageBreaks(file);
       this.app.workspace.getLeavesOfType(VIEW_PREVIEW).forEach((leaf) => { if (leaf.view instanceof PreviewView) void leaf.view.refreshPreview(); });
@@ -5687,7 +5687,7 @@ class FeuilletsPlugin extends Plugin {
     const session = await resolveCanvasSession(this.app, result.file);
     const outcome = await addFileNodeToNotebook(this.app, result.file, file.path, session.view);
     if (outcome === "duplicate") {
-      new Notice("Ce feuillet est déjà dans le Carnet.");
+      new Notice(t("main.notice.sheetAlreadyInNotebook"));
     }
   }
 

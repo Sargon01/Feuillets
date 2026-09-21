@@ -311,12 +311,9 @@ export class BoardView extends BaseFeuilletsView {
    * normalizeFilterSentinel), or the stable id already: all three forms
    * display identically. A real status/label/POV value chosen by the user
    * passes through unchanged. `noneKey`: the translation of the "none"
-   * sentinel depends on which filter it's for (status/label) — never
-   * guessable from the normalized value alone, which is shared between
-   * the two. POV keeps its own literal sentinel ("Sans POV"), outside the
-   * scope of this normalization. */
+   * sentinel depends on which filter it's for (status/label/pov) — never
+   * guessable from the normalized value alone, which is shared between them. */
   filterSentinelLabel(v: string, noneKey?: string): string {
-    if (v === "Sans POV") return t("board.filter.noPov");
     const normalized = normalizeFilterSentinel(v);
     if (normalized === "all") return t("binder.filter.all");
     if (normalized === "none") return noneKey ? t(noneKey) : v;
@@ -407,10 +404,10 @@ export class BoardView extends BaseFeuilletsView {
       const labels = this.plugin.labelsOf(file);
       if (labelFilter === "none" ? labels.length !== 0 : !labels.includes(labelFilter)) return false;
     }
-    const povFilter = S.povFilter;
-    if (povFilter && povFilter !== "Tous") {
+    const povFilter = normalizeFilterSentinel(S.povFilter || "all");
+    if (povFilter && povFilter !== "all") {
       const currentPov = povOf(this.fm(file));
-      if (povFilter === "Sans POV" ? currentPov !== "" : currentPov !== povFilter) return false;
+      if (povFilter === "none" ? currentPov !== "" : currentPov !== povFilter) return false;
     }
     const tagTerm = (S.tagFilter || "").trim().toLowerCase().replace(/^#/, "");
     if (tagTerm && !this.plugin.tagsOf(file).map((l: string) => l.toLowerCase()).some((l: string) => l.includes(tagTerm))) return false;
@@ -434,7 +431,7 @@ export class BoardView extends BaseFeuilletsView {
       (S.statusFilter && normalizeFilterSentinel(S.statusFilter) !== "all") ||
       (S.labelFilter && normalizeFilterSentinel(S.labelFilter) !== "all") ||
       (S.progressFilter && normalizeFilterSentinel(S.progressFilter) !== "all") ||
-      (S.povFilter && S.povFilter !== "Tous") ||
+      (S.povFilter && normalizeFilterSentinel(S.povFilter) !== "all") ||
       (S.tagFilter || "").trim() !== ""
     );
   }
@@ -627,7 +624,7 @@ export class BoardView extends BaseFeuilletsView {
         collect(projectRoot);
       }
       for (const value of labelDisplayByValue.keys()) labels.add(value);
-      const sortedLabels = Array.from(labels).sort((a, b) => a.localeCompare(b, "fr"));
+      const sortedLabels = Array.from(labels).sort((a, b) => a.localeCompare(b, getLocale()));
       menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
       for (const lb of ["all", ...sortedLabels, "none"]) {
         menu.addItem((item) =>
@@ -654,16 +651,19 @@ export class BoardView extends BaseFeuilletsView {
         };
         collectPov(projectRoot);
       }
-      const sortedPovs = Array.from(povs).sort((a, b) => a.localeCompare(b, "fr"));
+      const sortedPovs = Array.from(povs).sort((a, b) => a.localeCompare(b, getLocale()));
       if (sortedPovs.length > 0) {
         menu.addItem((item) => item.setTitle(t("board.filter.povHeader")).setDisabled(true));
-        for (const pv of ["Tous", ...sortedPovs, "Sans POV"]) {
+        for (const pv of ["all", ...sortedPovs, "none"]) {
           menu.addItem((item) =>
-            item.setTitle(this.filterSentinelLabel(pv)).setChecked((S.povFilter || "Tous") === pv).onClick(async () => {
-              S.povFilter = pv;
-              await this.plugin.saveSettings();
-              void this.render();
-            })
+            item
+              .setTitle(this.filterSentinelLabel(pv, "board.filter.noPov"))
+              .setChecked(normalizeFilterSentinel(S.povFilter || "all") === pv)
+              .onClick(async () => {
+                S.povFilter = pv;
+                await this.plugin.saveSettings();
+                void this.render();
+              })
           );
         }
         menu.addSeparator();
@@ -695,7 +695,7 @@ export class BoardView extends BaseFeuilletsView {
             S.statusFilter = "all";
             S.labelFilter = "all";
             S.progressFilter = "all";
-            S.povFilter = "Tous";
+            S.povFilter = "all";
             S.tagFilter = "";
             await this.plugin.saveSettings();
             void this.render();
@@ -1751,12 +1751,12 @@ export class BoardView extends BaseFeuilletsView {
       if (pv) povSet.add(pv);
     }
 
-    const sortedLabels = Array.from(labelsSet).sort((a, b) => a.localeCompare(b, "fr"));
+    const sortedLabels = Array.from(labelsSet).sort((a, b) => a.localeCompare(b, getLocale()));
     const filsSet = new Set<string>();
     for (const arr of filsMap.values()) for (const f of arr) filsSet.add(f);
-    const sortedFils = Array.from(filsSet).sort((a, b) => a.localeCompare(b, "fr"));
-    const sortedPersonnages = Array.from(personnagesSet).sort((a, b) => a.localeCompare(b, "fr"));
-    const sortedPovs = Array.from(povSet).sort((a, b) => a.localeCompare(b, "fr"));
+    const sortedFils = Array.from(filsSet).sort((a, b) => a.localeCompare(b, getLocale()));
+    const sortedPersonnages = Array.from(personnagesSet).sort((a, b) => a.localeCompare(b, getLocale()));
+    const sortedPovs = Array.from(povSet).sort((a, b) => a.localeCompare(b, getLocale()));
 
     const wrap = container.createDiv({ cls: "feuillets-notes-container" });
     /* L'état vide ne dépend que de la présence réelle de feuillets : un projet
@@ -2548,7 +2548,7 @@ export class BoardView extends BaseFeuilletsView {
     if (typeof va === "number" && typeof vb === "number") {
       return dir === "asc" ? va - vb : vb - va;
     }
-    const cmp = String(va).localeCompare(String(vb), "fr");
+    const cmp = String(va).localeCompare(String(vb), getLocale());
     return dir === "asc" ? cmp : -cmp;
   }
 

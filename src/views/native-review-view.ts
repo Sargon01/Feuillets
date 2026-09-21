@@ -390,8 +390,8 @@ export class NativeReviewView {
   private confirmDelete(session: ReviewSession, location: NativeReviewStorageLocation): void {
     const reviewer = session.localRole === "reviewer";
     new ConfirmModal(this.app, t(reviewer ? "nativeReview.delete.reviewerTitle" : "nativeReview.delete.authorTitle"), t(reviewer ? "nativeReview.delete.reviewerMessage" : "nativeReview.delete.authorMessage"), t("nativeReview.action.delete"), async () => {
-      if (reviewer) { const state = await loadNativeReviewLocalState(this.app, location, session.reviewId); if (!state.archivedAt) throw new Error("La copie doit être archivée avant suppression"); }
-      else if (session.status !== "completed") throw new Error("Seule une relecture terminée peut être supprimée");
+      if (reviewer) { const state = await loadNativeReviewLocalState(this.app, location, session.reviewId); if (!state.archivedAt) throw new Error(t("nativeReview.delete.errorMustBeArchived")); }
+      else if (session.status !== "completed") throw new Error(t("nativeReview.delete.errorMustBeCompleted"));
       await removeNativeReviewSession(this.app, location, session.reviewId);
       this.openedReviewerId = null; this.openedReviewerLocation = null;
       this.plugin.clearNativeReviewEditorContext?.(); this.plugin.closeNativeReviewThreadPopover?.(); await this.render();

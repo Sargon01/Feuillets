@@ -14,6 +14,8 @@
  * séparée, ni nouvelle syntaxe de légende — ce module pourra être enrichi
  * plus tard si une vraie source de légende est ajoutée. */
 
+import { translate, getLocale, type Locale } from "../i18n/index.js";
+
 const IMAGE_WITH_ALT = /!\[([^\]]+)\]\([^)]*\)/g;
 
 /** Légendes d'illustrations réellement présentes dans le manuscrit compilé,
@@ -42,8 +44,8 @@ export function extractIllustrationCaptions(segments: CompileSegment[]): string[
  * illustration légendée — jamais de page générée vide (règle explicite de
  * la Phase 7, contrairement à Sommaire/TDM qui affichent toujours leur
  * titre). */
-export function generateTableOfIllustrations(segments: CompileSegment[]): string | null {
+export function generateTableOfIllustrations(segments: CompileSegment[], locale: Locale = getLocale()): string | null {
   const captions = extractIllustrationCaptions(segments);
   if (!captions.length) return null;
-  return `# Table des illustrations\n\n${captions.map((c) => `- ${c}`).join("\n")}\n`;
+  return `# ${translate(locale, "tables.illustrationsLabel")}\n\n${captions.map((c) => `- ${c}`).join("\n")}\n`;
 }

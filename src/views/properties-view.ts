@@ -6,7 +6,7 @@ import { foldAccents } from "../utils/core.js";
 import { openFileActivating } from "../utils/dom.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";
 import { ConfirmModal } from "../ui/basic-modals.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { toValue } from "../utils/scene-fields.js";
 
 const STRUCTURAL_TAGS = new Set([
@@ -333,7 +333,7 @@ export class PropertiesView extends BaseFeuilletsView {
       }
     }
 
-    const keys = [...propMap.keys()].sort((a, b) => a.localeCompare(b, "fr"));
+    const keys = [...propMap.keys()].sort((a, b) => a.localeCompare(b, getLocale()));
     if (keys.length === 0) {
       section
         .createDiv({ cls: "feuillets-empty" })
@@ -404,7 +404,7 @@ export class PropertiesView extends BaseFeuilletsView {
       });
       if (!isExpanded) continue;
 
-      const values = [...valMap.keys()].sort((a, b) => a.localeCompare(b, "fr"));
+      const values = [...valMap.keys()].sort((a, b) => a.localeCompare(b, getLocale()));
       for (const val of values) {
         const valKey = `${key} ${val}`;
         const isValExpanded = this.expandedProps.has(valKey);
@@ -427,7 +427,7 @@ export class PropertiesView extends BaseFeuilletsView {
           .map((p) => fileIndex.get(p))
           .filter((f): f is TFile => !!f)
           .sort((a, b) =>
-            this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr")
+            this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), getLocale())
           );
         for (const f of matching) {
           const frow = list.createDiv({ cls: "feuillets-tags-file-row" });
@@ -547,7 +547,7 @@ export class PropertiesView extends BaseFeuilletsView {
         .map((p) => fileIndex.get(p))
         .filter((f): f is TFile => !!f)
         .sort((a, b) =>
-          this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr")
+          this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), getLocale())
         );
       for (const f of filesHere) {
         const frow = list.createDiv({ cls: "feuillets-tags-file-row" });

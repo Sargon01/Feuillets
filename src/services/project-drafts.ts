@@ -3,7 +3,7 @@ import type { App } from "obsidian";
 import { stripFrontmatter } from "./frontmatter.js";
 import { ensureFolder } from "./project-files.js";
 import { feuilletsAuxiliaryPath, getOrderedChildren, detectProjectStructureLocale } from "./folder-structure.js";
-import { FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
+import { FALLBACK_LOCALE, t, type Locale } from "../i18n/index.js";
 import { projectCreationNames, type ProjectCreationNames } from "../i18n/project-creation.js";
 
 /** Every locale's draft stem, derived once from the project-creation
@@ -40,9 +40,9 @@ export function getDraftsFolder(app: App, manuscriptRoot: TFolder | null | undef
 export async function ensureDraftsFolder(app: App, manuscriptRoot: TFolder): Promise<TFolder> {
   const path = draftsFolderPath(manuscriptRoot);
   const existing = app.vault.getAbstractFileByPath(path);
-  if (existing instanceof TFile) throw new Error(`Le chemin des brouillons est occupé par un fichier : ${path}`);
+  if (existing instanceof TFile) throw new Error(t("drafts.notice.occupiedByFile", { path }));
   const ensured = await ensureFolder(app, path);
-  if (!(ensured instanceof TFolder)) throw new Error(`Le chemin des brouillons n'est pas un dossier : ${path}`);
+  if (!(ensured instanceof TFolder)) throw new Error(t("drafts.notice.notAFolder", { path }));
   return ensured;
 }
 

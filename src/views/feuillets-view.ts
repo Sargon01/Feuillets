@@ -1051,7 +1051,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           labelDisplayByValue.set(value, labelDisplayLabel(l, getLocale()));
         }
       });
-      const labelList = Array.from(activeLabels).sort((a, b) => a.localeCompare(b, "fr"));
+      const labelList = Array.from(activeLabels).sort((a, b) => a.localeCompare(b, getLocale()));
 
       menu.addItem((item) => item.setTitle(t("binder.filter.labelHeader")).setDisabled(true));
       for (const lb of ["all", ...labelList, "none"]) {
@@ -1738,7 +1738,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       .filter((p, i, a) => p && a.indexOf(p) === i)
       .sort((a, b) =>
         this.plugin.projectDisplayName(a).localeCompare(
-          this.plugin.projectDisplayName(b), "fr", { sensitivity: "base" }
+          this.plugin.projectDisplayName(b), getLocale(), { sensitivity: "base" }
         )
       );
 
@@ -2092,7 +2092,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       const orderedPaths = new Set(orderedChildren.map((child) => child.path));
       const attachments = folder.children
         .filter((child): child is TFile => child instanceof TFile && isResearchFile(child) && !orderedPaths.has(child.path))
-        .sort((a, b) => a.name.localeCompare(b.name, "fr", { numeric: true }));
+        .sort((a, b) => a.name.localeCompare(b.name, getLocale(), { numeric: true }));
       for (const child of [...orderedChildren, ...attachments]) {
         if (child instanceof TFolder) {
           if (excludedRootPaths.has(child.path)) continue;
@@ -2645,7 +2645,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         const aFolder = a instanceof TFolder;
         const bFolder = b instanceof TFolder;
         if (aFolder !== bFolder) return aFolder ? -1 : 1;
-        return a.name.localeCompare(b.name, "fr");
+        return a.name.localeCompare(b.name, getLocale());
       };
 
       /* Clic droit sur un dossier Vault : associe/retire ce dossier comme

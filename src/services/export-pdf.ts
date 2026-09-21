@@ -1,5 +1,6 @@
 import { Notice, Platform } from "obsidian";
 import type { App } from "obsidian";
+import { t, getLocale } from "../i18n/index.js";
 import { composeDocumentMedia, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
 import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
@@ -592,9 +593,7 @@ export async function paginateManuscriptCooperatively(
 /** PDF via la boîte de dialogue d'impression du système */
 export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: PdfExportInput): Promise<void> {
   if (Platform.isMobile) {
-    new Notice(
-      "L'export PDF n'est disponible que sur desktop pour l'instant — utilise EPUB ou Word (.docx) sur mobile."
-    );
+    new Notice(t("export.pdf.mobileUnavailable"));
     return;
   }
 
@@ -633,7 +632,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   const iframe = document.body.createEl("iframe", { cls: "feuillets-pdf-print-frame" });
 
   if (!isPrintableIframe(iframe)) {
-    throw new Error("Impossible de préparer la fenêtre d'impression PDF.");
+    throw new Error(t("export.pdf.windowPrepFailed"));
   }
 
   /* Construction explicite du document d'impression, sans document.write
@@ -667,10 +666,10 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
   const titleTag = htmlEl.querySelector("title");
   const styleEl = htmlEl.querySelector("style");
   if (!headEl || !bodyEl || !titleTag || !styleEl) {
-    throw new Error("Squelette HTML d'impression incomplet.");
+    throw new Error(t("export.pdf.htmlSkeletonIncomplete"));
   }
 
-  htmlEl.setAttribute("lang", settings.epubLanguage || "fr");
+  htmlEl.setAttribute("lang", settings.epubLanguage || getLocale());
   titleTag.textContent = title;
 
   styleEl.textContent = `${css}
@@ -722,7 +721,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
     window.setTimeout(resolve, 300);
   });
 
-  new Notice("Choisis « Enregistrer au format PDF » dans la boîte d'impression.", 6000);
+  new Notice(t("export.pdf.printBoxHint"), 6000);
   iframe.contentWindow.focus();
   iframe.contentWindow.print();
   window.setTimeout(cleanup, 10000);

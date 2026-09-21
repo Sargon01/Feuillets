@@ -41,6 +41,7 @@ import {
   RESEARCH_FOLDERS,
   researchFolderLabel,
   researchFolderNames,
+  researchFolderNewName,
   RESEARCH_SECTION_CATALOGUE_KEYS,
   isResearchFolderKey,
 } from "../utils/project-modes.js";
@@ -432,11 +433,11 @@ export abstract class BaseFeuilletsView extends ItemView {
   private promptCreateResearchFileInFolder(folder: TFolder): void {
     const knownKey = (Object.keys(RESEARCH_FOLDERS) as Array<keyof typeof RESEARCH_FOLDERS>)
       .find((key) => researchFolderNames(RESEARCH_FOLDERS, key).includes(folder.name));
-    const defaultName = knownKey
-      ? RESEARCH_FOLDERS[knownKey].newName
-      : `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`;
-    const folderTag = foldAccents(folder.name.toLowerCase().replace(/\s+/g, "-"));
     const opLocale = getLocale();
+    const defaultName = knownKey
+      ? researchFolderNewName(knownKey, opLocale)
+      : t("research.newEntry.generic", { folder: folder.name.toLowerCase().replace(/s$/, "") });
+    const folderTag = foldAccents(folder.name.toLowerCase().replace(/\s+/g, "-"));
     void (async () => {
       const template = knownKey
         ? await getResearchTemplate(this.app, this.plugin.settings, knownKey, defaultName, opLocale)
@@ -1185,7 +1186,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       }
     }
 
-    customFolders.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    customFolders.sort((a, b) => a.name.localeCompare(b.name, getLocale()));
 
     const tagSet = new Set<string>();
     const allEntityFiles = [
@@ -1210,7 +1211,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     ]);
     const tagOptions = [...tagSet]
       .filter((tag) => !STRUCTURAL_TAGS.has(foldAccents(tag)))
-      .sort((a, b) => a.localeCompare(b, "fr"));
+      .sort((a, b) => a.localeCompare(b, getLocale()));
 
     const tagFilterActive = !!S.researchTagFilter;
     const tagFilterBtn = this.iconBtn(
@@ -1308,7 +1309,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       const citeRowAction = (menu: Menu, file: TFile) => {
         menu.addItem((item) =>
           item
-            .setTitle("Citer cette source…")
+            .setTitle(t("shared.research.citeSource"))
             .setIcon("quote")
             .onClick(() => { this.plugin.quickCiteSource(file); })
         );
@@ -1568,7 +1569,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       });
     }
     const associated = [...associatedByPath.values()]
-      .sort((a, b) => a.folder.name.localeCompare(b.folder.name, "fr"));
+      .sort((a, b) => a.folder.name.localeCompare(b.folder.name, getLocale()));
     if (associated.length === 0) return;
 
     const S = this.plugin.settings;
@@ -1616,7 +1617,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     for (const { folder, binderNodes } of orderedRoots) {
       const labels = binderNodes
         .map((n) => (n instanceof TFile ? this.plugin.titleFor(n) : n.name))
-        .sort((a, b) => a.localeCompare(b, "fr"));
+        .sort((a, b) => a.localeCompare(b, getLocale()));
       const associationNames = labels.join(" · ");
       this.renderSection(
         groupBody,
@@ -1854,7 +1855,7 @@ export abstract class BaseFeuilletsView extends ItemView {
          seule uniquement. */
       const subfolders = folderOrFiles.children
         .filter((c): c is TFolder => c instanceof TFolder)
-        .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+        .sort((a, b) => a.name.localeCompare(b.name, getLocale()));
       const orderedSubfolders = external
         ? subfolders
         : applyResearchOrder(folderOrFiles.path, subfolders, (f) => f.path, S.researchOrder);
@@ -1874,7 +1875,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       files = folderOrFiles.children
         .filter((c): c is TFile => isResearchFile(c))
         .sort((a, b) =>
-          this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), "fr")
+          this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), getLocale())
         );
     } else if (Array.isArray(folderOrFiles)) {
       files = folderOrFiles;
@@ -2114,7 +2115,7 @@ export abstract class BaseFeuilletsView extends ItemView {
        (services/research-order.ts) — jamais pour un dossier externe. */
     const subfolders = folder.children
       .filter((c): c is TFolder => c instanceof TFolder)
-      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+      .sort((a, b) => a.name.localeCompare(b.name, getLocale()));
     const orderedSubfolders = external
       ? subfolders
       : applyResearchOrder(folder.path, subfolders, (f) => f.path, S.researchOrder);
@@ -2131,7 +2132,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const files = folder.children
       .filter((c): c is TFile => isResearchFile(c))
       .sort((a, b) =>
-        this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), "fr")
+        this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), getLocale())
       );
     for (const f of files) {
       this.renderResearchFileRow(nestedList, f, folder, undefined, external);
@@ -2659,7 +2660,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const sorted = [...cited].sort((a, b) => {
       const authorA = this.plugin.fmOf(a).author;
       const authorB = this.plugin.fmOf(b).author;
-      return (typeof authorA === "string" ? authorA : "").localeCompare(typeof authorB === "string" ? authorB : "", "fr");
+      return (typeof authorA === "string" ? authorA : "").localeCompare(typeof authorB === "string" ? authorB : "", getLocale());
     });
     for (const f of sorted) {
       const fm = this.plugin.fmOf(f);
@@ -3403,7 +3404,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           new Notice(t("shared.duplicated", { name }));
         })
     );
-    menu.addItem((item) => item.setTitle("Versions…").setIcon("history").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => item.setTitle(t("shared.contextMenu.versions")).setIcon("history").onClick((evt) => showChoices(evt, e, (choices) => {
     choices.addItem((item) =>
       item
         .setTitle(t("shared.contextMenu.snapshot"))

@@ -3,7 +3,7 @@ import type { App, TAbstractFile } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
 import { getResearchRoot, getChronoFolder, researchFolderPath } from "./research.js";
 import { ensureFolder, initProjectStructure } from "./project-files.js";
-import type { Locale } from "../i18n/index.js";
+import { t, type Locale } from "../i18n/index.js";
 import { applyModeDefaults, researchFolderNames } from "../utils/project-modes.js";
 import { getProjectMode } from "./project-mode.js";
 import { CANDIDE_CHAPTER_BODIES, CANDIDE_FRONT_FILES, CANDIDE_RESEARCH } from "./candide-content.js";
@@ -259,9 +259,7 @@ export async function createDemoProject(
   const generator = generateCandide;
   const volumePath = normalizePath(volumeName);
   if (app.vault.getAbstractFileByPath(volumePath)) {
-    new Notice(
-      `« ${volumeName} » existe déjà — supprime-le manuellement pour le régénérer.`
-    );
+    new Notice(t("demoProject.alreadyExists", { name: volumeName }));
     return;
   }
 
@@ -300,7 +298,7 @@ export async function createDemoProject(
     console.error("Feuillets: échec de la génération du projet d'exemple :", err);
     const errMsg = err instanceof Error ? err.message : String(err);
     new Notice(
-      `Échec de la génération du projet d'exemple : ${errMsg}. Ouvre la console (Ctrl/Cmd+Maj+I) pour le détail, supprime « ${volumeName} » avant de réessayer.`,
+      t("demoProject.createFailed", { error: errMsg, name: volumeName }),
       12000
     );
   } finally {
@@ -328,8 +326,6 @@ export async function createDemoProject(
   }
 
   if (succeeded) {
-    new Notice(
-      `Projet d'exemple créé : ${volumeName}. Active-le depuis « Gestion des projets » pour l'explorer.`
-    );
+    new Notice(t("demoProject.created", { name: volumeName }));
   }
 }

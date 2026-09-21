@@ -2,7 +2,7 @@ import { TFile, TFolder, normalizePath, type App } from "obsidian";
 import { getResearchRoot } from "./research.js";
 import { getProjectFolder, feuilletsAuxiliaryPathFor, candidateLocalesForProject } from "./folder-structure.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
-import type { Locale } from "../i18n/index.js";
+import { translate, getLocale, type Locale } from "../i18n/index.js";
 import { resolveWorkspaceResearchFolder } from "./workspace-research.js";
 import { toValue } from "../utils/scene-fields.js";
 
@@ -240,20 +240,20 @@ function formatEntry(entry: BibliographyEntry): string {
   return text ? `${text} ${linkText}` : linkText;
 }
 
-function sortCompare(a: BibliographyEntry, b: BibliographyEntry): number {
+function sortCompare(a: BibliographyEntry, b: BibliographyEntry, locale: Locale = getLocale()): number {
   const authorA = (a.author || a.title || "").trim();
   const authorB = (b.author || b.title || "").trim();
-  const authorCmp = authorA.localeCompare(authorB, "fr", { sensitivity: "base" });
+  const authorCmp = authorA.localeCompare(authorB, locale, { sensitivity: "base" });
   if (authorCmp !== 0) return authorCmp;
 
   const yearA = (a.date || "").trim();
   const yearB = (b.date || "").trim();
-  const yearCmp = yearA.localeCompare(yearB, "fr", { numeric: true });
+  const yearCmp = yearA.localeCompare(yearB, locale, { numeric: true });
   if (yearCmp !== 0) return yearCmp;
 
   const titleA = (a.title || "").trim();
   const titleB = (b.title || "").trim();
-  return titleA.localeCompare(titleB, "fr", { sensitivity: "base" });
+  return titleA.localeCompare(titleB, locale, { sensitivity: "base" });
 }
 
 function dedupedEntries(entries: BibliographyEntry[]): Array<{ text: string; entry: BibliographyEntry }> {
@@ -284,9 +284,9 @@ export function bibliographyReferenceCount(entries: BibliographyEntry[]): number
   return dedupedEntries(entries).length;
 }
 
-export function generateBibliography(entries: BibliographyEntry[]): string | null {
+export function generateBibliography(entries: BibliographyEntry[], locale: Locale = getLocale()): string | null {
   const deduped = dedupedEntries(entries);
   if (!deduped.length) return null;
-  const sorted = [...deduped].sort((a, b) => sortCompare(a.entry, b.entry));
-  return `# Bibliographie\n\n${sorted.map((d) => d.text).join("\n\n")}\n`;
+  const sorted = [...deduped].sort((a, b) => sortCompare(a.entry, b.entry, locale));
+  return `# ${translate(locale, "bibliography.sectionTitle")}\n\n${sorted.map((d) => d.text).join("\n\n")}\n`;
 }

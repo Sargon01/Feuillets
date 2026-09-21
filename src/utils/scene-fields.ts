@@ -4,6 +4,7 @@
  * d'interface, qui dépend d'Obsidian et n'est donc pas testable.
  *
  * Pur : aucune dépendance à Obsidian. */
+import { t } from "../i18n/index.js";
 
 /* Caractères interdits dans un nom de fichier. Réunion de deux contraintes :
      - Windows : \ / : * ? " < > |   (un coffre synchronisé doit rester
@@ -85,7 +86,8 @@ export function stripMdExtension(name: unknown): string {
 /** Nom de fichier sûr dérivé d'un titre saisi par l'autrice. Ne renvoie
  * jamais une chaîne vide : un titre entièrement composé de caractères
  * interdits retomberait sinon sur un nom vide, et `vault.create` échouerait. */
-export function sanitizeFileBasename(name: unknown, fallback = "Nouvelle scène"): string {
+export function sanitizeFileBasename(name: unknown, fallback?: string): string {
+  const fallbackName = fallback ?? t("scenesEditor.defaultSceneTitle");
   const base = stripMdExtension(name)
     .replace(FORBIDDEN_IN_FILENAME, "-")
     /* Un point final est ignoré par Windows (« a. » devient « a »), ce qui
@@ -96,7 +98,7 @@ export function sanitizeFileBasename(name: unknown, fallback = "Nouvelle scène"
      « --- » : non vide, donc le repli ne se déclenchait pas, et le fichier
      s'appelait littéralement « ---.md ». Un nom réduit à des tirets n'en est
      pas un. */
-  if (!base || /^-+$/.test(base)) return fallback;
+  if (!base || /^-+$/.test(base)) return fallbackName;
   return base;
 }
 

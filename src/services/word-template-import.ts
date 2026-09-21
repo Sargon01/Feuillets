@@ -2,7 +2,7 @@ import JSZip from "jszip";
 import type { App } from "obsidian";
 import { extractAllTags, extractTag, getAttr } from "../utils/xml.js";
 import { createCustomTemplateFromV2 } from "./export-templates-custom.js";
-import type { Locale } from "../i18n/index.js";
+import { t, type Locale } from "../i18n/index.js";
 
 type StyleDefinition = { id: string; basedOn?: string; rPr: string; pPr: string };
 type StyleValues = {
@@ -257,7 +257,7 @@ export async function parseWordTemplate(data: ArrayBuffer | Uint8Array): Promise
   const [stylesXml, documentXml, settingsXml, themeXml] = await Promise.all([
     read("word/styles.xml"), read("word/document.xml"), read("word/settings.xml"), read("word/theme/theme1.xml"),
   ]);
-  if (!stylesXml || !documentXml) throw new Error("Le fichier Word ne contient pas les parties obligatoires word/styles.xml et word/document.xml.");
+  if (!stylesXml || !documentXml) throw new Error(t("editionLayout.wordMissingParts"));
 
   const template = defaultTemplate();
   const { styles, defaultId } = styleDefinitions(stylesXml);

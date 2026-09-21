@@ -1,5 +1,6 @@
 import { setIcon, MarkdownView } from "obsidian";
 import type { App, TFile, WorkspaceLeaf } from "obsidian";
+import { t } from "../i18n/index.js";
 import type { FeuilletsEditorSurface } from "./scrivenings-editor-adapter.js";
 
 type ObsidianElement = HTMLElement & {
@@ -55,7 +56,7 @@ export function renderCollapsibleHead(container: ObsidianElement, {
   if (onCreate) {
     const addBtn = head.createEl("button", { cls: "clickable-icon" });
     setIcon(addBtn, "plus");
-    addBtn.setAttr("aria-label", `Créer une fiche ${title.toLowerCase()}`);
+    addBtn.setAttr("aria-label", t("shared.createEntry", { title: title.toLowerCase() }));
     addBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       onCreate(e);

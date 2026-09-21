@@ -52,8 +52,10 @@ export function generatedContentsEntries(segments: SourceSegment[]): GeneratedCo
   return out;
 }
 
-export function generatedContentsDescriptor(kind: GeneratedContentsKind): GeneratedContentsDescriptor {
+import { translate, getLocale, type Locale } from "../i18n/index.js";
+
+export function generatedContentsDescriptor(kind: GeneratedContentsKind, locale: Locale = getLocale()): GeneratedContentsDescriptor {
   return kind === "summary"
-    ? { kind, title: "Sommaire", minLevel: 1, maxLevel: 2 }
-    : { kind, title: "Table des matières", minLevel: 1, maxLevel: 6 };
+    ? { kind, title: translate(locale, "contents.summary.sectionTitle"), minLevel: 1, maxLevel: 2 }
+    : { kind, title: translate(locale, "contents.toc.sectionTitle"), minLevel: 1, maxLevel: 6 };
 }

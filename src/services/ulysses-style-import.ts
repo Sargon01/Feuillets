@@ -1,7 +1,7 @@
 import type { App } from "obsidian";
 import { createCustomTemplateFromV2 } from "./export-templates-custom.js";
 import { normalizeV2Template } from "./export-template-v2.js";
-import type { Locale } from "../i18n/index.js";
+import { t, type Locale } from "../i18n/index.js";
 
 type Rules = Record<string, Record<string, string>>;
 const pt = (n: number, u: string) => u === "cm" ? n * 28.3465 : u === "mm" ? n * 2.83465 : n;
@@ -59,7 +59,7 @@ function apply(style: HeadingStyleV2, r: Record<string, string>, base: number, h
   style.pageBreakBefore = r["page-break"] === "before";
 }
 export function parseUlyssesStyle(content: string): ExportTemplateV2 {
-  const r = parse(content); if (!Object.keys(r).length) throw new Error("Syntaxe ULSS invalide ou aucune propriété exploitable.");
+  const r = parse(content); if (!Object.keys(r).length) throw new Error(t("editionLayout.ulyssesInvalidSyntax"));
   const d = r.defaults || {}, p = { ...d, ...(r.paragraph || {}) }, size = length(p["font-size"]) || 12;
   const tpl = normalizeV2Template({ version: 2, profile: "document", page: {} as ExportTemplateV2["page"], body: {} as ExportTemplateV2["body"], headings: {} as ExportTemplateV2["headings"], blockquote: {}, sceneDivider: "", header: {} as ExportTemplateV2["header"], footer: {} as ExportTemplateV2["footer"], firstPage: {} as ExportTemplateV2["firstPage"], titlePage: { styles: {} }, semanticRoleMarkers: "legacy" });
   tpl.body.fontFamily = p["font-family"] || tpl.body.fontFamily; tpl.body.fontSizePt = Math.round(size); tpl.body.align = align(p["text-alignment"]) || tpl.body.align;
@@ -85,4 +85,4 @@ export function parseUlyssesStyle(content: string): ExportTemplateV2 {
 }
 function slug(name:string){return name.replace(/\.(ulss|ulstyle)$/i,"").trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"")||"ulysses";}
 export async function importUlyssesStyle(app: App, settings: FeuilletsSettings, fileName:string, content:string, fallbackLocale?: Locale){return importUlyssesStyleText(app,settings,content,fileName,fallbackLocale);}
-export async function importUlyssesStyleText(app: App, settings: FeuilletsSettings, content:string, fileName:string, fallbackLocale?: Locale){ if(!content.trim()) throw new Error("Le fichier est vide."); const label=fileName.replace(/\.(ulss|ulstyle)$/i,"").trim()||"Ulysses"; return createCustomTemplateFromV2(app,settings,slug(fileName),label,parseUlyssesStyle(content),fallbackLocale); }
+export async function importUlyssesStyleText(app: App, settings: FeuilletsSettings, content:string, fileName:string, fallbackLocale?: Locale){ if(!content.trim()) throw new Error(t("editionLayout.ulyssesEmptyFile")); const label=fileName.replace(/\.(ulss|ulstyle)$/i,"").trim()||"Ulysses"; return createCustomTemplateFromV2(app,settings,slug(fileName),label,parseUlyssesStyle(content),fallbackLocale); }

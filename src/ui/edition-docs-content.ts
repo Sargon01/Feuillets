@@ -1,5 +1,5 @@
 import { Modal, Notice, TFile, TFolder, normalizePath, setIcon, setTooltip, type App } from "obsidian";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { getEditionRoot, editionFolderPath } from "../services/folder-structure.js";
 import { ensureEditionFolder, EDITION_DOCUMENTS, editionDocumentForName } from "../services/project-files.js";
 import { openFileActivating } from "../utils/dom.js";
@@ -348,11 +348,11 @@ export class EditionDocsContent {
       if (aIdx >= 0 && bIdx >= 0) return aIdx - bIdx;
       if (aIdx >= 0) return -1;
       if (bIdx >= 0) return 1;
-      return a.name.localeCompare(b.name, "fr");
+      return a.name.localeCompare(b.name, getLocale());
     });
 
     // Trier dossiers alphabétiquement
-    folders.sort((a, b) => a.name.localeCompare(b.name, "fr"));
+    folders.sort((a, b) => a.name.localeCompare(b.name, getLocale()));
 
     return [...files, ...folders];
   }

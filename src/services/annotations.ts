@@ -5,6 +5,7 @@ import {
   internalResourcesFolderPath,
 } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
+import { t } from "../i18n/index.js";
 import { resolveSourceAnchor } from "./source-anchor.js";
 
 /** Annotations de relecture (surlignages + commentaires) sur le texte du
@@ -165,7 +166,7 @@ export async function saveAnnotations(
   store: AnnotationsStore
 ): Promise<void> {
   const root = getProjectFolder(app, settings);
-  if (!root) throw new Error("Aucun projet Feuillets actif.");
+  if (!root) throw new Error(t("analysis.dashboard.noActiveProject"));
   const folderPath = internalResourcesFolderPath(app, root);
   await ensureFolder(app, folderPath);
   const path = normalizePath(`${folderPath}/${ANNOTATIONS_FILE_NAME}`);

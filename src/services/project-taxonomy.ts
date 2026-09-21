@@ -156,19 +156,23 @@ const LEGACY_FILTER_SENTINEL_KEYS: ReadonlyArray<{ key: string; id: FilterSentin
   { key: "binder.filter.all", id: "all" },
   { key: "binder.filter.noStatus", id: "none" },
   { key: "binder.filter.noLabel", id: "none" },
+  { key: "board.filter.noPov", id: "none" },
   { key: "binder.filter.progressHit", id: "hit" },
   { key: "binder.filter.progressUnder", id: "under" },
   { key: "binder.filter.progressOver", id: "over" },
 ];
 
-/** Built once at module load from `translate("fr"/"en", key)` — never a
- * hardcoded French or English literal in this module's own source. */
-const LEGACY_FILTER_SENTINELS: Readonly<Record<string, FilterSentinelId | ProgressFilterId>> = Object.fromEntries(
-  LEGACY_FILTER_SENTINEL_KEYS.flatMap(({ key, id }) => [
+const legacyEntries: Array<[string, FilterSentinelId | ProgressFilterId]> = [
+  ...LEGACY_FILTER_SENTINEL_KEYS.flatMap(({ key, id }): Array<[string, FilterSentinelId | ProgressFilterId]> => [
     [translate("fr", key), id],
     [translate("en", key), id],
-  ])
-);
+  ]),
+  ["Sans POV", "none"],
+];
+
+/** Built once at module load from `translate("fr"/"en", key)` — never a
+ * hardcoded French or English literal in this module's own source. */
+const LEGACY_FILTER_SENTINELS: Readonly<Record<string, FilterSentinelId | ProgressFilterId>> = Object.fromEntries(legacyEntries);
 
 const STABLE_FILTER_SENTINEL_IDS: ReadonlySet<string> = new Set(["all", "none", "hit", "under", "over"]);
 

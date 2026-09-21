@@ -2,6 +2,7 @@ import { TFile, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { getProjectFolder, internalResourcesFolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
+import { t } from "../i18n/index.js";
 
 export interface WorkNote { id: string; file: string; text: string; }
 export interface WorkNotesStore { version: 1; notes: WorkNote[]; }
@@ -24,7 +25,7 @@ export async function loadWorkNotes(app: App, settings: FeuilletsSettings | null
   if (!valid(parsed)) throw new WorkNotesFileCorruptedError(path); return parsed;
 }
 export async function saveWorkNotes(app: App, settings: FeuilletsSettings | null | undefined, store: WorkNotesStore): Promise<void> {
-  const root = getProjectFolder(app, settings); if (!root) throw new Error("Aucun projet Feuillets actif.");
+  const root = getProjectFolder(app, settings); if (!root) throw new Error(t("analysis.dashboard.noActiveProject"));
   const folder = internalResourcesFolderPath(app, root); await ensureFolder(app, folder); const path = normalizePath(`${folder}/work-notes.json`); const existing = app.vault.getAbstractFileByPath(path); const json = JSON.stringify(store, null, 2);
   if (existing instanceof TFile) await app.vault.modify(existing, json); else await app.vault.create(path, json);
 }

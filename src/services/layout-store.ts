@@ -2,6 +2,7 @@ import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { getProjectFolder, internalResourcesFolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
+import { t } from "../i18n/index.js";
 import {
   refreshSourceAnchor,
   resolveSourceAnchor,
@@ -114,9 +115,9 @@ export async function loadLayoutStore(app: App, settings: FeuilletsSettings | nu
 export async function saveLayoutStore(app: App, settings: FeuilletsSettings | null | undefined, store: LayoutStore): Promise<void> {
   if (!validateLayoutStore(store)) throw new LayoutFileCorruptedError("layout-store");
   const root = getProjectFolder(app, settings);
-  if (!root) throw new Error("Aucun projet Feuillets actif.");
+  if (!root) throw new Error(t("analysis.dashboard.noActiveProject"));
   const path = layoutFilePath(app, settings);
-  if (!path) throw new Error("Aucun chemin layout.json disponible.");
+  if (!path) throw new Error(t("modal.layout.noLayoutJsonPath"));
   const existing = app.vault.getAbstractFileByPath(path);
   if (!(existing instanceof TFile) && store.overrides.length === 0) return;
   if (!(existing instanceof TFile)) await ensureFolder(app, internalResourcesFolderPath(app, root));

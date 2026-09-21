@@ -1,9 +1,8 @@
-import { normalizePath, Notice, TFile } from "obsidian";
+import { normalizePath, Notice, TFile, type App, type TFolder } from "obsidian";
 export type { CanvasNode, CanvasEdge, CanvasData, LiveCanvasFileView } from "../carnet/canvas/types.js";
 import type { CanvasData, LiveCanvasFileView } from "../carnet/canvas/types.js";
-import type { App, TFolder } from "obsidian";
 import { getProjectFolder, resourcesFolderPath } from "./folder-structure.js";
-import type { Locale } from "../i18n/index.js";
+import { t, type Locale } from "../i18n/index.js";
 import { ensureFolder } from "./project-files.js";
 
 /** Valeurs conservées pour les nodes créés explicitement par Feuillets. */
@@ -222,7 +221,7 @@ export async function generateCanvasBoard(
 ): Promise<{ file: TFile; added: number; edgesAdded: number; total: number } | null> {
   const root = getProjectFolder(app, settings);
   if (!root) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return null;
   }
   const path = canvasPathFor(app, root, fallbackLocale);

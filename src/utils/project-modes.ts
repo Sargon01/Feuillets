@@ -1,4 +1,4 @@
-import { getLocale } from "../i18n/index.js";
+import { getLocale, translate, type Locale } from "../i18n/index.js";
 import type { ProjectCreationNames } from "../i18n/project-creation.js";
 
 export type ProjectType = "fiction" | "nonfiction" | "free";
@@ -145,6 +145,13 @@ export function researchFolderLabel(
     if (legacy) return legacy;
   }
   return entry.label;
+}
+
+export function researchFolderNewName(
+  key: ResearchFolderKey,
+  locale: Locale = getLocale()
+): string {
+  return translate(locale, `research.folder.newName.${key}`);
 }
 
 /** Noms sous lesquels le dossier d'une catégorie de recherche peut déjà

@@ -1,5 +1,6 @@
 import { Component, MarkdownRenderer, Notice, TFile } from "obsidian";
 import type { App } from "obsidian";
+import { t } from "../i18n/index.js";
 import { TITLE_ROLE_MARKER } from "../utils/title-roles.js";
 import { applySemanticRoles } from "../utils/semantic-roles.js";
 import { applyDocumentLayoutMarkers, injectDocumentLayoutMarkers } from "./document-layout.js";
@@ -113,7 +114,7 @@ export async function renderManuscriptHtml(
   if (missingResources.length > 0) {
     const list = missingResources.slice(0, 5).join(", ");
     const more = missingResources.length > 5 ? ` (+${missingResources.length - 5})` : "";
-    new Notice(`Export : ${missingResources.length} image(s) introuvable(s) dans le coffre : ${list}${more}`);
+    new Notice(t("export.render.missingImages", { count: String(missingResources.length), list, more }));
   }
 
   return { containerEl: container, footnotes, images, missingResources };

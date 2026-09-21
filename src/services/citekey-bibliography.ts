@@ -3,6 +3,7 @@ import type { App } from "obsidian";
 import { isValidCitekey, getCachedBibtexCatalog, type BibtexCatalogEntry } from "./bibtex-catalog.js";
 import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
 import type { BibliographyEntry } from "./bibliography-generator.js";
+import { getLocale } from "../i18n/index.js";
 
 /**
  * Extracts Pandoc citekeys from Markdown content within brackets.
@@ -229,7 +230,7 @@ export async function collectScopeCitedBibtexEntries(
 
   const sortKey = (item: CitedBibtexItem) =>
     (item.entry?.author || item.entry?.title || item.key).toLowerCase();
-  knownEntries.sort((a, b) => sortKey(a).localeCompare(sortKey(b), "fr"));
+  knownEntries.sort((a, b) => sortKey(a).localeCompare(sortKey(b), getLocale()));
   unknownKeys.sort((a, b) => a.key.localeCompare(b.key));
 
   return {

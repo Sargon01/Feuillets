@@ -166,7 +166,7 @@ export function resolvedFileTitleMarkdown(
 export function activePresetConfig(settings: FeuilletsSettings): PresetConfig {
   const S = settings;
   const base: PresetConfig = {
-    name: "Réglages par défaut",
+    name: t("compile.defaultPresetName"),
     fileName: toValue(S.compileFileName),
     folderTitles: !!S.insertFolderTitles,
     chapterTitles: !!S.insertTitles,
@@ -273,10 +273,22 @@ function resolveExportCitationTargetFolder(
  * transmis par l'appelant pour CETTE compilation/cet export précis (portée
  * fichier/dossier/sélection avec son propre nom, voir exportWithScope),
  * sinon `compositionFileName`, tel que résolu par effectiveComposition()
- * pour la racine éditoriale de cet appel — sinon repli "Manuscrit". */
-function resolveOutputBaseName(explicit: string | null | undefined, compositionFileName: string): string {
-  if (explicit) return explicit.replace(/\.md$/i, "");
-  return compositionFileName ? compositionFileName.replace(/\.md$/i, "") : "Manuscrit";
+ * pour la racine éditoriale de cet appel — sinon repli du nom de manuscrit
+ * (passé explicitement pour les projets, ou dérivé de la locale active pour
+ * les opérations autonomes). */
+export function resolveOutputBaseName(
+  explicit: string | null | undefined,
+  compositionFileName: string,
+  fallbackName?: string
+): string {
+  const effectiveFallback =
+    fallbackName && fallbackName.trim()
+      ? fallbackName.trim()
+      : projectCreationNames(getLocale()).manuscript;
+  if (explicit && explicit.trim()) return explicit.trim().replace(/\.md$/i, "");
+  return compositionFileName && compositionFileName.trim()
+    ? compositionFileName.trim().replace(/\.md$/i, "")
+    : effectiveFallback;
 }
 
 /** Une erreur `create()`/`createBinary()` correspondant à une collision de
@@ -433,9 +445,11 @@ export async function compile(
   const opLocale = getLocale();
   const globalRoot = getProjectFolder(app, settings);
   if (!globalRoot) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return null;
   }
+  const projectLocale = detectProjectStructureLocale(app, globalRoot, opLocale);
+  const defaultManuscriptName = projectCreationNames(projectLocale).manuscript;
 
   // Déterminer la portée à utiliser
   let compilationScope: CompileScope;
@@ -449,7 +463,7 @@ export async function compile(
     } else if (scoped instanceof TFolder) {
       compilationScope = { type: "folder", projectRoot: globalRoot.path, path: scoped.path };
     } else {
-      new Notice("Portée d’export introuvable.");
+      new Notice(t("compile.notice.scopeNotFound"));
       return null;
     }
   } else {
@@ -464,7 +478,7 @@ export async function compile(
      ouvrage, jamais à la racine globale qui le contient. */
   const editorialRoot = app.vault.getAbstractFileByPath(normalizePath(compilationScope.projectRoot));
   if (!(editorialRoot instanceof TFolder)) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return null;
   }
 
@@ -474,7 +488,7 @@ export async function compile(
     ? resolvedFiles
     : resolvedFiles.filter((file) => !isProjectDraft(globalRoot, file));
   if (filesToCompile.length === 0) {
-    new Notice("Aucun feuillet à compiler.");
+    new Notice(t("compile.notice.noSheetsToCompile"));
     return null;
   }
 
@@ -505,7 +519,7 @@ export async function compile(
       // la compilation avec un message vague : celle-ci s'arrête, mais le
       // message nomme CE feuillet précisément (voir compile(), plus bas,
       // qui affiche describe() et n'attribue jamais l'erreur au projet entier).
-      throw new CompileError("lecture du feuillet", "Fichier introuvable ou illisible", {
+      throw new CompileError(t("compile.step.readSheet"), t("compile.error.fileNotFoundOrUnreadable"), {
         filePath: file.path,
         cause: e,
       });
@@ -870,7 +884,7 @@ export async function compile(
     // Jamais une exception non gérée qui remonterait comme un plantage
     // générique : un message contextualisé (feuillet + étape), le reste du
     // projet n'est pas mis en cause — la compilation s'arrête proprement ici.
-    const err = toCompileError(e, "compilation");
+    const err = toCompileError(e, t("compile.step.compilation"));
     new Notice(err.describe());
     return null;
   }
@@ -921,7 +935,7 @@ export async function compile(
     if (insertIndex === -1) insertIndex = segments.length;
 
     if (wantSummary) {
-      const text = generateSummary(bodySegments);
+      const text = generateSummary(bodySegments, opLocale);
       const generatedSegment: CompileSegment = {
         path: null,
         text,
@@ -934,7 +948,7 @@ export async function compile(
     }
 
     if (wantTables) {
-      const tablesText = generateTableOfIllustrations(tocSourceSegments);
+      const tablesText = generateTableOfIllustrations(tocSourceSegments, opLocale);
       if (tablesText) {
         parts.splice(insertIndex, 0, tablesText);
         segments.splice(insertIndex, 0, { path: null, text: tablesText, frontType: null });
@@ -990,7 +1004,7 @@ export async function compile(
         }
 
         const allBibliographyEntries = [...bibliographyEntriesForCompilation, ...compiledBibtexEntries];
-        const bibliographyText = generateBibliography(allBibliographyEntries);
+        const bibliographyText = generateBibliography(allBibliographyEntries, opLocale);
         if (bibliographyText) {
           parts.push(bibliographyText);
           segments.push({ path: null, text: bibliographyText, frontType: null });
@@ -1004,14 +1018,14 @@ export async function compile(
        moins une annexe compilée (annexSegments non vide couvre à la fois
        « désactivé », « dossier absent/vide » et « tout compile: false »). */
     if (wantAnnexes && annexSegments.length) {
-      push("# Annexes", null, null);
+      push(`# ${t("annexes.sectionTitle")}`, null, null);
       parts.push(...annexParts);
       segments.push(...annexSegments);
     }
 
     // Insérer Table des matières APRÈS le manuscrit, avant bibliographie
     if (wantToc) {
-      const text = generateTableOfContents(tocSourceSegments);
+      const text = generateTableOfContents(tocSourceSegments, opLocale);
       parts.push(text);
       segments.push({ path: null, text, frontType: null, generatedType: "toc" });
     }
@@ -1046,8 +1060,8 @@ export async function compile(
   if (options?.writeOutput === false) {
     return { outPath: "", manuscript, segments, compiledFilePaths: Object.freeze([...compiledFilePaths]) };
   }
-  const fileName = resolveOutputBaseName(outputFileName, composition.fileName);
-  const outputFolder = await getOutputFolder(app, settings, opLocale);
+  const fileName = resolveOutputBaseName(outputFileName, composition.fileName, defaultManuscriptName);
+  const outputFolder = await getOutputFolder(app, settings, projectLocale);
   const realOutBase = outputFolder ? outputFolder.path : globalRoot.path;
   const realOutPath = normalizePath(`${realOutBase}/${fileName}.md`);
   let writtenOutPath = realOutPath;
@@ -1064,12 +1078,12 @@ export async function compile(
     // être écrit (collision réelle non résolue, permissions…) doit
     // s'afficher comme n'importe quelle autre erreur de compilation,
     // jamais comme une Promise rejetée non gérée dans la console.
-    const err = toCompileError(e, "écriture du manuscrit compilé", { filePath: realOutPath });
+    const err = toCompileError(e, t("compile.step.writeCompiledManuscript"), { filePath: realOutPath });
     new Notice(err.describe());
     return null;
   }
   new Notice(
-    `Compilé (${activePresetConfig(settings).name}) : ${count} feuillets → ${fileName}.md`
+    t("compile.notice.compiledSuccess", { preset: activePresetConfig(settings).name, count: String(count), fileName })
   );
   /** @type {CompileResult} */
   return { outPath: writtenOutPath, manuscript, segments, compiledFilePaths: Object.freeze([...compiledFilePaths]) };
@@ -1523,9 +1537,11 @@ export async function exportPandocPackageWithScope(
     });
 
     const opLocale = getLocale();
-    const outputFolder = await getOutputFolder(app, settings, opLocale);
+    const projectLocale = detectProjectStructureLocale(app, folder, opLocale);
+    const defaultManuscriptName = projectCreationNames(projectLocale).manuscript;
+    const outputFolder = await getOutputFolder(app, settings, projectLocale);
     const outBase = outputFolder ? outputFolder.path : folder.path;
-    const safeBase = resolveOutputBaseName(baseName, composition.fileName);
+    const safeBase = resolveOutputBaseName(baseName, composition.fileName, defaultManuscriptName);
     const zipBaseName = safeBase.toLowerCase().endsWith("-pandoc") ? safeBase : `${safeBase}-pandoc`;
     const outPath = normalizePath(`${outBase}/${zipBaseName}.zip`);
     const writtenPath = await writeBinaryFile(app, outPath, zipData);
@@ -1533,7 +1549,7 @@ export async function exportPandocPackageWithScope(
     return writtenPath;
   } catch (e) {
     console.error("Feuillets: export pandoc", e);
-    const err = toCompileError(e, "export pandoc", { format: "pandoc" });
+    const err = toCompileError(e, t("compile.step.exportPandoc"), { format: "pandoc" });
     new Notice(err.describe().slice(0, 300));
     return undefined;
   }
@@ -1669,7 +1685,7 @@ async function exportViaNative(
 ): Promise<string | undefined> {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return;
   }
   /* `compile()` est désormais À L'INTÉRIEUR du même filet try/catch que
@@ -1723,9 +1739,11 @@ async function exportViaNative(
         ? normalizePath(segmentFile.path)
         : folder.path;
     const opLocale = getLocale();
-    const outputFolder = await getOutputFolder(app, settings, opLocale);
+    const projectLocale = detectProjectStructureLocale(app, folder, opLocale);
+    const defaultManuscriptName = projectCreationNames(projectLocale).manuscript;
+    const outputFolder = await getOutputFolder(app, settings, projectLocale);
     const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
-    const baseName = resolveOutputBaseName(baseNameOverride, composition.fileName);
+    const baseName = resolveOutputBaseName(baseNameOverride, composition.fileName, defaultManuscriptName);
     const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType, sceneBreakBefore }) =>
       frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) } : { path, text, frontType, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) }
     );
@@ -1762,37 +1780,44 @@ async function exportViaNative(
 
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);
-      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "epub") : normalizePath(`${outBase}/${baseName}.epub`);
+      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "epub", defaultManuscriptName) : normalizePath(`${outBase}/${baseName}.epub`);
       const writtenPath = await writeBinaryFile(app, outPath, data);
-      new Notice(`Export réussi : ${writtenPath}`);
+      new Notice(t("export.pandoc.exportSuccess", { path: writtenPath }));
       return writtenPath;
     } else if (format === "docx") {
       const data = await exportDocx(app, settings, ctx);
-      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "docx") : normalizePath(`${outBase}/${baseName}.docx`);
+      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "docx", defaultManuscriptName) : normalizePath(`${outBase}/${baseName}.docx`);
       const writtenPath = await writeBinaryFile(app, outPath, data);
-      new Notice(`Export réussi : ${writtenPath}`);
+      new Notice(t("export.pandoc.exportSuccess", { path: writtenPath }));
       return writtenPath;
     } else if (format === "odt") {
       const data = await exportOdt(app, settings, ctx);
-      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "odt") : normalizePath(`${outBase}/${baseName}.odt`);
+      const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "odt", defaultManuscriptName) : normalizePath(`${outBase}/${baseName}.odt`);
       const writtenPath = await writeBinaryFile(app, outPath, data);
-      new Notice(`Export réussi : ${writtenPath}`);
+      new Notice(t("export.pandoc.exportSuccess", { path: writtenPath }));
       return writtenPath;
     } else if (format === "pdf") {
       await exportPdf(app, settings, ctx);
     } else {
-      new Notice(`Format d'export inconnu : ${format}`);
+      new Notice(t("export.notice.unknownFormat", { format }));
     }
   } catch (e) {
     console.error("Feuillets: export natif", e);
-    const err = toCompileError(e, `export ${format}`, { format });
+    const err = toCompileError(e, t("compile.step.exportFormat", { format }), { format });
     new Notice(err.describe().slice(0, 300));
   }
   return undefined;
 }
 
-function uniqueBinaryPath(app: App, folderPath: string, baseName: string, extension: string): string {
-  const safeBase = baseName.replace(/[\\/:*?"<>|]/g, "-").trim() || "Manuscrit";
+export function uniqueBinaryPath(
+  app: App,
+  folderPath: string,
+  baseName: string,
+  extension: string,
+  defaultBaseName?: string
+): string {
+  const fallback = defaultBaseName ?? projectCreationNames(getLocale()).manuscript;
+  const safeBase = baseName.replace(/[\\/:*?"<>|]/g, "-").trim() || fallback;
   let counter = 0;
   let path = "";
   do {

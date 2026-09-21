@@ -31,7 +31,7 @@ import {
   projectCreationStyle,
   researchFolderNames,
 } from "../utils/project-modes.js";
-import { getLocale, FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
+import { getLocale, t, translate, FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
 import { projectCreationNames, type ProjectCreationNames } from "../i18n/project-creation.js";
 
 export async function ensureFolder(app: App, path: string): Promise<TAbstractFile> {
@@ -319,7 +319,7 @@ export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFol
     }
   }
   const folder = getEditionRoot(app, root);
-  if (!folder) throw new Error(`« ${path} » n'a pas pu être créé.`);
+  if (!folder) throw new Error(t("main.notice.couldNotCreatePath", { path }));
   return folder;
 }
 
@@ -342,10 +342,12 @@ export async function ensureEditionFolder(app: App, root: TFolder): Promise<TFol
  * automatiquement ici. */
 export async function duplicateProjectFolder(app: App, root: TFolder, label: string, settings?: FeuilletsSettings | null): Promise<string> {
   const safeLabel = String(label || "").trim().replace(/[\\/:*?"<>|]/g, "-");
-  const destName = `${root.name} (${safeLabel || "copie"})`;
+  const projectLocale = detectProjectStructureLocale(app, root, getLocale());
+  const copySuffix = translate(projectLocale, "binder.research.copySuffix");
+  const destName = `${root.name} (${safeLabel || copySuffix})`;
   const destPath = normalizePath(`${feuilletsAuxiliaryPath(root, "versions")}/${destName}`);
   if (app.vault.getAbstractFileByPath(destPath)) {
-    throw new Error(`« ${destName} » existe déjà.`);
+    throw new Error(t("modal.newProject.alreadyExists", { path: destName }));
   }
   await copyFolderContents(app, root, destPath);
   if (settings) copyOrderSettings(settings, root, destPath);
@@ -379,7 +381,7 @@ export async function ensureProjectBaseFolders(
   await ensureFolder(app, volumePath);
   await ensureFolder(app, manuscritPath);
   const virtualRoot = app.vault.getAbstractFileByPath(manuscritPath);
-  if (!(virtualRoot instanceof TFolder)) throw new Error("Manuscrit introuvable après création.");
+  if (!(virtualRoot instanceof TFolder)) throw new Error(t("main.notice.manuscriptNotFoundAfterCreation"));
   await ensureCanonicalProjectBase(app, virtualRoot, names);
   /* `frontMatter` is currently identical in both locales ("Front"), so this
      never actually varies today — routed through the catalogue anyway so
@@ -650,7 +652,7 @@ export async function initProjectStructure(
      sont jamais créés à la racine du coffre, toujours sous le projet actif. */
   const projectRoot = getProjectRoot(app, settings);
   if (!projectRoot) {
-    new Notice("Dossier projet introuvable. Vérifie les réglages.");
+    new Notice(t("export.pandoc.projectFolderNotFound"));
     return;
   }
   const manuscritRoot = getProjectFolder(app, settings);
@@ -876,7 +878,7 @@ export async function initProjectStructure(
     researchPath.split("/").pop(),
     resPath.split("/").pop(),
   ].filter(Boolean).join(", ");
-  new Notice(`Structure initialisée : ${listParts}.`);
+  new Notice(t("main.notice.structureInitialized", { parts: listParts }));
 }
 
 /** `onDone` : appelé après création réussie (le plugin y branche son
@@ -885,7 +887,7 @@ export function newFolder(app: App, parent: TFolder, onDone?: () => void): void 
   new NewFolderModal(app, parent.name, async (name) => {
     const path = normalizePath(`${parent.path}/${name}`);
     if (app.vault.getAbstractFileByPath(path)) {
-      new Notice("Un dossier portant ce nom existe déjà.");
+      new Notice(t("main.notice.folderNameExists"));
       return;
     }
     await app.vault.createFolder(path);
@@ -949,7 +951,7 @@ export function newSheet(app: App, settings: FeuilletsSettings, folder: TFolder,
   new NewSheetModal(app, folder.name, async (fileName, chapTitle) => {
     const path = normalizePath(`${folder.path}/${fileName}.md`);
     if (app.vault.getAbstractFileByPath(path)) {
-      new Notice("Un feuillet portant ce nom existe déjà.");
+      new Notice(t("main.notice.sheetNameExists"));
       return;
     }
     const position = getOrderedChildren(app, settings, folder).length + 1;

@@ -1,3 +1,5 @@
+import { getLocale } from "../i18n/index.js";
+
 /** Construit une arborescence de tags à partir d'une liste de fichiers et
  * de leurs tags (`#parent/enfant` devient un nœud imbriqué, comme le
  * panneau Tags natif d'Obsidian). Fonction pure : ne connaît ni l'app ni
@@ -63,5 +65,5 @@ export function collectFiles(node: TagNode) {
 /** Nœuds d'une Map triés alphabétiquement (fr) — même convention que le
  * reste du plugin. */
 export function sortTagNodes(map: Map<string, TagNode>) {
-  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, getLocale()));
 }

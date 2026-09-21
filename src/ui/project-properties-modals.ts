@@ -3,7 +3,7 @@ import { foldAccents } from "../utils/core.js";
 import { openFileActivating } from "../utils/dom.js";
 import { buildTagTree, collectFiles, sortTagNodes } from "../utils/tag-tree.js";
 import { ConfirmModal } from "./basic-modals.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 import { rawFrontmatterOf } from "../services/frontmatter.js";
 
 const STRUCTURAL_TAGS = new Set([
@@ -100,7 +100,7 @@ export class ProjectPropertiesModal extends Modal {
       }
     }
 
-    const keys = [...propMap.keys()].sort((a, b) => a.localeCompare(b, "fr"));
+    const keys = [...propMap.keys()].sort((a, b) => a.localeCompare(b, getLocale()));
     if (keys.length === 0) {
       contentEl.createDiv({ cls: "feuillets-empty" }).setText(t("properties.project.empty"));
       return;
@@ -160,7 +160,7 @@ export class ProjectPropertiesModal extends Modal {
       });
       if (!isExpanded) continue;
 
-      const values = [...valMap.keys()].sort((a, b) => a.localeCompare(b, "fr"));
+      const values = [...valMap.keys()].sort((a, b) => a.localeCompare(b, getLocale()));
       for (const val of values) {
         const valKey = `${key} ${val}`;
         const isValExpanded = this.expandedProps.has(valKey);
@@ -180,7 +180,7 @@ export class ProjectPropertiesModal extends Modal {
         const matching = [...valMap.get(val)!]
           .map((p) => fileIndex.get(p))
           .filter((f): f is TFile => !!f)
-          .sort((a, b) => this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr"));
+          .sort((a, b) => this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), getLocale()));
         for (const f of matching) {
           const frow = list.createDiv({ cls: "feuillets-tags-file-row" });
           frow.addClass("feuillets-indent-2");
@@ -325,7 +325,7 @@ export class ProjectTagsModal extends Modal {
       const filesHere = [...node.files]
         .map((p) => fileIndex.get(p))
         .filter((f): f is TFile => !!f)
-        .sort((a, b) => this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), "fr"));
+        .sort((a, b) => this.plugin.shortTitleFor(a).localeCompare(this.plugin.shortTitleFor(b), getLocale()));
       for (const f of filesHere) {
         const frow = list.createDiv({ cls: "feuillets-tags-file-row" });
         frow.style.paddingLeft = `${(depth + 1) * 16}px`;
