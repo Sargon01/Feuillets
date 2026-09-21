@@ -151,7 +151,7 @@ export class TagsModal extends Modal {
     const current = this.plugin.tagsOf(this.file);
     const input = contentEl.createEl("input", {
       type: "text",
-      attr: { placeholder: "tag1, tag2, tag3" },
+      attr: { placeholder: t("modal.tags.placeholder") },
     });
     input.addClass("feuillets-input-full");
     input.value = current.join(", ");

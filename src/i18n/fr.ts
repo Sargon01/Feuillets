@@ -76,7 +76,7 @@ export const fr = {
   "feuil.import.file": "Fichier .feuil",
   "feuil.import.chooseFile": "Choisir un fichier…",
   "feuil.import.noFile": "Aucun fichier sélectionné",
-  "feuil.import.detected": "Projet détecté",
+  "feuil.import.detected": "Projet détecté : {name}",
   "feuil.import.parent": "Dossier parent",
   "feuil.import.folderName": "Nom du nouveau dossier",
   "feuil.import.invalidArchive": "Archive .feuil invalide.",
@@ -2673,4 +2673,83 @@ export const fr = {
   "taxonomy.label.green": "Vert",
   "taxonomy.label.blue": "Bleu",
   "taxonomy.label.purple": "Violet",
+
+  /* Settings */
+  "settings.tabBarUnavailable": "Barre d'onglets indisponible — les réglages restent accessibles ci-dessous.",
+  "settings.section.binder": "Binder",
+  "settings.deadline.placeholder": "AAAA-MM-JJ",
+  "settings.language.fr": "Français",
+  "settings.language.en": "English",
+
+  /* Modals */
+  "modal.apply": "Appliquer",
+  "modal.reset": "Réinitialiser",
+  "modal.tags.placeholder": "tag1, tag2, tag3",
+
+  "modal.canvasBridgeNode.titleLabel": "Titre",
+
+  "modal.export.outputNamePlaceholder": "Manuscrit",
+  "modal.export.format.epub": "EPUB",
+  "modal.export.format.docx": "Word (DOCX)",
+  "modal.export.format.pdf": "PDF",
+  "modal.export.format.odt": "OpenDocument (ODT)",
+  "modal.export.format.md": "Markdown",
+
+  "modal.folderWorkspace.missingItemLabel": "{file} (introuvable)",
+  "project.pandocCitationPreview.missingFileOption": "{name} (Introuvable)",
+
+  "modal.layoutDirective.title": "Disposition",
+  "modal.layoutDirective.pagination": "Pagination",
+  "modal.layoutDirective.pageBreakBefore": "Saut de page avant",
+  "modal.layoutDirective.answerArea": "Zone de réponse",
+  "modal.layoutDirective.type": "Type",
+  "modal.layoutDirective.defaultTwoLines": "Par défaut (2 lignes)",
+  "modal.layoutDirective.lines": "Lignes",
+  "modal.layoutDirective.space": "Espace",
+  "modal.layoutDirective.value": "Valeur",
+  "modal.layoutDirective.positiveInteger": "Entier positif",
+  "modal.layoutDirective.unit": "Unité",
+  "modal.layoutDirective.unitLh": "Lh",
+  "modal.layoutDirective.unitMm": "Mm",
+
+  "modal.layout.outputLayout": "Disposition PDF / aperçu",
+  "modal.layout.singlePage": "Une page",
+  "modal.layout.categoryBlockquoteAndDivider": "Citation et séparateur",
+
+  "modal.presentationTheme.generalColors": "Couleurs générales",
+  "modal.presentationTheme.calloutColors": "Couleurs des callouts",
+  "modal.presentationTheme.nameInUse": "Nom déjà utilisé",
+  "modal.presentationTheme.invalidName": "Nom invalide",
+  "presentation.theme.color.background": "Arrière-plan",
+  "presentation.theme.color.text": "Texte",
+  "presentation.theme.color.muted": "Estompé",
+  "presentation.theme.color.h1": "Titre 1",
+  "presentation.theme.color.h2": "Titre 2",
+  "presentation.theme.color.h3": "Titre 3",
+  "presentation.theme.color.h4": "Titre 4",
+  "presentation.theme.color.strong": "Gras",
+
+  "modal.newProject.namePlaceholder": "Roman 1",
+
+  "modal.scrivenerImport.dropAreaHint": "Glissez-déposez votre dossier .scriv ou sélectionnez une archive ZIP ci-dessous.",
+  "modal.scrivenerImport.projectReady": "Projet prêt : {name}",
+  "modal.scrivenerImport.noticeProjectReady": "Projet .scriv prêt à l'analyse : {name}",
+  "modal.scrivenerImport.archiveReady": "Archive prête : {name}",
+  "modal.scrivenerImport.noticeArchiveReady": "Archive ZIP prête à l'analyse : {name}",
+  "modal.scrivenerImport.invalidDrop": "Veuillez glisser-déposer un dossier .scriv ou sélectionner une archive .zip.",
+  "modal.scrivenerImport.chooseZip": "Choisir une archive ZIP…",
+  "modal.scrivenerImport.noFileChosen": "Aucun fichier choisi",
+  "modal.scrivenerImport.macosHint": "Sur macOS : vous pouvez glisser-déposer directement votre projet .scriv ci-dessus, ou le compresser en .zip pour le sélectionner.",
+
+  "modal.compileSelection.includedCount": "{included} sur {total} éléments inclus",
+
+  "editionDocs.submission.missingManuscriptDocx": "manuscrit DOCX",
+  "editionDocs.submission.missingLetterDocx": "lettre DOCX",
+  "editionDocs.fileKind.letterDocx": "Lettre DOCX",
+  "editionDocs.fileKind.manuscriptDocx": "Manuscrit DOCX",
+  "editionDocs.fileKind.letterMarkdown": "Lettre source Markdown",
+  "editionDocs.fileKind.file": "Fichier",
+
+  "editionLayout.ulyssesNoUlss": "L’archive .ulstyle ne contient aucun fichier ULSS.",
+  "editionLayout.projectFolderNotFound": "Dossier projet introuvable.",
 } as const;

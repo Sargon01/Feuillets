@@ -234,7 +234,10 @@ export class EditionDocsContent {
     const reminderDate = summary.reminderDate ?? "";
     const manuscriptReady = summary.manuscriptDocxReady;
     const letterReady = summary.letterDocxReady;
-    const missing = [!manuscriptReady ? "manuscrit DOCX" : "", !letterReady ? "lettre DOCX" : ""].filter(Boolean);
+    const missing = [
+      !manuscriptReady ? t("editionDocs.submission.missingManuscriptDocx") : "",
+      !letterReady ? t("editionDocs.submission.missingLetterDocx") : "",
+    ].filter(Boolean);
 
     const card = parent.createDiv({ cls: "feuillets-submission-card" });
     const head = card.createDiv({ cls: "feuillets-submission-card-head" });
@@ -424,13 +427,13 @@ export class EditionDocsContent {
   private fileKind(file: TFile): string {
     if (file.extension === "docx") {
       const base = file.basename.toLocaleLowerCase("fr");
-      if (base.includes("lettre")) return "Lettre DOCX";
-      if (base.includes("manuscrit")) return "Manuscrit DOCX";
+      if (base.includes("lettre")) return t("editionDocs.fileKind.letterDocx");
+      if (base.includes("manuscrit")) return t("editionDocs.fileKind.manuscriptDocx");
       return "DOCX";
     }
-    if (file.basename.toLowerCase().includes("synopsis")) return "Synopsis";
-    if (file.extension === "md" && (file.name === "Lettre.md" || file.basename.startsWith("Soumission —"))) return "Lettre source Markdown";
-    return file.extension.toUpperCase() || "Fichier";
+    if (file.basename.toLowerCase().includes("synopsis")) return t("notes.section.synopsis");
+    if (file.extension === "md" && (file.name === "Lettre.md" || file.basename.startsWith("Soumission —"))) return t("editionDocs.fileKind.letterMarkdown");
+    return file.extension.toUpperCase() || t("editionDocs.fileKind.file");
   }
 }
 

@@ -58,7 +58,7 @@ export class CompileSelectionModal extends Modal {
 
     const files = manuscriptBodyFiles(this.app, this.plugin.settings, root);
     const included = files.filter((file) => this.plugin.fmOf(file).compile !== false).length;
-    infoEl.createEl("p", { cls: "feuillets-compile-selection-counter", text: `${included} sur ${files.length} éléments inclus` });
+    infoEl.createEl("p", { cls: "feuillets-compile-selection-counter", text: t("modal.compileSelection.includedCount", { included: String(included), total: String(files.length) }) });
     const listEl = contentEl.createDiv({ cls: "feuillets-read-selection feuillets-manuscript-selection" });
     const checkboxes: Array<[HTMLInputElement, TFile]> = [];
 

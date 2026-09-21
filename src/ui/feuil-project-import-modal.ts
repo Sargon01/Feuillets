@@ -73,7 +73,7 @@ export class FeuilProjectImportModal extends Modal {
     if (!file || !/\.feuil$/i.test(file.name)) { new Notice(t("feuil.import.invalidExtension")); return; }
     try {
       this.plan = await buildFeuilProjectImportPlan(new Uint8Array(await file.arrayBuffer()));
-      detected.setText(`${t("feuil.import.detected")} : ${this.plan.manifest.project.name}`);
+      detected.setText(t("feuil.import.detected", { name: this.plan.manifest.project.name }));
       if (this.folderInput) this.folderInput.value = sanitizeFeuilFileStem(this.plan.manifest.project.name);
       this.updateSubmitState();
     } catch { this.plan = null; detected.setText(""); this.updateSubmitState(); new Notice(t("feuil.import.invalidArchive")); }

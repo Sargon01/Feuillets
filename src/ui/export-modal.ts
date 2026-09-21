@@ -72,7 +72,7 @@ export class ExportModal extends Modal {
       .addText((text) =>
         text
           .setValue(this.outputName)
-          .setPlaceholder("Manuscrit")
+          .setPlaceholder(t("modal.export.outputNamePlaceholder"))
           .onChange((value) => {
             this.outputName = this.sanitizeFileName(value);
           })
@@ -83,11 +83,11 @@ export class ExportModal extends Modal {
       .setName(t("modal.export.format"))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("epub", "EPUB")
-          .addOption("docx", "Word (DOCX)")
-          .addOption("pdf", "PDF")
-          .addOption("odt", "OpenDocument (ODT)")
-          .addOption("md", "Markdown")
+          .addOption("epub", t("modal.export.format.epub"))
+          .addOption("docx", t("modal.export.format.docx"))
+          .addOption("pdf", t("modal.export.format.pdf"))
+          .addOption("odt", t("modal.export.format.odt"))
+          .addOption("md", t("modal.export.format.md"))
           .addOption("pandoc", t("export.format.pandoc"));
         dropdown.setValue(this.selectedFormat);
         dropdown.onChange((value) => {
@@ -112,7 +112,7 @@ export class ExportModal extends Modal {
     exportBtn.addEventListener("click", () => {
       void (async () => {
         if (!this.outputName.trim()) {
-          new Notice(t("modal.export.emptyName") || "Le nom ne peut pas être vide");
+          new Notice(t("modal.export.emptyName"));
           return;
         }
         if (this.onSubmit) {

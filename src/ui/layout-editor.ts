@@ -943,8 +943,8 @@ export class LayoutEditor {
         if (v === "portrait" || v === "landscape") this.template.page.orientation = v;
         await this.saveTemplate();
       }));
-    new Setting(insp).setName("Disposition PDF / aperçu").setClass("feuillets-setting-compact").addDropdown((d) => d
-      .addOption("single", "Une page")
+    new Setting(insp).setName(t("modal.layout.outputLayout")).setClass("feuillets-setting-compact").addDropdown((d) => d
+      .addOption("single", t("modal.layout.singlePage"))
       .addOption("two-up-successive", t("modal.layout.twoUpSuccessive"))
       .addOption("two-up-duplicate", t("modal.layout.twoUpDuplicate"))
       .setValue(this.template.page.outputLayout || "single")

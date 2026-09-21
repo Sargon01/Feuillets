@@ -190,7 +190,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
           setting.settingEl.empty();
           setting.settingEl.createDiv({
             cls: "setting-item-description",
-            text: "Barre d'onglets indisponible — les réglages restent accessibles ci-dessous.",
+            text: t("settings.tabBarUnavailable"),
           });
         }
       } },
@@ -484,8 +484,8 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       .addDropdown((d) =>
         d
           .addOption("auto", t("settings.language.auto"))
-          .addOption("fr", "Français")
-          .addOption("en", "English")
+          .addOption("fr", t("settings.language.fr"))
+          .addOption("en", t("settings.language.en"))
           .setValue(S.language || "auto")
           .onChange(async (v) => {
             S.language = v as DefaultSettings["language"];
@@ -902,7 +902,7 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
     }
 
-    container.createDiv({ cls: "feuillets-settings-subhead", text: "Binder" });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.binder") });
 
 
      new Setting(container)

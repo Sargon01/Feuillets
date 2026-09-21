@@ -104,7 +104,13 @@ export class LayoutModal extends Modal {
 
     const wrap = c.createDiv({ cls: "feuillets-tp-editor" });
     const navigation = wrap.createDiv({ cls: "feuillets-tp-navigation" });
-    for (const [key, label] of [["page", "Page"], ["body", "Corps de texte"], ["headings", "Titres"], ["blockquote", "Citation et séparateur"], ["firstPage", "Première page"]]) {
+    for (const [key, label] of [
+      ["page", t("modal.layout.categoryPage")],
+      ["body", t("modal.layout.categoryBody")],
+      ["headings", t("modal.layout.categoryHeadings")],
+      ["blockquote", t("modal.layout.categoryBlockquoteAndDivider")],
+      ["firstPage", t("modal.layout.categoryFirstPage")],
+    ]) {
       const button = navigation.createEl("button", { cls: "feuillets-tp-navigation-item", text: label });
       button.addEventListener("click", () => this.select(key));
       this.navigationButtons[key] = button;

@@ -79,7 +79,7 @@ export const en = {
   "feuil.import.file": ".feuil file",
   "feuil.import.chooseFile": "Choose a file…",
   "feuil.import.noFile": "No file selected",
-  "feuil.import.detected": "Detected project",
+  "feuil.import.detected": "Detected project: {name}",
   "feuil.import.parent": "Parent folder",
   "feuil.import.folderName": "New folder name",
   "feuil.import.invalidArchive": "Invalid .feuil archive.",
@@ -2673,4 +2673,83 @@ export const en = {
   "taxonomy.label.green": "Green",
   "taxonomy.label.blue": "Blue",
   "taxonomy.label.purple": "Purple",
+
+  /* Settings */
+  "settings.tabBarUnavailable": "Tab bar unavailable — settings remain accessible below.",
+  "settings.section.binder": "Binder",
+  "settings.deadline.placeholder": "YYYY-MM-DD",
+  "settings.language.fr": "Français",
+  "settings.language.en": "English",
+
+  /* Modals */
+  "modal.apply": "Apply",
+  "modal.reset": "Reset",
+  "modal.tags.placeholder": "tag1, tag2, tag3",
+
+  "modal.canvasBridgeNode.titleLabel": "Title",
+
+  "modal.export.outputNamePlaceholder": "Manuscript",
+  "modal.export.format.epub": "EPUB",
+  "modal.export.format.docx": "Word (DOCX)",
+  "modal.export.format.pdf": "PDF",
+  "modal.export.format.odt": "OpenDocument (ODT)",
+  "modal.export.format.md": "Markdown",
+
+  "modal.folderWorkspace.missingItemLabel": "{file} (missing)",
+  "project.pandocCitationPreview.missingFileOption": "{name} (Missing)",
+
+  "modal.layoutDirective.title": "Layout",
+  "modal.layoutDirective.pagination": "Pagination",
+  "modal.layoutDirective.pageBreakBefore": "Page break before",
+  "modal.layoutDirective.answerArea": "Answer area",
+  "modal.layoutDirective.type": "Type",
+  "modal.layoutDirective.defaultTwoLines": "Default (2 lines)",
+  "modal.layoutDirective.lines": "Lines",
+  "modal.layoutDirective.space": "Space",
+  "modal.layoutDirective.value": "Value",
+  "modal.layoutDirective.positiveInteger": "Positive integer",
+  "modal.layoutDirective.unit": "Unit",
+  "modal.layoutDirective.unitLh": "lh",
+  "modal.layoutDirective.unitMm": "mm",
+
+  "modal.layout.outputLayout": "PDF / preview layout",
+  "modal.layout.singlePage": "Single page",
+  "modal.layout.categoryBlockquoteAndDivider": "Blockquote & divider",
+
+  "modal.presentationTheme.generalColors": "General colors",
+  "modal.presentationTheme.calloutColors": "Callout colors",
+  "modal.presentationTheme.nameInUse": "Name already in use",
+  "modal.presentationTheme.invalidName": "Invalid name",
+  "presentation.theme.color.background": "Background",
+  "presentation.theme.color.text": "Text",
+  "presentation.theme.color.muted": "Muted",
+  "presentation.theme.color.h1": "Heading 1",
+  "presentation.theme.color.h2": "Heading 2",
+  "presentation.theme.color.h3": "Heading 3",
+  "presentation.theme.color.h4": "Heading 4",
+  "presentation.theme.color.strong": "Bold",
+
+  "modal.newProject.namePlaceholder": "Novel 1",
+
+  "modal.scrivenerImport.dropAreaHint": "Drag and drop your .scriv folder or select a ZIP archive below.",
+  "modal.scrivenerImport.projectReady": "Project ready: {name}",
+  "modal.scrivenerImport.noticeProjectReady": ".scriv project ready for analysis: {name}",
+  "modal.scrivenerImport.archiveReady": "Archive ready: {name}",
+  "modal.scrivenerImport.noticeArchiveReady": "ZIP archive ready for analysis: {name}",
+  "modal.scrivenerImport.invalidDrop": "Please drag and drop a .scriv folder or select a .zip archive.",
+  "modal.scrivenerImport.chooseZip": "Choose a ZIP archive…",
+  "modal.scrivenerImport.noFileChosen": "No file chosen",
+  "modal.scrivenerImport.macosHint": "On macOS: you can drag and drop your .scriv project directly above, or compress it to .zip to select it.",
+
+  "modal.compileSelection.includedCount": "{included} of {total} items included",
+
+  "editionDocs.submission.missingManuscriptDocx": "manuscript DOCX",
+  "editionDocs.submission.missingLetterDocx": "letter DOCX",
+  "editionDocs.fileKind.letterDocx": "Letter DOCX",
+  "editionDocs.fileKind.manuscriptDocx": "Manuscript DOCX",
+  "editionDocs.fileKind.letterMarkdown": "Markdown source letter",
+  "editionDocs.fileKind.file": "File",
+
+  "editionLayout.ulyssesNoUlss": "The .ulstyle archive contains no ULSS file.",
+  "editionLayout.projectFolderNotFound": "Project folder not found.",
 } satisfies Record<keyof typeof fr, string>;

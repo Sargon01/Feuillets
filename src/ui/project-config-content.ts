@@ -175,7 +175,7 @@ export class ProjectConfigContent {
     const deadlineSetting = new Setting(section)
       .setName(t("settings.deadline.name"));
     deadlineSetting.addText((t2) =>
-      t2.setPlaceholder("AAAA-MM-JJ").setValue(projectDeadline(this.app, S)).onChange((v) => {
+      t2.setPlaceholder(t("settings.deadline.placeholder")).setValue(projectDeadline(this.app, S)).onChange((v) => {
         ensureMeta().deadlineDate = v.trim();
         void this.plugin.saveSettings();
       })

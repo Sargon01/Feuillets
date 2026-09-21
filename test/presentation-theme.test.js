@@ -46,8 +46,8 @@ test("personnalisation valide, invalide, noms et reset", () => {
   assert.equal(course.colors.h3, "#ABCDEF");
   assert.equal(course.colors.strong, "#B42318");
   assert.equal(course.callouts.citation.accent, "#123456");
-  assert.equal(validatePresentationThemeName("Autre", "course", customizations), "Nom déjà utilisé");
-  assert.equal(validatePresentationThemeName(" ", "course", customizations), "Nom invalide");
+  assert.equal(validatePresentationThemeName("Autre", "course", customizations), "name-in-use");
+  assert.equal(validatePresentationThemeName(" ", "course", customizations), "invalid-name");
   assert.equal(resetPresentationThemeCustomization(customizations, "course").course, undefined);
 });
 

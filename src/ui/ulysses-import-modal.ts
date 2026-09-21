@@ -13,7 +13,7 @@ export async function ulyssesStyleTextFromFile(file: Pick<File, "name" | "text" 
   if (/\.ulss$/i.test(file.name)) return file.text();
   const zip = await JSZip.loadAsync(await file.arrayBuffer());
   const ulss = zip.file("Style.ulss") || Object.values(zip.files).find((entry) => !entry.dir && /\.ulss$/i.test(entry.name));
-  if (!ulss) throw new Error("L’archive .ulstyle ne contient aucun fichier ULSS.");
+  if (!ulss) throw new Error(t("editionLayout.ulyssesNoUlss"));
   return ulss.async("text");
 }
 
@@ -107,7 +107,7 @@ export class UlyssesImportModal extends Modal {
       const opLocale = getLocale();
       const text = await ulyssesStyleTextFromFile(this.selectedFile);
       const result = await importUlyssesStyleText(this.app, this.plugin.settings, text, this.selectedFile.name, opLocale);
-      if (!result) throw new Error("Dossier projet introuvable.");
+      if (!result) throw new Error(t("editionLayout.projectFolderNotFound"));
       await this.plugin.saveSettings();
       new Notice(t("editionLayout.imported", { label: result.label }));
       this.close();

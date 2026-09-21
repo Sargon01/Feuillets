@@ -110,7 +110,7 @@ export class NewProjectModal extends Modal {
     const nameField = createField(t("modal.newProject.nameLabel"));
     const nameInput = nameField.createEl("input", {
       type: "text",
-      attr: { placeholder: "Roman1" },
+      attr: { placeholder: t("modal.newProject.namePlaceholder") },
     });
     nameInput.focus();
 
@@ -803,7 +803,7 @@ export class ManageProjectsModal extends Modal {
           d.addOption(c.relativePath, c.relativePath);
         }
         if (isBibOrphan && currentBibValue !== "") {
-          d.addOption(currentBibValue, `${currentBibValue} (${t("project.pandocCitationPreview.missingFile")})`);
+          d.addOption(currentBibValue, t("project.pandocCitationPreview.missingFileOption", { name: currentBibValue }));
         }
         d.setValue(currentBibValue);
         d.onChange((value) => {
@@ -833,7 +833,7 @@ export class ManageProjectsModal extends Modal {
           d.addOption(c.relativePath, c.relativePath);
         }
         if (isCslOrphan && currentCslValue !== "") {
-          d.addOption(currentCslValue, `${currentCslValue} (${t("project.pandocCitationPreview.missingFile")})`);
+          d.addOption(currentCslValue, t("project.pandocCitationPreview.missingFileOption", { name: currentCslValue }));
         }
         d.setValue(currentCslValue);
         d.onChange((value) => {

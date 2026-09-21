@@ -355,7 +355,7 @@ class ScrivenerPlanCursor {
     const target = this.targets[this.index++];
     if (!target || target.uuid !== item.uuid) {
       throw new Error(
-        `Plan d'import Scrivener désynchronisé pour « ${item.title} » — import interrompu avant toute écriture incohérente.`
+        `Scrivener import plan out of sync for "${item.title}" — import aborted before any inconsistent write.`
       );
     }
     return target;
@@ -404,7 +404,7 @@ export class ScrivenerImportModal extends Modal {
 
     const scrivField = createField(t("modal.scrivenerImport.scrivFolderLabel"));
     const dropArea = scrivField.createDiv({ cls: "feuillets-drop-target" });
-    dropArea.setText("Glissez-déposez votre dossier .scriv ou sélectionnez une archive ZIP ci-dessous.");
+    dropArea.setText(t("modal.scrivenerImport.dropAreaHint"));
 
     dropArea.addEventListener("dragover", (e) => {
       e.preventDefault();
@@ -438,8 +438,8 @@ export class ScrivenerImportModal extends Modal {
               if (folderName && !nameInput.value) {
                 nameInput.value = folderName;
               }
-              dropArea.setText(`Projet prêt : ${entryName}`);
-              new Notice(`Projet .scriv prêt à l'analyse : ${entryName}`);
+              dropArea.setText(t("modal.scrivenerImport.projectReady", { name: entryName }));
+              new Notice(t("modal.scrivenerImport.noticeProjectReady", { name: entryName }));
               return;
             } catch {
               new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
@@ -459,13 +459,13 @@ export class ScrivenerImportModal extends Modal {
               if (baseName && !nameInput.value) {
                 nameInput.value = baseName;
               }
-              dropArea.setText(`Archive prête : ${file.name}`);
-              new Notice(`Archive ZIP prête à l'analyse : ${file.name}`);
+              dropArea.setText(t("modal.scrivenerImport.archiveReady", { name: file.name }));
+              new Notice(t("modal.scrivenerImport.noticeArchiveReady", { name: file.name }));
             } catch {
               new Notice(t("modal.scrivenerImport.cannotReadScrivx"));
             }
           } else {
-            new Notice("Veuillez glisser-déposer un dossier .scriv ou sélectionner une archive .zip.");
+            new Notice(t("modal.scrivenerImport.invalidDrop"));
           }
         }
       })();
@@ -477,13 +477,13 @@ export class ScrivenerImportModal extends Modal {
       cls: "feuillets-feuil-import-file-input",
     });
     const zipFileRow = scrivField.createDiv({ cls: "feuillets-feuil-import-file-row" });
-    const chooseZipButton = zipFileRow.createEl("button", { type: "button", text: "Choisir une archive ZIP…" });
+    const chooseZipButton = zipFileRow.createEl("button", { type: "button", text: t("modal.scrivenerImport.chooseZip") });
     chooseZipButton.addEventListener("click", () => zipInput.click());
     const zipFileName = zipFileRow.createDiv({ cls: "feuillets-feuil-import-file-name" });
-    zipFileName.setText("Aucun fichier choisi");
+    zipFileName.setText(t("modal.scrivenerImport.noFileChosen"));
 
     scrivField.createDiv({ cls: "feuillets-notes-sub" }).setText(
-      "Sur macOS : vous pouvez glisser-déposer directement votre projet .scriv ci-dessus, ou le compresser en .zip pour le sélectionner."
+      t("modal.scrivenerImport.macosHint")
     );
 
     const parentField = createField(t("modal.newProject.parentFolderLabel"));
@@ -496,7 +496,7 @@ export class ScrivenerImportModal extends Modal {
     const nameField = createField(t("modal.newProject.nameLabel"));
     const nameInput = nameField.createEl("input", {
       type: "text",
-      attr: { placeholder: "Mon roman" },
+      attr: { placeholder: t("modal.newProject.namePlaceholder") },
     });
 
     zipInput.addEventListener("change", () => {
@@ -1109,7 +1109,7 @@ export class ScrivenerImportModal extends Modal {
     const writeSceneFile = async (item: ScrivxItem, target: ScrivenerImportTarget) => {
       const path = target.markdownPath;
       if (!path) {
-        throw new Error(`Plan d'import Scrivener incomplet pour « ${item.title} » (aucun fichier prévu).`);
+        throw new Error(`Scrivener import plan incomplete for "${item.title}" (no file planned).`);
       }
 
       let text = "";
@@ -1194,7 +1194,7 @@ export class ScrivenerImportModal extends Modal {
       titreCourtFallback: string
     ): Promise<void> => {
       if (!target.markdownPath) {
-        throw new Error(`Plan d'import Scrivener désynchronisé pour « ${item.title} » (note prévue par la pré-analyse mais absente du plan).`);
+        throw new Error(`Scrivener import plan out of sync for "${item.title}" (note planned in pre-analysis but missing from plan).`);
       }
       const { text, footnotes, extractedImages, imageLinks, chapterTitle, sousTitre, docNotes, docSynopsis, unresolvedLinkCount } =
         deriveNodeNoteContent(materials, item.uuid, binderItemMap);
@@ -1254,7 +1254,7 @@ export class ScrivenerImportModal extends Modal {
       const target = cursor.next(item);
       if (item.isFolder) {
         if (!target.folderPath) {
-          throw new Error(`Plan d'import Scrivener incomplet pour le dossier « ${item.title} ».`);
+          throw new Error(`Scrivener import plan incomplete for folder "${item.title}".`);
         }
         const folder = await plugin.ensureFolder(target.folderPath);
 
@@ -1267,7 +1267,7 @@ export class ScrivenerImportModal extends Modal {
            réellement écrit. */
         const materials = nodeMaterialsMap.get(item.uuid);
         if (!materials) {
-          throw new Error(`Pré-analyse Scrivener incomplète pour le dossier « ${item.title} ».`);
+          throw new Error(`Scrivener pre-analysis incomplete for folder "${item.title}".`);
         }
         const willHaveNote = folderNoteUuids.has(item.uuid);
 
@@ -1289,7 +1289,7 @@ export class ScrivenerImportModal extends Modal {
 
       if (item.children.length > 0) {
         if (!target.folderPath) {
-          throw new Error(`Plan d'import Scrivener incomplet pour « ${item.title} » (aucun dossier prévu).`);
+          throw new Error(`Scrivener import plan incomplete for "${item.title}" (no folder planned).`);
         }
         const folder = await plugin.ensureFolder(target.folderPath);
         await writeSceneFile(item, target);
@@ -1328,7 +1328,7 @@ export class ScrivenerImportModal extends Modal {
       const target = cursor.next({ uuid: parsed.draft.uuid, title: parsed.draft.title });
       const materials = nodeMaterialsMap.get(parsed.draft.uuid);
       if (!materials) {
-        throw new Error("Pré-analyse Scrivener incomplète pour la racine du Manuscrit.");
+        throw new Error("Scrivener pre-analysis incomplete for Manuscript root.");
       }
       const actualFileName = (target.markdownPath || "").slice(
         (target.markdownPath || "").lastIndexOf("/") + 1,
@@ -1351,7 +1351,7 @@ export class ScrivenerImportModal extends Modal {
       materials: NodeMaterials
     ): Promise<void> => {
       if (!target.markdownPath) {
-        throw new Error(`Plan d'import Scrivener désynchronisé pour le dossier de recherche « ${item.title} » (note prévue par la pré-analyse mais absente du plan).`);
+        throw new Error(`Scrivener import plan out of sync for research folder "${item.title}" (note planned in pre-analysis but missing from plan).`);
       }
       const { text, footnotes, extractedImages, imageLinks, docNotes, docSynopsis, unresolvedLinkCount } =
         deriveNodeNoteContent(materials, item.uuid, binderItemMap);
@@ -1384,13 +1384,13 @@ export class ScrivenerImportModal extends Modal {
       const target = cursor.next(item);
       if (item.isFolder) {
         if (!target.folderPath) {
-          throw new Error(`Plan d'import Scrivener incomplet pour le dossier de recherche « ${item.title} ».`);
+          throw new Error(`Scrivener import plan incomplete for research folder "${item.title}".`);
         }
         const folder = await plugin.ensureFolder(target.folderPath);
         if (folderNoteUuids.has(item.uuid)) {
           const materials = nodeMaterialsMap.get(item.uuid);
           if (!materials) {
-            throw new Error(`Pré-analyse Scrivener incomplète pour le dossier de recherche « ${item.title} ».`);
+            throw new Error(`Scrivener pre-analysis incomplete for research folder "${item.title}".`);
           }
           await writeResearchFolderSelfNote(item, target, materials);
         }
@@ -1401,7 +1401,7 @@ export class ScrivenerImportModal extends Modal {
       }
       const path = target.markdownPath;
       if (!path) {
-        throw new Error(`Plan d'import Scrivener incomplet pour « ${item.title} » (aucun fichier prévu).`);
+        throw new Error(`Scrivener import plan incomplete for "${item.title}" (no file planned).`);
       }
 
       let text = "";
@@ -1466,7 +1466,7 @@ export class ScrivenerImportModal extends Modal {
         const target = cursor.next({ uuid: parsed.research.uuid, title: parsed.research.title });
         const materials = nodeMaterialsMap.get(parsed.research.uuid);
         if (!materials) {
-          throw new Error("Pré-analyse Scrivener incomplète pour la racine Recherche.");
+          throw new Error("Scrivener pre-analysis incomplete for Research root.");
         }
         await writeResearchFolderSelfNote(parsed.research, target, materials);
       }
@@ -1495,7 +1495,7 @@ export class ScrivenerImportModal extends Modal {
             const target = cursor.next(child);
             const materials = nodeMaterialsMap.get(child.uuid);
             if (!materials) {
-              throw new Error(`Pré-analyse Scrivener incomplète pour le dossier de recherche « ${child.title} ».`);
+              throw new Error(`Scrivener pre-analysis incomplete for research folder "${child.title}".`);
             }
             await writeResearchFolderSelfNote(child, target, materials);
           }

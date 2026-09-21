@@ -87,13 +87,15 @@ export function resolvePresentationTheme(id: unknown, customizations: Presentati
   return { id: validId, name: candidateName || defaultPresentationThemeName(validId, locale), colors, callouts, neutralCallout };
 }
 
-export function validatePresentationThemeName(value: unknown, id: PresentationThemeId, customizations: PresentationThemeCustomizations, locale = "fr"): string | null {
-  if (typeof value !== "string") return "Nom invalide";
+export type PresentationThemeValidationError = "name-in-use" | "invalid-name";
+
+export function validatePresentationThemeName(value: unknown, id: PresentationThemeId, customizations: PresentationThemeCustomizations, locale = "fr"): PresentationThemeValidationError | null {
+  if (typeof value !== "string") return "invalid-name";
   const name = value.trim();
-  if (!name || name.length > 64) return "Nom invalide";
+  if (!name || name.length > 64) return "invalid-name";
   const folded = name.toLocaleLowerCase();
   for (const other of PRESENTATION_THEME_IDS) {
-    if (other !== id && resolvePresentationTheme(other, customizations, locale).name.trim().toLocaleLowerCase() === folded) return "Nom déjà utilisé";
+    if (other !== id && resolvePresentationTheme(other, customizations, locale).name.trim().toLocaleLowerCase() === folded) return "name-in-use";
   }
   return null;
 }

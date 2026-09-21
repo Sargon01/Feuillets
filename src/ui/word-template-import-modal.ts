@@ -101,7 +101,7 @@ export class WordTemplateImportModal extends Modal {
         await this.selectedFile.arrayBuffer(),
         opLocale
       );
-      if (!result) throw new Error("Dossier projet introuvable.");
+      if (!result) throw new Error(t("editionLayout.projectFolderNotFound"));
       await this.plugin.saveSettings();
       new Notice(t("editionLayout.wordImported", { label: result.label }));
       this.close();

@@ -230,7 +230,7 @@ export class CanvasNodeToManuscriptModal extends Modal {
     const root = getProjectFolder(this.app, this.settings);
     folderInput.value = root ? root.path : "";
     new FolderSuggest(this.app, folderInput);
-    contentEl.createEl("label", { text: "Titre" });
+    contentEl.createEl("label", { text: t("modal.canvasBridgeNode.titleLabel") });
     const titleInput = contentEl.createEl("input", { type: "text" });
     titleInput.addClass("feuillets-input-full");
     titleInput.value = this.ideaTitle;

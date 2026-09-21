@@ -1,5 +1,5 @@
 import { Modal, Notice, type App } from "obsidian";
-import { getLocale } from "../i18n/index.js";
+import { getLocale, t } from "../i18n/index.js";
 import { SEMANTIC_ROLES, type SemanticRole } from "../utils/semantic-roles.js";
 import {
   isPresentationColor,
@@ -38,31 +38,31 @@ export class PresentationThemeModal extends Modal {
     root.createEl("h2", { text: this.draft.name });
     const name = root.createEl("input", { type: "text" });
     name.value = this.draft.name;
-    root.createEl("h3", { text: "Couleurs générales" });
+    root.createEl("h3", { text: t("modal.presentationTheme.generalColors") });
     const colorInputs = new Map<keyof PresentationThemeColors, HTMLInputElement>();
     for (const key of Object.keys(this.draft.colors) as (keyof PresentationThemeColors)[]) {
       const row = root.createDiv({ cls: "setting-item" });
-      row.createDiv({ text: key });
+      row.createDiv({ text: t(`presentation.theme.color.${key}`) });
       const input = row.createEl("input", { type: "color" });
       input.value = this.draft.colors[key];
       colorInputs.set(key, input);
     }
-    root.createEl("h3", { text: "Couleurs des callouts" });
+    root.createEl("h3", { text: t("modal.presentationTheme.calloutColors") });
     const calloutInputs = new Map<SemanticRole, { accent: HTMLInputElement; body: HTMLInputElement }>();
     for (const role of SEMANTIC_ROLES) {
       const row = root.createDiv({ cls: "setting-item" });
-      row.createDiv({ text: role });
+      row.createDiv({ text: t(`contentVariants.roles.${role}`) });
       const accent = row.createEl("input", { type: "color" }); accent.value = this.draft.callouts[role].accent;
       const body = row.createEl("input", { type: "color" }); body.value = this.draft.callouts[role].body;
       calloutInputs.set(role, { accent, body });
     }
     const buttons = root.createDiv({ cls: "feuillets-modal-buttons" });
-    buttons.createEl("button", { text: "Annuler" }).addEventListener("click", () => this.close());
-    buttons.createEl("button", { text: "Réinitialiser" }).addEventListener("click", () => {
+    buttons.createEl("button", { text: t("modal.cancel") }).addEventListener("click", () => this.close());
+    buttons.createEl("button", { text: t("modal.reset") }).addEventListener("click", () => {
       this.draft = resolvePresentationTheme(this.id, resetPresentationThemeCustomization(this.plugin.settings.presentationThemes, this.id), getLocale());
       this.onOpen();
     });
-    buttons.createEl("button", { text: "Appliquer", cls: "mod-cta" }).addEventListener("click", () => {
+    buttons.createEl("button", { text: t("modal.apply"), cls: "mod-cta" }).addEventListener("click", () => {
       const customizations = { ...this.plugin.settings.presentationThemes };
       const colors = {} as Partial<PresentationThemeColors>;
       for (const [key, input] of colorInputs) if (isPresentationColor(input.value)) colors[key] = input.value.toUpperCase();
@@ -71,8 +71,11 @@ export class PresentationThemeModal extends Modal {
         const inputs = calloutInputs.get(role);
         if (inputs) callouts[role] = { accent: inputs.accent.value.toUpperCase(), body: inputs.body.value.toUpperCase() };
       }
-      const error = validatePresentationThemeName(name.value, this.id, customizations);
-      if (error) { new Notice(error); return; }
+      const error = validatePresentationThemeName(name.value, this.id, customizations, getLocale());
+      if (error) {
+        new Notice(error === "name-in-use" ? t("modal.presentationTheme.nameInUse") : t("modal.presentationTheme.invalidName"));
+        return;
+      }
       customizations[this.id] = { name: name.value.trim(), colors, callouts };
       this.plugin.settings.presentationThemes = customizations;
       void this.plugin.saveSettings()

@@ -532,7 +532,7 @@ export class FolderWorkspaceModal extends Modal {
       .setName(t("settings.deadline.name"))
       .setDesc(this.sourceDescription(projectRootPath, relativeScope, "deadlineDate"))
       .addText((text) => text
-        .setPlaceholder("AAAA-MM-JJ")
+        .setPlaceholder(t("settings.deadline.placeholder"))
         .setValue(workspaceDeadline(this.app, this.plugin.settings, this.folder))
         .onChange((value) => { void this.saveLocalField(projectRootPath, relativeScope, "deadlineDate", value.trim()); }));
     if (this.hasLocalField(local, "deadlineDate")) deadline.addExtraButton((button) => button
@@ -774,7 +774,7 @@ export class FolderWorkspaceModal extends Modal {
           d.addOption(c.relativePath, c.relativePath);
         }
         if (hasLocalBib && localBibVal !== "" && !bibCandidates.some((c) => c.relativePath === localBibVal)) {
-          d.addOption(localBibVal, `${localBibVal} (${t("modal.folderWorkspace.missing")})`);
+          d.addOption(localBibVal, t("modal.folderWorkspace.missingItemLabel", { file: localBibVal }));
         }
 
         if (hasLocalBib) {
@@ -823,7 +823,7 @@ export class FolderWorkspaceModal extends Modal {
           d.addOption(c.relativePath, c.relativePath);
         }
         if (hasLocalCsl && localCslVal !== "" && !cslCandidates.some((c) => c.relativePath === localCslVal)) {
-          d.addOption(localCslVal, `${localCslVal} (${t("modal.folderWorkspace.missing")})`);
+          d.addOption(localCslVal, t("modal.folderWorkspace.missingItemLabel", { file: localCslVal }));
         }
 
         if (hasLocalCsl) {
