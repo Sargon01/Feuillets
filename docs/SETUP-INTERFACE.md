@@ -57,7 +57,7 @@ L’**Aperçu** peut rester à côté du texte pour relire la composition pagin�
 
 ## Réglages de l’interface
 
-Les réglages Feuillets permettent notamment d’ajuster la présentation d’écriture, la largeur du texte et certains éléments de l’interface. Les valeurs suggérées restent un point de départ, jamais un verrou.
+Les réglages Feuillets permettent notamment d’ajuster la langue de l’interface (français ou anglais avec repli technique en anglais), la présentation d’écriture, la largeur du texte et certains éléments de l’interface. Les valeurs suggérées restent un point de départ, jamais un verrou.
 
 ## Concentration
 

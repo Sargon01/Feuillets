@@ -8,7 +8,7 @@ Feuillets does not require a manuscript to start as a book. A single Markdown fi
 
 Use the Binder and the native Markdown editor for a standalone text. A file, a folder, a selection or the full project can be opened in Continuous, Preview or export without first creating chapters or parts.
 
-The **New quick draft** command creates an empty Markdown sheet under `_Feuillets/Drafts` with its initial draft status. Its first non-empty line becomes its filename automatically. Rename it manually at any time to keep the name you choose. Quick drafts do not enter a whole-project compilation until they are moved into the manuscript structure; a quick draft can still be exported on its own.
+The **New quick draft** command creates an empty Markdown sheet under `_Feuillets/Drafts` (or `_Feuillets/Brouillons`), with its initial draft status. Its first non-empty line becomes its filename automatically. Rename it manually at any time to keep the name you choose. A dedicated action lets you move drafts directly into any manuscript folder or chapter with collision protection. Quick drafts do not enter a whole-project compilation until they are promoted into the manuscript structure; a quick draft can still be exported on its own.
 
 ## Use workspaces when one project needs local context
 

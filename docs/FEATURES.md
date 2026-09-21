@@ -9,7 +9,9 @@
 - Fiction, Non-fiction and Free initialization presets; they provide starting values without blocking runtime capabilities;
 - use or initialize an existing folder;
 - `_Feuillets` auxiliary space with non-destructive legacy compatibility;
+- initialization adapted to the active interface language (folders created in English or French) with safe language switching that never renames folders or rewrites project data;
 - project-scoped goals, statuses, labels and favorite tags;
+- statuses, labels and filters translated in the UI while preserving stable internal identities;
 - YAML mapping for synopsis, summary, status, POV, label, goal, narrative thread, characters and date;
 - several projects in one vault;
 - export/import of a **portable `.feuil` project**, restoring supported project order and settings without changing the manuscript’s Markdown working format.
@@ -18,7 +20,8 @@ See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 
 ### Binder
 
-- quick drafts created under `_Feuillets/Drafts`, automatically named from their first non-empty line and kept outside whole-project compilation until promoted into the manuscript;
+- quick drafts created under `_Feuillets/Drafts` (or `_Feuillets/Brouillons`), automatically named from their first non-empty line and kept outside whole-project compilation until promoted into the manuscript;
+- guided move action to transfer drafts into any project folder or chapter with collision protection;
 - create/rename/move;
 - drag back to root;
 - multi-select;
@@ -107,7 +110,9 @@ See [One project, multiple workspaces](WORKSPACES.md).
 
 - project-type categories;
 - rationalized Sources/Bibliography;
-- historical roots recognized;
+- historical and bilingual roots (`Research` or `Recherche`) recognized;
+- document and visual attachments supported in Research (PDF, Word, OpenDocument, spreadsheets, presentations, EPUB, images, Excalidraw drawings);
+- direct external file import and manual reordering of Research folders and items;
 - any existing vault folder can be linked to a Binder node;
 - external linked folders visible in Research;
 - linked files can open in a new tab or side by side;

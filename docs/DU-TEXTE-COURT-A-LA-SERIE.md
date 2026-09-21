@@ -8,7 +8,7 @@ Feuillets n’exige pas qu’un manuscrit commence comme un livre. Un unique fic
 
 Utilisez le Classeur et l’éditeur Markdown natif pour un texte autonome. Un fichier, un dossier, une sélection ou le projet complet peut être ouvert dans Continu, l’Aperçu ou l’export sans avoir à créer d’abord des chapitres ou des parties.
 
-La commande **Nouveau brouillon rapide** crée un feuillet Markdown vide sous `_Feuillets/Drafts`, avec le statut `Brouillon`. Sa première ligne non vide devient automatiquement son nom de fichier. Renommez-le manuellement à tout moment pour conserver le nom choisi. Les brouillons rapides ne rejoignent pas la compilation du projet tant qu’ils ne sont pas déplacés dans la structure du manuscrit ; un brouillon peut néanmoins être exporté seul.
+La commande **Nouveau brouillon rapide** crée un feuillet Markdown vide sous `_Feuillets/Drafts` (ou `_Feuillets/Brouillons`), avec le statut initial `Brouillon`. Sa première ligne non vide devient automatiquement son nom de fichier. Renommez-le manuellement à tout moment pour conserver le nom choisi. Une action dédiée permet de déplacer facilement un brouillon vers n'importe quel dossier ou chapitre du projet avec protection contre les collisions de nom. Les brouillons rapides ne rejoignent pas la compilation du projet tant qu’ils ne sont pas intégrés au manuscrit ; un brouillon peut néanmoins être exporté seul.
 
 ## Utiliser les espaces lorsqu’un projet a besoin de contextes locaux
 

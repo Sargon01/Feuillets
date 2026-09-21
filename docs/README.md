@@ -26,7 +26,8 @@ Le projet assure la continuité ; les espaces de travail fournissent un contexte
 ## Pour découvrir
 
 - **[Découvrir Feuillets](DECOUVRIR.md)** · [English](DISCOVER.md)
-- **[Nouveautés de Feuillets 3.0.0](VERSION-3.0.0.md)** · [English](RELEASE-3.0.0.md)
+- **[Nouveautés de Feuillets 3.0.2](VERSION-3.0.2.md)** · [English](RELEASE-3.0.2.md)
+- **[Feuillets 3.0.0](VERSION-3.0.0.md)** · [English](RELEASE-3.0.0.md)
 - **[Tutoriel — publier plusieurs documents depuis une seule source](TUTORIEL-PUBLICATION-SEMANTIQUE.md)** · [English](SEMANTIC-PUBLISHING-TUTORIAL.md)
 - **[Le parcours d’un auteur](PARCOURS-AUTEUR.md)** · [English](AUTHOR-WORKFLOW.md)
 - **[Fonctionnalités par usage](FONCTIONNALITES.md)** · [English](FEATURES.md)

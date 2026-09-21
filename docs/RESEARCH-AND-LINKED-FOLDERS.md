@@ -6,7 +6,7 @@
 
 ## Research root
 
-New projects use the canonical `_Feuillets/Recherche` auxiliary space when a Research root needs to be created. Recognized historical forms remain usable when they already exist; Feuillets does not rename them automatically.
+When a Research root needs to be created, new projects use the name matching the active interface language: `_Feuillets/Research` in English or `_Feuillets/Recherche` in French. Existing project folders and historical forms remain recognized as they are; switching interface language never renames folders on disk.
 
 ## Linking an existing folder
 
@@ -35,6 +35,17 @@ Structural write actions remain unavailable from this entry point: Feuillets doe
 Folders actually managed inside the project’s Research space keep their normal tools for creation, organization, rename, duplicate, trash and move where the operation is allowed.
 
 This distinction prevents a simple link from turning an existing documentary folder into a Feuillets-managed folder.
+
+## Attachments and file import
+
+Research is not limited to Markdown notes. It supports a wide variety of documentary and visual attachments:
+
+- **Documents**: PDF, Word (`.doc`, `.docx`), OpenDocument (`.odt`), rich text (`.rtf`);
+- **Spreadsheets**: Excel (`.xls`, `.xlsx`), OpenDocument (`.ods`), tabular data (`.csv`, `.tsv`);
+- **Presentations and e-books**: PowerPoint (`.ppt`, `.pptx`), OpenDocument (`.odp`), EPUB;
+- **Visuals and drawings**: images (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg`) and Excalidraw drawings.
+
+The quick add menu (`+`) and row actions let you import external files directly into a Research folder or create subfolders. You can also manually reorder Research folders and items to structure your sources as you see fit.
 
 ## Project and Workspace
 

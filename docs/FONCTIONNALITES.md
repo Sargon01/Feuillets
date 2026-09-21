@@ -9,7 +9,9 @@
 - presets d’initialisation Fiction, Non-fiction et Libre, sans bloquer les capacités disponibles à l’exécution ;
 - dossier existant utilisé tel quel ou initialisé ;
 - espace auxiliaire `_Feuillets` avec compatibilité legacy non destructive ;
+- initialisation adaptée à la langue active (dossiers créés en français ou en anglais) et bascule d’interface sans renommage ni réécriture des données ;
 - réglages propres au projet : objectifs, statuts, labels, tags favoris ;
+- statuts, labels et filtres traduits dans l’interface tout en conservant des identifiants techniques stables ;
 - remappage YAML de synopsis, résumé, statut, POV, label, objectif, fil narratif, personnages et date ;
 - plusieurs projets dans le même coffre ;
 - export/import d’un **projet portable `.feuil`**, avec restauration de l’ordre et des réglages de projet pris en charge, sans changer le format Markdown du manuscrit.
@@ -18,7 +20,8 @@ Voir [Projet portable `.feuil`](PROJET-PORTABLE-FEUIL.md).
 
 ### Classeur
 
-- brouillons rapides créés sous `_Feuillets/Drafts`, nommés automatiquement d’après leur première ligne non vide et exclus de la compilation globale jusqu’à leur intégration au manuscrit ;
+- brouillons rapides créés sous `_Feuillets/Drafts` (ou `_Feuillets/Brouillons`), nommés automatiquement d’après leur première ligne non vide et exclus de la compilation globale jusqu’à leur intégration au manuscrit ;
+- déplacement guidé des brouillons vers n’importe quel dossier ou chapitre du projet avec protection contre les collisions de nom ;
 - création/renommage/déplacement ;
 - glisser-déposer vers la racine ;
 - sélection multiple ;
@@ -108,7 +111,9 @@ Voir [Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md).
 
 - catégories Fiction/Non-fiction adaptées ;
 - Sources et Bibliographie rationalisées ;
-- dossiers historiques reconnus ;
+- dossiers historiques et bilingues (`Recherche` ou `Research`) reconnus ;
+- pièces jointes documentaires et visuelles prises en charge dans la Recherche (PDF, Word, OpenDocument, feuilles de calcul, présentations, EPUB, images, schémas Excalidraw) ;
+- import direct de fichiers externes et réorganisation manuelle des dossiers et éléments de Recherche ;
 - association de n’importe quel dossier existant du coffre à un nœud Binder ;
 - dossiers liés externes visibles dans le panneau Recherche ;
 - fichiers liés ouvrables dans un nouvel onglet ou côte à côte ;

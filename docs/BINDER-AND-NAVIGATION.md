@@ -93,8 +93,8 @@ The Binder remains the real structure. Outline and Continuous are other ways of 
 
 ## Quick drafts
 
-**New quick draft** opens an immediately editable Markdown file under `_Feuillets/Drafts`. The first non-empty body line supplies its automatic filename. Drafts stay outside whole-project compilation until they are dragged or moved into the manuscript, while a draft can still be previewed or exported on its own.
+**New quick draft** opens an immediately editable Markdown file under `_Feuillets/Drafts` (or `_Feuillets/Brouillons` depending on project structure). The first non-empty body line supplies its automatic filename. Drafts stay outside whole-project compilation until they are promoted into the manuscript, while a draft can still be previewed or exported on its own.
 
-Moving a draft into a Binder folder promotes it to ordinary manuscript content. If its filename already exists at the destination, Feuillets chooses a non-destructive numbered name.
+A dedicated context menu action (or drag and drop) lets you easily move drafts into any project folder or chapter using a guided modal with filename collision protection. Moving a draft promotes it to ordinary manuscript content without overwriting existing files.
 
 See [From a short text to a series](FROM-SHORT-TEXT-TO-SERIES.md).

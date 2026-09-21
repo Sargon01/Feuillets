@@ -97,7 +97,7 @@ See [From a short text to a series](docs/FROM-SHORT-TEXT-TO-SERIES.md).
 
 Any existing vault folder can become a Feuillets project **without moving, renaming or converting personal files**.
 
-Feuillets can also create **Fiction**, **Non-fiction** and **Free** projects. Auxiliary spaces live under `_Feuillets` when needed: Research, Resources, Edition, Journal, Snapshots, Backups and Output. Historical paths remain recognized without destructive migration.
+Feuillets can also create **Fiction**, **Non-fiction** and **Free** projects. New project structures follow the active interface language (such as `Manuscript` and `Research` in English, or `Manuscrit` and `Recherche` in French). Auxiliary spaces live under `_Feuillets` when needed: Research, Resources, Edition, Journal, Snapshots, Backups and Output. Switching interface language never renames existing folders or alters user content. Historical paths remain recognized without destructive migration.
 
 ![Start a Feuillets project](docs/creer-premier-projet.gif)
 
@@ -328,8 +328,13 @@ Feuillets is designed to work independently, and also pairs well with:
 
 ![Feuillets ecosystem](docs/feuillets-ecosysteme.png)
 
+## Interface and languages
+
+Feuillets supports French and English interfaces out of the box, with English serving as the technical fallback. New project templates and default folder names reflect the active Obsidian interface language, while switching language never renames existing project folders, files or metadata.
+
 ## Documentation
 
-The complete documentation is indexed in [docs/README.md](docs/README.md).
+- **[Release 3.0.2 notes](docs/RELEASE-3.0.2.md)** · [Français](docs/VERSION-3.0.2.md)
+- Complete documentation index: [docs/README.md](docs/README.md).
 
 > **Feuillets — write first, build later.**

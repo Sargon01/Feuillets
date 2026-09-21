@@ -6,7 +6,7 @@ L’espace **Recherche** rassemble la documentation utile au manuscrit sans impo
 
 ## Racine Recherche
 
-Les nouveaux projets utilisent l’espace auxiliaire canonique `_Feuillets/Recherche` lorsqu’une racine doit être créée. Les anciennes formes reconnues restent utilisables lorsqu’elles existent ; Feuillets ne les renomme pas automatiquement.
+Lorsqu’une racine Recherche doit être créée, les nouveaux projets utilisent le nom correspondant à la langue active de l’interface : `_Feuillets/Recherche` en français ou `_Feuillets/Research` en anglais. Les formes existantes et les dossiers historiques restent reconnus tels quels ; basculer la langue de l’interface ne renomme jamais de dossier sur disque.
 
 ## Associer un dossier existant
 
@@ -35,6 +35,17 @@ Les actions d’écriture structurelle restent absentes depuis ce point d’entr
 Les dossiers réellement gérés dans l’espace Recherche du projet conservent leurs outils habituels : création, organisation, renommage, duplication, corbeille et déplacement lorsque l’opération est autorisée.
 
 Cette distinction évite qu’une simple association transforme un dossier documentaire existant en dossier administré par Feuillets.
+
+## Pièces jointes et import de fichiers
+
+L’espace Recherche ne se limite pas aux notes Markdown. Il prend en charge un large éventail de pièces jointes documentaires et visuelles :
+
+- **Documents** : PDF, Word (`.doc`, `.docx`), OpenDocument (`.odt`), texte enrichi (`.rtf`) ;
+- **Feuilles de calcul** : Excel (`.xls`, `.xlsx`), OpenDocument (`.ods`), données tabulaires (`.csv`, `.tsv`) ;
+- **Présentations et livres numériques** : PowerPoint (`.ppt`, `.pptx`), OpenDocument (`.odp`), EPUB ;
+- **Visuels et schémas** : images (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.svg`) et dessins Excalidraw.
+
+Le menu d’ajout rapide (`+`) et les actions de ligne permettent d’importer directement des fichiers externes dans un dossier de Recherche ou d’y créer des sous-dossiers. Vous pouvez également réorganiser manuellement les éléments et dossiers de Recherche pour structurer vos sources selon vos besoins.
 
 ## Projet et Espace
 

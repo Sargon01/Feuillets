@@ -57,7 +57,7 @@ Project configuration opens from **Manage projects…**. The **Edition** tab con
 
 ## Interface settings
 
-Feuillets settings can adjust manuscript presentation, text width and selected interface elements. Suggested values remain a starting point, never a lock.
+Feuillets settings let you adjust the interface language (French or English, with English as the technical fallback), writing presentation, text width, and selected interface elements. Suggested values remain a starting point, never a lock.
 
 ## Focus Mode
 

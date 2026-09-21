@@ -51,7 +51,7 @@ See [Import a Scrivener project](IMPORT-SCRIVENER-EN.md) and [Replace Scrivener 
 
 ### I am starting a new project
 
-Create a **Fiction**, **Non-fiction** or **Free** project and begin writing. Feuillets does not require you to use every tool from the start: the project can remain simple and grow progressively.
+Create a **Fiction**, **Non-fiction** or **Free** project and begin writing. Initial project structures (such as `Manuscript` and `Research` in English, or `Manuscrit` and `Recherche` in French) follow the active Obsidian interface language. Switching languages later never renames existing folders. Feuillets does not require you to use every tool from the start: the project can remain simple and grow progressively.
 
 For the complete workflow in its natural order, see [The author's workflow](AUTHOR-WORKFLOW.md).
 
@@ -70,6 +70,10 @@ For the complete workflow in its natural order, see [The author's workflow](AUTH
 - **I want to leave myself a note on a sentence.** Select the passage and choose **Annotation…**. The annotation stays attached to the text, also works in Continuous and is never written into the Markdown; use a working note instead when the remark concerns the whole sheet. See [Working annotations](WORKING-ANNOTATIONS.md).
 
 - **I want to write without losing Markdown's flexibility.** The native editor keeps the real Markdown files; width, typography, line spacing, indents, Focus Mode and writing aids adapt the working surface without turning the text into a proprietary format.
+
+- **I have a quick idea or raw draft.** Use **New quick draft**: the sheet stays outside project compilation until you move it into a manuscript folder or chapter via the dedicated move action.
+
+- **My research includes PDFs or office documents.** Research accommodates document attachments directly (PDF, Word, spreadsheets, presentations, EPUB, images) and supports external file imports.
 
 - **My research already lives elsewhere in the vault.** Do not move it: an existing folder can be **linked as Research** while remaining physically where it is. See [Research and linked folders](RESEARCH-AND-LINKED-FOLDERS.md).
 

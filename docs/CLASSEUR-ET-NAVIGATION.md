@@ -93,8 +93,8 @@ Le Classeur reste la structure réelle. Le Plan et Continu sont d’autres mani�
 
 ## Brouillons rapides
 
-**Nouveau brouillon rapide** ouvre immédiatement un fichier Markdown éditable sous `_Feuillets/Drafts`. La première ligne non vide du corps fournit automatiquement son nom de fichier. Le brouillon reste hors de la compilation du projet tant qu’il n’a pas été glissé ou déplacé dans le manuscrit ; il peut néanmoins être prévisualisé ou exporté seul.
+**Nouveau brouillon rapide** ouvre immédiatement un fichier Markdown éditable sous `_Feuillets/Drafts` (ou `_Feuillets/Brouillons` selon la structure du projet). La première ligne non vide du corps fournit automatiquement son nom de fichier. Le brouillon reste hors de la compilation du projet tant qu’il n’a pas été intégré au manuscrit ; il peut néanmoins être prévisualisé ou exporté seul.
 
-Déplacer un brouillon dans un dossier du Classeur le transforme en contenu ordinaire du manuscrit. Si son nom existe déjà dans le dossier d’arrivée, Feuillets choisit un nom numéroté sans écraser le fichier présent.
+L’action dédiée du menu contextuel (ou le glisser-déposer) permet de déplacer facilement un brouillon vers n’importe quel dossier ou chapitre du projet avec un sélecteur guidé et une protection contre les collisions de nom. Le déplacement le transforme en contenu ordinaire du manuscrit sans écraser de fichier existant.
 
 Voir [Du texte court à la série](DU-TEXTE-COURT-A-LA-SERIE.md).

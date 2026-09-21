@@ -51,7 +51,7 @@ Voir [Importer un projet Scrivener](IMPORT-SCRIVENER.md) et [Remplacer Scrivener
 
 ### Je commence un nouveau projet
 
-Créez un projet **Fiction**, **Non-fiction** ou **Libre**, puis commencez à écrire. Feuillets n’impose pas d’utiliser tous ses outils dès le départ : le projet peut rester simple et s’enrichir progressivement.
+Créez un projet **Fiction**, **Non-fiction** ou **Libre**, puis commencez à écrire. La structure initiale du projet (comme `Manuscrit` et `Recherche` en français, ou `Manuscript` et `Research` en anglais) suit la langue d’interface active dans Obsidian. Changer de langue ultérieurement ne renomme aucun dossier existant. Feuillets n’impose pas d’utiliser tous ses outils dès le départ : le projet peut rester simple et s’enrichir progressivement.
 
 Pour suivre le travail dans son ordre naturel, voir [Le parcours d’un auteur](PARCOURS-AUTEUR.md).
 
@@ -70,6 +70,10 @@ Pour suivre le travail dans son ordre naturel, voir [Le parcours d’un auteur](
 - **Je veux me laisser une remarque sur une phrase.** Sélectionnez le passage puis choisissez **Annotation…**. L’annotation reste attachée au texte, fonctionne aussi dans Continu et n’est jamais écrite dans le Markdown ; pour une remarque concernant le feuillet entier, utilisez plutôt une note de travail. Voir [Annotations de travail](ANNOTATIONS-DE-TRAVAIL.md).
 
 - **Je veux écrire sans perdre la souplesse de Markdown.** L’éditeur natif conserve les vrais fichiers Markdown ; largeur, typographie, interligne, alinéas, Concentration et les aides d’écriture adaptent la surface de travail sans transformer le texte en format propriétaire.
+
+- **J’ai une idée rapide ou un texte brut.** Utilisez **Nouveau brouillon rapide** : le fichier reste hors de la compilation jusqu’à son déplacement dans un dossier ou chapitre du manuscrit via l’action dédiée.
+
+- **Ma documentation contient des PDF ou des documents bureautiques.** L’espace Recherche accueille directement les pièces jointes documentaires (PDF, Word, tableurs, présentations, EPUB, images) et permet d’importer des fichiers externes.
 
 - **Ma documentation existe déjà ailleurs dans le coffre.** Ne la déplacez pas : un dossier existant peut être **associé comme Recherche** tout en restant physiquement à son emplacement. Voir [Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md).
 

@@ -71,7 +71,7 @@ Voir [Du texte court à la série](docs/DU-TEXTE-COURT-A-LA-SERIE.md).
 
 N’importe quel dossier déjà présent dans le coffre peut devenir un projet Feuillets **sans déplacer, renommer ni convertir ses fichiers personnels**.
 
-Feuillets peut également créer un projet **Fiction**, **Non-fiction** ou **Libre**. Les espaces auxiliaires sont regroupés sous `_Feuillets` lorsqu’ils sont nécessaires : Recherche, Ressources, Edition, Journal, Snapshots, Backups et Sortie. Les chemins historiques restent reconnus sans migration destructive.
+Feuillets peut également créer un projet **Fiction**, **Non-fiction** ou **Libre**. La structure et les dossiers par défaut des nouveaux projets s'adaptent à la langue d'interface active (comme `Manuscrit` et `Recherche` en français, ou `Manuscript` et `Research` en anglais). Les espaces auxiliaires sont regroupés sous `_Feuillets` lorsqu’ils sont nécessaires : Recherche, Ressources, Edition, Journal, Snapshots, Backups et Sortie. Changer la langue d'interface ne renomme aucun dossier existant et ne modifie aucune donnée du projet. Les chemins historiques restent reconnus sans migration destructive.
 
 ![Créer un projet Feuillets](docs/creer-premier-projet.gif)
 
@@ -302,8 +302,13 @@ Feuillets fonctionne de manière indépendante et s'associe bien avec :
 
 ![Écosystème Feuillets](docs/feuillets-ecosysteme.png)
 
+## Interface et langues
+
+Feuillets prend en charge une interface complète en français et en anglais, avec l'anglais comme repli technique standard. Les modèles de projet et dossiers par défaut adoptent la langue d'interface active dans Obsidian, tandis que basculer d'une langue à l'autre ne renomme jamais les dossiers, fichiers ou métadonnées existants du projet.
+
 ## Documentation
 
-La documentation complète est indexée dans [docs/README.md](docs/README.md).
+- **[Nouveautés de Feuillets 3.0.2](docs/VERSION-3.0.2.md)** · [English](docs/RELEASE-3.0.2.md)
+- Index complet de la documentation : [docs/README.md](docs/README.md).
 
 > **Feuillets — écrivez d’abord, construisez ensuite.**

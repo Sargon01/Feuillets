@@ -2,6 +2,26 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.0.2 — unreleased
+
+### Recherche et fichiers
+
+- Prise en charge des pièces jointes documentaires dans la Recherche : documents bureautiques (Word, LibreOffice, texte enrichi), PDF, feuilles de calcul, présentations, livres EPUB, images et croquis Excalidraw, avec ouverture directe dans Obsidian et icônes adaptées.
+- Importation directe de fichiers externes vers les dossiers de Recherche et réorganisation manuelle des éléments et sous-dossiers.
+- Actions rapides de création et interactions enrichies sur chaque ligne de la Recherche.
+
+### Brouillons
+
+- Intégration des brouillons rapides au flux de travail du projet : une action dédiée permet de déplacer un brouillon vers le dossier ou chapitre de son choix dans le manuscrit, qu’il s’agisse du projet actif ou d’un autre projet du coffre.
+
+### Internationalisation
+
+- Prise en charge complète des interfaces en français et en anglais, avec l’anglais comme repli technique standard.
+- La structure et les dossiers par défaut des nouveaux projets s’adaptent automatiquement à la langue d’interface active.
+- Les statuts, étiquettes et filtres sont traduits à l’affichage tout en conservant des identifiants stables indépendants de la langue.
+- Les projets existants créés en français ou en anglais restent reconnus automatiquement.
+- Changer la langue d’interface dans Obsidian ne renomme aucun dossier existant et ne modifie aucune donnée du projet.
+
 ## 3.0.1 — 2026-09-16
 
 ### Journal
