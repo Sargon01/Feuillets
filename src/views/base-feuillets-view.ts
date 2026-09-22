@@ -56,9 +56,10 @@ import {
 } from "../services/project-taxonomy.js";
 import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 import { collectScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
+import type { ResearchDocumentContext, ResearchDocumentScopeMode } from "../services/research-document-context.js";
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
 
-export type ResearchScopeMode = "workspace" | "project";
+export type ResearchScopeMode = ResearchDocumentScopeMode;
 
 /** Context a Research space/folder row needs to be reorderable among its
  * current siblings — visual order only, never a Vault move (see
@@ -86,6 +87,7 @@ export type ResearchRenderOptions = {
     folder: TFolder;
     binderNodes: TAbstractFile[];
   }[];
+  documentContext?: ResearchDocumentContext;
 };
 
 function getResearchSectionIcon(key: string): string {

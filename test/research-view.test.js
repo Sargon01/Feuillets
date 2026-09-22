@@ -163,7 +163,7 @@ test("ResearchView conserve le rendu du fichier encore présent", async () => {
 
 test("ResearchView délègue le rendu normal au corps Recherche", async () => {
   const root = new TFolder("Projet");
-  const view = createView({ getProjectFolder: () => root });
+  const view = createView({ getProjectFolder: () => root, settings: { orders: {}, folderPositions: {} } });
   let rendered;
   view.renderResearchBody = async (container, currentRoot, generation) => {
     rendered = { container, currentRoot, generation };
@@ -180,7 +180,7 @@ test("ResearchView délègue le rendu normal au corps Recherche", async () => {
 
 test("ResearchView préserve scroll, focus et sélection du champ Recherche lors d'un rerender", async () => {
   const root = new TFolder("Projet");
-  const view = createView({ getProjectFolder: () => root });
+  const view = createView({ getProjectFolder: () => root, settings: { orders: {}, folderPositions: {} } });
   const previousDocument = globalThis.document;
   globalThis.document = { activeElement: null };
   view.renderResearchBody = async (container) => {
@@ -213,7 +213,7 @@ test("ResearchView préserve scroll, focus et sélection du champ Recherche lors
 
 test("ResearchView ne vole pas le focus lorsqu'il était ailleurs", async () => {
   const root = new TFolder("Projet");
-  const view = createView({ getProjectFolder: () => root });
+  const view = createView({ getProjectFolder: () => root, settings: { orders: {}, folderPositions: {} } });
   const previousDocument = globalThis.document;
   globalThis.document = { activeElement: null };
   view.renderResearchBody = async (container) => {

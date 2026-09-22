@@ -192,6 +192,7 @@ function createFixture() {
     researchTagFilter: "",
     collapsed: {},
     orders: {},
+    folderPositions: {},
     researchOrder: {},
     projectMeta: {
       [project.path]: {
@@ -244,6 +245,9 @@ function createResearchView(fixture, { currentWorkspace, activeFile }) {
       vault: fixture.vault,
       workspace: {
         getActiveFile: () => currentActiveFile,
+      },
+      metadataCache: {
+        getFileCache: () => ({ frontmatter: {} }),
       },
     },
     contentEl,

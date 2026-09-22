@@ -4,6 +4,7 @@ import { t } from "../i18n/index.js";
 import { isEditing } from "../utils/dom.js";
 import { BaseFeuilletsView, type ResearchScopeMode } from "./base-feuillets-view.js";
 import { resolveActiveFileResearchFolders, resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
+import { resolveResearchDocumentContext } from "../services/research-document-context.js";
 
 type ResearchViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type ResearchContainer = HTMLElement & { find?: <T extends HTMLElement>(selector: string) => T | null };
@@ -156,6 +157,13 @@ export class ResearchView extends BaseFeuilletsView {
             binderNodes: [item.binderNode],
           }))
       : undefined;
+    const documentContext = resolveResearchDocumentContext(
+      this.app,
+      this.plugin.settings,
+      root,
+      workspaceFolder,
+      this.researchScopeMode,
+    );
     await this.renderResearchBody(container, root, myGen, {
       scopeMode: this.researchScopeMode,
       workspaceActive,
@@ -163,6 +171,7 @@ export class ResearchView extends BaseFeuilletsView {
       researchRoot: projectResearchRoot,
       associatedResearchFolder,
       activeBranchResearchFolders,
+      documentContext,
       onScopeModeChange: (mode) => {
         this.researchScopeMode = mode;
         void this.render(true);
