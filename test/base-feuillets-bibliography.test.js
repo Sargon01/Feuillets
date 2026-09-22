@@ -5,6 +5,8 @@ import FeuilletsPlugin from "../src/main.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { ResearchView } from "../src/views/research-view.js";
 import { flattenFiles } from "../src/services/folder-structure.js";
+import { analyzeResearchCitations } from "../src/services/research-citation-analysis.js";
+import { saveCitationRegistry } from "../src/services/citation-registry.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
 globalThis.window ??= {
@@ -249,15 +251,18 @@ test("ResearchView: renderBibliographySection displays empty state when no sourc
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
 
+  const documentContext = { mode: "project", projectRoot: project, scopeRoot: project, workspaceRoot: null, files: [] };
+  const citationAnalysis = { citekeyCounts: new Map(), sourceCitationCounts: new Map() };
+
   const container = new FakeElement();
-  await view.renderBibliographySection(container, project, [sourcesFolder]);
+  await view.renderBibliographySection(container, documentContext, [sourcesFolder], citationAnalysis);
 
   const emptyEl = container.find(".feuillets-research-empty");
   assert.ok(emptyEl);
   assert.match(emptyEl.text, /Aucune source citée|No source cited/);
 });
 
-test("ResearchView: coexistence of Source cards and BibTeX citations without Binder isolation", async () => {
+test("ResearchView: coexistence of Source cards and BibTeX citations in the same Bibliography section", async () => {
   const project = new TFolder("Project");
   const manuscript = new TFolder("Project/Manuscript");
   const scene = new TFile("Project/Manuscript/Scene.md", "Discussion [@knuth1968] and [@unknownKey].");
@@ -304,16 +309,29 @@ test("ResearchView: coexistence of Source cards and BibTeX citations without Bin
   };
 
   const { app, plugin } = createMockAppAndPlugin(vault, settings, scene);
-  // Simulate Binder isolation pointing to another folder; scope must still follow scene
-  const isolatedFolder = new TFolder("Project/Other");
-  plugin.getWorkspaceFolder = () => isolatedFolder;
+
+  // The Source counter is now always read from the citation registry, never
+  // from cite_count — seed a single real occurrence; cite_count (3) is kept
+  // as a deliberate decoy value that must not surface anywhere.
+  await saveCitationRegistry(app, settings, {
+    version: 1,
+    citations: [{
+      id: "occ-1",
+      file: "Manuscript/Scene.md",
+      sourcePath: sourceCard.path,
+      start: 0, end: 1, quote: "", prefix: "", suffix: "",
+    }],
+  });
 
   const contentEl = new FakeElement();
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
 
+  const documentContext = { mode: "project", projectRoot: project, scopeRoot: project, workspaceRoot: null, files: [scene] };
+  const citationAnalysis = await analyzeResearchCitations(app, settings, documentContext);
+
   const container = new FakeElement();
-  await view.renderBibliographySection(container, project, [sourcesFolder]);
+  await view.renderBibliographySection(container, documentContext, [sourcesFolder], citationAnalysis);
 
   // Check Source card rendered
   const items = container.findAll(".feuillets-research-item");
@@ -321,7 +339,8 @@ test("ResearchView: coexistence of Source cards and BibTeX citations without Bin
 
   const sourceCardEl = items.find((el) => el.textContent.includes("Turing"));
   assert.ok(sourceCardEl);
-  assert.match(sourceCardEl.textContent, /3 citation/);
+  assert.match(sourceCardEl.textContent, /1 citation\b/, "the registry occurrence count is used");
+  assert.doesNotMatch(sourceCardEl.textContent, /3 citation/, "the stale cite_count decoy must never surface");
 
   // Check BibTeX known entry rendered
   const bibtexItem = container.find(".feuillets-bibtex-citation-item");
@@ -355,7 +374,9 @@ test("ResearchView: renderBibliographySection does not register any listeners", 
 
   const initialCount = registeredEvents.length;
   const container = new FakeElement();
-  await view.renderBibliographySection(container, project, [sourcesFolder]);
+  const documentContext = { mode: "project", projectRoot: project, scopeRoot: project, workspaceRoot: null, files: [] };
+  const citationAnalysis = { citekeyCounts: new Map(), sourceCitationCounts: new Map() };
+  await view.renderBibliographySection(container, documentContext, [sourcesFolder], citationAnalysis);
   assert.equal(registeredEvents.length, initialCount, "No new events should be registered in renderBibliographySection");
 });
 
@@ -426,7 +447,7 @@ test("ResearchView: triggers debounced render when file-open, editor-change, or 
   assert.equal(renderCount, 5, "No render for non-.md/.bib modifications");
 });
 
-test("ResearchView: active file change updates displayed references on leaf change event", async () => {
+test("ResearchView: active file changes never affect displayed references, only the resolved workspace scope does", async () => {
   const project = new TFolder("Project");
   const resFolder = new TFolder("Project/_Research");
   const sourcesFolder = new TFolder("Project/_Research/Sources");
@@ -486,27 +507,36 @@ test("ResearchView: active file change updates displayed references on leaf chan
   };
 
   const { app, plugin } = createMockAppAndPlugin(vault, settings, sceneA);
+  // The Espace actually selected by the user is BranchA — this, not the
+  // active file, is what must drive the displayed references.
+  plugin.getWorkspaceFolder = () => branchA;
   const contentEl = new FakeElement();
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
 
   // Initial open with sceneA active
   await view.onOpen();
-  assert.ok(contentEl.textContent.includes("Knuth, Donald"), "First render displays Knuth from sceneA");
+  assert.ok(contentEl.textContent.includes("Knuth, Donald"), "First render displays Knuth from BranchA's scope");
   assert.ok(!contentEl.textContent.includes("Turing, Alan"), "First render does not display Turing");
 
-  // Change active file to sceneB and trigger real file-open event
+  // Change ONLY the active file to sceneB (BranchB's document) and trigger a
+  // real file-open event — the Espace (BranchA) itself never changes.
   app.workspace.setActiveFile(sceneB);
   app.workspace.trigger("file-open", sceneB);
 
-  // Debounce in flight: immediately still has old content
-  assert.ok(contentEl.textContent.includes("Knuth, Donald"), "Before debounce timeout, display has not changed yet");
-
-  // Wait for 150ms debounce
+  // Wait for the 150ms debounce to fire
   await new Promise((resolve) => setTimeout(resolve, 200));
 
-  assert.ok(contentEl.textContent.includes("Turing, Alan"), "After debounce, displayed references update to Turing from sceneB");
-  assert.ok(!contentEl.textContent.includes("Knuth, Donald"), "After debounce, Knuth is replaced by Turing");
+  assert.ok(contentEl.textContent.includes("Knuth, Donald"), "After the debounce, the active file change alone never changes the displayed references");
+  assert.ok(!contentEl.textContent.includes("Turing, Alan"), "Turing must not appear merely because BranchB's file became active");
+
+  // A genuine scope change — the user actually switching Espace to BranchB —
+  // must, by contrast, update what is displayed.
+  plugin.getWorkspaceFolder = () => branchB;
+  await view.render(true);
+
+  assert.ok(contentEl.textContent.includes("Turing, Alan"), "Switching the Espace itself to BranchB now displays Turing");
+  assert.ok(!contentEl.textContent.includes("Knuth, Donald"), "BranchA's reference no longer appears once the Espace has changed");
 });
 
 test("ResearchView: content modification updates occurrences and unknown citekeys via modify event", async () => {

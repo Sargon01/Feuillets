@@ -327,9 +327,14 @@ test("renderResearchBody affiche les dossiers existants en français quand la lo
     // Ne doit créer aucun dossier supplémentaire
     assert.deepEqual(harness.created.length, 0, "Aucun dossier créé");
 
+    // A legacy Bibliographie folder without any Sources folder no longer
+    // renders as its own raw browsing section — it only feeds the
+    // aggregated Bibliography section (view.renderBibliographySection,
+    // stubbed above), which is never duplicated as a plain renderSection
+    // call.
     assert.deepEqual(
       sections.map((s) => s.title),
-      ["Bibliographie", "Personnages", "Lieux", "Lore", "Glossaire", "Événements"]
+      ["Personnages", "Lieux", "Lore", "Glossaire", "Événements"]
     );
     assert.equal(sections.find((s) => s.title === "Événements").folder, "Projet/_Recherche/Chronologie");
   } finally {
@@ -359,9 +364,11 @@ test("renderResearchBody affiche les labels anglais quand la locale est anglaise
 
     // Ne doit créer aucun dossier supplémentaire
     assert.deepEqual(harness.created.length, 0, "Aucun dossier créé");
+    // Same reasoning as the French test above: no raw Bibliography section
+    // when there is no Sources folder.
     assert.deepEqual(
       sections.map((s) => s.title),
-      ["Bibliography", "Characters", "Places", "Lore", "Glossary", "Events"]
+      ["Characters", "Places", "Lore", "Glossary", "Events"]
     );
   } finally {
     setLocale(previous);

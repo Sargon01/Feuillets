@@ -55,7 +55,8 @@ import {
   labelDisplayLabel,
 } from "../services/project-taxonomy.js";
 import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
-import { collectScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
+import { collectDocumentScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
+import { analyzeResearchCitations, type ResearchCitationAnalysis } from "../services/research-citation-analysis.js";
 import type { ResearchDocumentContext, ResearchDocumentScopeMode } from "../services/research-document-context.js";
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
 
@@ -1269,6 +1270,14 @@ export abstract class BaseFeuilletsView extends ItemView {
        espaces). */
     const documentContext = options.documentContext;
 
+    /* Contextual citation analysis (Pandoc citekeys + Source-fiche citation
+       occurrences), computed exactly once per render from
+       documentContext.files — never rebuilt per Source card or per
+       citekey. Consumed by both the Sources counters and the Bibliography
+       section, whichever rendering branch below is taken (see
+       services/research-citation-analysis.ts). */
+    const citationAnalysis = await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
+
     if (associatedWorkspaceFolder) {
       this.renderSection(body, associatedWorkspaceFolder.name, associatedWorkspaceFolder, async () =>
         this.promptCreateResearchFile(
@@ -1296,6 +1305,14 @@ export abstract class BaseFeuilletsView extends ItemView {
         );
       }
       await this.renderFootnotesOverviewSection(body, documentContext);
+      const associatedSourcesFolder = this.findResearchCategoryFolder(associatedWorkspaceFolder.path, rf, "sources");
+      const associatedBibliographieFolder = this.findResearchCategoryFolder(associatedWorkspaceFolder.path, rf, "bibliographie");
+      await this.renderBibliographySection(
+        body,
+        documentContext,
+        [associatedSourcesFolder, associatedBibliographieFolder].filter((f): f is TFolder => f instanceof TFolder),
+        citationAnalysis
+      );
       this.filterEntities();
       return;
     }
@@ -1344,38 +1361,39 @@ export abstract class BaseFeuilletsView extends ItemView {
              nouvelle référence se fait dans Sources, jamais ici. Ni l'aperçu
              des notes ni cet agrégat ne sont adossés à un dossier propre :
              ils suivent toujours "Sources", jamais réordonnés séparément. */
-          await this.renderBibliographySection(body, root, [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])]);
-        },
-      });
-    } else if (bibliographieFolder) {
-      /* Sans dossier Sources, Bibliographie garde son sens d'origine —
-         un dossier de fiches
-         manuelles pour des lectures complémentaires, sans lien avec le
-         texte. */
-      spaces.push({
-        key: bibliographieFolder.path,
-        render: (siblingKeys) => {
-          this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
-            this.promptCreateResearchFile(
-              bibliographieFolder,
-              rf.bibliographie.newName,
-              await getResearchTemplate(this.app, this.plugin.settings, "bibliographie", rf.bibliographie.newName, opLocale)
-            ), "bibliographie", undefined, undefined, undefined,
-            { parentKey: sectionsParentKey, key: bibliographieFolder.path, siblingKeys }
+          await this.renderBibliographySection(
+            body,
+            documentContext,
+            [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])],
+            citationAnalysis
           );
         },
       });
     }
 
-    /* Les Notes de bas de page (relecture) ne dépendent plus de l'existence
-       d'un dossier Sources (voir plus haut, dans l'espace Sources) : un
-       projet ou un espace sans Sources affiche quand même les notes de ses
-       propres documents. */
+    /* Footnotes (proofreading) and the aggregated Bibliography no longer
+       depend on the existence of a Sources folder (see above, in the
+       Sources space): a project or space without Sources still displays
+       the footnotes of its own documents as well as the @key citekeys it
+       uses, resolved against the inherited .bib if one exists — even with
+       no Sources/Bibliographie folder at all. Without a Sources folder, a
+       legacy Bibliographie folder is deliberately NOT also rendered as its
+       own raw browsing space here — it would show up twice, once as a
+       plain folder listing and once below as the aggregated Bibliography
+       section, which it still feeds as a candidate folder and which stays
+       the single visible representation of Bibliographie in that
+       configuration. */
     if (!sourcesFolder) {
       spaces.push({
         key: "footnotes-overview",
         render: async () => {
           await this.renderFootnotesOverviewSection(body, documentContext);
+          await this.renderBibliographySection(
+            body,
+            documentContext,
+            bibliographieFolder ? [bibliographieFolder] : [],
+            citationAnalysis
+          );
         },
       });
     }
@@ -2612,15 +2630,25 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
   }
 
-  /** "Bibliographie" comme AGRÉGATEUR, pas comme dossier de fiches
-   * manuelles : la liste des Sources/Bibliographie effectivement citées
-   * au moins une fois (cite_count > 0, incrémenté par
-   * plugin.insertCitationFor), triées par auteur — distinct de "toutes
-   * les fiches" (une source peut exister dans la bibliothèque de travail
-   * sans jamais être mobilisée dans le texte). Le bouton "Générer"
-   * écrit le fichier bibliographie final (plugin.generateBibliographyFile),
-   * prêt à être collé dans le manuscrit compilé ou fourni à part. */
-  async renderBibliographySection(container: HTMLElement, root: TFolder, candidateFolders: TFolder[]): Promise<void> {
+  /** "Bibliography" as an AGGREGATOR, not a folder of manual fiches: the
+   * list of Sources/Bibliographie fiches actually cited at least once
+   * within the current document scope (documentContext), sorted by
+   * author — distinct from "every fiche" (a source can exist in the
+   * working library without ever being cited in this scope's text). The
+   * per-Source-fiche counter is ALWAYS citationAnalysis.sourceCitationCounts
+   * (citation-registry occurrences strictly localized to
+   * documentContext.files), in every mode — never fm.cite_count, which
+   * remains a global, potentially stale counter and is no longer read
+   * here. The "Generate" button writes the final bibliography file
+   * (plugin.generateBibliographyFile), ready to paste into the compiled
+   * manuscript or ship separately; that generation stays out of scope
+   * here. */
+  async renderBibliographySection(
+    container: HTMLElement,
+    documentContext: ResearchDocumentContext,
+    candidateFolders: TFolder[],
+    citationAnalysis: ResearchCitationAnalysis
+  ): Promise<void> {
     const S = this.plugin.settings;
     const collapseKey = "research:cited-sources";
     const collapsed = Boolean(S?.collapsed?.[collapseKey]);
@@ -2648,7 +2676,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     const files = candidateFolders.flatMap((f) =>
       f.children.filter((c): c is TFile => c instanceof TFile && c.extension === "md")
     );
-    const cited = files.filter((f) => (this.plugin.fmOf(f).cite_count || 0) > 0);
+    const sourceCountFor = (f: TFile): number => citationAnalysis.sourceCitationCounts.get(f.path) || 0;
+    const cited = files.filter((f) => sourceCountFor(f) > 0);
 
     const exportRow = sectionEl.createDiv({ cls: "feuillets-bibliography-export-row" });
     exportRow.setAttr("title", t("shared.bibliography.exportTooltip"));
@@ -2659,15 +2688,12 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     const list = sectionEl.createDiv({ cls: "feuillets-research-list" });
 
-    const activeFile = typeof this.app?.workspace?.getActiveFile === "function"
-      ? this.app.workspace.getActiveFile()
-      : null;
-
-    const bibtexResult = await collectScopeCitedBibtexEntries(
+    const bibtexResult = await collectDocumentScopeCitedBibtexEntries(
       this.app,
       this.plugin.settings,
-      root,
-      activeFile
+      documentContext.projectRoot,
+      documentContext.scopeRoot,
+      citationAnalysis.citekeyCounts
     );
 
     if (
@@ -2687,10 +2713,9 @@ export abstract class BaseFeuilletsView extends ItemView {
       return (typeof authorA === "string" ? authorA : "").localeCompare(typeof authorB === "string" ? authorB : "", getLocale());
     });
     for (const f of sorted) {
-      const fm = this.plugin.fmOf(f);
       const row = list.createDiv({ cls: "feuillets-research-item" });
       const header = row.createDiv({ cls: "feuillets-research-item-header" });
-      const n = Number(fm.cite_count) || 0;
+      const n = sourceCountFor(f);
       header
         .createDiv({ cls: "feuillets-research-item-name" })
         .setText(t("shared.bibliography.citationCount", { title: this.plugin.titleFor(f), count: String(n), s: n > 1 ? "s" : "" }));
