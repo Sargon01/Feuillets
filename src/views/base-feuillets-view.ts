@@ -87,7 +87,7 @@ export type ResearchRenderOptions = {
     folder: TFolder;
     binderNodes: TAbstractFile[];
   }[];
-  documentContext?: ResearchDocumentContext;
+  documentContext: ResearchDocumentContext;
 };
 
 function getResearchSectionIcon(key: string): string {
@@ -994,7 +994,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     container: HTMLElement,
     root: TFolder,
     gen: number,
-    options: ResearchRenderOptions = {},
+    options: ResearchRenderOptions,
   ): Promise<void> {
     const S = this.plugin.settings;
     const opLocale = getLocale();
@@ -1261,6 +1261,14 @@ export abstract class BaseFeuilletsView extends ItemView {
     const showProjectAssociations = !options.workspaceActive
       || options.scopeMode !== "workspace";
 
+    /* Portée documentaire des Notes de bas de page (relecture) : obligatoire,
+       résolue une seule fois par ResearchView.render()
+       (services/research-document-context.ts) et jamais recalculée ni
+       repliée sur `root` ici. Capturée dans une constante locale pour éviter
+       de répéter `options.` dans les fermetures ci-dessous (render des
+       espaces). */
+    const documentContext = options.documentContext;
+
     if (associatedWorkspaceFolder) {
       this.renderSection(body, associatedWorkspaceFolder.name, associatedWorkspaceFolder, async () =>
         this.promptCreateResearchFile(
@@ -1287,6 +1295,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           false
         );
       }
+      await this.renderFootnotesOverviewSection(body, documentContext);
       this.filterEntities();
       return;
     }
@@ -1328,7 +1337,7 @@ export abstract class BaseFeuilletsView extends ItemView {
             { parentKey: sectionsParentKey, key: sourcesFolder.path, siblingKeys }
           );
 
-          await this.renderFootnotesOverviewSection(body, root);
+          await this.renderFootnotesOverviewSection(body, documentContext);
           /* "Bibliographie" ici N'EST PLUS un dossier de fiches manuelles —
              c'est la vue agrégée des sources citées + le bouton pour générer
              le fichier final (voir renderBibliographySection). Créer une
@@ -1354,6 +1363,19 @@ export abstract class BaseFeuilletsView extends ItemView {
             ), "bibliographie", undefined, undefined, undefined,
             { parentKey: sectionsParentKey, key: bibliographieFolder.path, siblingKeys }
           );
+        },
+      });
+    }
+
+    /* Les Notes de bas de page (relecture) ne dépendent plus de l'existence
+       d'un dossier Sources (voir plus haut, dans l'espace Sources) : un
+       projet ou un espace sans Sources affiche quand même les notes de ses
+       propres documents. */
+    if (!sourcesFolder) {
+      spaces.push({
+        key: "footnotes-overview",
+        render: async () => {
+          await this.renderFootnotesOverviewSection(body, documentContext);
         },
       });
     }
@@ -2503,7 +2525,7 @@ export abstract class BaseFeuilletsView extends ItemView {
    * orphelines : un "[^N]" cité dans le texte sans définition
    * correspondante, ou l'inverse (définie mais jamais citée) — souvent le
    * signe d'un texte coupé/collé entre scènes qui a cassé une note. */
-  async renderFootnotesOverviewSection(container: HTMLElement, root: TFolder): Promise<void> {
+  async renderFootnotesOverviewSection(container: HTMLElement, documentContext: ResearchDocumentContext): Promise<void> {
     const S = this.plugin.settings;
     const collapseKey = "research:footnotes-overview";
     const collapsed = !!S.collapsed[collapseKey];
@@ -2528,10 +2550,10 @@ export abstract class BaseFeuilletsView extends ItemView {
     if (collapsed) return;
 
     const list = section.createDiv({ cls: "feuillets-research-list" });
-    const numbering = this.plugin.buildNumbering(root);
-    const files = this.plugin
-      .flattenFiles(root)
-      .sort((a, b) => (Number(numbering.get(a.path)) || 0) - (Number(numbering.get(b.path)) || 0));
+    const numbering = this.plugin.buildNumbering(documentContext.scopeRoot);
+    const files = [...documentContext.files].sort(
+      (a, b) => (Number(numbering.get(a.path)) || 0) - (Number(numbering.get(b.path)) || 0)
+    );
 
     const defRe = /^\[\^([^\]]+)\]:[ \t]*(.+)$/gm;
     const refRe = /\[\^([^\]]+)\](?!:)/g;

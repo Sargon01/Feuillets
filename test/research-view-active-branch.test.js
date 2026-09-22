@@ -240,6 +240,7 @@ function createFixture() {
 function createResearchView(fixture, { currentWorkspace, activeFile }) {
   const contentEl = new FakeElement();
   let currentActiveFile = activeFile;
+  fixture.vault.cachedRead = async (file) => file.content || "";
   const leaf = {
     app: {
       vault: fixture.vault,
@@ -259,6 +260,7 @@ function createResearchView(fixture, { currentWorkspace, activeFile }) {
     getWorkspaceFolder: () => currentWorkspace,
     getResearchRoot: () => fixture.researchRoot,
     getChronoFolder: () => null,
+    buildNumbering: () => new Map(),
     async ensureFolder() {},
     projectMode: () => PROJECT_MODES.fiction,
     async migrateBibliographieIntoSources() {},

@@ -286,10 +286,20 @@ async function renderResearchBody(harness) {
       folder: folderOrFiles instanceof TFolder ? folderOrFiles.path : null,
     });
   };
+  const root = harness.plugin.getProjectFolder();
   await view.renderResearchBody(
     contentEl,
-    harness.plugin.getProjectFolder(),
-    1
+    root,
+    1,
+    {
+      documentContext: {
+        mode: "project",
+        projectRoot: root,
+        scopeRoot: root,
+        workspaceRoot: null,
+        files: [],
+      },
+    }
   );
   return { sections };
 }
