@@ -9723,6 +9723,10 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   height: 100%;
 }
 
+.view-content > .markdown-source-view.mod-cm6.feuillets-scrivenings-view .cm-scroller {
+  font-family: var(--font-text);
+}
+
 /* Callouts Markdown rendus directement dans l'éditeur Continu. Les
  * décorations de ligne sont réunies visuellement en un bloc sans modifier le
  * texte source. */
