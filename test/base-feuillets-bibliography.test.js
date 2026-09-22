@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TFile, TFolder } from "obsidian";
+import { TFile, TFolder, Notice } from "obsidian";
 import FeuilletsPlugin from "../src/main.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { ResearchView } from "../src/views/research-view.js";
@@ -732,138 +732,104 @@ test("ResearchView: multiple opens and renders do not duplicate listeners", asyn
   assert.equal(registeredEvents.length, initialListenerCount, "setupBibliographyLifecycleListeners() guard prevents duplication");
 });
 
-test("generateBibliographyFile(): generates real Bibliographie.md, analyzes all files sharing effective .bib, combines Source cards and BibTeX, excludes unknown keys, sibling branches, and sub-branches with other .bib without Binder isolation", async () => {
+test("generateBibliographyFile(): writes real Bibliographie.md from an explicit snapshot, combining Source entries and BibTeX entries with no scope resolution of its own", async () => {
   const project = new TFolder("Project");
   const output = new TFolder("Project/_Sortie");
-  const resProject = new TFolder("Project/_Research");
-  const sourcesFolder = new TFolder("Project/_Research/Sources");
-  const sourceCard = new TFile("Project/_Research/Sources/Turing.md", "");
+  const sourcesFolder = new TFolder("Project/Sources");
+  const sourceCard = new TFile("Project/Sources/Turing.md", "");
   sourceCard.extension = "md";
-  sourceCard.frontmatter = { cite_count: 2, author: "Turing, Alan", title: "Computing Machinery and Intelligence", date: "1950" };
+  sourceCard.frontmatter = { author: "Turing, Alan", title: "Computing Machinery and Intelligence", date: "1950" };
   sourceCard.basename = "Turing 1950";
   sourcesFolder.children = [sourceCard];
   sourceCard.parent = sourcesFolder;
-  resProject.children = [sourcesFolder];
-  sourcesFolder.parent = resProject;
 
-  const branchA = new TFolder("Project/BranchA");
-  const resA = new TFolder("Project/BranchA/Research");
-  const bibA = new TFile("Project/BranchA/Research/refsA.bib", `@article{knuth1968,
-    author = {Knuth, Donald},
-    title = {Fundamental Algorithms},
-    year = {1968}
-  }`);
-  bibA.extension = "bib";
-  bibA.stat = { mtime: 1000, size: bibA.content.length };
-  resA.children = [bibA];
-  bibA.parent = resA;
-
-  const sceneA = new TFile("Project/BranchA/SceneA.md", "Scene A citing [@knuth1968] and [@unknownKey].");
-  sceneA.extension = "md";
-  sceneA.stat = { mtime: 1000, size: sceneA.content.length };
-
-  const sceneA2 = new TFile("Project/BranchA/SceneA2.md", "Scene A2 citing [@knuth1968].");
-  sceneA2.extension = "md";
-  sceneA2.stat = { mtime: 1000, size: sceneA2.content.length };
-
-  const subBranch = new TFolder("Project/BranchA/SubBranch");
-  const resSub = new TFolder("Project/BranchA/SubBranch/Research");
-  const bibSub = new TFile("Project/BranchA/SubBranch/Research/sub.bib", `@article{subKey,
-    author = {SubAuthor, Sam},
-    title = {Sub Branch Title},
-    year = {2022}
-  }`);
-  bibSub.extension = "bib";
-  bibSub.stat = { mtime: 1000, size: bibSub.content.length };
-  resSub.children = [bibSub];
-  bibSub.parent = resSub;
-  const subScene = new TFile("Project/BranchA/SubBranch/Detail.md", "Detail citing [@subKey].");
-  subScene.extension = "md";
-  subScene.stat = { mtime: 1000, size: subScene.content.length };
-  subBranch.children = [resSub, subScene];
-  resSub.parent = subBranch;
-  subScene.parent = subBranch;
-
-  branchA.children = [resA, sceneA, sceneA2, subBranch];
-  resA.parent = branchA;
-  sceneA.parent = branchA;
-  sceneA2.parent = branchA;
-  subBranch.parent = branchA;
-
-  const branchB = new TFolder("Project/BranchB");
-  const resB = new TFolder("Project/BranchB/Research");
-  const bibB = new TFile("Project/BranchB/Research/refsB.bib", `@article{siblingKey,
-    author = {Sibling, Sally},
-    title = {Sibling Title},
-    year = {2021}
-  }`);
-  bibB.extension = "bib";
-  bibB.stat = { mtime: 1000, size: bibB.content.length };
-  resB.children = [bibB];
-  bibB.parent = resB;
-  const sceneB = new TFile("Project/BranchB/SceneB.md", "Sibling citing [@siblingKey].");
-  sceneB.extension = "md";
-  sceneB.stat = { mtime: 1000, size: sceneB.content.length };
-  branchB.children = [resB, sceneB];
-  resB.parent = branchB;
-  sceneB.parent = branchB;
-
-  project.children = [output, resProject, branchA, branchB];
+  project.children = [output, sourcesFolder];
   output.parent = project;
-  resProject.parent = project;
-  branchA.parent = project;
-  branchB.parent = project;
+  sourcesFolder.parent = project;
 
-  const { vault } = createFakeVault([
-    project, output, resProject, sourcesFolder, sourceCard,
-    branchA, resA, bibA, sceneA, sceneA2, subBranch, resSub, bibSub, subScene,
-    branchB, resB, bibB, sceneB,
-  ]);
-  vault.cachedRead = vault.read;
+  const { vault } = createFakeVault([project, output, sourcesFolder, sourceCard]);
+  const settings = { projectFolder: "Project", projectMeta: { Project: {} } };
 
-  const settings = {
-    projectFolder: "Project",
-    projectMeta: {
-      "Project": {
-        researchFolderLinks: {
-          "Project": resProject.path,
-          "Project/BranchA": resA.path,
-          "Project/BranchA/SubBranch": resSub.path,
-          "Project/BranchB": resB.path,
-        },
-        folderWorkspaces: {
-          "BranchA": { citekeyBibliographyPath: "refsA.bib" },
-          "BranchA/SubBranch": { citekeyBibliographyPath: "sub.bib" },
-          "BranchB": { citekeyBibliographyPath: "refsB.bib" },
-        },
-      },
-    },
-  };
-
-  const { plugin } = createMockAppAndPlugin(vault, settings, sceneA);
-  // Simulate Binder isolation: workspace folder points to isolated folder, scope must still follow sceneA physical branch
-  plugin.getWorkspaceFolder = () => branchB;
+  const { plugin } = createMockAppAndPlugin(vault, settings);
   plugin.generateBibliographyFile = FeuilletsPlugin.prototype.generateBibliographyFile;
 
-  await plugin.generateBibliographyFile();
+  // Built exactly like renderBibliographySection's snapshot — no active file,
+  // no re-resolution: the generator trusts this input as-is. An unknown
+  // citekey is never part of bibtexEntries by contract (it only ever
+  // reaches unknownKeys, which the caller never forwards here), so
+  // "excludes unknown keys" is exercised by simply never including one.
+  const input = {
+    projectRoot: project,
+    sourceFiles: [sourceCard],
+    bibtexEntries: [{
+      author: "Knuth, Donald",
+      title: "Fundamental Algorithms",
+      date: "1968",
+      citekey: "knuth1968",
+      bibliographyFilePath: "Project/refs.bib",
+    }],
+  };
+
+  await plugin.generateBibliographyFile(input);
 
   const generatedFile = vault.getAbstractFileByPath("Project/_Sortie/Bibliographie.md");
   assert.ok(generatedFile instanceof TFile, "Bibliographie.md must be generated on disk");
 
   const content = await vault.read(generatedFile);
   assert.match(content, /# Bibliographie/);
-  // Source card included
+  // Source entry included
   assert.match(content, /Turing, Alan/);
   assert.match(content, /Computing Machinery and Intelligence/);
-  // Known BibTeX reference included
+  // BibTeX entry included
   assert.match(content, /Knuth, Donald/);
   assert.match(content, /Fundamental Algorithms/);
-  // Unknown key excluded
-  assert.doesNotMatch(content, /unknownKey/);
-  // Sub-branch with its own .bib excluded
-  assert.doesNotMatch(content, /SubAuthor/);
-  assert.doesNotMatch(content, /subKey/);
-  // Sibling branch excluded
-  assert.doesNotMatch(content, /Sibling/);
-  assert.doesNotMatch(content, /siblingKey/);
+});
+
+test("generateBibliographyFile(): replaces an existing Bibliographie.md instead of duplicating it", async () => {
+  const project = new TFolder("Project");
+  const output = new TFolder("Project/_Sortie");
+  const existing = new TFile("Project/_Sortie/Bibliographie.md", "# Bibliographie\n\nStale content.\n");
+  output.children = [existing];
+  existing.parent = output;
+  project.children = [output];
+  output.parent = project;
+
+  const { vault } = createFakeVault([project, output, existing]);
+  const settings = { projectFolder: "Project", projectMeta: { Project: {} } };
+  const { plugin } = createMockAppAndPlugin(vault, settings);
+  plugin.generateBibliographyFile = FeuilletsPlugin.prototype.generateBibliographyFile;
+
+  const input = {
+    projectRoot: project,
+    sourceFiles: [],
+    bibtexEntries: [{ author: "Fresh, Faye", title: "Fresh Work", date: "2024", citekey: "fresh2024", bibliographyFilePath: "Project/refs.bib" }],
+  };
+  await plugin.generateBibliographyFile(input);
+
+  const files = vault.getFiles().filter((f) => f.path === "Project/_Sortie/Bibliographie.md");
+  assert.equal(files.length, 1, "no duplicate file is created");
+  const content = await vault.read(files[0]);
+  assert.match(content, /Fresh, Faye/);
+  assert.doesNotMatch(content, /Stale content/);
+});
+
+test("generateBibliographyFile(): an empty snapshot keeps the existing empty-state notice behavior", async () => {
+  const project = new TFolder("Project");
+  const { vault } = createFakeVault([project]);
+  const settings = { projectFolder: "Project", projectMeta: { Project: {} } };
+  const { plugin } = createMockAppAndPlugin(vault, settings);
+  plugin.generateBibliographyFile = FeuilletsPlugin.prototype.generateBibliographyFile;
+
+  const notices = [];
+  const previousOnCreate = Notice.onCreate;
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    const input = { projectRoot: project, sourceFiles: [], bibtexEntries: [] };
+    await plugin.generateBibliographyFile(input);
+  } finally {
+    Notice.onCreate = previousOnCreate;
+  }
+
+  assert.equal(vault.getAbstractFileByPath("Project/_Sortie/Bibliographie.md"), null, "nothing is written when there is nothing to generate");
+  assert.ok(notices.some((m) => /Aucune source citée|No source cited/.test(m)), "the existing empty-state notice is still shown");
 });

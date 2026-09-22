@@ -43,6 +43,16 @@ export type BibliographyEntry = {
   bibliographyFilePath?: string;
 };
 
+/** Snapshot handed to generateBibliographyFile() by the Research view's
+ * renderBibliographySection() — the exact Sources fiches and resolved
+ * BibTeX entries already displayed for the current document scope, so the
+ * generator never re-resolves a scope or re-scans anything of its own. */
+export type ResearchBibliographyGenerationInput = {
+  projectRoot: TFolder;
+  sourceFiles: readonly TFile[];
+  bibtexEntries: readonly BibliographyEntry[];
+};
+
 /** Nom canonique, fixe quelle que soit la langue de l'interface (voir
  * utils/project-modes.ts : RESEARCH_FOLDER_VARIANTS.sources = ["Sources"]). */
 const SOURCES_FOLDER_NAME = "Sources";
@@ -113,7 +123,7 @@ function bibliographyEntryForFile(app: App, file: TFile): BibliographyEntry {
 
 /** Convertit une liste explicite de fiches Source avec le même mapping que
  * la bibliographie historique, sans appliquer cite_count. */
-export function bibliographyEntriesForFiles(app: App, files: TFile[]): BibliographyEntry[] {
+export function bibliographyEntriesForFiles(app: App, files: readonly TFile[]): BibliographyEntry[] {
   return files
     .filter((file) => file instanceof TFile && file.extension === "md")
     .map((file) => bibliographyEntryForFile(app, file));

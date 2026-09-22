@@ -57,6 +57,7 @@ import {
 import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 import { collectDocumentScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
 import { analyzeResearchCitations, type ResearchCitationAnalysis } from "../services/research-citation-analysis.js";
+import type { ResearchBibliographyGenerationInput } from "../services/bibliography-generator.js";
 import type { ResearchDocumentContext, ResearchDocumentScopeMode } from "../services/research-document-context.js";
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
 
@@ -2640,9 +2641,10 @@ export abstract class BaseFeuilletsView extends ItemView {
    * documentContext.files), in every mode — never fm.cite_count, which
    * remains a global, potentially stale counter and is no longer read
    * here. The "Generate" button writes the final bibliography file
-   * (plugin.generateBibliographyFile), ready to paste into the compiled
-   * manuscript or ship separately; that generation stays out of scope
-   * here. */
+   * (plugin.generateBibliographyFile), passed a snapshot of exactly the
+   * cited fiches and resolved BibTeX entries this render pass displays —
+   * the generator itself never re-resolves a scope or re-scans anything;
+   * that generation logic stays out of scope here. */
   async renderBibliographySection(
     container: HTMLElement,
     documentContext: ResearchDocumentContext,
@@ -2684,7 +2686,6 @@ export abstract class BaseFeuilletsView extends ItemView {
     const exportIcon = exportRow.createSpan({ cls: "feuillets-cell-icon" });
     setIcon(exportIcon, "file-output");
     exportRow.createSpan().setText(t("shared.bibliography.generate"));
-    exportRow.addEventListener("click", () => { void this.plugin.generateBibliographyFile(); });
 
     const list = sectionEl.createDiv({ cls: "feuillets-research-list" });
 
@@ -2695,6 +2696,19 @@ export abstract class BaseFeuilletsView extends ItemView {
       documentContext.scopeRoot,
       citationAnalysis.citekeyCounts
     );
+
+    /* Only wired once bibtexResult is settled, so the button is never
+       reachable for a moment with an incomplete/stale scope: the click
+       handler closes over a snapshot of exactly what this render pass
+       displays — the same Sources fiches (`cited`) and the same resolved
+       BibTeX entries — copied so a later mutation of `cited` or of the
+       result arrays can never change what a pending click writes. */
+    const generationInput: ResearchBibliographyGenerationInput = {
+      projectRoot: documentContext.projectRoot,
+      sourceFiles: [...cited],
+      bibtexEntries: [...bibtexResult.allBibliographyEntries],
+    };
+    exportRow.addEventListener("click", () => { void this.plugin.generateBibliographyFile(generationInput); });
 
     if (
       cited.length === 0 &&

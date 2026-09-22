@@ -49,7 +49,13 @@ import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
 import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
 import { formatCitation } from "./services/citations.js";
-import { bibliographyEntries, generateBibliography, resolveBibliographySource, resolveBibliographySourceInResearchRoot } from "./services/bibliography-generator.js";
+import {
+  bibliographyEntriesForFiles,
+  generateBibliography,
+  resolveBibliographySource,
+  resolveBibliographySourceInResearchRoot,
+  type ResearchBibliographyGenerationInput,
+} from "./services/bibliography-generator.js";
 import { resolveWorkspaceResearchContext } from "./services/workspace-research-context.js";
 import { getResearchTemplate } from "./services/research-templates.js";
 import {
@@ -61,7 +67,6 @@ import {
 } from "./utils/cm-citekey-trigger.js";
 import { getCachedBibtexCatalog } from "./services/bibtex-catalog.js";
 import { resolveWorkspaceCitationResources } from "./services/workspace-citations.js";
-import { collectScopeCitedBibtexEntries } from "./services/citekey-bibliography.js";
 import { CitekeyModal } from "./ui/citekey-modal.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
@@ -4129,11 +4134,14 @@ class FeuilletsPlugin extends Plugin {
     });
   }
 
-  /* L'échec n'interrompt pas l'insertion de la citation (déjà écrite dans le
-     texte à ce stade), mais il ne doit pas passer inaperçu : `cite_count` est
-     ce qui décide de la présence de la source dans generateBibliographyFile,
-     donc un échec silencieux ici se manifeste bien plus tard, sous forme
-     d'entrée manquante dans la bibliographie. */
+  /* A failure here never interrupts the citation insertion itself (already
+     written to the text at this point), but it must not go unnoticed:
+     generateBibliographyFile() no longer reads cite_count — it now receives
+     the snapshot already displayed by the Research view — but this counter
+     is still consumed by bibliographyEntriesForEditorialRoot()'s historical
+     fallback and by Composition's Bibliography panel, for paths that don't
+     yet have indexed registry occurrences. A silent failure here still
+     surfaces eventually, but only on those historical paths. */
   markSourceCited(sourceFile: TFile): void {
     this.app.fileManager.processFrontMatter(sourceFile, (fm: SceneFrontmatter) => {
       fm.cite_count = (fm.cite_count || 0) + 1;
@@ -4143,29 +4151,17 @@ class FeuilletsPlugin extends Plugin {
     });
   }
 
-  /** Écrit `Bibliographie.md` — même sélection et même formatage EXACTEMENT
-   * que la bibliographie générée dans Composition (services/compile-
-   * export.ts) : `bibliographyEntries()` + `generateBibliography()`
-   * (services/bibliography-generator.ts), aucun second moteur ici. Ce
-   * qu'on ajoute par rapport à Composition : l'écriture du fichier, la
-   * Notice et la gestion d'erreur. */
-  async generateBibliographyFile(): Promise<void> {
-    const root = this.getProjectFolder();
-    if (!root) return;
-
-    const activeFile = typeof this.app?.workspace?.getActiveFile === "function"
-      ? this.app.workspace.getActiveFile()
-      : null;
-
-    const bibtexResult = await collectScopeCitedBibtexEntries(
-      this.app,
-      this.settings,
-      root,
-      activeFile
-    );
-
-    const sourceEntries = bibliographyEntries(this.app, this.settings);
-    const combined = [...sourceEntries, ...bibtexResult.allBibliographyEntries];
+  /** Writes `Bibliographie.md` from the snapshot already computed and
+   * displayed by the Research view (renderBibliographySection(),
+   * views/base-feuillets-view.ts): neither the document scope nor the
+   * BibTeX entries are recomputed here, only combined and formatted —
+   * `bibliographyEntriesForFiles()` + `generateBibliography()`
+   * (services/bibliography-generator.ts), no second engine here. What this
+   * adds on top of the received snapshot: writing the file, the Notice and
+   * error handling. */
+  async generateBibliographyFile(input: ResearchBibliographyGenerationInput): Promise<void> {
+    const sourceEntries = bibliographyEntriesForFiles(this.app, input.sourceFiles);
+    const combined = [...sourceEntries, ...input.bibtexEntries];
 
     const content = generateBibliography(combined);
     if (!content) {
@@ -4175,7 +4171,7 @@ class FeuilletsPlugin extends Plugin {
     try {
       const opLocale = getLocale();
       const outputFolder = await getOutputFolder(this.app, this.settings, opLocale);
-      const outBase = outputFolder ? outputFolder.path : root.path;
+      const outBase = outputFolder ? outputFolder.path : input.projectRoot.path;
       const path = normalizePath(`${outBase}/Bibliographie.md`);
       const existing = this.app.vault.getAbstractFileByPath(path);
       if (existing instanceof TFile) await this.app.vault.modify(existing, content);
