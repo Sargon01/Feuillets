@@ -1306,14 +1306,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         );
       }
       await this.renderFootnotesOverviewSection(body, documentContext);
-      const associatedSourcesFolder = this.findResearchCategoryFolder(associatedWorkspaceFolder.path, rf, "sources");
-      const associatedBibliographieFolder = this.findResearchCategoryFolder(associatedWorkspaceFolder.path, rf, "bibliographie");
-      await this.renderBibliographySection(
-        body,
-        documentContext,
-        [associatedSourcesFolder, associatedBibliographieFolder].filter((f): f is TFolder => f instanceof TFolder),
-        citationAnalysis
-      );
+      await this.renderBibliographySection(body, documentContext, citationAnalysis);
       this.filterEntities();
       return;
     }
@@ -1362,12 +1355,7 @@ export abstract class BaseFeuilletsView extends ItemView {
              nouvelle référence se fait dans Sources, jamais ici. Ni l'aperçu
              des notes ni cet agrégat ne sont adossés à un dossier propre :
              ils suivent toujours "Sources", jamais réordonnés séparément. */
-          await this.renderBibliographySection(
-            body,
-            documentContext,
-            [sourcesFolder, ...(bibliographieFolder ? [bibliographieFolder] : [])],
-            citationAnalysis
-          );
+          await this.renderBibliographySection(body, documentContext, citationAnalysis);
         },
       });
     }
@@ -1381,20 +1369,16 @@ export abstract class BaseFeuilletsView extends ItemView {
        legacy Bibliographie folder is deliberately NOT also rendered as its
        own raw browsing space here — it would show up twice, once as a
        plain folder listing and once below as the aggregated Bibliography
-       section, which it still feeds as a candidate folder and which stays
-       the single visible representation of Bibliographie in that
-       configuration. */
+       section, which stays the single visible representation of
+       Bibliographie in that configuration (the aggregated section itself
+       no longer depends on this or any other folder — see
+       renderBibliographySection()). */
     if (!sourcesFolder) {
       spaces.push({
         key: "footnotes-overview",
         render: async () => {
           await this.renderFootnotesOverviewSection(body, documentContext);
-          await this.renderBibliographySection(
-            body,
-            documentContext,
-            bibliographieFolder ? [bibliographieFolder] : [],
-            citationAnalysis
-          );
+          await this.renderBibliographySection(body, documentContext, citationAnalysis);
         },
       });
     }
@@ -2632,15 +2616,19 @@ export abstract class BaseFeuilletsView extends ItemView {
   }
 
   /** "Bibliography" as an AGGREGATOR, not a folder of manual fiches: the
-   * list of Sources/Bibliographie fiches actually cited at least once
-   * within the current document scope (documentContext), sorted by
-   * author — distinct from "every fiche" (a source can exist in the
-   * working library without ever being cited in this scope's text). The
-   * per-Source-fiche counter is ALWAYS citationAnalysis.sourceCitationCounts
-   * (citation-registry occurrences strictly localized to
-   * documentContext.files), in every mode — never fm.cite_count, which
-   * remains a global, potentially stale counter and is no longer read
-   * here. The "Generate" button writes the final bibliography file
+   * list of Source fiches actually cited at least once within the current
+   * document scope (documentContext), sorted by author — distinct from
+   * "every fiche" (a source can exist in the working library without ever
+   * being cited in this scope's text). Which fiche a citation points to is
+   * decided ONLY by citationAnalysis.sourceCitationCounts (registry
+   * occurrences, keyed by sourcePath, strictly localized to
+   * documentContext.files) — never by which Sources/Bibliographie folder
+   * happens to be visible in this render branch, so a Source living in a
+   * different (but still cited) Recherche is never silently dropped. The
+   * per-Source-fiche counter is that same map, in every mode — never
+   * fm.cite_count, which remains a global, potentially stale counter and
+   * is no longer read here. The "Generate" button writes the final
+   * bibliography file
    * (plugin.generateBibliographyFile), passed a snapshot of exactly the
    * cited fiches and resolved BibTeX entries this render pass displays —
    * the generator itself never re-resolves a scope or re-scans anything;
@@ -2648,7 +2636,6 @@ export abstract class BaseFeuilletsView extends ItemView {
   async renderBibliographySection(
     container: HTMLElement,
     documentContext: ResearchDocumentContext,
-    candidateFolders: TFolder[],
     citationAnalysis: ResearchCitationAnalysis
   ): Promise<void> {
     const S = this.plugin.settings;
@@ -2675,11 +2662,26 @@ export abstract class BaseFeuilletsView extends ItemView {
     if (collapsed) return;
     const sectionEl = section;
 
-    const files = candidateFolders.flatMap((f) =>
-      f.children.filter((c): c is TFile => c instanceof TFile && c.extension === "md")
-    );
+    /* The citation registry (citationAnalysis.sourceCitationCounts, keyed
+       by normalized sourcePath) is the sole authority on which Source
+       fiche a valid occurrence points to — never the Sources/Bibliographie
+       folder(s) happening to be visible in this render branch, so a
+       citation to a Source living in a different Recherche is never
+       silently dropped. A path that no longer resolves to an existing
+       Markdown file (deleted, a folder, an attachment) is skipped; paths
+       are deduplicated after normalization. */
+    const cited: TFile[] = [];
+    const seenSourcePaths = new Set<string>();
+    for (const sourcePath of citationAnalysis.sourceCitationCounts.keys()) {
+      const normalizedPath = normalizePath(sourcePath);
+      if (seenSourcePaths.has(normalizedPath)) continue;
+      seenSourcePaths.add(normalizedPath);
+      const candidate = this.app.vault.getAbstractFileByPath(normalizedPath);
+      if (candidate instanceof TFile && candidate.extension === "md") {
+        cited.push(candidate);
+      }
+    }
     const sourceCountFor = (f: TFile): number => citationAnalysis.sourceCitationCounts.get(f.path) || 0;
-    const cited = files.filter((f) => sourceCountFor(f) > 0);
 
     const exportRow = sectionEl.createDiv({ cls: "feuillets-bibliography-export-row" });
     exportRow.setAttr("title", t("shared.bibliography.exportTooltip"));

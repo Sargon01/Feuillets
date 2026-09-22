@@ -7,6 +7,7 @@ import { ResearchView } from "../src/views/research-view.js";
 import { flattenFiles } from "../src/services/folder-structure.js";
 import { analyzeResearchCitations } from "../src/services/research-citation-analysis.js";
 import { saveCitationRegistry } from "../src/services/citation-registry.js";
+import { createSourceAnchor } from "../src/services/source-anchor.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
 globalThis.window ??= {
@@ -255,7 +256,7 @@ test("ResearchView: renderBibliographySection displays empty state when no sourc
   const citationAnalysis = { citekeyCounts: new Map(), sourceCitationCounts: new Map() };
 
   const container = new FakeElement();
-  await view.renderBibliographySection(container, documentContext, [sourcesFolder], citationAnalysis);
+  await view.renderBibliographySection(container, documentContext, citationAnalysis);
 
   const emptyEl = container.find(".feuillets-research-empty");
   assert.ok(emptyEl);
@@ -311,15 +312,17 @@ test("ResearchView: coexistence of Source cards and BibTeX citations in the same
   const { app, plugin } = createMockAppAndPlugin(vault, settings, scene);
 
   // The Source counter is now always read from the citation registry, never
-  // from cite_count — seed a single real occurrence; cite_count (3) is kept
-  // as a deliberate decoy value that must not surface anywhere.
+  // from cite_count — seed a single real occurrence, anchored to an actual
+  // fragment of Scene.md's content; cite_count (3) is kept as a deliberate
+  // decoy value that must not surface anywhere.
+  const citingQuote = "Discussion";
   await saveCitationRegistry(app, settings, {
     version: 1,
     citations: [{
       id: "occ-1",
       file: "Manuscript/Scene.md",
       sourcePath: sourceCard.path,
-      start: 0, end: 1, quote: "", prefix: "", suffix: "",
+      ...createSourceAnchor(scene.content, scene.content.indexOf(citingQuote), scene.content.indexOf(citingQuote) + citingQuote.length),
     }],
   });
 
@@ -331,7 +334,7 @@ test("ResearchView: coexistence of Source cards and BibTeX citations in the same
   const citationAnalysis = await analyzeResearchCitations(app, settings, documentContext);
 
   const container = new FakeElement();
-  await view.renderBibliographySection(container, documentContext, [sourcesFolder], citationAnalysis);
+  await view.renderBibliographySection(container, documentContext, citationAnalysis);
 
   // Check Source card rendered
   const items = container.findAll(".feuillets-research-item");
@@ -376,7 +379,7 @@ test("ResearchView: renderBibliographySection does not register any listeners", 
   const container = new FakeElement();
   const documentContext = { mode: "project", projectRoot: project, scopeRoot: project, workspaceRoot: null, files: [] };
   const citationAnalysis = { citekeyCounts: new Map(), sourceCitationCounts: new Map() };
-  await view.renderBibliographySection(container, documentContext, [sourcesFolder], citationAnalysis);
+  await view.renderBibliographySection(container, documentContext, citationAnalysis);
   assert.equal(registeredEvents.length, initialCount, "No new events should be registered in renderBibliographySection");
 });
 

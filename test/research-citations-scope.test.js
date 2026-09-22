@@ -5,6 +5,7 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import { ResearchView } from "../src/views/research-view.js";
 import { analyzeResearchCitations } from "../src/services/research-citation-analysis.js";
 import { saveCitationRegistry, citationRegistryPath } from "../src/services/citation-registry.js";
+import { createSourceAnchor } from "../src/services/source-anchor.js";
 import { t } from "../src/i18n/index.js";
 
 /* Contextual citation scope — citations, their counters and the displayed
@@ -164,12 +165,20 @@ function makeFixture() {
   workANote.frontmatter = { author: "Workspace Author" };
   workANote.basename = "WorkANote";
 
-  projectRoot.children = [workA, workAExtra, workB, researchRoot, workAResearch];
+  const workBResearch = new TFolder("PROJECT/Work-B-Research");
+  const workBSourcesFolder = new TFolder("PROJECT/Work-B-Research/Sources");
+  const workBNote = new TFile("PROJECT/Work-B-Research/Sources/WorkBNote.md", "");
+  workBNote.extension = "md";
+  workBNote.frontmatter = { author: "Work-B Workspace Author" };
+  workBNote.basename = "WorkBNote";
+
+  projectRoot.children = [workA, workAExtra, workB, researchRoot, workAResearch, workBResearch];
   workA.parent = projectRoot;
   workAExtra.parent = projectRoot;
   workB.parent = projectRoot;
   researchRoot.parent = projectRoot;
   workAResearch.parent = projectRoot;
+  workBResearch.parent = projectRoot;
 
   workA.children = [workASub, sceneA, attachmentPdf];
   workASub.parent = workA;
@@ -196,10 +205,16 @@ function makeFixture() {
   workASourcesFolder.children = [workANote];
   workANote.parent = workASourcesFolder;
 
+  workBResearch.children = [workBSourcesFolder];
+  workBSourcesFolder.parent = workBResearch;
+  workBSourcesFolder.children = [workBNote];
+  workBNote.parent = workBSourcesFolder;
+
   const vaultEntries = [
     projectRoot, workA, workASub, workAExtra, workB,
     researchRoot, sourcesFolder, projectNote, refsBib,
     workAResearch, workASourcesFolder, workANote,
+    workBResearch, workBSourcesFolder, workBNote,
     sceneA, sceneASub, sceneAExtra, sceneB, attachmentPdf,
   ];
   const { vault } = createFakeVault(vaultEntries);
@@ -227,6 +242,7 @@ function makeFixture() {
     projectRoot, workA, workASub, workAExtra, workB,
     researchRoot, sourcesFolder, projectNote, refsBib,
     workAResearch, workASourcesFolder, workANote,
+    workBResearch, workBSourcesFolder, workBNote,
     sceneA, sceneASub, sceneAExtra, sceneB, attachmentPdf,
   };
 }
@@ -234,21 +250,28 @@ function makeFixture() {
 /** Seeds a real citation registry (citation-registry.ts) so Source-card
  * scoped counters can be exercised against real occurrences instead of a
  * hand-rolled map — `file` paths are relative to projectRoot, exactly as
- * addCitationOccurrence stores them. */
+ * addCitationOccurrence stores them. Each occurrence gets a REAL anchor
+ * (createSourceAnchor(), the same production mechanism) over an actual
+ * fragment of the citing file's own content — by default the file's full
+ * content, or an explicit `quote` (optionally at a given `start` offset,
+ * for occurrences that must resolve against one of several identical
+ * fragments) when a test needs to exercise anchor-resolution semantics
+ * specifically (moved, ambiguous or duplicated text). */
 async function seedCitationRegistry(fixture, occurrences) {
   const app = { vault: fixture.vault };
   const registry = {
     version: 1,
-    citations: occurrences.map((o, i) => ({
-      id: `occ-${i}`,
-      file: o.file,
-      sourcePath: o.sourcePath,
-      start: 0,
-      end: 1,
-      quote: "",
-      prefix: "",
-      suffix: "",
-    })),
+    citations: occurrences.map((o, i) => {
+      const citingFile = fixture.vault.getAbstractFileByPath(`${fixture.projectRoot.path}/${o.file}`);
+      const content = citingFile?.content || "";
+      const quote = o.quote ?? content;
+      const start = o.start ?? content.indexOf(quote);
+      const anchor = createSourceAnchor(content, start, start + quote.length);
+      if (!anchor) {
+        throw new Error(`seedCitationRegistry: no real anchor could be built for "${o.file}" (quote "${quote}" not found)`);
+      }
+      return { id: `occ-${i}`, file: o.file, sourcePath: o.sourcePath, ...anchor };
+    }),
   };
   await saveCitationRegistry(app, fixture.settings, registry);
   return citationRegistryPath(app, fixture.settings);
@@ -501,6 +524,171 @@ test("Workspace mode scopes Source-card counters to the space's own citation occ
     /2 citations/,
     "only the 2 occurrences inside Work-A (own scene + subfolder scene) are counted — Work-B and Work-A-Extra are excluded"
   );
+});
+
+/* --- The registry is the sole authority on Source identity — never the
+   folder currently visible in the render branch --- */
+
+test("a document in Work-A can cite a Source living in the project's global Sources folder, and it is displayed", async () => {
+  const fixture = makeFixture();
+  // Work-A has its OWN linked Research (workAResearch) — under the old
+  // candidateFolders-based discovery, only workAResearch's own Sources
+  // folder was ever scanned in this branch, so a citation to the GLOBAL
+  // projectNote (living in the project's own RESEARCH/Sources, a different
+  // folder entirely) would never have surfaced.
+  fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
+    fixture.workAResearch.path;
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path },
+  ]);
+
+  const contentEl = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const sourceItem = bibliographyItems(contentEl).find(
+    (el) => el.textContent.includes("ProjectNote") && /citation/.test(el.textContent)
+  );
+  assert.ok(sourceItem, "a citation to a globally-scoped Source must be displayed even though it lives outside the visible Research folder");
+  assert.match(sourceItem.textContent, /1 citation\b/);
+});
+
+test("Project mode includes Sources cited from Research folders linked to several different spaces", async () => {
+  const fixture = makeFixture();
+  fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
+    fixture.workAResearch.path;
+  fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workB.path] =
+    fixture.workBResearch.path;
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.workANote.path },
+    { file: "Work-B/Scene-B.md", sourcePath: fixture.workBNote.path },
+  ]);
+
+  const contentEl = await renderWithDocument(fixture, { workspace: null, scopeMode: "project" });
+  const workAItem = bibliographyItems(contentEl).find(
+    (el) => el.textContent.includes("WorkANote") && /citation/.test(el.textContent)
+  );
+  const workBItem = bibliographyItems(contentEl).find(
+    (el) => el.textContent.includes("WorkBNote") && /citation/.test(el.textContent)
+  );
+  assert.ok(workAItem, "a Source cited from Work-A's own linked Research must appear in Project mode");
+  assert.ok(workBItem, "a Source cited from Work-B's own linked Research must appear in Project mode too — the old global-Sources-only discovery would have missed both");
+});
+
+test("two valid occurrences of the same Source in a single document produce a count of 2 and one fiche", async () => {
+  const fixture = makeFixture();
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path, quote: "Body A" },
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path, quote: "citing" },
+  ]);
+
+  const contentEl = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+
+  const items = bibliographyItems(contentEl).filter(
+    (el) => el.textContent.includes("ProjectNote") && /citation/.test(el.textContent)
+  );
+  assert.equal(items.length, 1, "a Source cited twice still yields exactly one fiche row");
+  assert.match(items[0].textContent, /2 citations/, "both valid occurrences are counted");
+});
+
+test("Scene-A.md is read only once for the citation analysis even though two registry occurrences concern it", async () => {
+  const fixture = makeFixture();
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path, quote: "Body A" },
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path, quote: "citing" },
+  ]);
+
+  const reads = [];
+  await renderWithDocument(fixture, {
+    workspace: fixture.workA,
+    scopeMode: "workspace",
+    cachedReadSpy: (path) => reads.push(path),
+  });
+
+  // Scene-A.md is legitimately read twice per render overall: once by the
+  // footnotes overview scan, once by the citation analysis — never a third
+  // time for the second registry occurrence concerning the same file.
+  const sceneAReads = reads.filter((p) => p === fixture.sceneA.path);
+  assert.equal(sceneAReads.length, 2, "one read for footnotes, one read for the citation analysis — never a second read per registry occurrence");
+});
+
+test("a citation removed from the document is no longer displayed", async () => {
+  const fixture = makeFixture();
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path, quote: "sharedKey2020" },
+  ]);
+
+  // The citing fragment is entirely gone from the current content —
+  // resolveCitationOccurrence() must fail to find it.
+  fixture.sceneA.content = "Body A no longer cites anything of note.";
+  fixture.sceneA.stat = { mtime: 2000, size: fixture.sceneA.content.length };
+
+  const contentEl = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const sourceItem = bibliographyItems(contentEl).find(
+    (el) => el.textContent.includes("ProjectNote") && /citation/.test(el.textContent)
+  );
+  assert.equal(sourceItem, undefined, "an occurrence whose anchor no longer resolves must not be displayed as cited");
+});
+
+test("an anchor moved by an earlier text insertion still resolves and is still counted", async () => {
+  const fixture = makeFixture();
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path, quote: "Body A" },
+  ]);
+
+  // Text inserted before the anchor shifts its stored start/end offsets out
+  // of place, but "Body A" still exists, unchanged and unique, further in.
+  fixture.sceneA.content = `Inserted preamble.\n\n${fixture.sceneA.content}`;
+  fixture.sceneA.stat = { mtime: 2000, size: fixture.sceneA.content.length };
+
+  const contentEl = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const sourceItem = bibliographyItems(contentEl).find(
+    (el) => el.textContent.includes("ProjectNote") && /citation/.test(el.textContent)
+  );
+  assert.ok(sourceItem, "a moved-but-still-findable anchor must still resolve via resolveCitationOccurrence()'s fallback search");
+  assert.match(sourceItem.textContent, /1 citation\b/);
+});
+
+test("an ambiguous anchor (matching more than once) is ignored", async () => {
+  const fixture = makeFixture();
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path },
+  ]);
+
+  // The seeded anchor spans the ENTIRE original content, at offset 0. A
+  // marker is inserted before BOTH copies of that content so the exact
+  // stored start/end offset no longer matches (forcing the fallback
+  // search), and the fragment then appears twice with identical (empty)
+  // prefix/suffix context — genuinely unresolvable.
+  const original = fixture.sceneA.content;
+  fixture.sceneA.content = `MARKER${original}MARKER${original}`;
+  fixture.sceneA.stat = { mtime: 2000, size: fixture.sceneA.content.length };
+
+  const contentEl = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const sourceItem = bibliographyItems(contentEl).find(
+    (el) => el.textContent.includes("ProjectNote") && /citation/.test(el.textContent)
+  );
+  assert.equal(sourceItem, undefined, "an anchor that now matches twice, with no way to disambiguate, must be ignored rather than guessed");
+});
+
+test("a sourcePath pointing to a deleted file is ignored without error", async () => {
+  const fixture = makeFixture();
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: "PROJECT/RESEARCH/Sources/DoesNotExist.md" },
+  ]);
+
+  const contentEl = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  assert.doesNotMatch(contentEl.textContent, /DoesNotExist/);
+});
+
+test("a sourcePath pointing to a PDF or to a folder is ignored", async () => {
+  const fixture = makeFixture();
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.attachmentPdf.path, quote: "Body A" },
+    { file: "Work-A/Sub/Scene-A-Sub.md", sourcePath: fixture.researchRoot.path },
+  ]);
+
+  const contentEl = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const items = bibliographyItems(contentEl).filter((el) => /citation/.test(el.textContent));
+  assert.ok(!items.some((el) => el.textContent.includes("Attachment")), "a PDF sourcePath must never surface as a cited fiche");
+  assert.ok(!items.some((el) => el.textContent.includes("RESEARCH")), "a folder sourcePath must never surface as a cited fiche");
 });
 
 /* --- Bibliography rendered in every branch, exactly once --- */

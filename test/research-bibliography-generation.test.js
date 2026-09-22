@@ -5,6 +5,7 @@ import FeuilletsPlugin from "../src/main.js";
 import { ResearchView } from "../src/views/research-view.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { saveCitationRegistry } from "../src/services/citation-registry.js";
+import { createSourceAnchor } from "../src/services/source-anchor.js";
 import { t } from "../src/i18n/index.js";
 
 /* Generating Bibliographie.md must write exactly what the Research view
@@ -167,6 +168,13 @@ function makeFixture() {
   workANote.frontmatter = { author: "Workspace Author" };
   workANote.basename = "WorkANote";
 
+  const workBResearch = new TFolder("PROJECT/Work-B-Research");
+  const workBSourcesFolder = new TFolder("PROJECT/Work-B-Research/Sources");
+  const workBNote = new TFile("PROJECT/Work-B-Research/Sources/WorkBNote.md", "");
+  workBNote.extension = "md";
+  workBNote.frontmatter = { author: "Work-B Workspace Author" };
+  workBNote.basename = "WorkBNote";
+
   const output = new TFolder("PROJECT/_Sortie");
 
   // A genuine file outside the project entirely — a separate vault root.
@@ -177,12 +185,13 @@ function makeFixture() {
   outsideFile.parent = outsideRoot;
   outsideRoot.children = [outsideFile];
 
-  projectRoot.children = [workA, workAExtra, workB, researchRoot, workAResearch, output];
+  projectRoot.children = [workA, workAExtra, workB, researchRoot, workAResearch, workBResearch, output];
   workA.parent = projectRoot;
   workAExtra.parent = projectRoot;
   workB.parent = projectRoot;
   researchRoot.parent = projectRoot;
   workAResearch.parent = projectRoot;
+  workBResearch.parent = projectRoot;
   output.parent = projectRoot;
 
   workA.children = [workASub, sceneA, attachmentPdf];
@@ -210,10 +219,16 @@ function makeFixture() {
   workASourcesFolder.children = [workANote];
   workANote.parent = workASourcesFolder;
 
+  workBResearch.children = [workBSourcesFolder];
+  workBSourcesFolder.parent = workBResearch;
+  workBSourcesFolder.children = [workBNote];
+  workBNote.parent = workBSourcesFolder;
+
   const vaultEntries = [
     projectRoot, workA, workASub, workAExtra, workB,
     researchRoot, sourcesFolder, projectNote, refsBib,
-    workAResearch, workASourcesFolder, workANote, output,
+    workAResearch, workASourcesFolder, workANote,
+    workBResearch, workBSourcesFolder, workBNote, output,
     sceneA, sceneASub, sceneAExtra, sceneB, attachmentPdf,
     outsideRoot, outsideFile,
   ];
@@ -241,22 +256,32 @@ function makeFixture() {
     vault, settings,
     projectRoot, workA, workASub, workAExtra, workB,
     researchRoot, sourcesFolder, projectNote, refsBib,
-    workAResearch, workASourcesFolder, workANote, output,
+    workAResearch, workASourcesFolder, workANote,
+    workBResearch, workBSourcesFolder, workBNote, output,
     sceneA, sceneASub, sceneAExtra, sceneB, attachmentPdf,
     outsideRoot, outsideFile,
   };
 }
 
+/** Seeds a real citation registry, with a REAL anchor (createSourceAnchor())
+ * over an actual fragment of the citing file's content — by default the
+ * file's full content, or an explicit `quote`/`start` when a test needs to
+ * exercise anchor-resolution semantics specifically. */
 async function seedCitationRegistry(fixture, occurrences) {
   const app = { vault: fixture.vault };
   const registry = {
     version: 1,
-    citations: occurrences.map((o, i) => ({
-      id: `occ-${i}`,
-      file: o.file,
-      sourcePath: o.sourcePath,
-      start: 0, end: 1, quote: "", prefix: "", suffix: "",
-    })),
+    citations: occurrences.map((o, i) => {
+      const citingFile = fixture.vault.getAbstractFileByPath(`${fixture.projectRoot.path}/${o.file}`);
+      const content = citingFile?.content || "";
+      const quote = o.quote ?? content;
+      const start = o.start ?? content.indexOf(quote);
+      const anchor = createSourceAnchor(content, start, start + quote.length);
+      if (!anchor) {
+        throw new Error(`seedCitationRegistry: no real anchor could be built for "${o.file}" (quote "${quote}" not found)`);
+      }
+      return { id: `occ-${i}`, file: o.file, sourcePath: o.sourcePath, ...anchor };
+    }),
   };
   await saveCitationRegistry(app, fixture.settings, registry);
 }
@@ -501,6 +526,77 @@ test("a Source fiche with cite_count > 0 but no occurrence in scope is excluded 
   // cite_count-only fiche must be absent.
   assert.ok(content);
   assert.doesNotMatch(content, /Project Author/, "cite_count alone, with no registry occurrence, must never mark a fiche as cited");
+});
+
+/* --- The registry is the sole authority — Source identity is never
+   restricted to the Sources/Bibliographie folder currently visible --- */
+
+test("a global project Source cited from Work-A is generated, even in the associated-Research branch", async () => {
+  const fixture = makeFixture();
+  fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
+    fixture.workAResearch.path;
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path },
+  ]);
+  await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const content = await generatedContent(fixture);
+  assert.ok(content, "a citation to a globally-scoped Source must still produce a generated file");
+  assert.match(content, /Project Author/, "the old candidateFolders-based discovery, restricted to workAResearch's own Sources, would have missed this entirely");
+});
+
+test("Project mode generates Sources cited from Research folders linked to several different spaces", async () => {
+  const fixture = makeFixture();
+  fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
+    fixture.workAResearch.path;
+  fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workB.path] =
+    fixture.workBResearch.path;
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.workANote.path },
+    { file: "Work-B/Scene-B.md", sourcePath: fixture.workBNote.path },
+  ]);
+  await renderAndClickGenerate(fixture, { workspace: null, scopeMode: "project" });
+  const content = await generatedContent(fixture);
+  assert.ok(content);
+  assert.match(content, /Workspace Author/, "Work-A's linked-Research Source must be generated in Project mode");
+  assert.match(content, /Work-B Workspace Author/, "Work-B's linked-Research Source must be generated in Project mode too");
+});
+
+test("a citation removed from the document is no longer generated", async () => {
+  const fixture = makeFixture();
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path, quote: "sharedKey2020" },
+  ]);
+  fixture.sceneA.content = "Body A no longer cites anything of note.";
+  fixture.sceneA.stat = { mtime: 2000, size: fixture.sceneA.content.length };
+
+  await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const content = await generatedContent(fixture);
+  // Scene-A-Sub.md (subKey2020) still generates real content for Work-A —
+  // only the removed citation to projectNote must be absent.
+  assert.ok(content);
+  assert.doesNotMatch(content, /Project Author/, "an occurrence whose anchor no longer resolves must not be generated");
+});
+
+test("the displayed Bibliography section and the generated file contain exactly the same Source fiches", async () => {
+  const fixture = makeFixture();
+  fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
+    fixture.workAResearch.path;
+  await seedCitationRegistry(fixture, [
+    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path },
+    { file: "Work-A/Sub/Scene-A-Sub.md", sourcePath: fixture.workANote.path },
+  ]);
+
+  const harness = await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const displayedNames = harness.contentEl.findAll(".feuillets-research-item-name")
+    .map((el) => el.text)
+    .filter((text) => /citation/.test(text));
+
+  const content = await generatedContent(fixture);
+  assert.ok(content);
+  assert.ok(displayedNames.some((t) => t.includes("ProjectNote")), "ProjectNote is displayed");
+  assert.ok(displayedNames.some((t) => t.includes("WorkANote")), "WorkANote is displayed");
+  assert.match(content, /Project Author/, "ProjectNote is generated, matching the displayed section");
+  assert.match(content, /Workspace Author/, "WorkANote is generated, matching the displayed section");
 });
 
 /* --- BibTeX --- */
