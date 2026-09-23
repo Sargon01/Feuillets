@@ -20,7 +20,7 @@ function findResearchElement<T extends HTMLElement>(container: HTMLElement, sele
  * supports). Used to locate the sub-tab buttons by their `.feuillets-
  * research-subtab` class, then filtered further in JS via `getAttr()`. */
 function findAllResearchElements(container: HTMLElement, selector: string): HTMLElement[] {
-  return Array.from(container.querySelectorAll(selector)) as HTMLElement[];
+  return Array.from(container.querySelectorAll<HTMLElement>(selector));
 }
 
 export class ResearchView extends BaseFeuilletsView {
