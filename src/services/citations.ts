@@ -48,7 +48,11 @@ export function formatCitation(
   }
 
   if (style === "parenthetical") {
-    const base = [author, dateStr].filter(Boolean).join(", ");
+    const anchor = (author || "").trim() || (title || "").trim();
+    if (!anchor) {
+      return "";
+    }
+    const base = [anchor, dateStr].filter(Boolean).join(", ");
     const withPage = p ? [base, `p. ${p}`].filter(Boolean).join(", ") : base;
     return withPage ? `(${withPage})` : "";
   }
@@ -59,10 +63,13 @@ export function formatCitation(
   if (publisher) parts.push(publisher);
   if (dateStr) parts.push(dateStr);
   if (p) parts.push(`p. ${p}`);
-  /* URL en dernier, hors de la liste virgule — une adresse ne se lit pas
-     comme un élément bibliographique de plus, et une source web n'a
-     souvent ni éditeur ni page. */
+
   const u = (url || "").trim();
+  const hasBibliographicData = Boolean(author || title || publisher || dateStr || u);
+  if (!hasBibliographicData) {
+    return "";
+  }
+
   const text = parts.join(", ");
   if (u) return text ? `${text}. ${u}` : u;
   return text ? `${text}.` : "";

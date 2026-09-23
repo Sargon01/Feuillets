@@ -31,7 +31,12 @@ export class Component {
   unload() {}
 }
 
-export class Plugin {}
+export class Plugin {
+  constructor(app, manifest) {
+    this.app = app;
+    this.manifest = manifest;
+  }
+}
 
 export class PluginSettingTab {
   constructor(app, plugin) {
@@ -418,6 +423,7 @@ export class Menu {
       setDisabled(v) { this.disabled = v; return this; },
       setWarning(v) { this.warning = v; return this; },
       onClick(fn) { this.callback = fn; return this; },
+      click() { return this.callback?.(); },
     };
     /* Sous-menu natif (MenuItem.setSubmenu, API interne Obsidian — voir la
        déclaration dans src/types.d.ts) : retourne un sous-Menu relié à
@@ -461,8 +467,6 @@ export class Keymap {
   }
 }
 
-export class FuzzySuggestModal {}
-
 export class SuggestModal extends Modal {
   constructor(app) {
     super(app);
@@ -473,6 +477,8 @@ export class SuggestModal extends Modal {
     return this;
   }
 }
+
+export class FuzzySuggestModal extends SuggestModal {}
 
 export class PopoverSuggest {
   constructor(app) {

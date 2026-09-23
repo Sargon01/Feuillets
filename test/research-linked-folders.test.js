@@ -323,8 +323,8 @@ test("renderAssociatedResearchFolders affiche un dossier associé externe avec s
   const groupTitle = findAll(contentEl, (c) =>
     c.classes.has("feuillets-notes-section-title")
   )[0];
-  assert.ok(groupTitle, "l'en-tête « Espaces » doit être rendu");
-  assert.equal(groupTitle.text, t("shared.research.workspaces"));
+  assert.ok(groupTitle, "l'en-tête « Recherches liées » doit être rendu");
+  assert.equal(groupTitle.text, t("shared.research.linkedResearch"));
 
   const names = findAll(contentEl, (c) => c.classes.has("feuillets-research-item-name"));
   assert.ok(
@@ -665,7 +665,7 @@ test("renderAssociatedResearchFolders : l'en-tête suit la locale active (aucun 
     const groupTitle = findAll(contentEl, (c) =>
       c.classes.has("feuillets-notes-section-title")
     )[0];
-    assert.equal(groupTitle.text, "Workspaces");
+    assert.equal(groupTitle.text, "Linked research");
   } finally {
     setLocale(previous);
   }
@@ -717,7 +717,7 @@ test("un dossier Recherche associé se réordonne parmi les autres espaces, sous
   view.renderAssociatedResearchFolders(contentEl2, baseResearch);
   const groupHead2 = findAll(contentEl2, (c) => c.getAttr("data-research-group") === "spaces")[0];
   const groupSection2 = groupHead2.parent.parent;
-  const titles = findAll(groupSection2, (c) => c.classes.has("feuillets-notes-section-title") && c.text !== t("shared.research.workspaces"))
+  const titles = findAll(groupSection2, (c) => c.classes.has("feuillets-notes-section-title") && c.text !== t("shared.research.linkedResearch"))
     .map((c) => c.text);
   assert.deepEqual(titles, ["Beta", "Alpha"]);
 });

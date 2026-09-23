@@ -256,11 +256,12 @@ test("ResearchView: renderBibliographySection displays empty state when no sourc
   const citationAnalysis = { citekeyCounts: new Map(), sourceCitationCounts: new Map() };
 
   const container = new FakeElement();
-  await view.renderBibliographySection(container, documentContext, citationAnalysis);
+  const rendered = await view.renderBibliographySection(container, documentContext, citationAnalysis);
 
-  const emptyEl = container.find(".feuillets-research-empty");
-  assert.ok(emptyEl);
-  assert.match(emptyEl.text, /Aucune source citée|No source cited/);
+  // §6/§8 of the UX correction: an empty scope renders no Bibliography
+  // section at all — no header, no permanent empty-state message.
+  assert.equal(rendered, false);
+  assert.equal(container.children.length, 0);
 });
 
 test("ResearchView: coexistence of Source cards and BibTeX citations in the same Bibliography section", async () => {
@@ -516,6 +517,7 @@ test("ResearchView: active file changes never affect displayed references, only 
   const contentEl = new FakeElement();
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
+  view.researchActiveSubTab = "references";
 
   // Initial open with sceneA active
   await view.onOpen();
@@ -579,6 +581,7 @@ test("ResearchView: content modification updates occurrences and unknown citekey
   const contentEl = new FakeElement();
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
+  view.researchActiveSubTab = "references";
 
   await view.onOpen();
 

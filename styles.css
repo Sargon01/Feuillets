@@ -4259,25 +4259,114 @@ body.feuillets-text-width
   color: var(--text-error);
 }
 
-/* Ligne "Générer la bibliographie…" (panneau Recherche, section "Sources
-   citées" — renderCitedSourcesSection, base-feuillets-view.js) — même
-   patron que .feuillets-project-row (icône + texte, surbrillance au
-   survol uniquement). */
+/* Bibliography generation action: a compact full-width button using the
+   same icon-and-label grammar as other project actions. */
 .feuillets-bibliography-export-row {
   display: flex;
   align-items: center;
+  width: 100%;
   gap: 6px;
   padding: 5px 6px;
   margin-bottom: var(--size-4-1);
   border-radius: var(--radius-s);
   cursor: pointer;
+  font: inherit;
   font-size: var(--font-ui-small);
+  text-align: left;
   color: var(--text-muted);
 }
 
 .feuillets-bibliography-export-row:hover {
   background: var(--background-modifier-hover);
   color: var(--interactive-accent);
+}
+
+/* Dossiers / References tabs in the Research panel. */
+.feuillets-research-subtabs {
+  display: flex;
+  gap: var(--size-4-1);
+  padding: 0 var(--size-4-3) var(--size-4-2);
+  margin-bottom: var(--size-4-1);
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-research-subtab {
+  padding: var(--size-4-1) var(--size-4-2);
+  font: inherit;
+  font-size: var(--font-ui-small);
+  text-align: left;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-research-subtab:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-research-subtab.is-active {
+  color: var(--text-normal);
+  font-weight: var(--font-semibold, 600);
+  background: var(--background-modifier-active-hover);
+}
+
+/* Non-collapsible category label above the project's physical folders. */
+.feuillets-research-category-head {
+  font-size: var(--font-ui-small);
+  font-weight: var(--font-semibold, 600);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: var(--size-4-2) var(--size-4-3) var(--size-4-1);
+}
+
+.feuillets-references-empty {
+  padding: var(--size-4-2) var(--size-4-3);
+}
+
+/* Compact Project-mode footnote tree. Dedicated classes keep folder nodes
+   visually lighter than top-level sections; the three stable columns hold
+   the toggle, a truncatable label and the right-aligned count. */
+.feuillets-footnotes-tree-row {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.feuillets-footnotes-tree-row:hover {
+  color: var(--text-normal);
+}
+
+.feuillets-footnotes-tree-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+}
+
+.feuillets-footnotes-tree-toggle svg {
+  width: 12px;
+  height: 12px;
+}
+
+.feuillets-footnotes-tree-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-footnotes-tree-badge {
+  flex-shrink: 0;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* ===== aperçu en ligne dans le panneau Recherche ===== */

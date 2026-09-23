@@ -47,7 +47,15 @@ import { PresentationPdfExportModal } from "./ui/presentation-pdf-export-modal.j
 import type { ScriveningsAdapterEditorView } from "./utils/scrivenings-editor-adapter.js";
 import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
 import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
-import { CitationSourceModal, promptForPage } from "./ui/citation-modal.js";
+import { CitationSourceModal, CitationAmbiguousSheetModal, promptForPage } from "./ui/citation-modal.js";
+import {
+  resolveCitationCandidates,
+  resolveAttachmentCandidate,
+  getFileBaseName,
+  buildSourceSheetContent,
+  CITABLE_ATTACHMENT_EXTENSIONS,
+} from "./services/citation-candidates.js";
+import { uniqueFileName } from "./services/canvas-bridge.js";
 import { formatCitation } from "./services/citations.js";
 import {
   bibliographyEntriesForFiles,
@@ -3797,29 +3805,59 @@ class FeuilletsPlugin extends Plugin {
     return folders;
   }
 
-  openInsertCitation(editor?: Editor | null): void {
+  async createSourceSheetForAttachment(attachmentFile: TFile): Promise<void> {
+    const parent = attachmentFile.parent;
+    if (!parent) return;
+
+    const baseName = getFileBaseName(attachmentFile);
+    const destPath = uniqueFileName(
+      (p) => !!this.app.vault.getAbstractFileByPath(p),
+      parent.path,
+      baseName,
+      "md"
+    );
+
+    const opLocale = getLocale();
+    const finalBaseName = destPath.split("/").pop()?.replace(/\.md$/, "") || baseName;
+    const template = await getResearchTemplate(this.app, this.settings, "sources", finalBaseName, opLocale);
+    const content = buildSourceSheetContent(template, finalBaseName, finalBaseName, attachmentFile.path);
+
+    const file = await this.app.vault.create(destPath, content);
+    openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    new Notice(t("modal.citation.sourceSheetCreatedNotice"));
+  }
+
+  openInsertCitation(editor?: Editor | null, targetFolder?: TFolder | null): void {
     const resolvedEditor = editor || this.activeEditorAnywhere();
     if (!resolvedEditor) {
       new Notice(t("main.notice.openSceneBeforeCitation"));
       return;
     }
-    const folders = this.getCitationFolders();
+    const folders = targetFolder ? [targetFolder] : this.getCitationFolders();
     if (folders.length === 0) {
       new Notice(t("main.notice.nonfictionOnly"));
       return;
     }
-    const files = folders.flatMap((f) => f.children.filter((c): c is TFile => c instanceof TFile && c.extension === "md"));
-    if (files.length === 0) {
+    const candidates = resolveCitationCandidates(folders, (file) => this.fmOf(file));
+    if (candidates.length === 0) {
       new Notice(t("main.notice.noSourceOrBibliographySheet"));
       return;
     }
     const targetFile = this.app.workspace.getActiveFile();
-    new CitationSourceModal(this.app, this, files, (file, page) =>
-      this.insertCitationFor(file, page, resolvedEditor, targetFile)
+    new CitationSourceModal(
+      this.app,
+      this,
+      candidates,
+      (file, page) => this.insertCitationFor(file, page, resolvedEditor, targetFile),
+      (attachmentFile) => this.createSourceSheetForAttachment(attachmentFile)
     ).open();
   }
 
   quickCiteSource(sourceFile: TFile): void {
+    if (sourceFile.extension.toLowerCase() !== "md") {
+      this.quickCiteAttachment(sourceFile);
+      return;
+    }
     const editor = this.activeEditorAnywhere();
     if (!editor) {
       new Notice(t("main.notice.openSceneBeforeCitation"));
@@ -3829,6 +3867,71 @@ class FeuilletsPlugin extends Plugin {
     promptForPage(this.app, this, sourceFile, (file, page) =>
       this.insertCitationFor(file, page, editor, targetFile)
     );
+  }
+
+  quickCiteAttachment(attachmentFile: TFile): void {
+    const ext = attachmentFile.extension.toLowerCase();
+    if (!CITABLE_ATTACHMENT_EXTENSIONS.has(ext)) {
+      new Notice(t("main.notice.cannotCiteDirectlyBinary"));
+      return;
+    }
+    const folders = this.getCitationFolders();
+    if (
+      attachmentFile.parent &&
+      !folders.some((f) => f.path === attachmentFile.parent?.path || attachmentFile.path.startsWith(`${f.path}/`))
+    ) {
+      folders.push(attachmentFile.parent);
+    }
+    const candidates = resolveCitationCandidates(folders, (file) => this.fmOf(file));
+    const resolution = resolveAttachmentCandidate(candidates, attachmentFile);
+
+    if (resolution.kind === "linked") {
+      const editor = this.activeEditorAnywhere();
+      if (!editor) {
+        new Notice(t("main.notice.openSceneBeforeCitation"));
+        return;
+      }
+      const targetFile = this.app.workspace.getActiveFile();
+      promptForPage(this.app, this, resolution.sourceFile, (file, page) =>
+        this.insertCitationFor(file, page, editor, targetFile)
+      );
+      return;
+    }
+
+    if (resolution.kind === "ambiguous") {
+      new CitationAmbiguousSheetModal(
+        this.app,
+        this,
+        attachmentFile,
+        resolution.sourceFiles,
+        (chosenSheet) => {
+          const editor = this.activeEditorAnywhere();
+          if (!editor) {
+            new Notice(t("main.notice.openSceneBeforeCitation"));
+            return;
+          }
+          const targetFile = this.app.workspace.getActiveFile();
+          promptForPage(this.app, this, chosenSheet, (file, page) =>
+            this.insertCitationFor(file, page, editor, targetFile)
+          );
+        }
+      ).open();
+      return;
+    }
+
+    new ConfirmModal(
+      this.app,
+      t("modal.citation.createSheetConfirmTitle"),
+      t("modal.citation.createSheetConfirmMessage", {
+        name: attachmentFile.name,
+        folder: attachmentFile.parent?.name || "",
+      }),
+      t("modal.citation.createSheetConfirmButton"),
+      async () => {
+        await this.createSourceSheetForAttachment(attachmentFile);
+      },
+      "mod-cta"
+    ).open();
   }
 
   renumberActiveFootnotes(): void {
@@ -3951,10 +4054,14 @@ class FeuilletsPlugin extends Plugin {
   }
 
   insertCitationFor(sourceFile: TFile, page: string, editor: Editor, targetFile?: TFile | null): void {
+    if (sourceFile.extension.toLowerCase() !== "md") {
+      new Notice(t("main.notice.cannotCiteDirectlyBinary"));
+      return;
+    }
     const rawFm = this.fmOf(sourceFile);
     const fm = {
       author: asString(rawFm.author),
-      title: rawFm.title,
+      title: asString(rawFm.title) || this.titleFor(sourceFile),
       date: rawFm.date || rawFm.annee,
       publisher: asString(rawFm.publisher),
       url: asString(rawFm.url),
@@ -4402,7 +4509,7 @@ class FeuilletsPlugin extends Plugin {
   getLinkedResearchFolders(): { folder: TFolder; binderNodes: TAbstractFile[] }[] {
     const root = this.getProjectFolder();
     if (!root) return [];
-    const meta = this.settings.projectMeta[root.path];
+    const meta = this.settings.projectMeta?.[root.path];
     const links = meta && meta.researchFolderLinks ? meta.researchFolderLinks : null;
     if (!links) return [];
     const byPath = new Map<string, { folder: TFolder; binderNodes: TAbstractFile[] }>();

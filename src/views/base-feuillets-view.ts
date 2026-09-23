@@ -58,10 +58,28 @@ import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 import { collectDocumentScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
 import { analyzeResearchCitations, type ResearchCitationAnalysis } from "../services/research-citation-analysis.js";
 import type { ResearchBibliographyGenerationInput } from "../services/bibliography-generator.js";
+import {
+  buildFootnoteOverviewTree,
+  buildFootnoteFileEntries,
+  type FootnoteFileEntry,
+  type FootnoteFolderNode,
+} from "../services/research-footnotes-overview.js";
 import type { ResearchDocumentContext, ResearchDocumentScopeMode } from "../services/research-document-context.js";
+import { CITABLE_ATTACHMENT_EXTENSIONS } from "../services/citation-candidates.js";
+import { isGenuineSourcesFolder } from "../services/workspace-research-context.js";
 export { remapResearchFolderLinks } from "../carnet/core/path-reference-maintenance.js";
 
 export type ResearchScopeMode = ResearchDocumentScopeMode;
+
+/** The Research panel's two sub-tabs: "dossiers" shows the project's
+ * physical documentary organisation (project/linked research folders,
+ * including their Sources and Bibliographie subfolders); "references"
+ * shows the reference-focused actions (new Source sheet, insert citation,
+ * renumber footnotes) plus the computed Notes and Bibliography, never a
+ * folder explorer of any kind. Never persisted to settings — an instance
+ * property on ResearchView only, reset on plugin reload, exactly like
+ * ResearchScopeMode. */
+export type ResearchSubTab = "dossiers" | "references";
 
 /** Context a Research space/folder row needs to be reorderable among its
  * current siblings — visual order only, never a Vault move (see
@@ -90,6 +108,8 @@ export type ResearchRenderOptions = {
     binderNodes: TAbstractFile[];
   }[];
   documentContext: ResearchDocumentContext;
+  activeSubTab?: ResearchSubTab;
+  onSubTabChange?: (tab: ResearchSubTab) => void;
 };
 
 function getResearchSectionIcon(key: string): string {
@@ -361,6 +381,22 @@ export abstract class BaseFeuilletsView extends ItemView {
   selectedText?: string;
   viewingFile?: TFile | null;
 
+  /** Monotonic counter shared by every open view instance — guarantees a
+   * unique DOM id namespace per instance, so two Research views open at
+   * once (e.g. a split pane) never collide on tab/tabpanel ids. */
+  private static _nextResearchInstanceId = 0;
+  private _researchInstanceId?: string;
+
+  /** Stable per-instance id prefix for the sub-tab bar's DOM ids
+   * (`role="tab"`/`role="tabpanel"` pairing) — computed once and cached,
+   * never regenerated on a later render of the same view. */
+  private researchInstanceId(): string {
+    if (!this._researchInstanceId) {
+      this._researchInstanceId = `feuillets-research-${BaseFeuilletsView._nextResearchInstanceId++}`;
+    }
+    return this._researchInstanceId;
+  }
+
 
   private addFolderCarnetMenuItem(menu: Menu, folder: TFolder): void {
     const candidate = this.plugin as unknown as { canUseFolderCarnet?: (folder: TFolder) => boolean; hasFolderCarnet?: (folder: TFolder) => boolean; openFolderCarnet?: (folder: TFolder) => Promise<void> };
@@ -409,6 +445,31 @@ export abstract class BaseFeuilletsView extends ItemView {
     return false;
   }
 
+  /** Writes the confirmed file into `folder` — the tail shared by every
+   * "create a Research sheet" flow, whether `folder` was already resolved
+   * before the modal opened or only after confirmation. Never called before
+   * the user has confirmed a valid name. */
+  private async createResearchFileInFolder(
+    folder: TFolder,
+    defaultName: string,
+    template: string,
+    cleanName: string
+  ): Promise<void> {
+    const fileName = cleanName.endsWith(".md") ? cleanName : `${cleanName}.md`;
+    const destPath = normalizePath(`${folder.path}/${fileName}`);
+    if (this.app.vault.getAbstractFileByPath(destPath)) {
+      new Notice(t("binder.research.renameAlreadyExists", { name: cleanName }));
+      return;
+    }
+    await this.plugin.ensureFolder(folder.path);
+    // The entered name replaces the template's generic title; otherwise
+    // Research views would keep displaying that generic title via titleFor().
+    const content = syncResearchFileTitle(template, defaultName, cleanName);
+    const file = await this.app.vault.create(destPath, content);
+    openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    void this.render(true);
+  }
+
   /** Ouvre une modale de saisie puis crée le fichier nommé dans le dossier cible. */
   promptCreateResearchFile(folder: TFolder, defaultName: string, template: string): void {
     new NewResearchFileModal(this.app, folder.name, defaultName, async (rawName) => {
@@ -417,20 +478,31 @@ export abstract class BaseFeuilletsView extends ItemView {
         new Notice(t("binder.research.invalidName"));
         return;
       }
-      const fileName = cleanName.endsWith(".md") ? cleanName : `${cleanName}.md`;
-      const destPath = normalizePath(`${folder.path}/${fileName}`);
-      if (this.app.vault.getAbstractFileByPath(destPath)) {
-        new Notice(t("binder.research.renameAlreadyExists", { name: cleanName }));
+      await this.createResearchFileInFolder(folder, defaultName, template, cleanName);
+    }).open();
+  }
+
+  /** Opens the standard file-name dialog for a Sources folder that may not
+   * exist yet. Only a confirmed,
+   * valid name resolves-or-creates the target folder
+   * (ensureResearchCategoryFolder — unchanged) before the file is written.
+   * Cancelling the dialog never calls ensureResearchCategoryFolder, so it
+   * creates nothing at all: zero folder, zero file, zero settings write. */
+  private promptCreateSourceSheetLazily(
+    targetBasePath: string,
+    rf: typeof RESEARCH_FOLDERS,
+    opLocale: ReturnType<typeof getLocale>
+  ): void {
+    const defaultName = rf.sources.newName;
+    new NewResearchFileModal(this.app, researchFolderLabel(rf, "sources"), defaultName, async (rawName) => {
+      const cleanName = rawName.trim();
+      if (this.isFileNameInvalid(cleanName)) {
+        new Notice(t("binder.research.invalidName"));
         return;
       }
-      await this.plugin.ensureFolder(folder.path);
-      // Le nom saisi doit remplacer le title générique du modèle (voir
-      // syncResearchFileTitle) — sinon Recherche/Recherche contextuelle
-      // continuent d'afficher l'ancien nom générique via titleFor().
-      const content = syncResearchFileTitle(template, defaultName, cleanName);
-      const file = await this.app.vault.create(destPath, content);
-      openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
-      void this.render(true);
+      const folder = await this.ensureResearchCategoryFolder(targetBasePath, rf, "sources");
+      const template = await getResearchTemplate(this.app, this.plugin.settings, "sources", defaultName, opLocale);
+      await this.createResearchFileInFolder(folder, defaultName, template, cleanName);
     }).open();
   }
 
@@ -1000,28 +1072,35 @@ export abstract class BaseFeuilletsView extends ItemView {
   ): Promise<void> {
     const S = this.plugin.settings;
     const opLocale = getLocale();
+    const activeSubTab: ResearchSubTab = options.activeSubTab ?? "dossiers";
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
-    const searchInput = toolbar.createEl("input", {
-      type: "text",
-      cls: "feuillets-binder-search",
-      attr: { placeholder: t("shared.research.searchPlaceholder") },
-    });
-    searchInput.value = S.researchSearch || "";
-    let researchSearchTimer: ReturnType<Window["setTimeout"]>;
-    searchInput.addEventListener("input", () => {
-      window.clearTimeout(researchSearchTimer);
-      S.researchSearch = searchInput.value;
-      const nextFilterActive = !!searchInput.value.trim() || !!S.researchTagFilter;
-      const renderedFilterActive = !!this.researchFilterActive;
-      this.filterEntities();
-      researchSearchTimer = window.setTimeout(() => {
-        void (async () => {
-          await this.plugin.saveSettings();
-          if (nextFilterActive !== renderedFilterActive) await this.render(true);
-          else this.filterEntities();
-        })();
-      }, 250);
-    });
+
+    /* Folder search and tag filters only act on folder rows. Keeping them
+       out of References leaves that tab with its three reference actions
+       and avoids controls that cannot affect the content below. */
+    if (activeSubTab === "dossiers") {
+      const searchInput = toolbar.createEl("input", {
+        type: "text",
+        cls: "feuillets-binder-search",
+        attr: { placeholder: t("shared.research.searchPlaceholder") },
+      });
+      searchInput.value = S.researchSearch || "";
+      let researchSearchTimer: ReturnType<Window["setTimeout"]>;
+      searchInput.addEventListener("input", () => {
+        window.clearTimeout(researchSearchTimer);
+        S.researchSearch = searchInput.value;
+        const nextFilterActive = !!searchInput.value.trim() || !!S.researchTagFilter;
+        const renderedFilterActive = !!this.researchFilterActive;
+        this.filterEntities();
+        researchSearchTimer = window.setTimeout(() => {
+          void (async () => {
+            await this.plugin.saveSettings();
+            if (nextFilterActive !== renderedFilterActive) await this.render(true);
+            else this.filterEntities();
+          })();
+        }, 250);
+      });
+    }
 
     if (options.workspaceActive) {
       const scopeName = options.scopeMode === "project"
@@ -1070,73 +1149,79 @@ export abstract class BaseFeuilletsView extends ItemView {
        les catégories dont SON sujet a besoin — un sous-dossier de
        Recherche/ créé ici apparaît automatiquement comme sa propre
        section. Disponible en fiction comme en non-fiction. */
-    const newFolderBtn = this.iconBtn(toolbar, "folder-plus", t("shared.research.newTopicTooltip"));
-    newFolderBtn.addEventListener("click", (event) => {
-      const menu = new Menu();
-      const standardKeys = [
-        "personnages",
-        "lieux",
-        "evenements",
-        "codex",
-        "glossaire",
-        "notes",
-        "sources",
-        "bibliographie",
-      ];
-      let hasStandardSection = false;
-      for (const key of standardKeys) {
-        const categoryFolder = associatedWorkspaceFolder
-          ? this.findResearchCategoryFolder(displayedResearchPath, rf, key)
-          : this.findResearchCategoryFolder(baseResearch, rf, key);
-        if (categoryFolder) continue;
-        hasStandardSection = true;
+    /* Folder creation belongs exclusively to Dossiers and is never mixed
+       with the three reference actions below. */
+    if (activeSubTab === "dossiers") {
+      const newFolderBtn = this.iconBtn(toolbar, "folder-plus", t("shared.research.newTopicTooltip"));
+      newFolderBtn.addEventListener("click", (event) => {
+        const menu = new Menu();
+        const standardKeys = [
+          "personnages",
+          "lieux",
+          "evenements",
+          "codex",
+          "glossaire",
+          "notes",
+          "sources",
+          "bibliographie",
+        ];
+        let hasStandardSection = false;
+        for (const key of standardKeys) {
+          const categoryFolder = associatedWorkspaceFolder
+            ? this.findResearchCategoryFolder(displayedResearchPath, rf, key)
+            : this.findResearchCategoryFolder(baseResearch, rf, key);
+          if (categoryFolder) continue;
+          hasStandardSection = true;
+          menu.addItem((item) =>
+            item
+              .setTitle(researchFolderLabel(rf, key))
+              .setIcon(getResearchSectionIcon(key))
+              .onClick(async () => {
+                if (associatedWorkspaceFolder) {
+                  await this.ensureResearchCategoryFolder(displayedResearchPath, rf, key);
+                } else {
+                  await this.ensureResearchCategoryFolder(baseResearch, rf, key);
+                }
+                this.plugin.renderAllViews(true);
+              })
+          );
+        }
+        if (hasStandardSection) menu.addSeparator();
         menu.addItem((item) =>
           item
-            .setTitle(researchFolderLabel(rf, key))
-            .setIcon(getResearchSectionIcon(key))
-            .onClick(async () => {
-              if (associatedWorkspaceFolder) {
-                await this.ensureResearchCategoryFolder(displayedResearchPath, rf, key);
-              } else {
-                await this.ensureResearchCategoryFolder(baseResearch, rf, key);
-              }
-              this.plugin.renderAllViews(true);
+            .setTitle(t("shared.research.customSection"))
+            .setIcon("folder-plus")
+            .onClick(() => {
+              void (async () => {
+                let folder = baseResearchFolder;
+                if (!folder) {
+                  const path = researchFolderPath(this.app, this.plugin.settings, root, opLocale);
+                  if (path) {
+                    const created = await this.plugin.ensureFolder(path);
+                    folder = created instanceof TFolder ? created : null;
+                  }
+                }
+                if (folder) this.plugin.newFolder(folder);
+              })();
             })
         );
-      }
-      if (hasStandardSection) menu.addSeparator();
-      menu.addItem((item) =>
-        item
-          .setTitle(t("shared.research.customSection"))
-          .setIcon("folder-plus")
-          .onClick(() => {
-            void (async () => {
-              let folder = baseResearchFolder;
-              if (!folder) {
-                const path = researchFolderPath(this.app, this.plugin.settings, root, opLocale);
-                if (path) {
-                  const created = await this.plugin.ensureFolder(path);
-                  folder = created instanceof TFolder ? created : null;
-                }
-              }
-              if (folder) this.plugin.newFolder(folder);
-            })();
-          })
-      );
-      menu.showAtMouseEvent(event);
-    });
+        menu.showAtMouseEvent(event);
+      });
+    }
 
     const sourcesFolder = associatedWorkspaceFolder ? null : this.findResearchCategoryFolder(baseResearch, rf, "sources");
     const bibliographieFolder = associatedWorkspaceFolder
       ? null
       : this.findResearchCategoryFolder(baseResearch, rf, "bibliographie");
-    /* Rationalisation : Sources reste la SEULE
-       bibliothèque de travail — Bibliographie devient la vue agrégée des
-       sources citées (voir plus bas), plus un dossier de fiches
-       manuelles. Aucune migration automatique des fichiers utilisateur
-       (Phase 7) : Sources l'emporte simplement en lecture dès qu'il
-       existe (services/bibliography-generator.ts, resolveBibliographySource)
-       — les deux dossiers peuvent coexister sur le disque indéfiniment. */
+    /* Sources is the manually-authored fiche library, consulted from
+       Dossiers as an ordinary browsable folder — it can be the project's
+       own global folder or a linked research's own Sources subfolder,
+       depending on scope. The
+       computed Bibliography (see renderBibliographySection()) aggregates
+       whichever fiches are actually cited, plus resolved BibTeX entries;
+       the legacy Bibliographie folder of manually-authored fiches stays
+       browsable in Dossiers alongside it — no automatic migration between
+       the two, they can coexist on disk indefinitely. */
     /* Chaque catégorie standard est reconnue si son dossier existe ; les
        rubriques personnalisées restent gérées séparément ci-dessous. */
     const personnagesFolder = associatedWorkspaceFolder ? null : this.findResearchCategoryFolder(baseResearch, rf, "personnages");
@@ -1149,10 +1234,28 @@ export abstract class BaseFeuilletsView extends ItemView {
       ? this.findResearchCategoryFolder(baseResearch, rf, "evenements")
       : this.plugin.getChronoFolder();
 
-    if (sourcesFolder || bibliographieFolder) {
+    /* New source sheet, insert citation, renumber footnotes: References'
+       three compact actions exclusively — never mixed into the Dossiers
+       toolbar (see newFolderBtn above). Always present together in
+       References, regardless of whether a global Sources/Bibliographie
+       folder happens to exist yet, and regardless of the associatedWorkspaceFolder
+       branch — creating the first Source sheet, inserting a citation or
+       renumbering footnotes are all meaningful even before any Sources
+       folder exists. */
+    if (activeSubTab === "references") {
+      const newSourceSheetTarget = associatedWorkspaceFolder ? associatedWorkspaceFolder.path : baseResearch;
+      const newSourceBtn = this.iconBtn(toolbar, "file-plus", t("shared.research.newSourceSheet"));
+      newSourceBtn.setAttr("aria-label", t("shared.research.newSourceSheet"));
+      newSourceBtn.addEventListener("click", () => {
+        this.promptCreateSourceSheetLazily(newSourceSheetTarget, rf, opLocale);
+      });
+
       const citeSearchBtn = this.iconBtn(toolbar, "quote", t("shared.research.insertCitationTooltip"));
+      citeSearchBtn.setAttr("aria-label", t("shared.research.insertCitationTooltip"));
       citeSearchBtn.addEventListener("click", () => this.plugin.openInsertCitation());
+
       const renumberBtn = this.iconBtn(toolbar, "list-ordered", t("shared.research.renumberFootnotesTooltip"));
+      renumberBtn.setAttr("aria-label", t("shared.research.renumberFootnotesTooltip"));
       renumberBtn.addEventListener("click", () => this.plugin.renumberActiveFootnotes());
     }
 
@@ -1217,96 +1320,89 @@ export abstract class BaseFeuilletsView extends ItemView {
       .filter((tag) => !STRUCTURAL_TAGS.has(foldAccents(tag)))
       .sort((a, b) => a.localeCompare(b, getLocale()));
 
-    const tagFilterActive = !!S.researchTagFilter;
-    const tagFilterBtn = this.iconBtn(
-      toolbar,
-      tagFilterActive ? "tag" : "tags",
-      tagFilterActive
-        ? t("shared.research.tagFilterActive", { tag: S.researchTagFilter })
-        : t("shared.research.tagFilterTooltip")
-    );
-    if (tagFilterActive) tagFilterBtn.addClass("feuillets-mode-active");
-    tagFilterBtn.addEventListener("click", (e) => {
-      const menu = new Menu();
-      menu.addItem((item) =>
-        item
-          .setTitle(t("shared.research.allTags"))
-          .setChecked(!S.researchTagFilter)
-          .onClick(async () => {
-            S.researchTagFilter = "";
-            await this.plugin.saveSettings();
-            await this.render(true);
-          })
+    if (activeSubTab === "dossiers") {
+      const tagFilterActive = !!S.researchTagFilter;
+      const tagFilterBtn = this.iconBtn(
+        toolbar,
+        tagFilterActive ? "tag" : "tags",
+        tagFilterActive
+          ? t("shared.research.tagFilterActive", { tag: S.researchTagFilter })
+          : t("shared.research.tagFilterTooltip")
       );
-      for (const tag of tagOptions) {
+      if (tagFilterActive) tagFilterBtn.addClass("feuillets-mode-active");
+      tagFilterBtn.addEventListener("click", (e) => {
+        const menu = new Menu();
         menu.addItem((item) =>
           item
-            .setTitle(`#${tag}`)
-            .setChecked(S.researchTagFilter === tag)
+            .setTitle(t("shared.research.allTags"))
+            .setChecked(!S.researchTagFilter)
             .onClick(async () => {
-              S.researchTagFilter = tag;
+              S.researchTagFilter = "";
               await this.plugin.saveSettings();
               await this.render(true);
             })
         );
-      }
-      menu.showAtMouseEvent(e);
-    });
+        for (const tag of tagOptions) {
+          menu.addItem((item) =>
+            item
+              .setTitle(`#${tag}`)
+              .setChecked(S.researchTagFilter === tag)
+              .onClick(async () => {
+                S.researchTagFilter = tag;
+                await this.plugin.saveSettings();
+                await this.render(true);
+              })
+          );
+        }
+        menu.showAtMouseEvent(e);
+      });
 
-    this.renderSavedFiltersButton(toolbar, root);
+      this.renderSavedFiltersButton(toolbar, root);
+    }
+
+    const researchInstanceId = this.researchInstanceId();
+    this.renderResearchSubTabs(container, researchInstanceId, activeSubTab, options.onSubTabChange);
 
     const body = container.createDiv({ cls: "feuillets-research-body" });
+    body.setAttr("role", "tabpanel");
+    body.setAttr("id", `${researchInstanceId}-tabpanel`);
+    body.setAttr("aria-labelledby", `${researchInstanceId}-tab-${activeSubTab}`);
 
-    this.researchFilterActive =
-      !!(S.researchSearch || "").trim() || !!S.researchTagFilter;
+    this.researchFilterActive = activeSubTab === "dossiers" &&
+      (!!(S.researchSearch || "").trim() || !!S.researchTagFilter);
 
     const showProjectAssociations = !options.workspaceActive
       || options.scopeMode !== "workspace";
 
-    /* Portée documentaire des Notes de bas de page (relecture) : obligatoire,
-       résolue une seule fois par ResearchView.render()
-       (services/research-document-context.ts) et jamais recalculée ni
-       repliée sur `root` ici. Capturée dans une constante locale pour éviter
-       de répéter `options.` dans les fermetures ci-dessous (render des
-       espaces). */
+    /* The mandatory document scope is resolved once by ResearchView.render()
+       and is never recomputed or replaced with `root` here. */
     const documentContext = options.documentContext;
 
-    /* Contextual citation analysis (Pandoc citekeys + Source-fiche citation
-       occurrences), computed exactly once per render from
-       documentContext.files — never rebuilt per Source card or per
-       citekey. Consumed by both the Sources counters and the Bibliography
-       section, whichever rendering branch below is taken (see
-       services/research-citation-analysis.ts). */
-    const citationAnalysis = await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
-
     if (associatedWorkspaceFolder) {
-      this.renderSection(body, associatedWorkspaceFolder.name, associatedWorkspaceFolder, async () =>
-        this.promptCreateResearchFile(
-          associatedWorkspaceFolder,
-          t("binder.research.newFileDefaultName"),
-          "---\ntitle: \"\"\ntags:\n---\n"
-        )
-      );
-      if (options.workspaceFolder) {
-        const fileFolders = this.workspaceFileResearchFolders(options.workspaceFolder);
-        const branchFolders = options.activeBranchResearchFolders ?? [];
-        const mergedFolders = this.mergeWorkspaceResearchFolders(
-          branchFolders,
-          fileFolders
-        ).filter(({ folder }) =>
-          folder.path !== associatedWorkspaceFolder.path &&
-          !folder.path.startsWith(`${associatedWorkspaceFolder.path}/`)
+      if (activeSubTab === "dossiers") {
+        this.renderSection(
+          body, associatedWorkspaceFolder.name, associatedWorkspaceFolder, async () =>
+            this.promptCreateResearchFile(
+              associatedWorkspaceFolder,
+              t("binder.research.newFileDefaultName"),
+              "---\ntitle: \"\"\ntags:\n---\n"
+            )
         );
-        this.renderAssociatedResearchFolders(
-          body,
-          associatedWorkspaceFolder,
-          mergedFolders,
-          false,
-          false
-        );
+        if (options.workspaceFolder) {
+          this.renderAssociatedResearchFolders(
+            body,
+            associatedWorkspaceFolder,
+            this.scopedLinkedResearchFolders(options, associatedWorkspaceFolder, null, new Set()),
+            false,
+            false
+          );
+        }
+      } else {
+        /* Citation analysis (Pandoc + Source-fiche occurrences) — computed
+           only for the References tab, never while Dossiers is active. */
+        const citationAnalysis = await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
+        await this.renderReferencesTab(body, documentContext, citationAnalysis);
       }
-      await this.renderFootnotesOverviewSection(body, documentContext);
-      await this.renderBibliographySection(body, documentContext, citationAnalysis);
       this.filterEntities();
       return;
     }
@@ -1323,15 +1419,16 @@ export abstract class BaseFeuilletsView extends ItemView {
     const spaces: ResearchSpace[] = [];
 
     if (sourcesFolder) {
-      /* Sources est la SEULE bibliothèque de travail — entrée "Citer cette
-         source…" dans le menu "..." de chaque fiche (voir aussi le bouton
-         "citation" de la barre d'outils, qui cherche dedans). Plus un
-         bouton direct sur la ligne depuis la simplification des lignes
-         Recherche : voir renderResearchFileRow/showResearchFileContextMenu. */
+      /* Sources remains the manually authored sheet library in Dossiers;
+         each row keeps its existing quick-citation action. */
       const citeRowAction = (menu: Menu, file: TFile) => {
+        const ext = file.extension.toLowerCase();
+        const isMd = ext === "md";
+        const isCitableAttachment = CITABLE_ATTACHMENT_EXTENSIONS.has(ext);
+        if (!isMd && !isCitableAttachment) return;
         menu.addItem((item) =>
           item
-            .setTitle(t("shared.research.citeSource"))
+            .setTitle(isMd ? t("shared.research.citeSource") : t("shared.research.citeDocument"))
             .setIcon("quote")
             .onClick(() => { this.plugin.quickCiteSource(file); })
         );
@@ -1339,46 +1436,28 @@ export abstract class BaseFeuilletsView extends ItemView {
       spaces.push({
         key: sourcesFolder.path,
         render: async (siblingKeys) => {
-          this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, async () =>
-            this.promptCreateResearchFile(
-              sourcesFolder,
-              rf.sources.newName,
-              await getResearchTemplate(this.app, this.plugin.settings, "sources", rf.sources.newName, opLocale)
-            ), "sources", citeRowAction, undefined, undefined,
+          this.renderSection(body, researchFolderLabel(rf, "sources"), sourcesFolder, undefined, "sources", citeRowAction, undefined, undefined,
             { parentKey: sectionsParentKey, key: sourcesFolder.path, siblingKeys }
           );
-
-          await this.renderFootnotesOverviewSection(body, documentContext);
-          /* "Bibliographie" ici N'EST PLUS un dossier de fiches manuelles —
-             c'est la vue agrégée des sources citées + le bouton pour générer
-             le fichier final (voir renderBibliographySection). Créer une
-             nouvelle référence se fait dans Sources, jamais ici. Ni l'aperçu
-             des notes ni cet agrégat ne sont adossés à un dossier propre :
-             ils suivent toujours "Sources", jamais réordonnés séparément. */
-          await this.renderBibliographySection(body, documentContext, citationAnalysis);
         },
       });
     }
 
-    /* Footnotes (proofreading) and the aggregated Bibliography no longer
-       depend on the existence of a Sources folder (see above, in the
-       Sources space): a project or space without Sources still displays
-       the footnotes of its own documents as well as the @key citekeys it
-       uses, resolved against the inherited .bib if one exists — even with
-       no Sources/Bibliographie folder at all. Without a Sources folder, a
-       legacy Bibliographie folder is deliberately NOT also rendered as its
-       own raw browsing space here — it would show up twice, once as a
-       plain folder listing and once below as the aggregated Bibliography
-       section, which stays the single visible representation of
-       Bibliographie in that configuration (the aggregated section itself
-       no longer depends on this or any other folder — see
-       renderBibliographySection()). */
-    if (!sourcesFolder) {
+    if (bibliographieFolder) {
+      /* Legacy folder of manually-authored bibliography fiches — kept
+         browsable in Dossiers alongside Sources, distinct from the
+         computed Bibliography section of References. */
       spaces.push({
-        key: "footnotes-overview",
-        render: async () => {
-          await this.renderFootnotesOverviewSection(body, documentContext);
-          await this.renderBibliographySection(body, documentContext, citationAnalysis);
+        key: bibliographieFolder.path,
+        render: (siblingKeys) => {
+          this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
+            this.promptCreateResearchFile(
+              bibliographieFolder,
+              rf.bibliographie.newName,
+              await getResearchTemplate(this.app, this.plugin.settings, "bibliographie", rf.bibliographie.newName, opLocale)
+            ), "bibliographie", undefined, undefined, undefined,
+            { parentKey: sectionsParentKey, key: bibliographieFolder.path, siblingKeys }
+          );
         },
       });
     }
@@ -1492,15 +1571,129 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     const orderedSpaces = applyResearchOrder(sectionsParentKey, spaces, (s) => s.key, S.researchOrder);
-    const spaceSiblingKeys = orderedSpaces.map((s) => s.key);
-    for (const space of orderedSpaces) {
-      await space.render(spaceSiblingKeys);
+
+    if (activeSubTab === "dossiers") {
+      if (orderedSpaces.length > 0) {
+        body.createDiv({ cls: "feuillets-research-category-head" }).setText(t("shared.research.projectResearch"));
+        const spaceSiblingKeys = orderedSpaces.map((s) => s.key);
+        for (const space of orderedSpaces) {
+          await space.render(spaceSiblingKeys);
+        }
+      }
+
+      if (showProjectAssociations) {
+        this.renderAssociatedResearchFolders(
+          body,
+          baseResearchFolder,
+          this.scopedLinkedResearchFolders(options, null, baseResearchFolder, standardPaths)
+        );
+      }
+
+      if (options.workspaceActive && options.scopeMode === "workspace" && options.workspaceFolder) {
+        this.renderAssociatedResearchFolders(
+          body,
+          baseResearchFolder,
+          this.scopedLinkedResearchFolders(options, null, baseResearchFolder, standardPaths),
+          true,
+          true
+        );
+      }
+    } else {
+      /* Citation analysis (Pandoc + Source-fiche occurrences) — computed
+         only for the References tab, never while Dossiers is active. */
+      const citationAnalysis = await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
+      await this.renderReferencesTab(body, documentContext, citationAnalysis);
     }
 
-    if (showProjectAssociations) {
-      this.renderAssociatedResearchFolders(body, baseResearchFolder);
-    }
+    this.filterEntities();
+  }
 
+  /** Accessible header for the Research panel's two tabs. Folders owns the
+   * physical organization, including Sources; References only exposes
+   * reference actions and computed Footnotes/Bibliography. The active tab
+   * is instance state on ResearchView, never a persisted setting.
+   *
+   * Real `<button>` elements — Enter/Space activation is native, no manual
+   * key handling needed for them. ArrowLeft/ArrowRight/Home/End move focus
+   * and roving `tabindex` among the tabs without activating (manual
+   * activation pattern): the focused tab still needs Enter/Space/click to
+   * actually switch. `instanceId` (unique per view, see
+   * researchInstanceId()) keeps this tablist's ids collision-free when
+   * several Research views are open at once. */
+  private renderResearchSubTabs(
+    container: HTMLElement,
+    instanceId: string,
+    activeTab: ResearchSubTab,
+    onChange?: (tab: ResearchSubTab) => void
+  ): void {
+    const tablist = container.createDiv({ cls: "feuillets-research-subtabs" });
+    tablist.setAttr("role", "tablist");
+    const tabs: { key: ResearchSubTab; label: string }[] = [
+      { key: "dossiers", label: t("shared.research.subtabFolders") },
+      { key: "references", label: t("shared.research.subtabReferences") },
+    ];
+    const buttons: HTMLElement[] = tabs.map((tabDef) => {
+      const isActive = tabDef.key === activeTab;
+      const tabEl = tablist.createEl("button", { cls: "feuillets-research-subtab" });
+      if (isActive) tabEl.addClass("is-active");
+      tabEl.setAttr("type", "button");
+      tabEl.setAttr("role", "tab");
+      tabEl.setAttr("id", `${instanceId}-tab-${tabDef.key}`);
+      tabEl.setAttr("aria-controls", `${instanceId}-tabpanel`);
+      tabEl.setAttr("aria-selected", String(isActive));
+      tabEl.setAttr("tabindex", isActive ? "0" : "-1");
+      tabEl.setAttr("data-subtab-key", tabDef.key);
+      tabEl.setText(tabDef.label);
+      tabEl.addEventListener("click", () => {
+        if (isActive) return;
+        onChange?.(tabDef.key);
+      });
+      return tabEl;
+    });
+    buttons.forEach((button, index) => {
+      button.addEventListener("keydown", (event: KeyboardEvent) => {
+        let nextIndex = -1;
+        if (event.key === "ArrowLeft") nextIndex = (index - 1 + buttons.length) % buttons.length;
+        else if (event.key === "ArrowRight") nextIndex = (index + 1) % buttons.length;
+        else if (event.key === "Home") nextIndex = 0;
+        else if (event.key === "End") nextIndex = buttons.length - 1;
+        if (nextIndex === -1) return;
+        event.preventDefault();
+        button.setAttr("tabindex", "-1");
+        const nextButton = buttons[nextIndex];
+        nextButton.setAttr("tabindex", "0");
+        nextButton.focus();
+      });
+    });
+  }
+
+  /** The linked-research-folder entries relevant to the CURRENT scope —
+   * used to render "Recherches liées" in Dossiers. Three cases, mirroring
+   * resolveResearchDocumentContext()'s own branches:
+   * - associatedWorkspaceFolder set: its descendants, excluding its own
+   *   subtree (mergeWorkspaceResearchFolders — unchanged registry logic);
+   * - Workspace mode, scoped, no single associated folder: the folders
+   *   naturally nested under the project's own Recherche root plus the
+   *   ones tied to a Binder node inside this Workspace
+   *   (workspaceFileResearchFolders — unchanged registry logic);
+   * - otherwise (Project mode): every linked research folder in the
+   *   project (computeAssociatedResearchFolders, same default as
+   *   renderAssociatedResearchFolders() uses on its own). */
+  private scopedLinkedResearchFolders(
+    options: ResearchRenderOptions,
+    associatedWorkspaceFolder: TFolder | null,
+    baseResearchFolder: TFolder | null,
+    standardPaths: Set<string>
+  ): { folder: TFolder; binderNodes: TAbstractFile[] }[] {
+    if (associatedWorkspaceFolder) {
+      if (!options.workspaceFolder) return [];
+      const fileFolders = this.workspaceFileResearchFolders(options.workspaceFolder);
+      const branchFolders = options.activeBranchResearchFolders ?? [];
+      return this.mergeWorkspaceResearchFolders(branchFolders, fileFolders).filter(({ folder }) =>
+        folder.path !== associatedWorkspaceFolder.path &&
+        !folder.path.startsWith(`${associatedWorkspaceFolder.path}/`)
+      );
+    }
     if (options.workspaceActive && options.scopeMode === "workspace" && options.workspaceFolder) {
       const naturallyLinkedWorkspaceFolders = baseResearchFolder
         ? this.plugin.getLinkedResearchFolders().filter(({ folder }) =>
@@ -1508,16 +1701,34 @@ export abstract class BaseFeuilletsView extends ItemView {
           && !standardPaths.has(folder.path)
         )
         : [];
-      this.renderAssociatedResearchFolders(
-        body,
-        baseResearchFolder,
-        [...naturallyLinkedWorkspaceFolders, ...this.workspaceFileResearchFolders(options.workspaceFolder)],
-        true,
-        true
-      );
+      return [...naturallyLinkedWorkspaceFolders, ...this.workspaceFileResearchFolders(options.workspaceFolder)];
     }
+    return this.computeAssociatedResearchFolders(baseResearchFolder, this.plugin.getLinkedResearchFolders(), true);
+  }
 
-    this.filterEntities();
+  /** The References tab: Notes then Bibliography, in that fixed order,
+   * each rendered only when the current ResearchDocumentContext scope
+   * actually has something to show — never a folder explorer, never a
+   * Sources section (Sources stays purely a Dossiers concept; the
+   * References toolbar's "New source sheet" action creates directly into
+   * the resolved Sources folder, and stays visible in the toolbar even
+   * when this tab's own content is empty). When neither section has
+   * anything, a single compact empty-state message is shown instead, with
+   * no leftover empty header. */
+  private async renderReferencesTab(
+    container: HTMLElement,
+    documentContext: ResearchDocumentContext,
+    citationAnalysis: ResearchCitationAnalysis
+  ): Promise<void> {
+    let renderedAny = false;
+    if (await this.renderFootnotesOverviewSection(container, documentContext)) renderedAny = true;
+    if (await this.renderBibliographySection(container, documentContext, citationAnalysis)) renderedAny = true;
+
+    if (!renderedAny) {
+      container
+        .createDiv({ cls: "feuillets-research-empty feuillets-references-empty" })
+        .setText(t("shared.research.noReferencesInScope"));
+    }
   }
 
   /** Projette dans le panneau Recherche les dossiers associés depuis le
@@ -1568,13 +1779,16 @@ export abstract class BaseFeuilletsView extends ItemView {
     return Array.from(byPath.values());
   }
 
-  private renderAssociatedResearchFolders(
-    container: HTMLElement,
+  /** The linked-research-folder entries actually associated with
+   * `baseResearchFolder`'s scope — deduplicated by path, binder-node
+   * associations merged — factored out of renderAssociatedResearchFolders()
+   * so scopedLinkedResearchFolders() can reuse the same computation for
+   * Project mode's "Recherches liées" list without re-deriving it. */
+  private computeAssociatedResearchFolders(
     baseResearchFolder: TFolder | null,
-    linkedFolders = this.plugin.getLinkedResearchFolders(),
-    grouped = true,
-    includeNestedUnderBase = true
-  ): void {
+    linkedFolders: { folder: TFolder; binderNodes: TAbstractFile[] }[],
+    includeNestedUnderBase: boolean
+  ): { folder: TFolder; binderNodes: TAbstractFile[] }[] {
     const associatedByPath = new Map<string, { folder: TFolder; binderNodes: TAbstractFile[] }>();
     const standardResearchPaths = new Set(
       ["personnages", "lieux", "evenements", "codex", "glossaire", "sources", "bibliographie"]
@@ -1595,8 +1809,18 @@ export abstract class BaseFeuilletsView extends ItemView {
         binderNodes: [...entry.binderNodes],
       });
     }
-    const associated = [...associatedByPath.values()]
+    return [...associatedByPath.values()]
       .sort((a, b) => a.folder.name.localeCompare(b.folder.name, getLocale()));
+  }
+
+  private renderAssociatedResearchFolders(
+    container: HTMLElement,
+    baseResearchFolder: TFolder | null,
+    linkedFolders = this.plugin.getLinkedResearchFolders(),
+    grouped = true,
+    includeNestedUnderBase = true
+  ): void {
+    const associated = this.computeAssociatedResearchFolders(baseResearchFolder, linkedFolders, includeNestedUnderBase);
     if (associated.length === 0) return;
 
     const S = this.plugin.settings;
@@ -1611,7 +1835,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           title: "feuillets-notes-section-title",
           icon: "feuillets-notes-section-icon",
         },
-        title: t("shared.research.workspaces"),
+        title: t("shared.research.linkedResearch"),
         icon: "layers-3",
         collapsed,
         collapseKey,
@@ -1892,7 +2116,8 @@ export abstract class BaseFeuilletsView extends ItemView {
           list,
           sf,
           external,
-          external ? undefined : { parentKey: folderOrFiles.path, key: sf.path, siblingKeys: subfolderSiblingKeys }
+          external ? undefined : { parentKey: folderOrFiles.path, key: sf.path, siblingKeys: subfolderSiblingKeys },
+          rowAction
         );
       }
     }
@@ -2033,7 +2258,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     parentList: HTMLElement,
     folder: TFolder,
     external?: boolean,
-    orderContext?: ResearchOrderContext
+    orderContext?: ResearchOrderContext,
+    rowAction?: (menu: Menu, file: TFile) => void
   ): void {
     const S = this.plugin.settings;
     const collapseKey = `research-folder:${folder.path}`;
@@ -2152,7 +2378,8 @@ export abstract class BaseFeuilletsView extends ItemView {
         nestedList,
         sf,
         external,
-        external ? undefined : { parentKey: folder.path, key: sf.path, siblingKeys: subfolderSiblingKeys }
+        external ? undefined : { parentKey: folder.path, key: sf.path, siblingKeys: subfolderSiblingKeys },
+        rowAction
       );
     }
 
@@ -2162,7 +2389,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         this.plugin.titleFor(a).localeCompare(this.plugin.titleFor(b), getLocale())
       );
     for (const f of files) {
-      this.renderResearchFileRow(nestedList, f, folder, undefined, external);
+      this.renderResearchFileRow(nestedList, f, folder, rowAction, external);
     }
 
     if (subfolders.length === 0 && files.length === 0) {
@@ -2215,6 +2442,52 @@ export abstract class BaseFeuilletsView extends ItemView {
 
   private showResearchFolderContextMenu(e: MouseEvent, folder: TFolder, orderContext?: ResearchOrderContext): void {
     const menu = new Menu();
+    const linked = typeof this.plugin.getLinkedResearchFolders === "function"
+      ? this.plugin.getLinkedResearchFolders()
+      : [];
+    const workspaceFolder = typeof this.plugin.getWorkspaceFolder === "function"
+      ? this.plugin.getWorkspaceFolder()
+      : null;
+    const isSourcesFolder = isGenuineSourcesFolder(
+      this.app,
+      this.plugin.settings,
+      folder,
+      linked,
+      workspaceFolder
+    );
+    if (isSourcesFolder) {
+      const opLocale = getLocale();
+      const defaultName = researchFolderNewName("sources", opLocale);
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.research.newSourceSheet"))
+          .setIcon("file-plus")
+          .onClick(async () => {
+            this.promptCreateResearchFile(
+              folder,
+              defaultName,
+              await getResearchTemplate(this.app, this.plugin.settings, "sources", defaultName, opLocale)
+            );
+          })
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("main.cmd.insertCitation"))
+          .setIcon("quote")
+          .onClick(() => {
+            this.plugin.openInsertCitation(null, folder);
+          })
+      );
+      menu.addItem((item) =>
+        item
+          .setTitle(t("shared.research.importDocuments"))
+          .setIcon("upload")
+          .onClick(() => {
+            this.promptImportFilesIntoResearchFolder(folder);
+          })
+      );
+      menu.addSeparator();
+    }
     this.addFolderCarnetMenuItem(menu, folder);
     const carnetPlugin = this.plugin as unknown as { canUseFolderCarnet?: (folder: TFolder) => boolean };
     if (carnetPlugin.canUseFolderCarnet?.(folder)) menu.addSeparator();
@@ -2522,16 +2795,112 @@ export abstract class BaseFeuilletsView extends ItemView {
     });
   }
 
-  /** Toutes les notes de bas de page ("[^N]: texte") du manuscrit, scène
-   * par scène mais regroupées en un seul endroit — pas fichier par
-   * fichier comme dans le panneau Notes. Signale aussi les références
-   * orphelines : un "[^N]" cité dans le texte sans définition
-   * correspondante, ou l'inverse (définie mais jamais citée) — souvent le
-   * signe d'un texte coupé/collé entre scènes qui a cassé une note. */
-  async renderFootnotesOverviewSection(container: HTMLElement, documentContext: ResearchDocumentContext): Promise<void> {
+  /** Renders one file's footnote head + rows exactly as the overview
+   * always has — shared verbatim by Workspace mode's flat list and by
+   * Project mode's per-group detail, so the two never drift apart. Signals
+   * orphan rows both ways: a "[^N]" cited in the text with no matching
+   * definition, or the reverse (defined but never cited) — often the sign
+   * of text cut/pasted between scenes that broke a note. */
+  private renderFootnoteFileEntries(
+    list: HTMLElement,
+    entries: readonly FootnoteFileEntry[],
+    numbering: Map<string, string>
+  ): void {
+    for (const { file, rows } of entries) {
+      const group = list.createDiv({ cls: "feuillets-footnotes-overview-group" });
+      const head = group.createDiv({ cls: "feuillets-footnotes-overview-head" });
+      head.setText(`${numbering.get(file.path) || ""} ${this.plugin.shortTitleFor(file)}`.trim());
+      head.setAttr("title", t("shared.footnotes.openSceneTooltip"));
+      head.addEventListener("click", () => {
+        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      });
+
+      for (const row of rows) {
+        if (row.kind === "definition") {
+          const rowEl = group.createDiv({ cls: "feuillets-footnotes-overview-row" });
+          rowEl.createSpan({ cls: "feuillets-footnotes-overview-label" }).setText(`[^${row.label}]`);
+          rowEl.createSpan({ cls: "feuillets-footnotes-overview-text" }).setText(row.text);
+          if (!row.citedElsewhere) {
+            rowEl.addClass("feuillets-footnotes-overview-orphan");
+            rowEl.setAttr("title", t("shared.footnotes.definedNeverCited"));
+          }
+        } else {
+          const rowEl = group.createDiv({
+            cls: "feuillets-footnotes-overview-row feuillets-footnotes-overview-orphan",
+          });
+          rowEl.createSpan({ cls: "feuillets-footnotes-overview-label" }).setText(`[^${row.label}]`);
+          rowEl
+            .createSpan({ cls: "feuillets-footnotes-overview-text" })
+            .setText(t("shared.footnotes.citedNeverDefined"));
+          rowEl.setAttr("title", t("shared.footnotes.citedNeverDefinedTooltip"));
+        }
+      }
+    }
+  }
+
+  /** Renders one folder level of Project mode's footnote hierarchy as a
+   * single compact tree row — chevron, truncatable label, right-aligned
+   * count badge, three stable grid columns (styles.css) — never the big
+   * bordered/uppercase section grammar (.feuillets-notes-section*, reserved
+   * for the outer "Notes de bas de page" section and other top-level
+   * panels): a folder node is a line in a tree, not a new section. Collapsed
+   * by default via footnoteGroupCollapseKey() (never a raw vault path — see
+   * services/research-footnotes-overview.ts); only once expanded does it
+   * render its direct file entries then its child folder nodes,
+   * recursively. Opening a parent never opens its children: each node reads
+   * its own collapsed state independently. */
+  private renderFootnoteFolderNode(
+    container: HTMLElement,
+    node: FootnoteFolderNode,
+    numbering: Map<string, string>
+  ): void {
+    const S = this.plugin.settings;
+    const label = node.label ?? t("shared.footnotes.rootFilesGroup");
+    const nodeCollapsed = S.collapsed[node.collapseKey] !== false;
+
+    const row = container.createDiv({ cls: "feuillets-footnotes-tree-row" });
+    const toggle = row.createSpan({ cls: "feuillets-footnotes-tree-toggle" });
+    setIcon(toggle, nodeCollapsed ? "chevron-right" : "chevron-down");
+    const labelEl = row.createSpan({ cls: "feuillets-footnotes-tree-label" });
+    labelEl.setText(label);
+    labelEl.setAttr("title", label);
+    row.createSpan({ cls: "feuillets-footnotes-tree-badge" }).setText(String(node.rowCount));
+    row.addEventListener("click", () => {
+      void (async () => {
+        /* Always write an explicit value: a missing key means collapsed by
+           default. Never touch settings.collapsed[node.folderPath], which
+           belongs to the Binder's own folder state. */
+        S.collapsed[node.collapseKey] = nodeCollapsed ? false : true;
+        await this.plugin.saveSettings();
+        void this.render();
+      })();
+    });
+
+    if (nodeCollapsed) return;
+    const children = container.createDiv({ cls: "feuillets-footnotes-tree-children feuillets-research-nested" });
+    this.renderFootnoteFileEntries(children, node.directEntries, numbering);
+    for (const child of node.children) {
+      this.renderFootnoteFolderNode(children, child, numbering);
+    }
+  }
+
+  /** Builds the outer "Notes de bas de page" section — header via
+   * renderCollapsibleHead (the usual top-level panel grammar, unlike the
+   * inner tree nodes above) — and, once expanded, hands its content list to
+   * `renderList`. Project mode defaults to COLLAPSED (a tri-state key,
+   * explicit true/false, never deleted — see renderFootnoteFolderNode's
+   * same pattern); other modes keep the historical expanded-by-default,
+   * delete-on-expand behavior. Returns true once a header was rendered, so
+   * the caller (renderFootnotesOverviewSection) knows a section now exists
+   * in the DOM even while collapsed. */
+  private renderFootnotesOverviewHead(
+    container: HTMLElement,
+    isProjectMode: boolean,
+    renderList: (list: HTMLElement) => void
+  ): boolean {
     const S = this.plugin.settings;
     const collapseKey = "research:footnotes-overview";
-    const collapsed = !!S.collapsed[collapseKey];
+    const collapsed = isProjectMode ? S.collapsed[collapseKey] !== false : !!S.collapsed[collapseKey];
 
     const { section } = renderCollapsibleHead(container, {
       classes: {
@@ -2546,73 +2915,54 @@ export abstract class BaseFeuilletsView extends ItemView {
       collapseKey,
       settings: S,
       onToggle: async () => {
+        if (isProjectMode) S.collapsed[collapseKey] = collapsed ? false : true;
         await this.plugin.saveSettings();
         void this.render();
       },
     });
-    if (collapsed) return;
+    if (collapsed) return true;
 
     const list = section.createDiv({ cls: "feuillets-research-list" });
+    renderList(list);
+    return true;
+  }
+
+  /** All manuscript footnotes ("[^N]: text"), rendered only when the scope
+   * contains at least one row; otherwise the entire section is absent.
+   * In Workspace mode this stays the historical flat list,
+   * scene by scene, built from documentContext.files alone
+   * (buildFootnoteFileEntries()). In Project mode — where
+   * documentContext.files can span hundreds of documents across many
+   * top-level sub-projects — it becomes a compact tree following the REAL
+   * folder hierarchy under documentContext.projectRoot
+   * (buildFootnoteOverviewTree(), services/research-footnotes-overview.ts),
+   * collapsed by default at every level, expanding one level at a time to
+   * the exact same per-file rows on demand. A folder with no footnote
+   * content anywhere in its own subtree never gets a node, empty or
+   * otherwise. Returns whether a section was actually rendered — the
+   * References tab uses this to decide its own empty state. */
+  async renderFootnotesOverviewSection(container: HTMLElement, documentContext: ResearchDocumentContext): Promise<boolean> {
     const numbering = this.plugin.buildNumbering(documentContext.scopeRoot);
-    const files = [...documentContext.files].sort(
-      (a, b) => (Number(numbering.get(a.path)) || 0) - (Number(numbering.get(b.path)) || 0)
-    );
+    const files = documentContext.files
+      .filter((file): file is TFile => file instanceof TFile && file.extension === "md")
+      .sort((a, b) => (Number(numbering.get(a.path)) || 0) - (Number(numbering.get(b.path)) || 0));
 
-    const defRe = /^\[\^([^\]]+)\]:[ \t]*(.+)$/gm;
-    const refRe = /\[\^([^\]]+)\](?!:)/g;
-    let anyContent = false;
-
-    for (const file of files) {
-      const raw = await this.app.vault.cachedRead(file);
-      const text = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
-
-      const defs = new Map<string, string>();
-      defRe.lastIndex = 0;
-      let m: RegExpExecArray | null;
-      while ((m = defRe.exec(text))) defs.set(m[1], m[2].trim());
-
-      const refs = new Set<string>();
-      refRe.lastIndex = 0;
-      while ((m = refRe.exec(text))) refs.add(m[1]);
-
-      if (defs.size === 0 && refs.size === 0) continue;
-      anyContent = true;
-
-      const group = list.createDiv({ cls: "feuillets-footnotes-overview-group" });
-      const head = group.createDiv({ cls: "feuillets-footnotes-overview-head" });
-      head.setText(`${numbering.get(file.path) || ""} ${this.plugin.shortTitleFor(file)}`.trim());
-      head.setAttr("title", t("shared.footnotes.openSceneTooltip"));
-      head.addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    if (documentContext.mode !== "project") {
+      const entries = await buildFootnoteFileEntries(this.app, files);
+      if (entries.length === 0) return false;
+      return this.renderFootnotesOverviewHead(container, false, (list) => {
+        this.renderFootnoteFileEntries(list, entries, numbering);
       });
-
-      for (const [label, footnoteText] of defs) {
-        const row = group.createDiv({ cls: "feuillets-footnotes-overview-row" });
-        row.createSpan({ cls: "feuillets-footnotes-overview-label" }).setText(`[^${label}]`);
-        row.createSpan({ cls: "feuillets-footnotes-overview-text" }).setText(footnoteText);
-        if (!refs.has(label)) {
-          row.addClass("feuillets-footnotes-overview-orphan");
-          row.setAttr("title", t("shared.footnotes.definedNeverCited"));
-        }
-      }
-      for (const label of refs) {
-        if (defs.has(label)) continue;
-        const row = group.createDiv({
-          cls: "feuillets-footnotes-overview-row feuillets-footnotes-overview-orphan",
-        });
-        row.createSpan({ cls: "feuillets-footnotes-overview-label" }).setText(`[^${label}]`);
-        row
-          .createSpan({ cls: "feuillets-footnotes-overview-text" })
-          .setText(t("shared.footnotes.citedNeverDefined"));
-        row.setAttr("title", t("shared.footnotes.citedNeverDefinedTooltip"));
-      }
     }
 
-    if (!anyContent) {
-      list
-        .createDiv({ cls: "feuillets-research-empty" })
-        .setText(t("shared.footnotes.empty"));
-    }
+    const tree = await buildFootnoteOverviewTree(this.app, documentContext.projectRoot, files);
+    if (tree.length === 0) return false;
+    return this.renderFootnotesOverviewHead(container, true, (list) => {
+      const treeContainer = list.createDiv({ cls: "feuillets-footnotes-tree" });
+      for (const node of tree) {
+        this.renderFootnoteFolderNode(treeContainer, node, numbering);
+      }
+    });
   }
 
   /** "Bibliography" as an AGGREGATOR, not a folder of manual fiches: the
@@ -2632,36 +2982,20 @@ export abstract class BaseFeuilletsView extends ItemView {
    * (plugin.generateBibliographyFile), passed a snapshot of exactly the
    * cited fiches and resolved BibTeX entries this render pass displays —
    * the generator itself never re-resolves a scope or re-scans anything;
-   * that generation logic stays out of scope here. */
+   * that generation logic stays out of scope here. Renders NOTHING — no
+   * header, no empty-state message — when the scope has no cited Source,
+   * no resolved BibTeX entry and no unknown citekey; returns whether a
+   * section was actually rendered, so the References tab can decide its
+   * own empty state. The "Generate" row appears in BOTH Project and
+   * Workspace mode, as soon as the section has a displayable entry —
+   * Bibliographie.md stays a single project-wide output file either way
+   * (generateBibliographyFile() itself is unchanged); only its label
+   * names which scope produced the snapshot. */
   async renderBibliographySection(
     container: HTMLElement,
     documentContext: ResearchDocumentContext,
     citationAnalysis: ResearchCitationAnalysis
-  ): Promise<void> {
-    const S = this.plugin.settings;
-    const collapseKey = "research:cited-sources";
-    const collapsed = Boolean(S?.collapsed?.[collapseKey]);
-
-    const { section } = renderCollapsibleHead(container, {
-      classes: {
-        section: "feuillets-notes-section feuillets-research-section",
-        head: "feuillets-notes-section-head",
-        title: "feuillets-notes-section-title",
-        icon: "feuillets-notes-section-icon",
-      },
-      title: t("shared.bibliography.title"),
-      icon: "library",
-      collapsed,
-      collapseKey,
-      settings: S,
-      onToggle: async () => {
-        await this.plugin.saveSettings();
-        void this.render();
-      },
-    });
-    if (collapsed) return;
-    const sectionEl = section;
-
+  ): Promise<boolean> {
     /* The citation registry (citationAnalysis.sourceCitationCounts, keyed
        by normalized sourcePath) is the sole authority on which Source
        fiche a valid occurrence points to — never the Sources/Bibliographie
@@ -2683,14 +3017,6 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
     const sourceCountFor = (f: TFile): number => citationAnalysis.sourceCitationCounts.get(f.path) || 0;
 
-    const exportRow = sectionEl.createDiv({ cls: "feuillets-bibliography-export-row" });
-    exportRow.setAttr("title", t("shared.bibliography.exportTooltip"));
-    const exportIcon = exportRow.createSpan({ cls: "feuillets-cell-icon" });
-    setIcon(exportIcon, "file-output");
-    exportRow.createSpan().setText(t("shared.bibliography.generate"));
-
-    const list = sectionEl.createDiv({ cls: "feuillets-research-list" });
-
     const bibtexResult = await collectDocumentScopeCitedBibtexEntries(
       this.app,
       this.plugin.settings,
@@ -2699,12 +3025,62 @@ export abstract class BaseFeuilletsView extends ItemView {
       citationAnalysis.citekeyCounts
     );
 
-    /* Only wired once bibtexResult is settled, so the button is never
-       reachable for a moment with an incomplete/stale scope: the click
-       handler closes over a snapshot of exactly what this render pass
-       displays — the same Sources fiches (`cited`) and the same resolved
-       BibTeX entries — copied so a later mutation of `cited` or of the
-       result arrays can never change what a pending click writes. */
+    if (
+      cited.length === 0 &&
+      bibtexResult.knownEntries.length === 0 &&
+      bibtexResult.unknownKeys.length === 0
+    ) {
+      return false;
+    }
+
+    const S = this.plugin.settings;
+    const collapseKey = "research:cited-sources";
+    const collapsed = Boolean(S?.collapsed?.[collapseKey]);
+
+    const { section } = renderCollapsibleHead(container, {
+      classes: {
+        section: "feuillets-notes-section feuillets-research-section",
+        head: "feuillets-notes-section-head",
+        title: "feuillets-notes-section-title",
+        icon: "feuillets-notes-section-icon",
+      },
+      title: t("shared.bibliography.title"),
+      icon: "library",
+      collapsed,
+      collapseKey,
+      settings: S,
+      onToggle: async () => {
+        await this.plugin.saveSettings();
+        void this.render();
+      },
+    });
+    if (collapsed) return true;
+    const sectionEl = section;
+
+    /* Available in BOTH scopes as soon as the section has at least one
+       displayable entry — the label alone names the scope, never the
+       button's presence. The write target stays the single project-wide
+       Bibliographie.md either way (generateBibliographyFile() is
+       unchanged); in Workspace mode this simply overwrites it with the
+       Workspace-scoped snapshot the user is currently looking at. */
+    const generateLabel = documentContext.mode === "project"
+      ? t("shared.bibliography.generateProject")
+      : t("shared.bibliography.generateWorkspace");
+    const exportRow = sectionEl.createEl("button", { cls: "feuillets-bibliography-export-row" });
+    exportRow.setAttr("type", "button");
+    exportRow.setAttr("title", t("shared.bibliography.exportTooltip"));
+    exportRow.setAttr("aria-label", generateLabel);
+    const exportIcon = exportRow.createSpan({ cls: "feuillets-cell-icon" });
+    setIcon(exportIcon, "file-output");
+    exportRow.createSpan().setText(generateLabel);
+
+    /* Closes over a snapshot of exactly what this render pass displays —
+       the same Sources fiches (`cited`) and the same resolved BibTeX
+       entries — copied so a later mutation of `cited` or of the result
+       arrays can never change what a pending click writes. `documentContext`
+       was itself resolved once by ResearchView.render() (never re-derived
+       from the active file), so this is always the exact scope currently
+       shown, Project or Workspace. */
     const generationInput: ResearchBibliographyGenerationInput = {
       projectRoot: documentContext.projectRoot,
       sourceFiles: [...cited],
@@ -2712,16 +3088,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     };
     exportRow.addEventListener("click", () => { void this.plugin.generateBibliographyFile(generationInput); });
 
-    if (
-      cited.length === 0 &&
-      bibtexResult.knownEntries.length === 0 &&
-      bibtexResult.unknownKeys.length === 0
-    ) {
-      list
-        .createDiv({ cls: "feuillets-research-empty" })
-        .setText(t("shared.bibliography.empty"));
-      return;
-    }
+    const list = sectionEl.createDiv({ cls: "feuillets-research-list" });
 
     const sorted = [...cited].sort((a, b) => {
       const authorA = this.plugin.fmOf(a).author;
@@ -2774,6 +3141,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       const nameEl = header.createDiv({ cls: "feuillets-research-item-name feuillets-citekey-warning" });
       nameEl.setText(warningLabel);
     }
+    return true;
   }
 
   /** "Dossiers de recherche sauvegardés" — un filtre Recherche (texte +

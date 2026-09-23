@@ -43,6 +43,21 @@ test("formatCitation", async (t) => {
     assert.equal(formatCitation(undefined, "", "footnote"), "");
   });
 
+  await t.test("page seule sans donnée bibliographique : aucune citation produite, jamais (p. 12)", () => {
+    assert.equal(formatCitation({}, "12", "parenthetical"), "");
+    assert.equal(formatCitation({ date: "2025" }, "12", "parenthetical"), "");
+    assert.equal(formatCitation({}, "12", "footnote"), "");
+    assert.equal(formatCitation(undefined, "12", "parenthetical"), "");
+  });
+
+  await t.test("style parenthétique : repli sur le titre en l'absence d'auteur", () => {
+    assert.equal(formatCitation({ author: "Auteur", date: "2025" }, "12", "parenthetical"), "(Auteur, 2025, p. 12)");
+    assert.equal(formatCitation({ author: "Auteur" }, "12", "parenthetical"), "(Auteur, p. 12)");
+    assert.equal(formatCitation({ title: "Titre", date: "2025" }, "12", "parenthetical"), "(Titre, 2025, p. 12)");
+    assert.equal(formatCitation({ title: "Titre" }, "12", "parenthetical"), "(Titre, p. 12)");
+    assert.equal(formatCitation({ title: "Titre" }, "", "parenthetical"), "(Titre)");
+  });
+
   await t.test("url présente : ajoutée en note (footnote), ignorée en parenthétique", () => {
     const web = { author: "Jean Dupont", title: "Page web", url: "https://example.com/page" };
     assert.equal(

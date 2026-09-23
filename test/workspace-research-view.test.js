@@ -36,18 +36,19 @@ test("la portée Espace utilise ses Événements et masque les associations des 
   assert.match(baseSource, /options\.workspaceActive && options\.scopeMode === "workspace"/);
   assert.match(baseSource, /findResearchCategoryFolder\(baseResearch, rf, "evenements"\)/);
   assert.match(baseSource, /const showProjectAssociations/);
-  assert.match(baseSource, /this\.renderAssociatedResearchFolders\(body, baseResearchFolder\)/);
+  assert.match(baseSource, /if \(showProjectAssociations\) \{\s*this\.renderAssociatedResearchFolders\(\s*body,\s*baseResearchFolder,\s*this\.scopedLinkedResearchFolders\(options, null, baseResearchFolder, standardPaths\)\s*\);\s*\}/);
   assert.match(baseSource, /workspaceFileResearchFolders\(options\.workspaceFolder\)/);
   assert.match(baseSource, /associatedWorkspaceFolder\.name/);
-  assert.match(baseSource, /this\.renderSection\(body, associatedWorkspaceFolder\.name, associatedWorkspaceFolder/);
+  assert.match(baseSource, /this\.renderSection\(\s*body, associatedWorkspaceFolder\.name, associatedWorkspaceFolder/);
   assert.match(baseSource, /binder\.research\.newFileDefaultName/);
   assert.match(baseSource, /associatedWorkspaceFolder \? null : this\.findResearchCategoryFolder/);
-  assert.match(baseSource, /shared\.research\.workspaces/);
+  assert.match(baseSource, /shared\.research\.linkedResearch/);
   assert.match(baseSource, /new Map<string, \{ folder: TFolder; binderNodes: TAbstractFile\[\] \}>/);
   assert.match(baseSource, /groupBody/);
   assert.ok(
-    baseSource.indexOf("if (sourcesFolder)") < baseSource.indexOf("this.renderAssociatedResearchFolders(body, baseResearchFolder)"),
-    "la rubrique Espaces est rendue après les catégories globales"
+    baseSource.indexOf('body.createDiv({ cls: "feuillets-research-category-head" })') <
+      baseSource.indexOf("if (showProjectAssociations) {"),
+    "la rubrique Recherches liées est rendue après les catégories globales (Recherche du projet)"
   );
 });
 
@@ -55,5 +56,10 @@ test("les recherches d'espaces héritées restent regroupées sous Espaces", () 
   assert.match(baseSource, /!linkedResearchPaths\.has\(child\.path\)/);
   assert.doesNotMatch(baseSource, /linkedFolderIsNaturallyVisible/);
   assert.match(baseSource, /naturallyLinkedWorkspaceFolders/);
-  assert.match(baseSource, /this\.renderAssociatedResearchFolders\(\s*body,\s*baseResearchFolder,\s*\[\.\.\.naturallyLinkedWorkspaceFolders, \.\.\.this\.workspaceFileResearchFolders\(options\.workspaceFolder\)\],\s*true,\s*true\s*\)/s);
+  // naturallyLinkedWorkspaceFolders + workspaceFileResearchFolders() are
+  // combined once, inside scopedLinkedResearchFolders() — reused as-is by
+  // both the Dossiers "Recherches liées" rendering and the References
+  // tab's Sources aggregation, never re-derived at either call site.
+  assert.match(baseSource, /return \[\.\.\.naturallyLinkedWorkspaceFolders, \.\.\.this\.workspaceFileResearchFolders\(options\.workspaceFolder\)\];/);
+  assert.match(baseSource, /this\.renderAssociatedResearchFolders\(\s*body,\s*baseResearchFolder,\s*this\.scopedLinkedResearchFolders\(options, null, baseResearchFolder, standardPaths\),\s*true,\s*true\s*\);/);
 });

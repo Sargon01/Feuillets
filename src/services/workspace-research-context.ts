@@ -123,3 +123,70 @@ export function resolveContextualResearchCategory(
   }
   return result;
 }
+
+/**
+ * Resolves all genuine Sources root folders across:
+ * 1. Global project research
+ * 2. Linked research folders
+ * 3. Workspace research roots (e.g. isolated space)
+ * Purely structural resolution without general vault scanning.
+ */
+export function getGenuineSourcesRoots(
+  app: App,
+  settings: FeuilletsSettings,
+  linkedFolders: readonly { folder: TFolder }[] = [],
+  activeWorkspaceFolder?: TFolder | null
+): TFolder[] {
+  const genuineRoots: TFolder[] = [];
+  const seen = new Set<string>();
+
+  const addSourcesFromRoot = (researchRoot: TFolder | null | undefined): void => {
+    if (!researchRoot) return;
+    if (researchRoot.name === "Sources" && !seen.has(researchRoot.path)) {
+      seen.add(researchRoot.path);
+      genuineRoots.push(researchRoot);
+      return;
+    }
+    const child = app.vault.getAbstractFileByPath(normalizePath(`${researchRoot.path}/Sources`));
+    if (child instanceof TFolder && !seen.has(child.path)) {
+      seen.add(child.path);
+      genuineRoots.push(child);
+    }
+  };
+
+  // 1. Global project research
+  const projectResearch = getResearchRoot(app, settings);
+  addSourcesFromRoot(projectResearch);
+
+  // 2. Linked research roots
+  for (const { folder } of linkedFolders) {
+    addSourcesFromRoot(folder);
+  }
+
+  // 3. Workspace research roots (e.g. isolated space)
+  if (activeWorkspaceFolder) {
+    for (const root of resolveWorkspaceResearchContext(app, settings, activeWorkspaceFolder)) {
+      addSourcesFromRoot(root.folder);
+    }
+  }
+
+  return genuineRoots;
+}
+
+/**
+ * Returns true if the folder is a genuine Sources folder or a subfolder of one.
+ * Excludes custom folders named Sources outside research roots, sibling folders,
+ * and folders with non-matching prefixes like Sources-Extra.
+ */
+export function isGenuineSourcesFolder(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder,
+  linkedFolders: readonly { folder: TFolder }[] = [],
+  activeWorkspaceFolder?: TFolder | null
+): boolean {
+  const genuineRoots = getGenuineSourcesRoots(app, settings, linkedFolders, activeWorkspaceFolder);
+  return genuineRoots.some(
+    (sf) => sf.path === folder.path || folder.path.startsWith(`${sf.path}/`)
+  );
+}

@@ -183,6 +183,12 @@ function makeFixture() {
 }
 
 function createView(fixture, { workspace = null, scopeMode = "workspace", activeFile = null, researchRootOverride } = {}) {
+  // The outer "Notes de bas de page" section defaults to collapsed in
+  // Project mode (§5 of the UX correction) — default it open here, as this
+  // file is about the scope of its content, not its own collapse state.
+  if (fixture.settings.collapsed["research:footnotes-overview"] === undefined) {
+    fixture.settings.collapsed["research:footnotes-overview"] = false;
+  }
   const contentEl = new FakeElement();
   let currentActiveFile = activeFile;
   const app = {
@@ -228,6 +234,7 @@ function createView(fixture, { workspace = null, scopeMode = "workspace", active
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
   view.researchScopeMode = scopeMode;
+  view.researchActiveSubTab = "references";
   view.iconBtn = (parent, _icon, tooltip, onClick) => {
     const btn = parent.createEl("button", { cls: "clickable-icon" });
     btn.tooltip = tooltip;
@@ -270,16 +277,31 @@ function footnoteSectionTitles(contentEl) {
   return contentEl.querySelectorAll(".feuillets-notes-section-title").filter((el) => el.text === title);
 }
 
+function groupSummary(name, count) {
+  return `${name} — ${count} note${count > 1 ? "s" : ""}`;
+}
+
+/** Reconstructs each compact tree row's "{name} — {count} note{s}" summary
+ * from its dedicated .feuillets-footnotes-tree-label/-badge spans — folder
+ * nodes never use .feuillets-notes-section-title (§5/§9 of the UX
+ * correction). */
+function footnoteGroupTitles(contentEl) {
+  return contentEl.querySelectorAll(".feuillets-footnotes-tree-row").map((row) => {
+    const label = row.children.find((c) => c.classes.has("feuillets-footnotes-tree-label"));
+    const badge = row.children.find((c) => c.classes.has("feuillets-footnotes-tree-badge"));
+    return groupSummary(label?.text || "", Number(badge?.text || "0"));
+  });
+}
+
 /* --- Scope-driven content --- */
 
-test("Project scope shows footnotes from every document of the project", async () => {
+test("Project scope shows a compact group summary for every top-level folder of the project", async () => {
   const fixture = makeFixture();
   const contentEl = await renderWithDocument(fixture, { workspace: null, scopeMode: "project" });
-  const labels = footnoteLabels(contentEl);
-  assert.ok(labels.includes("[^a]"));
-  assert.ok(labels.includes("[^b]"));
-  assert.ok(labels.includes("[^c]"));
-  assert.ok(labels.includes("[^d]"));
+  const titles = footnoteGroupTitles(contentEl);
+  assert.ok(titles.includes(groupSummary("Work-A", 2)), "Work-A groups its own footnote and its subfolder's");
+  assert.ok(titles.includes(groupSummary("Work-A-Extra", 1)));
+  assert.ok(titles.includes(groupSummary("Work-B", 1)));
 });
 
 test("Workspace scope shows only the footnotes of the isolated space", async () => {
@@ -324,8 +346,7 @@ test("footnotes render even without a Sources folder", async () => {
     scopeMode: "project",
     researchRootOverride: null,
   });
-  const labels = footnoteLabels(contentEl);
-  assert.ok(labels.includes("[^a]"));
+  assert.ok(footnoteGroupTitles(contentEl).includes(groupSummary("Work-A", 2)));
   assert.equal(footnoteSectionTitles(contentEl).length, 1);
 });
 
@@ -401,10 +422,13 @@ test("Project mode keeps the existing empty state when no document has footnotes
   setLocale("fr");
   try {
     const contentEl = await renderWithDocument(fixture, { workspace: null, scopeMode: "project" });
-    const empty = contentEl.querySelectorAll(".feuillets-research-empty").filter(
+    // §5 of the UX correction: an empty Notes section is never rendered at
+    // all — no title, no empty-state message left behind.
+    assert.equal(footnoteSectionTitles(contentEl).length, 0);
+    const emptyMessages = contentEl.querySelectorAll(".feuillets-research-empty").filter(
       (el) => el.text === t("shared.footnotes.empty")
     );
-    assert.equal(empty.length, 1);
+    assert.equal(emptyMessages.length, 0);
   } finally {
     setLocale(previousLocale);
   }

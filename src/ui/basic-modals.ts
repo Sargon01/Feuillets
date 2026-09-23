@@ -145,13 +145,22 @@ export class ConfirmModal extends Modal {
   message: string;
   confirmLabel: string;
   onConfirm: ConfirmHandler;
+  buttonClass: string;
 
-  constructor(app: App, title: string, message: string, confirmLabel: string, onConfirm: ConfirmHandler) {
+  constructor(
+    app: App,
+    title: string,
+    message: string,
+    confirmLabel: string,
+    onConfirm: ConfirmHandler,
+    buttonClass: string = "mod-warning"
+  ) {
     super(app);
     this.title = title;
     this.message = message;
     this.confirmLabel = confirmLabel;
     this.onConfirm = onConfirm;
+    this.buttonClass = buttonClass;
   }
   onOpen() {
     const { contentEl } = this;
@@ -160,7 +169,7 @@ export class ConfirmModal extends Modal {
     const btnRow = contentEl.createDiv({ cls: "feuillets-modal-buttons" });
     const confirmBtn = btnRow.createEl("button", {
       text: this.confirmLabel,
-      cls: "mod-warning",
+      cls: this.buttonClass,
     });
     confirmBtn.addEventListener("click", () => {
       this.close();

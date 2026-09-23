@@ -2,7 +2,7 @@ import { TFile, TFolder, type WorkspaceLeaf } from "obsidian";
 import { VIEW_RESEARCH } from "../constants.js";
 import { t } from "../i18n/index.js";
 import { isEditing } from "../utils/dom.js";
-import { BaseFeuilletsView, type ResearchScopeMode } from "./base-feuillets-view.js";
+import { BaseFeuilletsView, type ResearchScopeMode, type ResearchSubTab } from "./base-feuillets-view.js";
 import { resolveActiveFileResearchFolders, resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
 import { resolveResearchDocumentContext } from "../services/research-document-context.js";
 
@@ -14,12 +14,22 @@ function findResearchElement<T extends HTMLElement>(container: HTMLElement, sele
   return scoped.find?.<T>(selector) ?? null;
 }
 
+/** Class-selector-only lookup (never an attribute selector — kept
+ * consistent with findResearchElement() above, since a bare class selector
+ * is the one form every DOM/test-double implementation in this codebase
+ * supports). Used to locate the sub-tab buttons by their `.feuillets-
+ * research-subtab` class, then filtered further in JS via `getAttr()`. */
+function findAllResearchElements(container: HTMLElement, selector: string): HTMLElement[] {
+  return Array.from(container.querySelectorAll(selector)) as HTMLElement[];
+}
+
 export class ResearchView extends BaseFeuilletsView {
   declare plugin: ResearchViewPlugin;
   declare targetContainer?: HTMLElement;
   declare viewingFile: TFile | null;
   declare _renderGen?: number;
   researchScopeMode: ResearchScopeMode = "workspace";
+  researchActiveSubTab: ResearchSubTab = "dossiers";
   protected _bibliographyDebounceTimer: number | null = null;
   protected _bibliographyListenersSetup = false;
   protected _isClosed = false;
@@ -97,6 +107,15 @@ export class ResearchView extends BaseFeuilletsView {
     const activeInput = typeof document !== "undefined" && document.activeElement === previousInput;
     const previousSelection = activeInput && previousInput ? { start: previousInput.selectionStart, end: previousInput.selectionEnd } : null;
     const previousScrollTop = previousBody?.scrollTop ?? 0;
+    /* If a sub-tab button had focus (the user just activated it via click,
+       Enter or Space), the rerender it triggers would otherwise drop focus
+       back to the document body — restore it onto the same tab (now
+       marked active) below, never a fixed/guessed element. */
+    const focusedSubTabKey = typeof document !== "undefined"
+      ? findAllResearchElements(container, ".feuillets-research-subtab")
+          .find((el) => document.activeElement === el)
+          ?.getAttr("data-subtab-key") ?? null
+      : null;
     const restoreUi = () => {
       const nextBody = findResearchElement<HTMLElement>(container, ".feuillets-research-body");
       if (nextBody) nextBody.scrollTop = previousScrollTop;
@@ -106,6 +125,11 @@ export class ResearchView extends BaseFeuilletsView {
         if (previousSelection && previousSelection.start !== null && previousSelection.end !== null) {
           nextInput.setSelectionRange(previousSelection.start, previousSelection.end);
         }
+      }
+      if (focusedSubTabKey) {
+        const nextTabButton = findAllResearchElements(container, ".feuillets-research-subtab")
+          .find((el) => el.getAttr("data-subtab-key") === focusedSubTabKey);
+        nextTabButton?.focus({ preventScroll: true });
       }
     };
 
@@ -174,6 +198,11 @@ export class ResearchView extends BaseFeuilletsView {
       documentContext,
       onScopeModeChange: (mode) => {
         this.researchScopeMode = mode;
+        void this.render(true);
+      },
+      activeSubTab: this.researchActiveSubTab,
+      onSubTabChange: (tab) => {
+        this.researchActiveSubTab = tab;
         void this.render(true);
       },
     });

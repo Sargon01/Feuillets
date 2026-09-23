@@ -325,6 +325,7 @@ function createView(fixture, { workspace = null, scopeMode = "workspace", active
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
   view.researchScopeMode = scopeMode;
+  view.researchActiveSubTab = "references";
   view.iconBtn = (parent, _icon, tooltip, onClick) => {
     const btn = parent.createEl("button", { cls: "clickable-icon" });
     btn.tooltip = tooltip;

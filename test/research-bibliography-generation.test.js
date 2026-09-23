@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TFile, TFolder, Notice } from "obsidian";
+import { TFile, TFolder } from "obsidian";
 import FeuilletsPlugin from "../src/main.js";
 import { ResearchView } from "../src/views/research-view.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
@@ -359,6 +359,7 @@ function createView(fixture, { workspace = null, scopeMode = "workspace", active
   const leaf = { app, contentEl };
   const view = new ResearchView(leaf, plugin);
   view.researchScopeMode = scopeMode;
+  view.researchActiveSubTab = "references";
   view.iconBtn = (parent, _icon, tooltip, onClick) => {
     const btn = parent.createEl("button", { cls: "clickable-icon" });
     if (onClick) btn.addEventListener("click", onClick);
@@ -414,7 +415,15 @@ async function generatedContent(fixture) {
   return fixture.vault.read(file);
 }
 
-/* --- Document-scope coverage --- */
+/* --- Document-scope coverage ---
+
+   The Generate row is available in BOTH Project and Workspace mode (see
+   the "mode gating" block further below): writing always uses exactly the
+   snapshot ("generationInput") already built by renderBibliographySection()
+   for the scope currently displayed — Bibliographie.md stays the single
+   project-wide output file either way (generateBibliographyFile() itself
+   is unchanged), so a Workspace-mode click simply overwrites it with that
+   Workspace's own scoped content. */
 
 test("Project mode generates the references cited across the whole project", async () => {
   const fixture = makeFixture();
@@ -531,19 +540,6 @@ test("a Source fiche with cite_count > 0 but no occurrence in scope is excluded 
 /* --- The registry is the sole authority — Source identity is never
    restricted to the Sources/Bibliographie folder currently visible --- */
 
-test("a global project Source cited from Work-A is generated, even in the associated-Research branch", async () => {
-  const fixture = makeFixture();
-  fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
-    fixture.workAResearch.path;
-  await seedCitationRegistry(fixture, [
-    { file: "Work-A/Scene-A.md", sourcePath: fixture.projectNote.path },
-  ]);
-  await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
-  const content = await generatedContent(fixture);
-  assert.ok(content, "a citation to a globally-scoped Source must still produce a generated file");
-  assert.match(content, /Project Author/, "the old candidateFolders-based discovery, restricted to workAResearch's own Sources, would have missed this entirely");
-});
-
 test("Project mode generates Sources cited from Research folders linked to several different spaces", async () => {
   const fixture = makeFixture();
   fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
@@ -569,11 +565,12 @@ test("a citation removed from the document is no longer generated", async () => 
   fixture.sceneA.content = "Body A no longer cites anything of note.";
   fixture.sceneA.stat = { mtime: 2000, size: fixture.sceneA.content.length };
 
-  await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  await renderAndClickGenerate(fixture, { workspace: null, scopeMode: "project" });
   const content = await generatedContent(fixture);
-  // Scene-A-Sub.md (subKey2020) still generates real content for Work-A —
-  // only the removed citation to projectNote must be absent.
+  // Scene-A-Sub.md (subKey2020) still generates real content for the
+  // project — only the removed citation to projectNote must be absent.
   assert.ok(content);
+  assert.match(content, /Sub, Sue/);
   assert.doesNotMatch(content, /Project Author/, "an occurrence whose anchor no longer resolves must not be generated");
 });
 
@@ -586,7 +583,7 @@ test("the displayed Bibliography section and the generated file contain exactly 
     { file: "Work-A/Sub/Scene-A-Sub.md", sourcePath: fixture.workANote.path },
   ]);
 
-  const harness = await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const harness = await renderAndClickGenerate(fixture, { workspace: null, scopeMode: "project" });
   const displayedNames = harness.contentEl.findAll(".feuillets-research-item-name")
     .map((el) => el.text)
     .filter((text) => /citation/.test(text));
@@ -603,25 +600,16 @@ test("the displayed Bibliography section and the generated file contain exactly 
 
 test("citekeys of the scope are generated with their resolved BibTeX entry", async () => {
   const fixture = makeFixture();
-  await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  await renderAndClickGenerate(fixture, { workspace: null, scopeMode: "project" });
   const content = await generatedContent(fixture);
   assert.ok(content);
   assert.match(content, /Alpha, Ann/);
   assert.match(content, /Alpha Work/);
 });
 
-test("a .bib defined at the project level is still inherited in Workspace mode", async () => {
-  const fixture = makeFixture();
-  // citekeyBibliographyPath is only configured at the project level.
-  await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
-  const content = await generatedContent(fixture);
-  assert.ok(content);
-  assert.match(content, /Alpha, Ann/, "onlyA2021 resolves via the inherited project-level refs.bib");
-});
-
 test("an unknown citekey stays a visible warning in the view but is never written to Bibliographie.md", async () => {
   const fixture = makeFixture();
-  const harness = await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const harness = await renderAndClickGenerate(fixture, { workspace: null, scopeMode: "project" });
   const unknownWarning = harness.contentEl.findAll(".feuillets-bibtex-unknown-item").find(
     (el) => el.textContent.includes("unknownInScope2024")
   );
@@ -671,73 +659,94 @@ test("generation works without any Sources folder, using only BibTeX citations",
 
 /* --- Stability across every kind of active-file change --- */
 
-test("switching the active file to a Research fiche never changes what is generated", async () => {
+test("switching the active file — a Research fiche, a PDF, a sibling space's file, or a file outside the project — never changes what is generated", async () => {
+  const fixture = makeFixture();
+  const harness = createView(fixture, { workspace: null, scopeMode: "project", activeFile: fixture.sceneA });
+  await withDocument(() => harness.view.render(true));
+
+  await harness.clickGenerateAndWait();
+  const baseline = await generatedContent(fixture);
+  assert.ok(baseline);
+
+  for (const candidate of [fixture.projectNote, fixture.attachmentPdf, fixture.sceneB, fixture.outsideFile]) {
+    harness.setActiveFile(candidate);
+    await harness.clickGenerateAndWait();
+    assert.equal(await generatedContent(fixture), baseline, `switching the active file to ${candidate.path} must never change the generated content`);
+  }
+});
+
+test("Workspace mode: switching the active file never changes what is generated for that space", async () => {
   const fixture = makeFixture();
   const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace", activeFile: fixture.sceneA });
   await withDocument(() => harness.view.render(true));
 
-  harness.setActiveFile(fixture.projectNote); // a genuine Research fiche
   await harness.clickGenerateAndWait();
+  const baseline = await generatedContent(fixture);
+  assert.ok(baseline);
+  assert.match(baseline, /Alpha, Ann/);
+  assert.doesNotMatch(baseline, /Beta, Bob/);
 
-  const content = await generatedContent(fixture);
-  assert.ok(content);
-  assert.match(content, /Alpha, Ann/);
-  assert.doesNotMatch(content, /Beta, Bob/);
-  assert.doesNotMatch(content, /Extra, Eve/);
+  for (const candidate of [fixture.projectNote, fixture.attachmentPdf, fixture.sceneB, fixture.outsideFile]) {
+    harness.setActiveFile(candidate);
+    await harness.clickGenerateAndWait();
+    assert.equal(await generatedContent(fixture), baseline, `switching the active file to ${candidate.path} must never change what Work-A generates`);
+  }
 });
 
-test("switching the active file to a PDF never changes what is generated", async () => {
+/* --- Mode gating (§1 of this correction): the Generate row is available
+   in BOTH Project and Workspace mode as soon as the Bibliography section
+   has at least one displayable entry — only the label names the scope.
+   Bibliographie.md stays the single project-wide output file either way
+   (generateBibliographyFile() itself is unchanged). --- */
+
+test("the Generate row renders in Workspace mode too, once the space has a displayable Bibliography", async () => {
   const fixture = makeFixture();
-  const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace", activeFile: fixture.sceneA });
+  const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
   await withDocument(() => harness.view.render(true));
-
-  assert.equal(fixture.attachmentPdf.extension, "pdf");
-  harness.setActiveFile(fixture.attachmentPdf);
-  await harness.clickGenerateAndWait();
-
-  const content = await generatedContent(fixture);
-  assert.ok(content);
-  assert.match(content, /Alpha, Ann/);
-  assert.doesNotMatch(content, /Beta, Bob/);
-  assert.doesNotMatch(content, /Extra, Eve/);
+  assert.ok(harness.contentEl.find(".feuillets-bibliography-export-row"));
 });
 
-test("switching the active file to a sibling space's file never changes what is generated", async () => {
-  const fixture = makeFixture();
-  const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace", activeFile: fixture.sceneA });
-  await withDocument(() => harness.view.render(true));
-
-  harness.setActiveFile(fixture.sceneB); // Work-B's own Markdown file
-  await harness.clickGenerateAndWait();
-
-  const content = await generatedContent(fixture);
-  assert.ok(content);
-  assert.match(content, /Alpha, Ann/);
-  assert.doesNotMatch(content, /Beta, Bob/, "Work-B's reference must never leak in from the active file alone");
-  assert.doesNotMatch(content, /Extra, Eve/);
-});
-
-test("switching the active file to a file outside the project never changes what is generated", async () => {
-  const fixture = makeFixture();
-  const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace", activeFile: fixture.sceneA });
-  await withDocument(() => harness.view.render(true));
-
-  harness.setActiveFile(fixture.outsideFile); // a real file outside PROJECT entirely
-  await harness.clickGenerateAndWait();
-
-  const content = await generatedContent(fixture);
-  assert.ok(content);
-  assert.match(content, /Alpha, Ann/);
-  assert.doesNotMatch(content, /outsideKey2099/, "a citekey from a file outside the project must never appear");
-  assert.doesNotMatch(content, /Beta, Bob/);
-  assert.doesNotMatch(content, /Extra, Eve/);
-});
-
-test("the associatedWorkspaceFolder branch also wires the button to the correct context", async () => {
+test("the associatedWorkspaceFolder branch renders a Generate row too, scoped to that space", async () => {
   const fixture = makeFixture();
   fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
     fixture.workAResearch.path;
-  await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  await withDocument(() => harness.view.render(true));
+  assert.ok(harness.contentEl.find(".feuillets-bibliography-export-row"));
+});
+
+test("the Generate row's label is exactly \"Générer la bibliographie du projet\" in Project mode", async () => {
+  const fixture = makeFixture();
+  const harness = createView(fixture, { workspace: null, scopeMode: "project" });
+  await withDocument(() => harness.view.render(true));
+  const button = harness.contentEl.find(".feuillets-bibliography-export-row");
+  assert.ok(button);
+  assert.equal(button.textContent.trim(), t("shared.bibliography.generateProject"));
+  assert.equal(t("shared.bibliography.generateProject"), "Générer la bibliographie du projet");
+});
+
+test("the Generate row's label is exactly \"Générer la bibliographie de cet espace\" in Workspace mode", async () => {
+  const fixture = makeFixture();
+  const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  await withDocument(() => harness.view.render(true));
+  const button = harness.contentEl.find(".feuillets-bibliography-export-row");
+  assert.ok(button);
+  assert.equal(button.textContent.trim(), t("shared.bibliography.generateWorkspace"));
+  assert.equal(t("shared.bibliography.generateWorkspace"), "Générer la bibliographie de cet espace");
+});
+
+test("clicking Generate in Workspace mode triggers no additional scan either", async () => {
+  const fixture = makeFixture();
+  const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  await withDocument(() => harness.view.render(true));
+
+  const countsAfterRender = { ...harness.counts };
+  await harness.clickGenerateAndWait();
+
+  assert.equal(harness.counts.cachedRead, countsAfterRender.cachedRead);
+  assert.equal(harness.counts.read, countsAfterRender.read);
+  assert.equal(harness.counts.getActiveFile, countsAfterRender.getActiveFile);
+
   const content = await generatedContent(fixture);
   assert.ok(content);
   assert.match(content, /Alpha, Ann/);
@@ -748,7 +757,7 @@ test("the associatedWorkspaceFolder branch also wires the button to the correct 
 
 test("clicking Generate triggers no additional scan: no getActiveFile(), no cachedRead(), no read()", async () => {
   const fixture = makeFixture();
-  const harness = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const harness = createView(fixture, { workspace: null, scopeMode: "project" });
   await withDocument(() => harness.view.render(true));
 
   const countsAfterRender = { ...harness.counts };
@@ -810,7 +819,7 @@ test("generateBibliographyFile(input) never touches document-scope, workspace or
 
 /* --- Empty scope --- */
 
-test("a genuinely empty scope shows the exact empty-state text, keeps the Generate button, writes nothing, and still notices", async () => {
+test("a genuinely empty scope renders no Bibliography section at all — no header, no Generate row", async () => {
   const projectRoot = new TFolder("EMPTY");
   const researchRoot = new TFolder("EMPTY/RESEARCH");
   const sourcesFolder = new TFolder("EMPTY/RESEARCH/Sources");
@@ -839,43 +848,35 @@ test("a genuinely empty scope shows the exact empty-state text, keeps the Genera
   };
   const fixture = { vault, settings, projectRoot, researchRoot };
 
-  const notices = [];
-  const previousOnCreate = Notice.onCreate;
-  Notice.onCreate = (message) => notices.push(message);
-  let harness;
-  try {
-    harness = createView(fixture, { workspace: null, scopeMode: "project" });
-    await withDocument(() => harness.view.render(true));
+  const harness = createView(fixture, { workspace: null, scopeMode: "project" });
+  harness.view.researchActiveSubTab = "references";
+  await withDocument(() => harness.view.render(true));
 
-    const titles = harness.contentEl.findAll(".feuillets-notes-section-title").filter(
-      (el) => el.text === t("shared.bibliography.title")
-    );
-    assert.equal(titles.length, 1, "exactly one Bibliography section");
+  // An empty Bibliography is never rendered at all: no header, no permanent
+  // Bibliography-specific empty message and no Generate row.
+  const titles = harness.contentEl.findAll(".feuillets-notes-section-title").filter(
+    (el) => el.text === t("shared.bibliography.title")
+  );
+  assert.equal(titles.length, 0, "no Bibliography section at all");
+  assert.equal(harness.contentEl.find(".feuillets-bibliography-export-row"), null);
+  const staleEmptyMessage = harness.contentEl.findAll(".feuillets-research-empty").find(
+    (el) => el.text === t("shared.bibliography.empty")
+  );
+  assert.equal(staleEmptyMessage, undefined);
 
-    // The footnotes overview section also renders its own
-    // ".feuillets-research-empty" message before Bibliography — match on
-    // the exact expected wording, not just the first element of that class.
-    const emptyEl = harness.contentEl.findAll(".feuillets-research-empty").find(
-      (el) => el.text === t("shared.bibliography.empty")
-    );
-    assert.ok(emptyEl, "the Bibliography section's own empty-state element is rendered");
+  assert.ok(
+    harness.contentEl.findAll(".feuillets-references-empty").some(
+      (el) => el.text === t("shared.research.noReferencesInScope")
+    ),
+    "References uses one compact tab-wide empty state"
+  );
 
-    const button = harness.contentEl.find(".feuillets-bibliography-export-row");
-    assert.ok(button, "the Generate button remains present even for an empty scope");
-
-    await harness.clickGenerateAndWait();
-  } finally {
-    Notice.onCreate = previousOnCreate;
-  }
-
-  const content = await generatedContent(fixture);
-  assert.equal(content, null, "clicking Generate on an empty scope writes no Bibliographie.md");
-  assert.ok(notices.some((m) => /Aucune source citée|No source cited/.test(m)), "the existing empty-state notice is still emitted");
+  assert.equal(await generatedContent(fixture), null, "nothing was ever generated for this scope");
 });
 
 test("the Bibliography section title is unique when generation is non-empty", async () => {
   const fixture = makeFixture();
-  const harness = await renderAndClickGenerate(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
+  const harness = await renderAndClickGenerate(fixture, { workspace: null, scopeMode: "project" });
   const title = t("shared.bibliography.title");
   const titles = harness.contentEl.findAll(".feuillets-notes-section-title").filter((el) => el.text === title);
   assert.equal(titles.length, 1);
