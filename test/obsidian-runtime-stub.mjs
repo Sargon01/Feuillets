@@ -407,6 +407,7 @@ export class MarkdownView {}
 /* Sentinelle distincte : les tests construisent leur propre état CM fake et
    reconnaissent cette valeur exacte pour répondre à `state.field(...)`. */
 export const editorInfoField = { __brand: "editorInfoField" };
+export const editorLivePreviewField = { __brand: "editorLivePreviewField" };
 
 export class Menu {
   constructor() {

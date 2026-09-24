@@ -579,8 +579,9 @@ test("preview-view imports applyPandocCitationPreview", async () => {
   const previewViewPath = path.resolve(process.cwd(), "src/views/preview-view.ts");
   const content = fs.readFileSync(previewViewPath, "utf8");
 
-  // Verify import
-  assert.match(content, /import.*applyPandocCitationPreview.*from.*pandoc-citation-preview/);
+  // Verify import (spans multiple lines: applyPandocCitationPreview is imported
+  // alongside bindPandocCitationTooltipLayer and PANDOC_CITATION_PREVIEW_CSS)
+  assert.match(content, /import\s*\{[\s\S]*?applyPandocCitationPreview[\s\S]*?\}\s*from\s*"[^"]*pandoc-citation-preview\.js"/);
 
   // Verify usage in both paths
   assert.match(content, /createAfterVariantCallback/);

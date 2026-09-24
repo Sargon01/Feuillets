@@ -76,6 +76,14 @@ import {
 import { getCachedBibtexCatalog } from "./services/bibtex-catalog.js";
 import { resolveWorkspaceCitationResources } from "./services/workspace-citations.js";
 import { CitekeyModal } from "./ui/citekey-modal.js";
+import {
+  createPandocCitationLivePreviewExtension,
+  notifyPandocCitationBibliographyChanged,
+} from "./utils/cm-pandoc-citation-live-preview.js";
+import {
+  registerPandocCitationReadingMode,
+  refreshPandocCitationReadingModeViews,
+} from "./services/pandoc-citation-reading-mode.js";
 
 import { FeuilletsView } from "./views/feuillets-view.js";
 import { BoardView, type BoardModeKey } from "./views/board-view.js";
@@ -774,6 +782,13 @@ class FeuilletsPlugin extends Plugin {
         void this.openCitekeyPicker(view, range, file, undefined, triggerType);
       })
     );
+    this.registerEditorExtension(createPandocCitationLivePreviewExtension(() => this.settings));
+    registerPandocCitationReadingMode(this);
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (!(file instanceof TFile) || file.extension.toLowerCase() !== "bib") return;
+      notifyPandocCitationBibliographyChanged(file);
+      refreshPandocCitationReadingModeViews(this, file);
+    }));
     this.registerMarkdownCodeBlockProcessor("genealogy", (source, el) => {
       renderGenealogyMarkdown(source, el);
     });

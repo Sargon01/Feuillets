@@ -423,7 +423,7 @@ export function extractLinksFromAttachmentsBlock(rawAttachmentsText: string): st
   if (bracketMatch) {
     const inner = bracketMatch[1].trim();
     if (!inner) return [];
-    const tokenRegex = /(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|\[\[([^\]]+)\]\]|([^,\[\]\s]+(?:\s+[^,\[\]\s]+)*))/g;
+    const tokenRegex = /(?:"((?:[^"\\]|\\.)*)"|'([^']*)'|\[\[([^\]]+)\]\]|([^,[\]\s]+(?:\s+[^,[\]\s]+)*))/g;
     const links: string[] = [];
     let match: RegExpExecArray | null;
     while ((match = tokenRegex.exec(inner)) !== null) {
