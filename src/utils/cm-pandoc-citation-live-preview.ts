@@ -1,16 +1,24 @@
 import { Decoration, ViewPlugin, WidgetType } from "@codemirror/view";
+import { syntaxTree } from "@codemirror/language";
 import { editorInfoField, editorLivePreviewField, normalizePath, TFile, type App } from "obsidian";
 import {
-  buildCitationNoticeElement,
   buildCitationNoticeLines,
-  loadPandocCitationCatalog,
-  PANDOC_CITATION_CLASS,
-  PANDOC_CITATION_LABEL_CLASS,
+  buildPandocCitationElement,
+  disposePandocCitationElement,
+  getSyncPandocCitationCatalog,
+  registerPandocCitationCatalogView,
   resolvePandocCitationPreviewForFile,
   splitPandocCitationSegments,
+  unregisterPandocCitationCatalogView,
   type PandocCitationCatalog,
 } from "../services/pandoc-citation-preview.js";
 import type { BibtexCatalogEntry } from "../services/bibtex-catalog.js";
+
+/** Re-exported for existing callers (main.ts, tests): the synchronous cache
+ * and view registry this module registers into now live in
+ * pandoc-citation-preview.ts, shared with Continu's own citation extension
+ * (cm-scrivenings-citations.ts) — see that module's doc comment. */
+export { notifyPandocCitationBibliographyChanged } from "../services/pandoc-citation-preview.js";
 
 /**
  * Live Preview folding of Pandoc citekeys: [@smith2024] → (Smith, 2024), as an
@@ -47,9 +55,68 @@ interface DecorationStatic {
 
 const DecorationTyped = Decoration as DecorationStatic;
 
+/** Same minimal syntax-tree surface, and the SAME "name contains 'code'"
+ * detection convention, as cm-paragraph-indent.ts's isNonParagraphLine() —
+ * that file already established this pattern for a different exclusion set
+ * (headers/lists/quotes/code); citations need only the "code" part of it
+ * (a citation is perfectly legitimate inside a blockquote or a list item),
+ * so it is reimplemented narrowly here rather than importing a broader check
+ * that would need its own unrelated cases threaded through. */
+interface SyntaxTreeIteratableNode {
+  name: string;
+}
+interface SyntaxTreeResolvedNode {
+  name: string;
+  parent: SyntaxTreeResolvedNode | null;
+}
+interface IteratableSyntaxTree {
+  iterate(spec: { from: number; to: number; enter(node: SyntaxTreeIteratableNode): boolean | void }): void;
+  resolveInner?(pos: number, side?: number): SyntaxTreeResolvedNode | null;
+}
+const syntaxTreeTyped = syntaxTree as unknown as (state: unknown) => IteratableSyntaxTree | null;
+
+/** True when `[from, to)` overlaps a node whose name contains "code" —
+ * Obsidian's own CM6 markdown language tags both fenced/indented code blocks
+ * and inline code spans this way (e.g. "HyperMD-codeblock", "inline-code").
+ * Returns false (never excludes anything) when no language is installed on
+ * this state — Continu's own composite EditorState has none (it renders
+ * Markdown itself, see cm-scrivenings-markdown.ts), which is why Continu's
+ * citation extension (cm-scrivenings-citations.ts) passes its OWN
+ * `isProtected` built from the per-segment Lezer parse it already runs,
+ * instead of relying on this function. */
+function isRangeInsideCode(state: unknown, from: number, to: number): boolean {
+  const tree = typeof syntaxTreeTyped === "function" ? syntaxTreeTyped(state) : null;
+  if (!tree) return false;
+
+  let excluded = false;
+  if (typeof tree.iterate === "function") {
+    tree.iterate({
+      from,
+      to,
+      enter(node) {
+        if (node.name.toLowerCase().includes("code")) {
+          excluded = true;
+          return false;
+        }
+      },
+    });
+  }
+  if (!excluded && typeof tree.resolveInner === "function") {
+    let curr = tree.resolveInner(from, 1);
+    while (curr) {
+      if (curr.name.toLowerCase().includes("code")) {
+        excluded = true;
+        break;
+      }
+      curr = curr.parent;
+    }
+  }
+  return excluded;
+}
+
 interface WidgetTypeInstance {
   eq(other: unknown): boolean;
-  toDOM(): HTMLElement;
+  toDOM(view: EditorViewInstance): HTMLElement;
   ignoreEvent(event?: Event): boolean;
 }
 interface WidgetTypeStatic {
@@ -85,6 +152,12 @@ interface EditorViewInstance {
   state: EditorStateLike;
   visibleRanges?: ReadonlyArray<{ from: number; to: number }>;
   dispatch(spec: Record<string, unknown>): void;
+  /** The editor's own root DOM element — real CodeMirror's `EditorView.dom`.
+   * `dom.ownerDocument` is what PandocCitationWidget.toDOM(view) below uses
+   * to build the citation in the SAME document as this editor, never the
+   * global `document` (wrong for an Obsidian pane popped out into its own
+   * window — see buildPandocCitationElement()'s doc comment). */
+  dom: HTMLElement;
 }
 interface ViewUpdateLike {
   view: EditorViewInstance;
@@ -140,17 +213,8 @@ export class PandocCitationWidget extends WidgetTypeTyped {
     );
   }
 
-  toDOM(): HTMLElement {
-    const citation = createSpan({ cls: PANDOC_CITATION_CLASS });
-    citation.setAttribute("data-citekeys", this.citekeys.join(","));
-    citation.createSpan({ cls: PANDOC_CITATION_LABEL_CLASS, text: this.text });
-    const tooltip = buildCitationNoticeElement(this.citekeys, this.records);
-    if (tooltip) {
-      citation.appendChild(tooltip);
-      citation.setAttribute("tabindex", "0");
-      citation.setAttribute("aria-describedby", tooltip.getAttribute("id") || "");
-    }
-    return citation;
+  toDOM(view: EditorViewInstance): HTMLElement {
+    return buildPandocCitationElement(this.text, this.citekeys, this.records, view.dom.ownerDocument);
   }
 
   /** Never ignored: a click must be allowed to reach CodeMirror's own
@@ -160,139 +224,67 @@ export class PandocCitationWidget extends WidgetTypeTyped {
   ignoreEvent(): boolean {
     return false;
   }
+
+  /** CodeMirror's own WidgetType lifecycle hook, called with the exact DOM
+   * node toDOM() returned once CodeMirror discards it (decoration replaced,
+   * eq() returned false on a record edit, or the view itself is destroyed).
+   * Without this, a tooltip left open at that exact moment would leak its
+   * temporary window-level scroll/resize listeners (see
+   * disposePandocCitationElement(), pandoc-citation-preview.ts) forever. */
+  destroy(dom: HTMLElement): void {
+    disposePandocCitationElement(dom);
+  }
 }
 
-function selectionOverlaps(selection: EditorSelectionLike, from: number, to: number): boolean {
+/** Exported for reuse by Continu's own citation extension
+ * (cm-scrivenings-citations.ts), which needs the exact same
+ * selection-overlap rule for its own (differently-sourced) selections —
+ * never a re-derived copy of this rule. */
+export function selectionOverlaps(selection: EditorSelectionLike, from: number, to: number): boolean {
   for (const range of selection.ranges) {
     if (range.from <= to && range.to >= from) return true;
   }
   return false;
 }
 
-/** One resolved bibliography, snapshotted against the mtime/size it was read
- * at — the same pair getCachedBibtexCatalog() itself keys its cache on, so a
- * later redraw can decide synchronously, from already-in-memory numbers,
- * whether a fresh read is actually needed. */
-type CatalogSnapshot = { catalog: PandocCitationCatalog; mtime: number; size: number };
-const syncCatalogSnapshots = new Map<string, CatalogSnapshot>();
-const pendingCatalogLoads = new Set<string>();
-
 /**
- * Every editor currently displaying decorations built from a given bibliography
- * path — never a single "requester" view. Populated by the plugin class below
- * (registerView()/unregisterView(), called from its own rebuild()/destroy()),
- * and read from two places: once a shared load resolves (wakeViews(), below),
- * and once the bibliography file changes on disk
- * (notifyPandocCitationBibliographyChanged(), exported at the bottom).
+ * Recognizes and decorates every citation on one CodeMirror line, appending
+ * to `decos`. Exported for reuse by Continu's citation extension
+ * (cm-scrivenings-citations.ts): the SAME per-line recognition, widget and
+ * cursor-reveal logic, called once per (segment, catalog) pair there instead
+ * of once for the whole editor — never a second implementation of this
+ * scan.
  *
- * This is what lets TWO editors cold-opened on the SAME .bib both display their
- * citations from a SINGLE physical read: both register under the same path
- * while the (deduplicated, see loadPandocCitationCatalog()) load is in flight,
- * and both get woken once it resolves.
+ * `{ narrative: true }`: both bracketed (`[@key]`) AND bracket-less
+ * (`@key`) citations are recognized here — see splitPandocCitationSegments()'s
+ * own doc comment for why this is safe to turn on unconditionally for every
+ * interactive surface while formatPandocCitationText() (Aperçu, exports)
+ * keeps the flag off and stays bracket-only.
+ *
+ * `isProtected`, when given, is asked about EVERY recognized citation's
+ * `[absFrom, absTo)` range before it is decorated — a citation-shaped match
+ * inside a fenced/inline code span must never fold, on any surface: `@word`
+ * decorators/annotations are common in source code, so a real citekey
+ * matching one by pure coincidence would otherwise fold in the middle of a
+ * code sample. Absent (Reading Mode never passes it): that surface already
+ * excludes CODE/PRE/SCRIPT/STYLE/A at the DOM level, upstream of ever
+ * reaching splitPandocCitationSegments().
  */
-const viewsByPath = new Map<string, Set<EditorViewInstance>>();
-
-function registerView(path: string, view: EditorViewInstance): void {
-  let views = viewsByPath.get(path);
-  if (!views) {
-    views = new Set();
-    viewsByPath.set(path, views);
-  }
-  views.add(view);
-}
-
-function unregisterView(path: string | null, view: EditorViewInstance): void {
-  if (!path) return;
-  const views = viewsByPath.get(path);
-  if (!views) return;
-  views.delete(view);
-  if (views.size === 0) viewsByPath.delete(path);
-}
-
-/** Dispatches an empty transaction to every editor registered for `path`. A
- * destroyed editor's dispatch throws (or was already unregistered in
- * destroy() — see the plugin class below), so this never fails as a whole. */
-function wakeViews(path: string): void {
-  const views = viewsByPath.get(path);
-  if (!views) return;
-  for (const view of [...views]) {
-    try {
-      view.dispatch({});
-    } catch {
-      // The editor was closed before the load resolved: nothing to redraw.
-    }
-  }
-}
-
-/**
- * Invalidates the synchronous snapshot for `bibFile` and wakes every editor
- * currently registered for it — never editors registered for a different
- * bibliography. Call from a vault "modify" event (see main.ts), registered in
- * the plugin's own lifecycle so it is unregistered automatically on unload.
- */
-export function notifyPandocCitationBibliographyChanged(bibFile: TFile): void {
-  const normalizedPath = normalizePath(bibFile.path);
-  syncCatalogSnapshots.delete(normalizedPath);
-  wakeViews(normalizedPath);
-}
-
-/**
- * Synchronous read of the last resolved catalog for `bibliographyPath`, kicking
- * off a fresh load (at most one in flight per path — see loadPandocCitationCatalog())
- * when the file is missing from the snapshot or its mtime/size no longer match.
- * A load in flight makes this redraw fall back to raw text; once it resolves,
- * wakeViews() dispatches an empty transaction to EVERY editor registered for
- * this path (update() below rebuilds unconditionally on every dispatch), not
- * only the one that happened to trigger the load.
- */
-function getSyncCatalog(
-  app: App,
-  style: PandocCitationPreviewStyle,
-  bibliographyPath: string
-): PandocCitationCatalog | null {
-  const normalizedPath = normalizePath(bibliographyPath);
-  const bibFile = app.vault.getAbstractFileByPath(normalizedPath);
-  if (!(bibFile instanceof TFile)) {
-    syncCatalogSnapshots.delete(normalizedPath);
-    return null;
-  }
-
-  const mtime = bibFile.stat?.mtime ?? 0;
-  const size = bibFile.stat?.size ?? 0;
-  const snapshot = syncCatalogSnapshots.get(normalizedPath);
-  if (snapshot && snapshot.mtime === mtime && snapshot.size === size) {
-    return snapshot.catalog;
-  }
-
-  if (!pendingCatalogLoads.has(normalizedPath)) {
-    pendingCatalogLoads.add(normalizedPath);
-    void loadPandocCitationCatalog(app, style, bibliographyPath).then((catalog) => {
-      pendingCatalogLoads.delete(normalizedPath);
-      if (catalog) {
-        syncCatalogSnapshots.set(normalizedPath, { catalog, mtime, size });
-      } else {
-        syncCatalogSnapshots.delete(normalizedPath);
-      }
-      wakeViews(normalizedPath);
-    });
-  }
-
-  return null;
-}
-
-function appendLineDecorations(
+export function appendLineDecorations(
   line: EditorLineLike,
   state: EditorStateLike,
   catalog: PandocCitationCatalog,
-  decos: DecorationRange[]
+  decos: DecorationRange[],
+  isProtected?: (absFrom: number, absTo: number) => boolean
 ): void {
-  const segments = splitPandocCitationSegments(line.text, catalog.entries);
+  const segments = splitPandocCitationSegments(line.text, catalog.entries, { narrative: true });
   for (const segment of segments) {
     if (segment.kind !== "citation") continue;
     const absFrom = line.from + segment.start;
     const absTo = line.from + segment.end;
     if (absFrom >= absTo) continue;
     if (selectionOverlaps(state.selection, absFrom, absTo)) continue;
+    if (isProtected?.(absFrom, absTo)) continue;
     decos.push(
       DecorationTyped.replace({
         widget: new PandocCitationWidget(segment.text, segment.citekeys, catalog.records),
@@ -328,15 +320,17 @@ function buildDecorations(view: EditorViewInstance, getSettings: () => Feuillets
   if (style === "off" || !bibliographyPath) return { decorations: DecorationTyped.none, bibliographyPath: null };
   const normalizedPath = normalizePath(bibliographyPath);
 
-  const catalog = getSyncCatalog(info.app, style, bibliographyPath);
+  const catalog = getSyncPandocCitationCatalog(info.app, style, bibliographyPath);
   if (!catalog) return { decorations: DecorationTyped.none, bibliographyPath: normalizedPath };
+
+  const isProtected = (rangeFrom: number, rangeTo: number): boolean => isRangeInsideCode(view.state, rangeFrom, rangeTo);
 
   const decos: DecorationRange[] = [];
   for (const { from, to } of view.visibleRanges) {
     let pos = from;
     while (pos <= to) {
       const line = view.state.doc.lineAt(pos);
-      appendLineDecorations(line, view.state, catalog, decos);
+      appendLineDecorations(line, view.state, catalog, decos, isProtected);
       pos = line.to + 1;
     }
   }
@@ -357,9 +351,10 @@ export function createPandocCitationLivePreviewExtension(getSettings: () => Feui
     class {
       decorations: DecorationSet;
       private view: EditorViewInstance;
-      /** The path this editor is currently registered under in viewsByPath, or
-       * null when it depends on none. Tracked so a rebuild that resolves to a
-       * DIFFERENT (or no) path re-registers instead of leaking the old one. */
+      /** The path this editor is currently registered under in the shared
+       * cache's view registry (pandoc-citation-preview.ts), or null when it
+       * depends on none. Tracked so a rebuild that resolves to a DIFFERENT
+       * (or no) path re-registers instead of leaking the old one. */
       private registeredPath: string | null = null;
 
       constructor(view: EditorViewInstance) {
@@ -370,12 +365,13 @@ export function createPandocCitationLivePreviewExtension(getSettings: () => Feui
 
       update(update: ViewUpdateLike): void {
         // Rebuilt on every CM6 update, deliberately unconditional: the async
-        // catalog load (getSyncCatalog()) and a later bibliography edit
-        // (notifyPandocCitationBibliographyChanged()) both wake the view with
-        // an empty transaction, which carries none of docChanged /
-        // selectionSet / viewportChanged — only an unconditional rebuild here
-        // picks that redraw up. The rebuild itself stays cheap: it only scans
-        // visible lines, and reads the resolved catalog from an in-memory map.
+        // catalog load (getSyncPandocCitationCatalog()) and a later
+        // bibliography edit (notifyPandocCitationBibliographyChanged()) both
+        // wake the view with an empty transaction, which carries none of
+        // docChanged / selectionSet / viewportChanged — only an
+        // unconditional rebuild here picks that redraw up. The rebuild
+        // itself stays cheap: it only scans visible lines, and reads the
+        // resolved catalog from an in-memory map.
         this.view = update.view;
         this.rebuild();
       }
@@ -386,7 +382,7 @@ export function createPandocCitationLivePreviewExtension(getSettings: () => Feui
        * bibliography path forever — a residual subscription that would still
        * receive (harmlessly try/caught, but pointless) wake-up dispatches. */
       destroy(): void {
-        unregisterView(this.registeredPath, this.view);
+        unregisterPandocCitationCatalogView(this.registeredPath, this.view);
         this.registeredPath = null;
       }
 
@@ -394,9 +390,9 @@ export function createPandocCitationLivePreviewExtension(getSettings: () => Feui
         const result = buildDecorations(this.view, getSettings);
         this.decorations = result.decorations;
         if (result.bibliographyPath !== this.registeredPath) {
-          unregisterView(this.registeredPath, this.view);
+          unregisterPandocCitationCatalogView(this.registeredPath, this.view);
           this.registeredPath = result.bibliographyPath;
-          if (this.registeredPath) registerView(this.registeredPath, this.view);
+          if (this.registeredPath) registerPandocCitationCatalogView(this.registeredPath, this.view);
         }
       }
     },

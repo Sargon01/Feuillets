@@ -282,6 +282,14 @@ export interface ScriveningsSegmentFormatting {
   callouts: ScriveningsCalloutNode[];
   images: ScriveningsImageNode[];
   tables: ScriveningsTableNode[];
+  /** Fenced code blocks, indented code blocks AND inline code spans —
+   * `CodeBlock`/`FencedCode`/`InlineCode` in @lezer/markdown's grammar
+   * (fencedRanges above only tracks FencedCode, for the unrelated
+   * image-line gate a few lines down; this is the general-purpose set).
+   * Consumed by cm-scrivenings-citations.ts to keep a citation, bracketed
+   * or narrative, from ever folding inside a code sample — reusing THIS
+   * segment's already-running Lezer parse rather than a second one. */
+  codeRanges: { from: number; to: number }[];
 }
 
 interface ParseFrame {
@@ -459,6 +467,7 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
   const images: ScriveningsImageNode[] = [];
   const tables: ScriveningsTableNode[] = [];
   const fencedRanges: { from: number; to: number }[] = [];
+  const codeRanges: { from: number; to: number }[] = [];
   const escapeNodes: { from: number; to: number }[] = [];
   const stack: ParseFrame[] = [];
   const headingStack: { level: ScriveningsHeadingLevel; from: number; to: number; marks: { from: number; to: number }[] }[] = [];
@@ -530,6 +539,11 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
       }
       if (node.name === "FencedCode") {
         fencedRanges.push({ from: node.from, to: node.to });
+        codeRanges.push({ from: node.from, to: node.to });
+        return false;
+      }
+      if (node.name === "CodeBlock" || node.name === "InlineCode") {
+        codeRanges.push({ from: node.from, to: node.to });
         return false;
       }
       if (node.name === "HorizontalRule") {
@@ -636,7 +650,7 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
     lineStart = lineEnd + 1;
   }
 
-  return { nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes), callouts, images, tables };
+  return { nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes), callouts, images, tables, codeRanges };
 }
 
 /* --- Cache par segment (LOT 1.3 section 3 — jamais un scan global) -------- */
@@ -754,6 +768,7 @@ export function compositeScriveningsFormatting(segment: ScriveningsSegmentRange,
     callouts: local.callouts.map((callout) => shiftCallout(callout, segment.from)),
     images: local.images.map((image) => shiftImage(image, segment.from)),
     tables: local.tables.map((table) => shiftTable(table, segment.from)),
+    codeRanges: local.codeRanges.map((range) => shiftRange(range, segment.from)),
   };
 }
 

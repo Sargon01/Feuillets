@@ -23,8 +23,9 @@ import {
 } from "../services/scrivenings-document.js";
 import { shortTitleFor, splitFrontmatter } from "../services/frontmatter.js";
 import { roleOfFile } from "../services/folder-structure.js";
-import { createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
+import { createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsBoundariesField, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
 import type { ScriveningsImageResolver } from "../utils/cm-scrivenings-markdown.js";
+import { createScriveningsCitationExtension } from "../utils/cm-scrivenings-citations.js";
 import {
   getScriveningsScrollAnchor,
   scrollScriveningsToAnchor,
@@ -641,9 +642,17 @@ export class ScriveningsView extends ItemView {
       return null;
     };
 
+    const citationFiles = document.segments.map((segment) => segment.file);
+
     const extensions = [
       ...createScriveningsExtensions(imageResolver),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
+      createScriveningsCitationExtension(
+        scriveningsBoundariesField,
+        this.plugin.app,
+        () => this.plugin.settings,
+        citationFiles
+      ),
       scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
       // LOT 1.4 (§33) : Continu possède son propre EditorState — jamais
       // `registerEditorExtension()` — ces deux extensions sont donc montées

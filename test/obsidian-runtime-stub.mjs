@@ -27,8 +27,32 @@ export function setIcon(element, icon) {
 }
 
 export class Component {
-  load() {}
-  unload() {}
+  load() {
+    this.onload?.();
+  }
+  unload() {
+    this.onunload?.();
+  }
+  addChild(child) {
+    child.load?.();
+    return child;
+  }
+}
+
+/* Minimal stub of Obsidian's real MarkdownRenderChild: production code (see
+   pandoc-citation-reading-mode.ts's PandocCitationCleanupChild) extends this
+   at module load time, so it must exist here even where a test never
+   exercises it directly — otherwise `class X extends MarkdownRenderChild`
+   throws immediately on import. Real Obsidian unloads a MarkdownRenderChild
+   automatically once containerEl is detached from the DOM; this stub leaves
+   that detection out (no test needs it — tests call `.unload()` directly to
+   simulate a rerender/detach) and only keeps the constructor shape and the
+   inherited load/unload/onload/onunload from Component above. */
+export class MarkdownRenderChild extends Component {
+  constructor(containerEl) {
+    super();
+    this.containerEl = containerEl;
+  }
 }
 
 export class Plugin {

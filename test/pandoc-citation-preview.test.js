@@ -6,6 +6,7 @@ import {
   parsePandocCitationBibliography,
   formatPandocCitationText,
   applyPandocCitationPreview,
+  splitPandocCitationSegments,
 } from "../src/services/pandoc-citation-preview.js";
 import { resolveWorkspaceCitationResources } from "../src/services/workspace-citations.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
@@ -299,6 +300,235 @@ test("formatPandocCitationText: idempotent", () => {
   const second = formatPandocCitationText(first, entries);
   assert.equal(first, second);
   assert.equal(second, "Voir (Smith, 2024).");
+});
+
+/**
+ * Narrative citations — splitPandocCitationSegments({ narrative: true }).
+ * formatPandocCitationText() (Aperçu/exports, above) never opts in: those
+ * "narrative form unchanged"/"email unchanged" tests already cover its
+ * DEFAULT (bracket-only) behavior and must keep passing untouched.
+ */
+function segmentsFor(text, entries) {
+  return splitPandocCitationSegments(text, entries, { narrative: true });
+}
+
+function formatSegments(text, entries) {
+  return segmentsFor(text, entries).map((s) => s.text).join("");
+}
+
+test("splitPandocCitationSegments({ narrative: true }): a known narrative citation renders as Author (Year)", () => {
+  const entries = new Map([
+    ["who2021", { key: "who2021", authors: ["World Health Organization"], year: "2021" }],
+  ]);
+  const segments = segmentsFor("@who2021 souligne l'importance de la vaccination.", entries);
+  assert.deepEqual(
+    segments.map((s) => s.text).join(""),
+    "World Health Organization (2021) souligne l'importance de la vaccination."
+  );
+  const citation = segments.find((s) => s.kind === "citation");
+  assert.ok(citation, "exactly one citation segment");
+  assert.deepEqual(citation.citekeys, ["who2021"]);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): offsets span exactly the raw @key, nothing more", () => {
+  const entries = new Map([["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }]]);
+  const text = "Avant @who2021 après.";
+  const segments = segmentsFor(text, entries);
+  const citation = segments.find((s) => s.kind === "citation");
+  assert.equal(text.slice(citation.start, citation.end), "@who2021");
+});
+
+test("splitPandocCitationSegments({ narrative: true }): 1/2/3+ author rules match the bracket form exactly", () => {
+  const entries = new Map([
+    ["one2024", { key: "one2024", authors: ["Smith"], year: "2024" }],
+    ["two2024", { key: "two2024", authors: ["Smith", "Jones"], year: "2024" }],
+    ["three2024", { key: "three2024", authors: ["Smith", "Jones", "Davis"], year: "2024" }],
+  ]);
+  assert.equal(formatSegments("@one2024 dit.", entries), "Smith (2024) dit.");
+  assert.equal(formatSegments("@two2024 disent.", entries), "Smith & Jones (2024) disent.");
+  assert.equal(formatSegments("@three2024 disent.", entries), "Smith et al. (2024) disent.");
+});
+
+test("splitPandocCitationSegments({ narrative: true }): an unknown narrative citekey stays raw", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "@unknownAuthor2021 souligne quelque chose.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): an email address is never mistaken for a narrative citation", () => {
+  const entries = new Map([["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }]]);
+  const text = "Contactez who2021@example.com pour plus d'informations.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a URL with userinfo is never mistaken for a narrative citation", () => {
+  const entries = new Map([["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }]]);
+  const text = "Voir https://who2021@example.com/path.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+/**
+ * A KNOWN citekey appearing as part of a URL's PATH or query string — the
+ * character right before `@` there is `/`, `=`, or similar, never a word
+ * character, so the "not preceded by a word character" rule alone does not
+ * exclude it. isNarrativeUrlContext() (pandoc-citation-preview.ts) is the
+ * dedicated second guard for exactly this shape.
+ */
+test("splitPandocCitationSegments({ narrative: true }): a known citekey inside an https:// URL's path is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir https://example.org/@smith2024 pour la source.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a known citekey inside an http:// URL's path is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir http://example.org/@smith2024 pour la source.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a known citekey inside an obsidian:// URI is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Lien : obsidian://open?vault=Roman&file=@smith2024 pour la source.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a known citekey right after mailto: is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Ecrire à mailto:@smith2024 pour la source.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a known citekey inside a www. URL's path is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir www.example.org/@smith2024 pour la source.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a narrative citation right after a URL (separated by whitespace) is still recognized", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir https://example.org/path puis @smith2024 le confirme.";
+  assert.equal(formatSegments(text, entries), "Voir https://example.org/path puis Smith (2024) le confirme.");
+});
+
+test("splitPandocCitationSegments({ narrative: true }): emails, links, code and unknown citekeys stay unaffected by the URL guard", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  // Ordinary email: still excluded by the word-character rule (unchanged).
+  assert.equal(formatSegments("Contactez smith2024@example.com.", entries), "Contactez smith2024@example.com.");
+  // Ordinary Markdown link bracket text: still excluded by bracket-depth tracking (unchanged).
+  assert.equal(
+    formatSegments("Voir [texte @smith2024](https://example.com).", entries),
+    "Voir [texte @smith2024](https://example.com)."
+  );
+  // A genuine narrative citation elsewhere in the same text still resolves.
+  assert.equal(formatSegments("Selon @smith2024, établi.", entries), "Selon Smith (2024), établi.");
+  // Unknown citekey inside a URL: stays raw either way (both guards agree).
+  assert.equal(
+    formatSegments("Voir https://example.org/@unknownKey2099.", entries),
+    "Voir https://example.org/@unknownKey2099."
+  );
+});
+
+/**
+ * A known citekey inside a URL that is itself preceded by punctuation, or
+ * used as a Markdown link destination — isNarrativeUrlContext()'s backward
+ * scan stops only at whitespace/`[`/`]`, so the scheme can sit behind such
+ * punctuation within the SAME token; the un-anchored NARRATIVE_URL_TOKEN
+ * regex must still find it there.
+ */
+test("splitPandocCitationSegments({ narrative: true }): a known citekey inside a parenthesized URL is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir (https://example.org/@smith2024) pour la source.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a known citekey inside an angle-bracketed URL is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir <https://example.org/@smith2024> pour la source.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a known citekey inside a Markdown link's destination is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir [site](https://example.org/@smith2024) pour la source.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a known citekey inside a double-quoted URL is never transformed", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = 'Voir "https://example.org/@smith2024" pour la source.';
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a genuine narrative citation after a punctuated URL, separated by whitespace, is still recognized", () => {
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir (https://example.org/path) puis @smith2024 le confirme.";
+  assert.equal(formatSegments(text, entries), "Voir (https://example.org/path) puis Smith (2024) le confirme.");
+});
+
+test("splitPandocCitationSegments({ narrative: true }): an ordinary @mention that is not a citekey stays raw", () => {
+  const entries = new Map([["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }]]);
+  const text = "Merci @someone pour la relecture.";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a narrative citekey at the very start of the text is recognized", () => {
+  const entries = new Map([["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }]]);
+  assert.equal(formatSegments("@who2021 affirme cela.", entries), "WHO (2021) affirme cela.");
+});
+
+test("splitPandocCitationSegments({ narrative: true }): bracket and narrative forms coexist in the same text", () => {
+  const entries = new Map([
+    ["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }],
+    ["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }],
+  ]);
+  const text = "Voir [@smith2024]. Or, @who2021 nuance ce point.";
+  assert.equal(formatSegments(text, entries), "Voir (Smith, 2024). Or, WHO (2021) nuance ce point.");
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a narrative citekey never fires inside an unresolved bracket group", () => {
+  // [@smith2024; @bad] fails atomically (bad is unknown) and stays raw —
+  // the narrative pass must never reach into that raw bracket text and
+  // fold @smith2024 on its own, leaving mismatched brackets/semicolon.
+  const entries = new Map([["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }]]);
+  const text = "Voir [@smith2024; @bad].";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a narrative citekey never fires inside an ordinary Markdown link's bracket text", () => {
+  const entries = new Map([["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }]]);
+  // The link text does NOT start with @ (unlike a citation-shaped bracket
+  // group), so pass 1 never touches it — it is bracket-DEPTH-tracked by the
+  // narrative pass instead (see splitNarrativeCitationSegments()'s doc
+  // comment), which must never fold @who2021 while still inside `[...]`.
+  const text = "Voir [texte ordinaire @who2021](https://example.com).";
+  assert.equal(formatSegments(text, entries), text);
+});
+
+test("splitPandocCitationSegments({ narrative: true }): a narrative citekey right after a closed bracket group is still recognized", () => {
+  const entries = new Map([
+    ["smith2024", { key: "smith2024", authors: ["Smith"], year: "2024" }],
+    ["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }],
+  ]);
+  const text = "Voir [@smith2024]@who2021 nuance ce point.";
+  // No space between "]" and "@": still non-word-preceded ("]"), so the
+  // narrative citation is recognized right up against the bracket group.
+  assert.equal(formatSegments(text, entries), "Voir (Smith, 2024)WHO (2021) nuance ce point.");
+});
+
+test("splitPandocCitationSegments({ narrative: true }): idempotent on its own formatted output", () => {
+  const entries = new Map([["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }]]);
+  const input = "@who2021 affirme cela.";
+  const first = formatSegments(input, entries);
+  const second = formatSegments(first, entries);
+  assert.equal(first, second);
+});
+
+test("splitPandocCitationSegments: default (no options) never recognizes narrative citations — formatPandocCitationText()'s exact contract", () => {
+  const entries = new Map([["who2021", { key: "who2021", authors: ["WHO"], year: "2021" }]]);
+  const text = "@who2021 affirme cela.";
+  const segments = splitPandocCitationSegments(text, entries);
+  assert.equal(segments.map((s) => s.text).join(""), text);
+  assert.ok(segments.every((s) => s.kind === "text"));
 });
 
 if (typeof globalThis.Node === "undefined") {

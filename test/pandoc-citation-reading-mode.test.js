@@ -97,6 +97,12 @@ class FakeReadingElement {
   querySelector(selector) {
     return this.querySelectorAll(selector)[0] || null;
   }
+  /** Never dispatched by these tests — present so
+   * buildPandocCitationElement()'s attachCitationTooltipBehavior() can
+   * register its listeners without throwing at construction time (see the
+   * identical comment in cm-pandoc-citation-live-preview.test.js). */
+  addEventListener() {}
+  removeEventListener() {}
 }
 
 class FakeReadingTextNode {
@@ -121,8 +127,33 @@ class FakeReadingTextNode {
 Object.defineProperty(FakeReadingElement.prototype, "nodeType", { get: () => 1 });
 
 class FakeReadingDocument {
+  constructor() {
+    // buildPandocCitationElement() (pandoc-citation-preview.ts) now builds
+    // the citation's root element via `ownerDocument.defaultView.createSpan(...)`
+    // — never the global `createSpan()` — so it lands in the SAME (fake)
+    // document as the text node it replaces, exactly like a real detached
+    // Obsidian window would require.
+    const doc = this;
+    this.defaultView = {
+      createEl(tag, options = {}) {
+        const el = new FakeReadingElement(tag);
+        el.ownerDocument = doc;
+        if (options.cls) el.setAttribute("class", options.cls);
+        if (options.text) el.textContent = options.text;
+        return el;
+      },
+      createSpan(options = {}) {
+        return this.createEl("span", options);
+      },
+    };
+  }
   createTextNode(data) {
     return new FakeReadingTextNode(data);
+  }
+  createElement(tag) {
+    const el = new FakeReadingElement(tag);
+    el.ownerDocument = this;
+    return el;
   }
 }
 
@@ -261,15 +292,69 @@ test("Reading Mode: an unknown citekey stays raw, with no element and no notice"
   assert.equal(citations[0].getAttribute("data-citekeys"), "smith2024");
 });
 
-test("Reading Mode: CODE, PRE, SCRIPT, STYLE and links are never transformed", () => {
+test("Reading Mode: CODE, PRE, SCRIPT, STYLE and links are never transformed — bracket or narrative", () => {
   const catalog = catalogFrom("@article{smith2024, author = {Smith, John}, year = {2024}}");
   for (const tag of ["code", "pre", "script", "style", "a"]) {
-    const el = buildEl(tag);
-    appendText(el, "Voir [@smith2024].");
-    wrapPandocCitationsInElement(el, catalog);
-    assert.equal(el.textContent, "Voir [@smith2024].", `${tag} content is untouched`);
-    assert.equal(el.querySelectorAll(".feuillets-pandoc-citation").length, 0);
+    for (const text of ["Voir [@smith2024].", "Voir @smith2024 dit."]) {
+      const el = buildEl(tag);
+      appendText(el, text);
+      wrapPandocCitationsInElement(el, catalog);
+      assert.equal(el.textContent, text, `${tag} content is untouched`);
+      assert.equal(el.querySelectorAll(".feuillets-pandoc-citation").length, 0);
+    }
   }
+});
+
+/* ------------------------------------------------------------------ *
+ * Narrative citations: @who2021 → "World Health Organization (2021)".
+ * ------------------------------------------------------------------ */
+
+test("Reading Mode: a known narrative citation renders as Author (Year)", () => {
+  const p = buildEl("p");
+  appendText(p, "@who2021 souligne l'importance de la vaccination.");
+  const catalog = catalogFrom(
+    '@report{who2021, author = {{World Health Organization}}, year = {2021}}'
+  );
+
+  wrapPandocCitationsInElement(p, catalog);
+
+  assert.equal(visibleText(p), "World Health Organization (2021) souligne l'importance de la vaccination.");
+  const citation = p.querySelector(".feuillets-pandoc-citation");
+  assert.ok(citation);
+  assert.equal(citation.getAttribute("data-citekeys"), "who2021");
+});
+
+test("Reading Mode: an unknown narrative citekey stays raw", () => {
+  const p = buildEl("p");
+  appendText(p, "@unknownAuthor2021 souligne quelque chose.");
+  const catalog = catalogFrom("@article{smith2024, author = {Smith, John}, year = {2024}}");
+
+  wrapPandocCitationsInElement(p, catalog);
+
+  assert.equal(visibleText(p), "@unknownAuthor2021 souligne quelque chose.");
+  assert.equal(p.querySelectorAll(".feuillets-pandoc-citation").length, 0);
+});
+
+test("Reading Mode: an email address is never mistaken for a narrative citation", () => {
+  const p = buildEl("p");
+  appendText(p, "Contactez who2021@example.com pour plus d'informations.");
+  const catalog = catalogFrom('@report{who2021, author = {{World Health Organization}}, year = {2021}}');
+
+  wrapPandocCitationsInElement(p, catalog);
+
+  assert.equal(visibleText(p), "Contactez who2021@example.com pour plus d'informations.");
+  assert.equal(p.querySelectorAll(".feuillets-pandoc-citation").length, 0);
+});
+
+test("Reading Mode: an ordinary @mention that happens not to be a citekey stays raw", () => {
+  const p = buildEl("p");
+  appendText(p, "Merci @someone pour la relecture.");
+  const catalog = catalogFrom('@report{who2021, author = {{World Health Organization}}, year = {2021}}');
+
+  wrapPandocCitationsInElement(p, catalog);
+
+  assert.equal(visibleText(p), "Merci @someone pour la relecture.");
+  assert.equal(p.querySelectorAll(".feuillets-pandoc-citation").length, 0);
 });
 
 test("Reading Mode: a BibTeX title containing HTML is escaped — literal text, never an element", () => {
@@ -372,8 +457,20 @@ function makeFakePlugin(f) {
       processors.push(fn);
       return fn;
     },
-    run(el, sourcePath) {
-      return processors[0](el, { sourcePath, docId: "test", frontmatter: null });
+    run(el, sourcePath, { addChild } = {}) {
+      const children = [];
+      const ctx = {
+        sourcePath,
+        docId: "test",
+        frontmatter: null,
+        addChild: (child) => {
+          children.push(child);
+          addChild?.(child);
+          return child;
+        },
+      };
+      const result = processors[0](el, ctx);
+      return Promise.resolve(result).then(() => children);
     },
   };
 }
@@ -423,6 +520,23 @@ test("Reading Mode: the shared BibTeX cache is not read again on repeated render
   }
 
   assert.equal(reads, 1, "five renders of the same file trigger a single bibliography read");
+});
+
+test("Reading Mode: a render that produces citations registers a cleanup child; one without registers none", async () => {
+  const f = createReadingModeFixture();
+  const plugin = makeFakePlugin(f);
+  registerPandocCitationReadingMode(plugin);
+
+  const withCitation = buildEl("p");
+  appendText(withCitation, "Voir [@smith2024].");
+  const childrenWithCitation = await plugin.run(withCitation, f.docA.path);
+  assert.equal(childrenWithCitation.length, 1, "one cleanup child registered for the one citation built");
+  assert.doesNotThrow(() => childrenWithCitation[0].unload(), "unloading it (rerender/close) never throws");
+
+  const withoutCitation = buildEl("p");
+  appendText(withoutCitation, "Rien à citer ici.");
+  const childrenWithoutCitation = await plugin.run(withoutCitation, f.docA.path);
+  assert.equal(childrenWithoutCitation.length, 0, "no cleanup child when nothing was built — nothing to dispose");
 });
 
 test("Reading Mode: an unresolvable source path is a silent no-op, never a throw", async () => {

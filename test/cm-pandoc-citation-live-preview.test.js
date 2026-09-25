@@ -47,6 +47,7 @@ class FakeWidgetElement {
   }
   createEl(tag, options = {}) {
     const child = new FakeWidgetElement(tag, options);
+    child.ownerDocument = this.ownerDocument;
     if (options.cls) child.setAttribute("class", options.cls);
     return this.appendChild(child);
   }
@@ -77,6 +78,45 @@ class FakeWidgetElement {
   set textContent(value) {
     this._text = value;
     this.children = [];
+  }
+  /** Never dispatched by these tests (no test here hovers/focuses a
+   * citation) — just present so buildPandocCitationElement()'s
+   * attachCitationTooltipBehavior() can register its listeners without
+   * throwing at construction time. The dedicated tooltip behavior suite
+   * (test/pandoc-citation-tooltip.test.js) exercises the actual show/hide/
+   * reposition/cleanup wiring with a fuller fake DOM. */
+  addEventListener() {}
+  removeEventListener() {}
+}
+/** buildPandocCitationElement() (pandoc-citation-preview.ts) now builds the
+ * citation's root element via `view.dom.ownerDocument.createElement(...)` —
+ * never the global `createSpan()` — so `view.dom` (set in makeFakeView(),
+ * below) needs a real `.ownerDocument` supporting `createElement`. */
+class FakeDocument {
+  constructor() {
+    // buildPandocCitationElement() (pandoc-citation-preview.ts) builds the
+    // citation's root element via `ownerDocument.defaultView.createSpan(...)`
+    // — never the global `createSpan()` — matching real Obsidian, where
+    // `Document.defaultView` (typed `... & typeof globalThis`) is what
+    // actually carries the `createEl`/`createSpan` globals for that
+    // document's OWN window.
+    const doc = this;
+    this.defaultView = {
+      createEl(tag, options = {}) {
+        const el = new FakeWidgetElement(tag);
+        el.ownerDocument = doc;
+        if (options.cls) el.setAttribute("class", options.cls);
+        return el;
+      },
+      createSpan(options = {}) {
+        return this.createEl("span", options);
+      },
+    };
+  }
+  createElement(tag) {
+    const el = new FakeWidgetElement(tag);
+    el.ownerDocument = this;
+    return el;
   }
 }
 /* Assigned from inside a function, never at module top level: a top-level
@@ -131,13 +171,34 @@ function makeFakeDoc(text) {
   };
 }
 
-function makeFakeView({ text, file, app, selection = [{ from: 0, to: 0 }], livePreview = true }) {
+/** Minimal fake for @codemirror/language's syntaxTree() return value — see
+ * test/codemirror-language-stub.mjs (`syntaxTree(state) { return
+ * state?.tree || null; }`): setting `view.state.tree` here is exactly what
+ * that stub reads. `iterate()` reports a "code"-named node for any
+ * [from, to) query overlapping one of `codeRanges` — enough to exercise
+ * isRangeInsideCode()'s `tree.iterate(...)` branch; its `resolveInner`
+ * fallback is a defensive second check for the same information and is not
+ * separately exercised here. */
+function makeSyntaxTree(codeRanges) {
+  return {
+    iterate({ from, to, enter }) {
+      for (const range of codeRanges) {
+        if (from < range.to && to > range.from) enter({ name: "inline-code" });
+      }
+    },
+  };
+}
+
+function makeFakeView({ text, file, app, selection = [{ from: 0, to: 0 }], livePreview = true, codeRanges }) {
   const doc = makeFakeDoc(text);
   const dispatchCalls = [];
+  const dom = new FakeWidgetElement("div");
+  dom.ownerDocument = new FakeDocument();
   const view = {
     state: {
       doc,
       selection: { ranges: selection },
+      tree: codeRanges ? makeSyntaxTree(codeRanges) : undefined,
       field(f) {
         if (f === editorInfoField) return { app, file };
         if (f === editorLivePreviewField) return livePreview;
@@ -148,6 +209,7 @@ function makeFakeView({ text, file, app, selection = [{ from: 0, to: 0 }], liveP
     dispatch(spec) {
       dispatchCalls.push(spec);
     },
+    dom,
   };
   view.dispatchCalls = dispatchCalls;
   return view;
@@ -216,9 +278,9 @@ function buildPlugin(getSettings) {
   return createPandocCitationLivePreviewExtension(getSettings);
 }
 
-async function decorateOnce(text, { file, app, getSettings, selection, livePreview } = {}) {
+async function decorateOnce(text, { file, app, getSettings, selection, livePreview, codeRanges } = {}) {
   const PluginClass = buildPlugin(getSettings);
-  const view = makeFakeView({ text, file, app, selection, livePreview });
+  const view = makeFakeView({ text, file, app, selection, livePreview, codeRanges });
   const instance = new PluginClass(view);
   await flush();
   instance.update({ view });
@@ -273,13 +335,13 @@ test("Live Preview: the widget's notice carries the bibliographic record with ro
   const f = createLivePreviewFixture();
   f.bibA.content = '@article{smith2024, author = {Smith, John}, title = {A Study}, year = {2024}}';
   f.bibA.stat = { mtime: 3000, size: f.bibA.content.length };
-  const { instance } = await decorateOnce("Voir [@smith2024].", {
+  const { instance, view } = await decorateOnce("Voir [@smith2024].", {
     file: f.docA,
     app: f.app,
     getSettings: () => f.settings,
   });
 
-  const dom = instance.decorations[0].widget.toDOM();
+  const dom = instance.decorations[0].widget.toDOM(view);
   assert.equal(dom.tagName, "SPAN");
   assert.equal(dom.getAttribute("data-citekeys"), "smith2024");
   assert.equal(dom.getAttribute("tabindex"), "0");
@@ -357,6 +419,84 @@ test("Live Preview: an unknown citekey is never folded", async () => {
   assert.deepEqual(instance.decorations[0].widget.citekeys, ["smith2024"]);
 });
 
+/* ------------------------------------------------------------------ *
+ * Narrative citations: @who2021 → "World Health Organization (2021)".
+ * ------------------------------------------------------------------ */
+
+test("Live Preview: a known narrative citation folds as Author (Year), never (Author, Year)", async () => {
+  const f = createLivePreviewFixture();
+  f.bibA.content = "@report{who2021, author = {{World Health Organization}}, year = {2021}}";
+  f.bibA.stat = { mtime: 2000, size: f.bibA.content.length };
+  // Cursor kept away from offset 0 (the default): the citation itself
+  // starts right at the beginning of this text, and the cursor-reveal rule
+  // (selectionOverlaps()) would otherwise leave it unfolded — not a
+  // narrative-specific concern, the exact same rule bracket citations obey.
+  const { instance } = await decorateOnce("Selon @who2021, ce point est établi.", {
+    file: f.docA,
+    app: f.app,
+    getSettings: () => f.settings,
+  });
+
+  assert.equal(instance.decorations.length, 1);
+  assert.equal(instance.decorations[0].widget.text, "World Health Organization (2021)");
+  assert.deepEqual(instance.decorations[0].widget.citekeys, ["who2021"]);
+});
+
+test("Live Preview: an unknown narrative citekey is never folded", async () => {
+  const f = createLivePreviewFixture();
+  const { instance } = await decorateOnce("@unknownAuthor2021 souligne ce point.", {
+    file: f.docA,
+    app: f.app,
+    getSettings: () => f.settings,
+  });
+
+  assert.equal(instance.decorations.length, 0);
+});
+
+test("Live Preview: an email address is never mistaken for a narrative citation", async () => {
+  const f = createLivePreviewFixture();
+  f.bibA.content = "@article{smith2024, author = {Smith, John}, year = {2024}}";
+  f.bibA.stat = { mtime: 2000, size: f.bibA.content.length };
+  const { instance } = await decorateOnce("Contactez smith2024@example.com.", {
+    file: f.docA,
+    app: f.app,
+    getSettings: () => f.settings,
+  });
+
+  assert.equal(instance.decorations.length, 0);
+});
+
+test("Live Preview: a citation inside inline code is never folded, bracket or narrative", async () => {
+  const f = createLivePreviewFixture();
+  const text = "Code : `[@smith2024]` puis prose @smith2024 ici.";
+  const codeStart = text.indexOf("`[@smith2024]`");
+  const codeEnd = codeStart + "`[@smith2024]`".length;
+  const { instance } = await decorateOnce(text, {
+    file: f.docA,
+    app: f.app,
+    getSettings: () => f.settings,
+    codeRanges: [{ from: codeStart, to: codeEnd }],
+  });
+
+  assert.equal(instance.decorations.length, 1, "only the prose narrative citation folds, never the one inside code");
+  assert.equal(instance.decorations[0].widget.text, "Smith (2024)");
+  assert.ok(instance.decorations[0].from >= codeEnd, "the surviving decoration is the one AFTER the code span");
+});
+
+test("Live Preview: without a language installed on the state (syntaxTree returns null), citations still fold normally", async () => {
+  const f = createLivePreviewFixture();
+  const { instance } = await decorateOnce("Voir [@smith2024].", {
+    file: f.docA,
+    app: f.app,
+    getSettings: () => f.settings,
+    // No `codeRanges` passed: view.state.tree stays undefined, exactly like
+    // Continu's own composite EditorState (see isRangeInsideCode()'s doc
+    // comment) — must never suppress every citation as a side effect.
+  });
+
+  assert.equal(instance.decorations.length, 1);
+});
+
 test("Live Preview: two editors on Work-A and Work-A-Extra resolve their own bibliography, never each other's", async () => {
   const f = createLivePreviewFixture();
 
@@ -392,7 +532,7 @@ test("Live Preview: two editors on Work-A and Work-A-Extra resolve their own bib
 
 test("Live Preview: clicking a citation is never ignored, so the click reaches CodeMirror's own cursor placement", async () => {
   const f = createLivePreviewFixture();
-  const { instance } = await decorateOnce("Voir [@smith2024].", {
+  const { instance, view } = await decorateOnce("Voir [@smith2024].", {
     file: f.docA,
     app: f.app,
     getSettings: () => f.settings,
@@ -400,7 +540,7 @@ test("Live Preview: clicking a citation is never ignored, so the click reaches C
 
   const widget = instance.decorations[0].widget;
   assert.equal(widget.ignoreEvent(), false, "no event is swallowed by the widget itself");
-  const dom = widget.toDOM();
+  const dom = widget.toDOM(view);
   assert.equal(dom.tagName, "SPAN", "a plain span, never a link or a button with its own navigation");
   assert.equal(dom.getAttribute("href"), null);
 });
@@ -629,12 +769,16 @@ test("styles.css: the citation tooltip meets the readability requirements, behav
   assert.match(tooltipRule, /font-size:\s*14px/, "at least 14px");
   assert.match(tooltipRule, /line-height:\s*1\.5/);
   assert.match(tooltipRule, /color:\s*var\(--text-normal\)/);
-  assert.match(
-    tooltipRule,
-    /min-width:\s*min\(280px,\s*calc\(100vw - 24px\)\)/,
-    "never wider than the viewport minus margin on a narrow screen either"
-  );
-  assert.match(tooltipRule, /max-width:\s*min\(420px/, "capped at 420px and never overflowing a small screen");
+  // Width/height are no longer statically bounded in CSS at all — JS
+  // computes the REAL available space in the citation's own host panel and
+  // sets min-width/max-width/max-height inline on every show, scroll and
+  // resize (see reposition(), pandoc-citation-preview.ts, and
+  // test/pandoc-citation-tooltip.test.js for the sizing behavior itself). A
+  // static `100vw`-based bound could never know about a panel narrower than
+  // the browser window, so none may remain in this rule.
+  assert.equal(/calc\(100vw/.test(tooltipRule), false, "no 100vw-based bound left in the static CSS rule");
+  assert.equal(/min-width/.test(tooltipRule), false, "min-width is set inline by JS only, never in the CSS rule");
+  assert.equal(/max-width/.test(tooltipRule), false, "max-width is set inline by JS only, never in the CSS rule");
   assert.match(
     tooltipRule,
     /padding:\s*var\(--size-4-3\)\s*var\(--size-4-4\)/,
@@ -656,10 +800,19 @@ test("styles.css: the citation tooltip meets the readability requirements, behav
 
   assert.ok(!/!important/.test(block), "no !important anywhere in the citation section");
 
-  // Behavior preserved: hidden by default, revealed on hover/focus.
+  // Behavior: hidden by default, revealed via the JS-toggled visible class —
+  // never `:hover`/`:focus-within`, since the tooltip is reparented to
+  // <body> while shown (attachCitationTooltipBehavior(),
+  // pandoc-citation-preview.ts) and DOM-containment selectors can no longer
+  // see it there. `position: fixed` so JS-computed viewport coordinates
+  // (resolveFloatingPosition(), utils/floating-position.ts) position it
+  // correctly and no ancestor's `overflow` ever clips it.
   assert.match(block, /\.feuillets-pandoc-citation-tooltip\s*\{[^}]*display:\s*none/);
-  assert.match(block, /\.feuillets-pandoc-citation:hover\s*>\s*\.feuillets-pandoc-citation-tooltip/);
-  assert.match(block, /\.feuillets-pandoc-citation:focus-within\s*>\s*\.feuillets-pandoc-citation-tooltip/);
+  assert.match(block, /\.feuillets-pandoc-citation-tooltip\s*\{[^}]*position:\s*fixed/);
+  assert.match(
+    block,
+    /\.feuillets-pandoc-citation-tooltip\.feuillets-pandoc-citation-tooltip-visible\s*\{[^}]*display:\s*block/
+  );
 
   // Accessible classes untouched.
   assert.match(block, /\.feuillets-pandoc-citation-notice\b/);

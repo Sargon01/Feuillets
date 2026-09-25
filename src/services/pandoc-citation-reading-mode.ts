@@ -13,14 +13,13 @@
  * independently.
  */
 
-import { MarkdownView, normalizePath, TFile, type App, type MarkdownPostProcessorContext } from "obsidian";
+import { MarkdownRenderChild, MarkdownView, normalizePath, TFile, type App, type MarkdownPostProcessorContext } from "obsidian";
 import {
+  buildPandocCitationElement,
+  disposePandocCitationElement,
   loadPandocCitationCatalog,
-  PANDOC_CITATION_CLASS,
-  PANDOC_CITATION_LABEL_CLASS,
   resolvePandocCitationPreviewForFile,
   splitPandocCitationSegments,
-  buildCitationNoticeElement,
   type PandocCitationCatalog,
 } from "./pandoc-citation-preview.js";
 
@@ -59,15 +58,25 @@ function collectEligibleTextNodes(node: Node, out: Text[]): void {
 /**
  * Replace one text node's recognized citation groups with real
  * `.feuillets-pandoc-citation` elements, leaving untouched text as-is. Leaves
- * the node alone if it holds no recognized citation.
+ * the node alone if it holds no recognized citation. Appends every citation
+ * element it builds to `built` — the caller collects these across the whole
+ * render pass to register their teardown (see registerPandocCitationReadingMode()).
  *
- * `createEl`/`.createSpan()` (global Obsidian helpers, never innerHTML): this
- * runs in the live Reading Mode DOM, the same realm as the rest of Obsidian, so
- * these helpers are always valid here — unlike PreviewView's iframe.
+ * `{ narrative: true }`: bracket-less `@key` citations are recognized here
+ * too, same as Live Preview and Continu — see splitPandocCitationSegments()'s
+ * own doc comment. `collectEligibleTextNodes()` below already keeps this
+ * function from ever seeing text inside CODE/PRE/SCRIPT/STYLE/A, so neither
+ * form is ever transformed there.
+ *
+ * `textNode.ownerDocument` (never the global `document`) is passed to
+ * buildPandocCitationElement() so the citation element is built in the SAME
+ * document as `textNode` itself — the main window's document for an
+ * ordinary pane, but a SEPARATE document for a pane popped out into its own
+ * OS window (see that function's doc comment). Never `innerHTML`.
  */
-function wrapCitationsInTextNode(textNode: Text, catalog: PandocCitationCatalog): void {
+function wrapCitationsInTextNode(textNode: Text, catalog: PandocCitationCatalog, built: HTMLElement[]): void {
   const source = textNode.nodeValue || "";
-  const segments = splitPandocCitationSegments(source, catalog.entries);
+  const segments = splitPandocCitationSegments(source, catalog.entries, { narrative: true });
   if (!segments.some((segment) => segment.kind === "citation")) return;
 
   const parent = textNode.parentElement;
@@ -79,15 +88,8 @@ function wrapCitationsInTextNode(textNode: Text, catalog: PandocCitationCatalog)
       if (segment.text) parent.insertBefore(doc.createTextNode(segment.text), textNode);
       continue;
     }
-    const citation = createSpan({ cls: PANDOC_CITATION_CLASS });
-    citation.setAttribute("data-citekeys", segment.citekeys.join(","));
-    citation.createSpan({ cls: PANDOC_CITATION_LABEL_CLASS, text: segment.text });
-    const tooltip = buildCitationNoticeElement(segment.citekeys, catalog.records);
-    if (tooltip) {
-      citation.appendChild(tooltip);
-      citation.setAttribute("tabindex", "0");
-      citation.setAttribute("aria-describedby", tooltip.getAttribute("id") || "");
-    }
+    const citation = buildPandocCitationElement(segment.text, segment.citekeys, catalog.records, doc);
+    built.push(citation);
     parent.insertBefore(citation, textNode);
   }
 
@@ -96,14 +98,39 @@ function wrapCitationsInTextNode(textNode: Text, catalog: PandocCitationCatalog)
 
 /**
  * Wrap every recognized citation found under `root` in a `.feuillets-pandoc-citation`
- * element. Exported for direct unit testing; production use goes through
+ * element, and return every citation element built — the caller disposes them
+ * on rerender/unload (see registerPandocCitationReadingMode()). Exported for
+ * direct unit testing; production use goes through
  * registerPandocCitationReadingMode() below.
  */
-export function wrapPandocCitationsInElement(root: HTMLElement, catalog: PandocCitationCatalog): void {
+export function wrapPandocCitationsInElement(root: HTMLElement, catalog: PandocCitationCatalog): HTMLElement[] {
   const targets: Text[] = [];
   collectEligibleTextNodes(root, targets);
+  const built: HTMLElement[] = [];
   for (const textNode of targets) {
-    wrapCitationsInTextNode(textNode, catalog);
+    wrapCitationsInTextNode(textNode, catalog, built);
+  }
+  return built;
+}
+
+/**
+ * Disposes every citation element built for one post-processor render pass
+ * once `containerEl` (the post-processed `el`) is detached — a rerender
+ * (leaf.view.previewMode?.rerender(true), below) replaces it wholesale, and
+ * closing the pane detaches it too. Without this, a tooltip's temporary
+ * window-level scroll/resize listeners (see disposePandocCitationElement(),
+ * pandoc-citation-preview.ts) would leak if left open at that exact moment.
+ */
+class PandocCitationCleanupChild extends MarkdownRenderChild {
+  constructor(
+    containerEl: HTMLElement,
+    private readonly citations: readonly HTMLElement[]
+  ) {
+    super(containerEl);
+  }
+
+  onunload(): void {
+    for (const citation of this.citations) disposePandocCitationElement(citation);
   }
 }
 
@@ -122,7 +149,8 @@ export function registerPandocCitationReadingMode(plugin: PandocCitationReadingM
     const catalog = await loadPandocCitationCatalog(plugin.app, style, bibliographyPath);
     if (!catalog) return;
 
-    wrapPandocCitationsInElement(el, catalog);
+    const citations = wrapPandocCitationsInElement(el, catalog);
+    if (citations.length > 0) ctx.addChild(new PandocCitationCleanupChild(el, citations));
   });
 }
 

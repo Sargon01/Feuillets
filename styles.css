@@ -11391,15 +11391,24 @@ body.feuillets-text-width
   border-radius: var(--radius-s);
 }
 
+/* `position: fixed` (never `absolute`): while shown, the tooltip is a direct
+   child of <body> (see attachCitationTooltipBehavior(), pandoc-citation-
+   preview.ts) — `left`/`top` are then set inline, in VIEWPORT coordinates,
+   by resolveFloatingPosition() (utils/floating-position.ts), which is what
+   keeps the tooltip within a 12px margin of the visible editor area and
+   flips it above/below the citation instead of ever being clipped by an
+   ancestor's `overflow: hidden`/`auto` (the CM6 scroller, the Reading Mode
+   content pane). No static `left`/`bottom`/`min-width`/`max-width` here on
+   purpose, and never a `100vw`-based value: JS computes the REAL space
+   available in the citation's own host panel (resolveTooltipBounds(),
+   resolveFloatingAvailableSize()) and sets `min-width`/`max-width`/
+   `max-height` inline, on every show, scroll and resize — a static CSS
+   bound could never know about a panel narrower than the browser window. */
 .feuillets-pandoc-citation-tooltip {
   display: none;
-  position: absolute;
-  bottom: calc(100% + 6px);
-  left: 0;
+  position: fixed;
   z-index: var(--layer-tooltip, 70);
   width: max-content;
-  min-width: min(280px, calc(100vw - 24px));
-  max-width: min(420px, calc(100vw - 24px));
   padding: var(--size-4-3) var(--size-4-4);
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border-hover, var(--background-modifier-border));
@@ -11414,8 +11423,13 @@ body.feuillets-text-width
   white-space: normal;
 }
 
-.feuillets-pandoc-citation:hover > .feuillets-pandoc-citation-tooltip,
-.feuillets-pandoc-citation:focus-within > .feuillets-pandoc-citation-tooltip {
+/* Toggled from JS (attachCitationTooltipBehavior()), never `:hover`/
+   `:focus-within`: while shown the tooltip is reparented OUT of
+   `.feuillets-pandoc-citation` (straight into <body>), so a CSS selector
+   relying on DOM containment could no longer see it — see this module's
+   doc comment for the full show/hide contract (hover on either the
+   citation or the tooltip itself, or keyboard focus on the citation). */
+.feuillets-pandoc-citation-tooltip.feuillets-pandoc-citation-tooltip-visible {
   display: block;
 }
 
