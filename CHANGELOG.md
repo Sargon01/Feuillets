@@ -2,7 +2,39 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
-## 3.0.2 — unreleased
+## 3.1.0 — 2026-09-26
+
+### Citations et références
+
+- Les citekeys Pandoc/Zotero disposent désormais d’un rendu auteur-date interactif directement dans **Live Preview**, le **Mode Lecture** et **Continu**, sans modification du Markdown source.
+- Les citations entre crochets, les groupes de références, les localisateurs et les citations narratives de type `@citekey` sont rendus à partir de la bibliographie BibTeX applicable au document.
+- Le survol ou le focus d’une citation affiche une **notice bibliographique détaillée** : auteur ou éditeur, année, titre, publication, volume, numéro, pages, éditeur et DOI ou URL selon les informations disponibles.
+- Les infobulles de citation restent dans les limites du panneau actif, s’adaptent aux vues scindées et aux fenêtres détachées, se repositionnent lors du défilement ou du redimensionnement et restent accessibles lors du passage du pointeur de la citation vers la notice.
+- Dans l’éditeur, les citations restent directement modifiables : leur syntaxe source redevient accessible lorsque le curseur ou la sélection atteint la citation.
+- Le rendu des citations utilise un catalogue bibliographique partagé et les vues concernées sont actualisées lorsque leur fichier `.bib` change.
+
+### Recherche documentaire
+
+- Le panneau **Recherche** distingue désormais les vues **Dossiers** et **Références**.
+- Les notes de bas de page, citations et références bibliographiques sont contextualisées selon le document, l’espace de travail ou le projet réellement consulté, sans inclure les branches sans rapport.
+- La bibliographie affichée et générée peut correspondre au projet entier ou uniquement à l’espace documentaire courant.
+- Les documents joints peuvent être utilisés comme candidats de citation via leur fiche Source associée.
+- Lorsqu’un document ne possède pas encore de fiche Source, Feuillets peut en créer une ; lorsque plusieurs fiches correspondent au même document, l’utilisateur choisit explicitement celle à utiliser.
+- Les actions de création de Source, insertion de citation et gestion des notes sont regroupées dans la vue Références.
+
+### Continu et Binder
+
+- La séparation visuelle entre les feuillets de **Continu** est plus nette tout en conservant l’apparence d’un document unique.
+- La copie de plusieurs feuillets depuis Continu conserve maintenant la structure Markdown du manuscrit, notamment les titres de feuillets, Parties et Chapitres.
+- Le menu contextuel des dossiers du Binder propose **« Copier le contenu »**, qui copie directement leur contenu structuré selon le même ordre et les mêmes règles que Continu.
+- Continu respecte correctement la police de texte configurée dans Obsidian.
+
+### Qualité
+
+- Renforcement des tests autour des portées documentaires, des Sources, des bibliographies, des citations interactives, des infobulles et du mode Continu.
+- Ajustements de conformité avec les règles de validation des plugins Obsidian.
+
+## 3.0.2 — 2026-09-21
 
 ### Recherche et fichiers
 
