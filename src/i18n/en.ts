@@ -230,6 +230,7 @@ export const en = {
   "binder.onboarding.card.demo.btn": "Discover",
   "binder.compileFile": "Compile this sheet…",
   "binder.compileFolder": "Compile this folder",
+  "binder.copyFolderContents": "Copy contents",
   "binder.compileSelection": "Compile the selection",
 
   // ---------- Obsidian Explorer context menu (scenes-editor.js) ----------

@@ -3120,7 +3120,7 @@ class FeuilletsPlugin extends Plugin {
     menu.addItem((item) => {
       item.setTitle(t("editorMenu.copy")).setIcon("copy");
       item.setDisabled(!hasSelection);
-      item.onClick(() => void this.scriveningsCopy(editorView));
+      item.onClick(() => void this.scriveningsCopy(editorView, view));
     });
     menu.addItem((item) => {
       item.setTitle(t("editorMenu.paste")).setIcon("clipboard");
@@ -3152,10 +3152,17 @@ class FeuilletsPlugin extends Plugin {
   /** §18 : peut traverser plusieurs segments (ne modifie jamais rien) — lit
    * directement le composite CodeMirror, jamais via un adaptateur borné à un
    * seul segment. */
-  async scriveningsCopy(editorView: ScriveningsAdapterEditorView): Promise<void> {
+  async scriveningsCopy(
+    editorView: ScriveningsAdapterEditorView,
+    view?: Pick<ScriveningsView, "clipboardTextForRange">
+  ): Promise<void> {
     const main = editorView.state.selection.main;
     if (main.empty) return;
-    const text = editorView.state.doc.sliceString(Math.min(main.from, main.to), Math.max(main.from, main.to));
+    const from = Math.min(main.from, main.to);
+    const to = Math.max(main.from, main.to);
+    // Same text as the `copy` event handler (cm-scrivenings.ts): titles of the
+    // segments reached by a cross-segment selection, else the plain slice.
+    const text = view?.clipboardTextForRange(from, to) ?? editorView.state.doc.sliceString(from, to);
     try {
       await navigator.clipboard.writeText(text);
     } catch {

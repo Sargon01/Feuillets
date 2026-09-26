@@ -23,7 +23,8 @@ import {
 } from "../services/scrivenings-document.js";
 import { shortTitleFor, splitFrontmatter } from "../services/frontmatter.js";
 import { roleOfFile } from "../services/folder-structure.js";
-import { createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsBoundariesField, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
+import { buildScriveningsRangeClipboardText } from "../services/scrivenings-clipboard-source.js";
+import { createScriveningsCopyExtension, createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsBoundariesField, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
 import type { ScriveningsImageResolver } from "../utils/cm-scrivenings-markdown.js";
 import { createScriveningsCitationExtension } from "../utils/cm-scrivenings-citations.js";
 import {
@@ -654,6 +655,7 @@ export class ScriveningsView extends ItemView {
         citationFiles
       ),
       scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
+      createScriveningsCopyExtension((from, to) => this.clipboardTextForRange(from, to)),
       // LOT 1.4 (§33) : Continu possède son propre EditorState — jamais
       // `registerEditorExtension()` — ces deux extensions sont donc montées
       // ICI, pas dans `scriveningsExtensions` (cm-scrivenings.ts), qui reste
@@ -695,6 +697,18 @@ export class ScriveningsView extends ItemView {
       // second système de rôles, jamais déduit du nom de fichier ici.
       (file) => roleOfFile(this.plugin.app, this.plugin.settings, file)
     );
+  }
+
+  /** Clipboard text for the composite range `[from, to)`: the selection plus
+   * the Markdown title of each segment it reaches (see
+   * services/scrivenings-clipboard.ts). Shared by the context menu and the
+   * `copy` event so both produce the same text. Titles come from
+   * `createScriveningsClipboardRules` (services/scrivenings-clipboard-source.ts),
+   * shared with the Binder "Copy contents" action. */
+  clipboardTextForRange(from: number, to: number): string | null {
+    const document = this.session.document;
+    if (!document) return null;
+    return buildScriveningsRangeClipboardText(this.plugin.app, this.plugin.settings, this._compileScope, document, from, to);
   }
 
   /** Référence STABLE du listener effectivement enregistré — jamais

@@ -184,6 +184,20 @@ test("§57 — Copier : clipboard reçoit exactement la sélection, 0 transactio
   assert.equal(dispatched.length, 0);
 });
 
+test("§57b — Copier cross-segment : le menu envoie le texte de la vue (titres inclus)", async () => {
+  const { plugin } = harness();
+  const { editorView, dispatched } = makeFixture({ selection: { from: 2, to: 9, empty: false } });
+  let written = null;
+  const restore = withClipboard(async (text) => { written = text; });
+  try {
+    await plugin.scriveningsCopy(editorView, { clipboardTextForRange: (from, to) => `T:${from}-${to}` });
+  } finally {
+    restore();
+  }
+  assert.equal(written, "T:2-9");
+  assert.equal(dispatched.length, 0);
+});
+
 test("§58 — Couper : succès clipboard → UNE transaction de suppression", async () => {
   const { plugin } = harness();
   const { editorView, dispatched, segment } = makeFixture({ selection: { from: 0, to: 5, empty: false } });

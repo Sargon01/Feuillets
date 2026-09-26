@@ -227,6 +227,7 @@ export const fr = {
   "binder.onboarding.card.demo.btn": "Découvrir",
   "binder.compileFile": "Compiler ce feuillet…",
   "binder.compileFolder": "Compiler ce dossier",
+  "binder.copyFolderContents": "Copier le contenu",
   "binder.compileSelection": "Compiler la sélection",
 
   // ---------- Menu contextuel Explorateur Obsidian (scenes-editor.js) ----------

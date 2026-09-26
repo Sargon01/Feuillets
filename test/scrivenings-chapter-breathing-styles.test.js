@@ -43,7 +43,7 @@ test("§3 : le trait lui-même reste discret — aucune épaisseur/couleur de bo
   assert.doesNotMatch(chapterBlock, /border/i, "la bordure fine reste posée UNIQUEMENT par .feuillets-scrivenings-title-divider, jamais surchargée ici");
 
   const dividerBlock = ruleFor(".feuillets-scrivenings-title-divider");
-  assert.equal(declarationValue(dividerBlock, "border-top"), "1px solid var(--background-modifier-border)", "le trait de base (scène/compact) reste inchangé");
+  assert.equal(declarationValue(dividerBlock, "border-top"), "1px solid var(--background-modifier-border-hover)", "le trait de base reste fin (1px), un cran plus visible que --background-modifier-border");
 
   assert.doesNotMatch(CSS, /<hr>/, "aucun <hr> introduit dans le CSS");
 });

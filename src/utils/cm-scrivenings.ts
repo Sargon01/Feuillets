@@ -67,7 +67,10 @@ type ViewStatic = {
   updateListener?: { of(fn: (update: ViewUpdateLike) => void): unknown };
   lineWrapping?: unknown;
   keymap?: KeymapFacet;
-  domEventHandlers?: (handlers: { keydown(event: KeyboardEvent): boolean }) => unknown;
+  domEventHandlers?: (handlers: { keydown?(event: KeyboardEvent): boolean; copy?(event: ClipboardEvent, view: CopyViewLike): boolean }) => unknown;
+};
+type CopyViewLike = {
+  state: { selection: { ranges: readonly { from: number; to: number }[] }; doc: { sliceString(from: number, to: number): string } };
 };
 type PrecStatic = { highest(extension: unknown): unknown };
 type ChangesLike = {
@@ -529,3 +532,25 @@ export function createScriveningsExtensions(imageResolver?: ScriveningsImageReso
 }
 
 export const scriveningsExtensions = createScriveningsExtensions();
+
+/** Copy handler scoped to the Continu editor (never a window/document
+ * listener, so it also serves Cmd/Ctrl+C). `textFor` returns the text to put
+ * on the clipboard for a composite range, or `null` to keep the native copy
+ * (single segment, multiple ranges, empty selection). Never dispatches a
+ * transaction: the document and selection are left untouched. */
+export function createScriveningsCopyExtension(textFor: (from: number, to: number) => string | null): unknown {
+  if (typeof EditorViewTyped.domEventHandlers !== "function") return [];
+  return EditorViewTyped.domEventHandlers({
+    copy(event, view) {
+      const { ranges } = view.state.selection;
+      if (ranges.length !== 1 || !event.clipboardData) return false;
+      const { from, to } = ranges[0];
+      if (from === to) return false;
+      const text = textFor(from, to);
+      if (text === null || text === view.state.doc.sliceString(from, to)) return false;
+      event.clipboardData.setData("text/plain", text);
+      event.preventDefault();
+      return true;
+    },
+  });
+}
