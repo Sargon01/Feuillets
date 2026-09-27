@@ -14,6 +14,7 @@ import {
   FRAGMENT_CONTINUES_CLASS,
   FRAGMENT_START_CLASS,
   applyFragmentPresentation,
+  canSplit,
   documentMediaGroupAfter,
   largestFittingDocumentMediaScale,
   paginateDom,
@@ -613,4 +614,137 @@ test("Lot 1 : footnoteNodes est toujours [] en sortie de paginateDomSteps", () =
   // Verify it's in the final return of paginateDomSteps
   const returnMatch = sourceFile.match(/return pages\.filter[\s\S]{0,150}footnoteNodes/);
   assert.ok(returnMatch, "footnoteNodes should be empty in the final return");
+});
+
+/* ==========================================================================
+ * Regression: a captioned standalone image disappeared from paged Preview in
+ * Manuscrit/Roman/APA7/Thèse (never Document simple/moderne). Root cause,
+ * confirmed by code tracing (not a CSS/template issue at all — see
+ * canSplit()'s own doc comment in pagination-engine.ts): `canSplit()`
+ * wrongly allowed a paragraph containing a captioned figure
+ * (`<p><figure><img><figcaption>text</figcaption></figure></p>`) to be
+ * treated as ordinary splittable prose, because its `<figcaption>`'s text
+ * makes `textLength(node) > 0`. `cloneTextFragment()` then extracted a page
+ * fragment purely from that TEXT NODE's character range — which never
+ * includes the sibling `<img>` (a void element with no text nodes of its
+ * own) — so the image silently vanished while the caption text survived
+ * alone. The fix is a single, shared predicate change (`canSplit()`), never
+ * a per-template CSS rule: `figure`/`figure img`/`figcaption` CSS is
+ * verified below to be identical for all six built-in templates.
+ * ========================================================================== */
+
+import { templateToCss, BUILTIN_TEMPLATE_CATALOG } from "../src/utils/export-templates.js";
+
+/** `textNodes()` (pagination-engine.ts) reads the global `Node.TEXT_NODE`
+ * constant — not defined in this Node.js test environment, so it is
+ * shimmed here, same pattern as cm-pandoc-citation-live-preview.test.js. */
+const previousNode = globalThis.Node;
+globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+test.after(() => { globalThis.Node = previousNode; });
+
+/** Minimal fake DOM node — just enough of `Element` for `canSplit()`/
+ * `textLength()`: `tagName`, a `childNodes` tree of text/element nodes, and
+ * `querySelector` (used only for the `"img"` check). */
+function fakeText(value) {
+  return { nodeType: 3, nodeValue: value, childNodes: [] };
+}
+function fakeElement(tagName, children = []) {
+  const el = {
+    nodeType: 1,
+    tagName: tagName.toUpperCase(),
+    childNodes: children,
+    querySelector(selector) {
+      const want = selector.toUpperCase();
+      const visit = (node) => {
+        if (node.nodeType !== 1) return null;
+        if (node.tagName === want) return node;
+        for (const child of node.childNodes) {
+          const found = visit(child);
+          if (found) return found;
+        }
+        return null;
+      };
+      for (const child of children) {
+        const found = visit(child);
+        if (found) return found;
+      }
+      return null;
+    },
+  };
+  return el;
+}
+
+test("canSplit: a captioned image's paragraph (<p><figure><img><figcaption>) is never splittable text", () => {
+  const img = fakeElement("img");
+  const figcaption = fakeElement("figcaption", [fakeText("essai de légende")]);
+  const figure = fakeElement("figure", [img, figcaption]);
+  const paragraph = fakeElement("p", [figure]);
+  assert.equal(canSplit(paragraph), false);
+});
+
+test("canSplit: a bare uncaptioned embed (<p><img>) was already, and remains, atomic", () => {
+  const paragraph = fakeElement("p", [fakeElement("img")]);
+  assert.equal(canSplit(paragraph), false);
+});
+
+test("canSplit: an ordinary text paragraph with no image remains splittable", () => {
+  const paragraph = fakeElement("p", [fakeText("Du texte tout à fait ordinaire.")]);
+  assert.equal(canSplit(paragraph), true);
+});
+
+test("canSplit: an empty paragraph is never splittable (unchanged, pre-existing rule)", () => {
+  assert.equal(canSplit(fakeElement("p", [])), false);
+});
+
+test("canSplit: a mixed paragraph (real prose text AND an inline image) is also treated atomically — never partially drops the image on a split", () => {
+  const paragraph = fakeElement("p", [fakeText("Texte avant "), fakeElement("img"), fakeText(" texte après.")]);
+  assert.equal(canSplit(paragraph), false);
+});
+
+test("canSplit: a non-<p> element is never splittable, regardless of content (unchanged, pre-existing rule)", () => {
+  const div = fakeElement("div", [fakeText("Du texte.")]);
+  assert.equal(canSplit(div), false);
+});
+
+/* --- CSS parity across all six built-in templates: proves this was never
+ * a CSS/template-sizing issue — figure/img/figcaption rules are identical
+ * everywhere. --- */
+
+function figureRulesOf(css) {
+  return css
+    .split("\n")
+    .filter((line) => /^(figure|figure img|figcaption)\s*\{/.test(line.trim()))
+    .map((line) => line.trim())
+    .sort();
+}
+
+test("figure/figure img/figcaption CSS is byte-identical across all six built-in templates", () => {
+  const rulesByKey = new Map(
+    BUILTIN_TEMPLATE_CATALOG.map((key) => [key, figureRulesOf(templateToCss(EXPORT_TEMPLATES[key]))])
+  );
+  assert.equal(rulesByKey.size, 6);
+  for (const [key, rules] of rulesByKey) {
+    assert.ok(rules.length >= 3, `${key} must define figure, figure img, and figcaption rules`);
+  }
+  const reference = rulesByKey.get("classique");
+  for (const [key, rules] of rulesByKey) {
+    assert.deepEqual(rules, reference, `figure/figcaption CSS for "${key}" must match "classique" exactly — this bug was never a per-template CSS difference`);
+  }
+});
+
+test("figure img always carries max-width: 100% — the natural-size width invariant, for every template", () => {
+  for (const key of BUILTIN_TEMPLATE_CATALOG) {
+    const css = templateToCss(EXPORT_TEMPLATES[key]);
+    assert.match(css, /figure img\s*\{[^}]*max-width:\s*100%/, `template "${key}" must constrain figure img to the content width`);
+  }
+});
+
+/* --- Why Document simple/moderne were accidentally unaffected: composeDocumentMedia
+ * rewraps the block from <p> to a <div>, sidestepping canSplit's tagName==="p"
+ * check entirely — confirmed here directly against the real template data,
+ * not re-derived. --- */
+
+test("only the Document-profile templates (documentSimple) call composeDocumentMedia — Manuscrit/Roman/APA7/Thèse/moderne do not carry profile: \"document\"", () => {
+  const documentProfileKeys = BUILTIN_TEMPLATE_CATALOG.filter((key) => EXPORT_TEMPLATES[key].profile === "document");
+  assert.deepEqual(documentProfileKeys, ["documentSimple"]);
 });

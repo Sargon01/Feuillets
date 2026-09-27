@@ -9873,9 +9873,38 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 
 .feuillets-scrivenings-view .cm-scrivenings-image-caption {
   display: block;
-  margin-top: 0.35rem;
+  margin-top: 0.4em;
   color: var(--text-muted);
-  font-size: var(--font-smaller);
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+/* Same DOM shape (utils/cm-image-embed-dom.ts), same rules, for the normal
+ * editor's own captioned-image widget (utils/cm-editor-image-caption.ts) —
+ * `.cm-editor` (present on every CodeMirror instance, including Continu's)
+ * rather than a second, independently maintained copy of these three rules. */
+.cm-editor .cm-scrivenings-image-embed {
+  display: block;
+  margin-block: 0.75rem;
+  max-width: 100%;
+  text-align: center;
+}
+
+.cm-editor .cm-scrivenings-image-embed img {
+  display: block;
+  height: auto;
+  max-width: 100%;
+  margin-inline: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+}
+
+.cm-editor .cm-scrivenings-image-caption {
+  display: block;
+  margin-top: 0.4em;
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-style: italic;
 }
 
 .feuillets-scrivenings-view .cm-scrivenings-table-wrap {

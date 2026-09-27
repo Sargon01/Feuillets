@@ -82,6 +82,7 @@ import {
   createPandocCitationLivePreviewExtension,
   notifyPandocCitationBibliographyChanged,
 } from "./utils/cm-pandoc-citation-live-preview.js";
+import { createEditorImageCaptionExtension } from "./utils/cm-editor-image-caption.js";
 import {
   registerPandocCitationReadingMode,
   refreshPandocCitationReadingModeViews,
@@ -787,6 +788,7 @@ class FeuilletsPlugin extends Plugin {
       })
     );
     this.registerEditorExtension(createPandocCitationLivePreviewExtension(() => this.settings));
+    this.registerEditorExtension(createEditorImageCaptionExtension(() => this.settings));
     registerPandocCitationReadingMode(this);
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (!(file instanceof TFile) || file.extension.toLowerCase() !== "bib") return;

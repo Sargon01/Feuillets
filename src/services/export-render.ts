@@ -8,6 +8,7 @@ import type { LayoutOverride } from "./layout-store.js";
 import { applyContentVariant } from "./content-variant-render.js";
 import type { ContentVariant } from "./content-variants.js";
 import { joinCompiledSegments } from "./compile-segments.js";
+import { flattenPandocCitationElementsForStaticRender } from "./pandoc-citation-preview.js";
 
 type RenderedFootnote = {
   id: string;
@@ -95,6 +96,14 @@ export async function renderManuscriptHtml(
     await MarkdownRenderer.render(app, renderMarkdown, container, sourcePath, component);
     applySemanticRoles(container);
     applyDocumentLayoutMarkers(container);
+    // MarkdownRenderer.render() runs every registered markdown post-processor,
+    // including the Reading Mode citation one (registerPandocCitationReadingMode(),
+    // pandoc-citation-reading-mode.ts) — appropriate for an actual Reading Mode
+    // pane, not for this shared static render path. Flatten before
+    // stripObsidianCruft() and before applyContentVariant()/afterVariant()
+    // (where applyPandocCitationPreview() still handles any raw citekey left
+    // over) so no interactive citation notice ever reaches pagination/export.
+    flattenPandocCitationElementsForStaticRender(container);
     stripObsidianCruft(container);
     await beforeVariant?.(container);
     applyContentVariant(container, variant);

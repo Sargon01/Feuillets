@@ -2,6 +2,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view
 import { StateField } from "@codemirror/state";
 import { parser, Table } from "@lezer/markdown";
 import { parseImageMarkdown } from "../services/image-markdown.js";
+import { buildImageEmbedDom } from "./cm-image-embed-dom.js";
 
 const scriveningsMarkdownParser = parser.configure([Table]);
 
@@ -965,22 +966,21 @@ class ScriveningsImageWidget extends (ImageWidgetType as { new (): ImageWidgetIn
   }
 
   toDOM(view?: EditorViewInstance): HTMLElement {
-    const root = createSpan({ cls: "cm-scrivenings-image-embed" });
+    // Same visual shape as the normal editor's captioned-image widget (see
+    // cm-editor-image-caption.ts's doc comment) — never its interaction
+    // model: Continu owns its own EditorView, not Obsidian Live Preview, and
+    // `ignoreEvent()` below (unchanged by that other widget's fix) is
+    // already the correct, safe contract here.
+    const root = buildImageEmbedDom({
+      src: this.source,
+      alt: this.image.alt ?? "",
+      caption: this.image.alt,
+      width: this.image.width,
+      height: this.image.height,
+      onLoad: () => view?.requestMeasure?.(),
+    });
     root.setAttribute("data-image-kind", this.image.kind);
     root.setAttribute("data-image-target", this.image.target);
-    const element = createEl("img");
-    element.src = this.source;
-    element.alt = this.image.alt ?? "";
-    element.loading = "lazy";
-    element.addEventListener("load", () => view?.requestMeasure?.());
-    if (this.image.width !== undefined) element.width = this.image.width;
-    if (this.image.height !== undefined) element.height = this.image.height;
-    root.appendChild(element);
-    if (this.image.alt?.trim()) {
-      const caption = createSpan({ cls: "cm-scrivenings-image-caption" });
-      caption.setText(this.image.alt);
-      root.appendChild(caption);
-    }
     return root;
   }
 

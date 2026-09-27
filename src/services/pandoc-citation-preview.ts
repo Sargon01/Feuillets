@@ -949,6 +949,52 @@ export function disposePandocCitationElement(citation: HTMLElement): void {
   citationTooltipCleanups.get(citation)?.();
 }
 
+/** Visible text for one `.feuillets-pandoc-citation` element, for
+ * flattenPandocCitationElementsForStaticRender() below — the label's own
+ * `textContent` in the ordinary case. If the label is unexpectedly missing,
+ * this NEVER falls back to the citation element's own `textContent`: that
+ * would include the tooltip's full bibliographic notice, exactly the leak
+ * this function exists to prevent. Instead it works from a detached clone
+ * with the tooltip subtree removed, so whatever text survives is provably
+ * tooltip-free. */
+function visibleCitationText(citation: HTMLElement): string {
+  const label = citation.querySelector(`.${PANDOC_CITATION_LABEL_CLASS}`);
+  if (label) return label.textContent ?? "";
+  const clone = citation.cloneNode(true) as HTMLElement;
+  clone.querySelector(`.${PANDOC_CITATION_TOOLTIP_CLASS}`)?.remove();
+  return clone.textContent ?? "";
+}
+
+/**
+ * Static render/export (Preview, PDF, EPUB, DOCX, ODT) must never show the
+ * interactive `.feuillets-pandoc-citation` markup that Reading Mode's own
+ * post-processor (registerPandocCitationReadingMode(), pandoc-citation-
+ * reading-mode.ts) produces — that markup's `.feuillets-pandoc-citation-tooltip`
+ * (the full bibliographic notice, hidden by CSS/hover behavior that no static
+ * output has) would otherwise render as plain visible prose. This function
+ * replaces every `.feuillets-pandoc-citation` element under `container` with
+ * a plain text node holding only its visible label — never `innerHTML`,
+ * so no markup can be reinterpreted or leaked in the process.
+ *
+ * Called once, from the shared renderManuscriptHtml() (export-render.ts),
+ * right after MarkdownRenderer.render() — the single place every native
+ * static output (EPUB/DOCX/ODT/PDF, and PreviewView's paged Preview) already
+ * funnels through — rather than duplicated in each exporter. It runs BEFORE
+ * applyPandocCitationPreview() (called later, per-exporter, via
+ * renderManuscriptHtml's afterVariant): that function's own job — turning
+ * still-raw Pandoc citekeys into the same plain-text citation label — is
+ * unaffected by citations this function has already flattened, and neither
+ * path ever re-processes the other's output, so no citation is ever
+ * rendered twice.
+ */
+export function flattenPandocCitationElementsForStaticRender(container: HTMLElement): void {
+  const citations = container.querySelectorAll<HTMLElement>(`.${PANDOC_CITATION_CLASS}`);
+  for (const citation of Array.from(citations)) {
+    const text = visibleCitationText(citation);
+    citation.replaceWith(citation.ownerDocument.createTextNode(text));
+  }
+}
+
 /**
  * Resolve which bibliography (if any) applies to a specific file — the file the
  * editor or Reading Mode view is ACTUALLY showing, never a globally "active"

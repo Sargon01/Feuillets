@@ -143,8 +143,39 @@ export function wordPrefixEnds(text: string): number[] {
   return wordBoundaries(text).slice(1).map((word) => word.start);
 }
 
-function canSplit(node: Element): boolean {
-  return node.tagName.toLowerCase() === "p" && textLength(node) > 0;
+/**
+ * A paragraph is splittable text-by-text ONLY when it actually is flowing
+ * prose — never when it contains an `<img>` (bare, or wrapped in a
+ * `<figure>` alongside a `<figcaption>`, which is exactly what a captioned
+ * image renders as — see export-render.ts's `inlineImages()`).
+ *
+ * `cloneTextFragment()` (below) addresses content purely by character
+ * offsets across this node's TEXT NODES (`textLength()`/`rangeForTextOffsets()`).
+ * An `<img>` has none of its own: when a captioned image's paragraph didn't
+ * fit on the current page and this predicate wrongly allowed it to be
+ * text-split, the resulting `Range` was computed entirely from the
+ * `<figcaption>`'s text node — the ONLY text node in the whole subtree —
+ * and `Range.cloneContents()` never included the sibling `<img>`, which
+ * sits outside any character-addressed boundary. The visible symptom: the
+ * image silently vanished from the page while its caption text survived as
+ * a lone, disconnected line of prose. An uncaptioned embed was never
+ * affected (a bare `<img>` has zero text length, so `textLength(node) > 0`
+ * was already false and the block was already treated as atomic) — nor was
+ * an explicitly-sized wikilink embed, for the same reason (its numeric
+ * alias is a size, never a caption — see export-render.ts's `realCaption`).
+ *
+ * This was never a CSS/template issue: `figure`/`figure img`/`figcaption`
+ * rules are byte-identical across every built-in template (see
+ * `templateToCss()`, utils/export-templates.ts) — only the Document
+ * profile happened to sidestep this bug, by rewrapping the image's block
+ * from a `<p>` into a `<div class="feuillets-doc-media-block">`
+ * (`composeDocumentMedia()`) before pagination ever saw it, which no longer
+ * satisfies `tagName === "p"` below — an accidental side effect, not a
+ * deliberate fix. The check here fixes the actual, shared mechanism instead,
+ * for every template.
+ */
+export function canSplit(node: Element): boolean {
+  return node.tagName.toLowerCase() === "p" && textLength(node) > 0 && !node.querySelector("img");
 }
 
 export function applyFragmentPresentation(
