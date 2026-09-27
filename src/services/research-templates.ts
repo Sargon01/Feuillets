@@ -3,6 +3,24 @@ import type { App } from "obsidian";
 import { getProjectFolder, resourcesFolderPath, resourcesSubfolderPath, detectProjectStructureLocale } from "./folder-structure.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
 import { FALLBACK_LOCALE, type Locale } from "../i18n/index.js";
+import { escapeRegExp } from "../utils/core.js";
+
+/** Exact historical generic titles baked into pre-i18n research templates
+ * (see RESEARCH_FOLDERS.*.newName in utils/project-modes.ts and the
+ * hardcoded template literals in services/project-files.ts) — matched
+ * verbatim, never a broad "Nouveau/Nouvel/Nouvelle \w+" pattern, so a real
+ * user title such as "Nouveau Monde" is never touched. */
+const LEGACY_GENERIC_TEMPLATE_TITLES: readonly string[] = [
+  "Nouveau lieu",
+  "Nouveau terme",
+  "Nouveau concept",
+  "Nouveau personnage",
+  "Nouvel événement",
+  "Nouvelle source",
+  "Nouvelle référence",
+  "Nouvelle entrée",
+  "Nouvelle note",
+];
 
 export function getResearchTemplate(
   app: App,
@@ -72,9 +90,13 @@ export async function getResearchTemplate(
         if (file instanceof TFile) {
           try {
             let content = await app.vault.read(file);
-            // Remplacement dynamique du titre générique si présent
-            if (content.includes(`title: "Nouveau`) || content.includes("title: Nouvelle") || content.includes("title: Nouvel")) {
-              content = content.replace(/title:\s*["']?Nouvel[le]?\s+\w+["']?/g, `title: "${defaultName}"`);
+            // Remplacement dynamique du titre générique historique si présent
+            for (const legacyTitle of LEGACY_GENERIC_TEMPLATE_TITLES) {
+              const pattern = new RegExp(`title:\\s*["']?${escapeRegExp(legacyTitle)}["']?`);
+              if (pattern.test(content)) {
+                content = content.replace(pattern, `title: "${defaultName}"`);
+                break;
+              }
             }
             return content;
           } catch (err) {

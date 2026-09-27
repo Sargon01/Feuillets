@@ -662,6 +662,11 @@ export type ScrivenerImportPlan = {
    * non résolu par rtfToMarkdown (texte visible conservé, jamais de faux
    * lien). Voir le correctif S1 « liens vers dossiers sans note ». */
   uuidToPath: Map<string, string>;
+  /** Final path of the title-page note (Front/<titlePageBasename>), resolved
+   * once from `titlePageBasename` — the single source of truth the caller
+   * (scrivener-import-modal.ts) must use to recognize this target, instead
+   * of re-testing a hardcoded French or English basename. */
+  titlePagePath: string;
 };
 
 export type ScrivenerImportPlanOptions = {
@@ -670,6 +675,11 @@ export type ScrivenerImportPlanOptions = {
   researchRootPath?: string | null;
   mode: keyof typeof PROJECT_MODES;
   unclassifiedFolderLabel: string;
+  /** Basename of the title-page note, in the structural language chosen for
+   * the imported project (e.g. `projectCreationNames(locale).titlePage +
+   * ".md"`). Defaults to the historical French "Page de titre.md" when
+   * omitted, so existing callers/tests keep their prior behavior. */
+  titlePageBasename?: string;
   /** Nom physique RÉEL (déjà présent sur le disque, ou nom canonique à
    * défaut) du dossier Recherche cible pour chaque catégorie reconnue par
    * classifyResearchFolder (ex. "personnages" -> "Personnages", ou une
@@ -729,7 +739,7 @@ export function buildScrivenerImportPlan(
   const targets: ScrivenerImportTarget[] = [];
 
   const canonicalFrontPath = joinImportPath(opts.manuscritPath, "Front");
-  const canonicalTitlePagePath = joinImportPath(canonicalFrontPath, "Page de titre.md");
+  const canonicalTitlePagePath = joinImportPath(canonicalFrontPath, opts.titlePageBasename || "Page de titre.md");
   used.add(canonicalFrontPath);
   used.add(canonicalTitlePagePath);
 
@@ -895,7 +905,7 @@ export function buildScrivenerImportPlan(
     }
   }
 
-  return { targets, uuidToPath };
+  return { targets, uuidToPath, titlePagePath: canonicalTitlePagePath };
 }
 
 // ========================= Extractions des liens d'images ====================

@@ -1258,6 +1258,63 @@ test("buildScrivenerImportPlan — structure", async (t) => {
       assert.ok(!folderOnlyPaths.has(path), `${path} ne doit jamais être un simple folderPath`);
     }
   });
+
+  // Localized title-page basename (i18n cleanup): the real production plan
+  // must place the title-page note at "Front/Page de titre.md" for a French
+  // import and "Front/Title Page.md" for an English one — driven by
+  // `titlePageBasename`, exactly as scrivener-import-modal.ts derives it
+  // from `projectCreationNames(locale).titlePage`. This exercises the same
+  // `buildScrivenerImportPlan` the real import runs, not an isolated helper.
+  for (const [locale, frontChildTitle, expectedBasename] of [
+    ["fr", "Titre", "Page de titre.md"],
+    ["en", "Title", "Title Page.md"],
+  ]) {
+    await t.test(`page de titre localisée (${locale}) : Front/${expectedBasename}, reconnue comme cible titre`, () => {
+      const parsed = parseScrivx(`<ScrivenerProject><Binder>
+        <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+          <Children>
+            <BinderItem UUID="front" Type="Folder"><Title>Front</Title>
+              <Children>
+                <BinderItem UUID="titlepage" Type="Text"><Title>${frontChildTitle}</Title></BinderItem>
+              </Children>
+            </BinderItem>
+            <BinderItem UUID="s1" Type="Text"><Title>Scène 1</Title></BinderItem>
+          </Children>
+        </BinderItem>
+      </Binder></ScrivenerProject>`);
+      const plan = buildScrivenerImportPlan(parsed, {
+        manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+        titlePageBasename: expectedBasename,
+      });
+      assert.equal(plan.titlePagePath, `${MANUSCRIT}/Front/${expectedBasename}`);
+      const titlePageTarget = plan.targets.find((tg) => tg.uuid === "titlepage");
+      assert.equal(titlePageTarget.markdownPath, plan.titlePagePath);
+      // Same recognition test as scrivener-import-modal.ts's writer: a plain
+      // identity check against `plan.titlePagePath`, never a re-test of a
+      // hardcoded French or English basename.
+      assert.equal(titlePageTarget.markdownPath === plan.titlePagePath, true);
+      const sceneTarget = plan.targets.find((tg) => tg.uuid === "s1");
+      assert.notEqual(sceneTarget.markdownPath, plan.titlePagePath, "une scène ordinaire n'est jamais prise pour la page de titre");
+    });
+  }
+
+  await t.test("titlePageBasename omis : repli sur l'ancien nom français, comportement historique préservé", () => {
+    const parsed = parseScrivx(`<ScrivenerProject><Binder>
+      <BinderItem UUID="root" Type="DraftFolder"><Title>Draft</Title>
+        <Children>
+          <BinderItem UUID="front" Type="Folder"><Title>Front</Title>
+            <Children>
+              <BinderItem UUID="titlepage" Type="Text"><Title>Titre</Title></BinderItem>
+            </Children>
+          </BinderItem>
+        </Children>
+      </BinderItem>
+    </Binder></ScrivenerProject>`);
+    const plan = buildScrivenerImportPlan(parsed, {
+      manuscritPath: MANUSCRIT, researchRootPath: null, mode: "fiction", unclassifiedFolderLabel: "Non classé",
+    });
+    assert.equal(plan.titlePagePath, `${MANUSCRIT}/Front/Page de titre.md`);
+  });
 });
 
 /* ===== Micro-correctif « préserver l'ordre source des imports » (Scrivener) =====

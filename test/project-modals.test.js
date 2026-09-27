@@ -6,6 +6,7 @@ import { ProjectConfigContent, YamlPropertyNameModal } from "../src/ui/project-c
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { fr } from "../src/i18n/fr.js";
 import { en } from "../src/i18n/en.js";
+import { getLocale, setLocale } from "../src/i18n/index.js";
 
 class FakeElement {
   constructor(tag = "div", options = {}) {
@@ -1255,4 +1256,66 @@ test("ManageProjectsModal — Disables dropdowns when project has no associated 
   assert.equal(bibSelect.children[0].value, "");
   assert.equal(cslSelect.children.length, 1);
   assert.equal(cslSelect.children[0].value, "");
+});
+
+/* ==================== i18n final touch-ups: preset labels never hardcoded ==================== */
+
+test("NewProjectModal: the preset <select> shows locale-correct labels — never the hardcoded 'Libre' under English", () => {
+  const initial = getLocale();
+  try {
+    for (const [locale, dictionary] of [["en", en], ["fr", fr]]) {
+      setLocale(locale);
+      const { vault } = createFakeVault([]);
+      const app = fakeApp(vault);
+      const settings = freshSettings();
+      const plugin = fakePlugin(settings);
+      const modal = createModal(NewProjectModal, app, plugin);
+
+      modal.onOpen();
+      const select = findElements(modal.contentEl, (el) => el.tag === "select")[0];
+      const options = select.children.map((option) => ({ value: option.value, text: option.text }));
+      assert.deepEqual(options, [
+        { value: "free", text: dictionary["settings.projectType.free"] },
+        { value: "fiction", text: dictionary["settings.projectType.fiction"] },
+        { value: "nonfiction", text: dictionary["settings.projectType.nonfiction"] },
+      ]);
+      if (locale === "en") {
+        assert.ok(!options.some((o) => o.text === "Libre"), "'Libre' must never appear under English");
+        assert.deepEqual(options.map((o) => o.text), ["Free", "Fiction", "Non-fiction"]);
+      } else {
+        assert.deepEqual(options.map((o) => o.text), ["Libre", "Fiction", "Non-fiction"]);
+      }
+    }
+  } finally {
+    setLocale(initial);
+  }
+});
+
+test("TransformToProjectModal: the preset <select> shows locale-correct labels — never the hardcoded 'Libre' under English", () => {
+  const initial = getLocale();
+  try {
+    for (const [locale, dictionary] of [["en", en], ["fr", fr]]) {
+      setLocale(locale);
+      const folder = new TFolder("MonRoman");
+      const { vault } = createFakeVault([folder]);
+      const app = fakeApp(vault);
+      const settings = freshSettings();
+      const plugin = fakePlugin(settings);
+      const modal = createModal(TransformToProjectModal, app, plugin, folder.path);
+
+      modal.onOpen();
+      const select = findElements(modal.contentEl, (el) => el.tag === "select")[0];
+      const options = select.children.slice(1).map((option) => ({ value: option.value, text: option.text }));
+      assert.deepEqual(options, [
+        { value: "free", text: dictionary["settings.projectType.free"] },
+        { value: "fiction", text: dictionary["settings.projectType.fiction"] },
+        { value: "nonfiction", text: dictionary["settings.projectType.nonfiction"] },
+      ]);
+      if (locale === "en") {
+        assert.ok(!options.some((o) => o.text === "Libre"), "'Libre' must never appear under English");
+      }
+    }
+  } finally {
+    setLocale(initial);
+  }
 });

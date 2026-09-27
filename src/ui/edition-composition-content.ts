@@ -1,5 +1,7 @@
 import { Notice, setIcon, type App, type TFile, type TFolder } from "obsidian";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
+import { detectProjectStructureLocale } from "../services/folder-structure.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
 import { FirstPagePanel, type FirstPagePanelPlugin } from "./first-page-panel.js";
 import { FrontMatterPanel, type FrontMatterPanelPlugin } from "./front-matter-panel.js";
 import { ContentsPanel, type ContentsPanelPlugin } from "./contents-panel.js";
@@ -829,14 +831,26 @@ export class EditionCompositionContent {
       (v) => this.updateBinding({ footnoteRenumberOnCompile: v }));
   }
 
+  /** Locale-aware repli for a compiled manuscript's default file name — the
+   * structural language of the project actually being edited, never a
+   * hardcoded French literal (see exportBaseName/resolveOutputBaseName,
+   * which apply the same rule to the export/compile engines this UI
+   * configures). */
+  private defaultManuscriptFileName(): string {
+    const root = this.editorialRoot ?? this.plugin.getProjectFolder();
+    const locale = detectProjectStructureLocale(this.app, root, getLocale());
+    return `${projectCreationNames(locale).manuscript}.md`;
+  }
+
   private renderCompilationSection(parent: HTMLElement): void {
     const binding = this.binding;
     if (!binding) return;
     const S = this.plugin.settings as CompositionSettings;
     const unitPlural = this.plugin.unitLabelPlural();
+    const defaultFileName = this.defaultManuscriptFileName();
 
     this.textRow(parent, t("settings.fileName.name"), binding.value.fileName,
-      (v) => this.updateBinding({ fileName: v.trim() || "Manuscrit.md" }), "Manuscrit.md");
+      (v) => this.updateBinding({ fileName: v.trim() || defaultFileName }), defaultFileName);
     this.textRow(parent, t("settings.separator.name"), binding.value.separator,
       (v) => this.updateBinding({ separator: v }), "—");
 
@@ -897,7 +911,7 @@ export class EditionCompositionContent {
     if (!preset) return;
     if (binding.isOuvrage) {
       await binding.update({
-        fileName: preset.fileName || "Manuscrit.md",
+        fileName: preset.fileName || this.defaultManuscriptFileName(),
         folderTitles: preset.folderTitles !== false,
         chapterTitles: preset.chapterTitles !== false,
         sceneTitles: preset.sceneTitles === true,

@@ -861,7 +861,7 @@ export class ExportPanel {
   }
 
   private exportFileName(): string {
-    return `${exportBaseName(this.plugin.settings)}.md`;
+    return `${exportBaseName(this.plugin.settings, this.app, this.plugin.getProjectFolder())}.md`;
   }
 
   private get exportFormat(): string {

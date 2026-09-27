@@ -4401,7 +4401,17 @@ class FeuilletsPlugin extends Plugin {
       const opLocale = getLocale();
       const outputFolder = await getOutputFolder(this.app, this.settings, opLocale);
       const outBase = outputFolder ? outputFolder.path : input.projectRoot.path;
-      const path = normalizePath(`${outBase}/Bibliographie.md`);
+      const projectLocale = detectProjectStructureLocale(this.app, input.projectRoot, opLocale);
+      const bibliographyBasename = projectCreationNames(projectLocale).researchSections.bibliography;
+      /* A legacy file in the other language's basename, already present at
+         this exact output location, is reused in place rather than
+         duplicated — a UI-language change alone must never spawn a second
+         bibliography file next to the existing one. */
+      const otherBasename = projectCreationNames(projectLocale === "fr" ? "en" : "fr").researchSections.bibliography;
+      const preferredPath = normalizePath(`${outBase}/${bibliographyBasename}.md`);
+      const legacyPath = normalizePath(`${outBase}/${otherBasename}.md`);
+      const legacyExisting = this.app.vault.getAbstractFileByPath(legacyPath);
+      const path = legacyExisting instanceof TFile ? legacyPath : preferredPath;
       const existing = this.app.vault.getAbstractFileByPath(path);
       if (existing instanceof TFile) await this.app.vault.modify(existing, content);
       else await this.app.vault.create(path, content);

@@ -1,6 +1,8 @@
-import { Notice, type App, type TFolder } from "obsidian";
+import { Notice, TFolder, type App } from "obsidian";
 import { createProjectScope, type CompileScope } from "./compile-scope.js";
 import { activePresetConfig, exportWithScope, type ExportFormat } from "./compile-export.js";
+import { detectProjectStructureLocale } from "./folder-structure.js";
+import { projectCreationNames } from "../i18n/project-creation.js";
 import {
   ContentExtractionsFileCorruptedError,
   loadContentExtractions,
@@ -11,7 +13,7 @@ import {
   loadContentCollections,
   type ContentCollection,
 } from "./content-collections.js";
-import { t } from "../i18n/index.js";
+import { t, getLocale } from "../i18n/index.js";
 
 export type ContentDerivationSelection =
   | { kind: "full" }
@@ -143,10 +145,18 @@ export function currentExportScope(plugin: ExportWorkflowPlugin): CompileScope |
 
 /** Nom de base (sans extension) de l'export, dérivé du preset actif — même
  * source que l'ancien `PreviewView.exportFileName()` / `ExportPanel`, jamais
- * une seconde logique de nom. */
-export function exportBaseName(settings: FeuilletsSettings): string {
-  const fileName = activePresetConfig(settings).fileName || "Manuscrit.md";
-  return fileName.replace(/\.md$/i, "");
+ * une seconde logique de nom.
+ *
+ * `projectRoot`, quand fourni, fait dépendre le repli sans preset de la
+ * langue STRUCTURELLE du projet (`detectProjectStructureLocale`) plutôt que
+ * de la locale momentanée de l'UI — un projet anglais garde "Manuscript"
+ * même si l'interface est passée en français, et inversement. Omis (appelant
+ * historique sans accès à un TFolder), le repli reste la locale UI active. */
+export function exportBaseName(settings: FeuilletsSettings, app?: App, projectRoot?: TFolder | null): string {
+  const explicit = activePresetConfig(settings).fileName;
+  if (explicit) return explicit.replace(/\.md$/i, "");
+  const fallbackLocale = app && projectRoot ? detectProjectStructureLocale(app, projectRoot, getLocale()) : getLocale();
+  return projectCreationNames(fallbackLocale).manuscript;
 }
 
 /**
@@ -188,7 +198,8 @@ export async function runExportWorkflow(
 
   const settings = plugin.settings;
   const resolvedFormat = (format || settings.exportFormat || "docx") as ExportFormat;
-  const resolvedBaseName = baseName || exportBaseName(settings);
+  const scopeProjectRoot = app.vault.getAbstractFileByPath(resolvedScope.projectRoot);
+  const resolvedBaseName = baseName || exportBaseName(settings, app, scopeProjectRoot instanceof TFolder ? scopeProjectRoot : null);
   const derivation = await resolveExportDerivation(app, plugin);
   if (!derivation) return undefined;
   return exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName, derivation.contentExtraction, derivation.contentCollection);

@@ -3,8 +3,8 @@ import test from "node:test";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { ResearchView } from "../src/views/research-view.js";
-import { t } from "../src/i18n/index.js";
-import { RESEARCH_FOLDERS, researchFolderLabel } from "../src/utils/project-modes.js";
+import { t, getLocale, setLocale } from "../src/i18n/index.js";
+import { RESEARCH_FOLDERS, researchFolderLabel, researchFolderNewName } from "../src/utils/project-modes.js";
 import { NewResearchFileModal } from "../src/ui/basic-modals.js";
 import { clearCitekeyAnalysisCache } from "../src/services/citekey-bibliography.js";
 
@@ -117,7 +117,11 @@ class FakeElement {
   }
 
   dispatchClick() {
-    this.events?.get("click")?.();
+    // A minimal fake MouseEvent: some real click handlers (the "+" create
+    // button wired by renderCollapsibleHead, utils/dom.ts) call
+    // `e.stopPropagation()` on it — harmless no-op for every other
+    // listener here, which never reads its argument at all.
+    this.events?.get("click")?.({ stopPropagation() {}, preventDefault() {} });
   }
 
   focus() {}
@@ -650,5 +654,168 @@ test("Workspace References creates a Source in the linked research folder withou
     );
   } finally {
     globalThis.document = prevDoc;
+  }
+});
+
+/* ==================== i18n final touch-ups: locale-correct default names,
+ * through the real production render() path (not researchFolderNewName()
+ * called in isolation) ==================== */
+
+function createEntryButton(contentEl, sectionTitle) {
+  return contentEl
+    .querySelectorAll(".clickable-icon")
+    .find((element) => element.getAttr("aria-label") === t("shared.createEntry", { title: sectionTitle.toLowerCase() }));
+}
+
+/** Bypasses the real `Menu` (showResearchCreateMenu opens an Obsidian
+ * context menu for a folder-backed section) and captures the exact
+ * `createFiche` callback it was given — the same production arrow function
+ * `renderResearchBody()` builds per research folder (base-feuillets-
+ * view.ts) — so a test can invoke it directly instead of simulating menu
+ * navigation. */
+function withCapturedCreateFiche(folderPath, fn) {
+  const original = ResearchView.prototype.showResearchCreateMenu;
+  let captured = null;
+  ResearchView.prototype.showResearchCreateMenu = function (_evt, folder, createFiche) {
+    if (folder.path === folderPath) captured = createFiche;
+  };
+  try {
+    fn();
+  } finally {
+    ResearchView.prototype.showResearchCreateMenu = original;
+  }
+  return captured;
+}
+
+test("Personnages creation proposes and creates the locale-correct default name — 'New character' (en) / 'Nouveau personnage' (fr) — through the real render() path", async () => {
+  const initial = getLocale();
+  try {
+    const cases = [
+      ["en", "New character"],
+      ["fr", "Nouveau personnage"],
+    ];
+    for (const [locale, expected] of cases) {
+      setLocale(locale);
+      // Sanity: matches the i18n dictionary itself, never hand-typed twice.
+      assert.equal(researchFolderNewName("personnages", locale), expected);
+
+      const fixture = makeFixture();
+      const { contentEl } = await renderWithDocument(fixture, {});
+      const sectionTitle = researchFolderLabel(RESEARCH_FOLDERS, "personnages");
+      const button = createEntryButton(contentEl, sectionTitle);
+      assert.ok(button, `create button found under locale "${locale}"`);
+
+      const createFiche = withCapturedCreateFiche(fixture.personnagesFolder.path, () => button.dispatchClick());
+      assert.ok(createFiche, "showResearchCreateMenu received the real per-folder onCreate callback");
+
+      const original = NewResearchFileModal.prototype.open;
+      let capturedDefaultName = null;
+      NewResearchFileModal.prototype.open = function () {
+        capturedDefaultName = this.defaultName;
+        void this.onSubmit(this.defaultName);
+      };
+      try {
+        await createFiche();
+      } finally {
+        NewResearchFileModal.prototype.open = original;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      assert.equal(capturedDefaultName, expected, `proposed default name under locale "${locale}"`);
+      const created = fixture.vault.getAbstractFileByPath(`${fixture.personnagesFolder.path}/${expected}.md`);
+      assert.ok(created, `the file is actually created under the name "${expected}.md"`);
+    }
+  } finally {
+    setLocale(initial);
+  }
+});
+
+test("Sources creation proposes the locale-correct default name — 'New source' (en) / 'Nouvelle source' (fr) — through the real render() path", async () => {
+  const initial = getLocale();
+  try {
+    const cases = [
+      ["en", "New source"],
+      ["fr", "Nouvelle source"],
+    ];
+    for (const [locale, expected] of cases) {
+      setLocale(locale);
+      assert.equal(researchFolderNewName("sources", locale), expected);
+
+      const fixture = makeFixture({ includeSources: false });
+      const { view, contentEl } = createView(fixture, { scopeMode: "project" });
+      view.researchActiveSubTab = "references";
+      const prevDoc = globalThis.document;
+      globalThis.document = { activeElement: null };
+      let button;
+      try {
+        await view.render(true);
+        button = newSourceSheetButton(contentEl);
+      } finally {
+        globalThis.document = prevDoc;
+      }
+      assert.ok(button, `"new source" toolbar action found under locale "${locale}"`);
+
+      const original = NewResearchFileModal.prototype.open;
+      let capturedDefaultName = null;
+      NewResearchFileModal.prototype.open = function () {
+        capturedDefaultName = this.defaultName;
+        void this.onSubmit(this.defaultName);
+      };
+      try {
+        button.dispatchClick();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      } finally {
+        NewResearchFileModal.prototype.open = original;
+      }
+
+      assert.equal(capturedDefaultName, expected, `proposed default name under locale "${locale}"`);
+      const created = fixture.vault.getAbstractFileByPath(`${fixture.researchRoot.path}/Sources/${expected}.md`);
+      assert.ok(created, `the file is actually created under the name "${expected}.md"`);
+    }
+  } finally {
+    setLocale(initial);
+  }
+});
+
+test("Custom research folder creation localizes only the generic prefix, never the user-given folder name — 'New theme' (en) / 'Nouveau theme' (fr) — through the real render() path", async () => {
+  const initial = getLocale();
+  try {
+    const cases = [
+      ["en", "New theme"],
+      ["fr", "Nouveau theme"],
+    ];
+    for (const [locale, expected] of cases) {
+      setLocale(locale);
+      // Sanity: matches the i18n dictionary itself, never hand-typed twice.
+      assert.equal(t("research.newEntry.generic", { folder: "theme" }), expected);
+
+      const fixture = makeFixture();
+      const themesFolder = await fixture.vault.createFolder(`${fixture.researchRoot.path}/Themes`);
+      const { contentEl } = await renderWithDocument(fixture, {});
+      const button = createEntryButton(contentEl, themesFolder.name);
+      assert.ok(button, `create button found for the custom folder under locale "${locale}"`);
+
+      const createFiche = withCapturedCreateFiche(themesFolder.path, () => button.dispatchClick());
+      assert.ok(createFiche, "showResearchCreateMenu received the real per-folder onCreate callback");
+
+      const original = NewResearchFileModal.prototype.open;
+      let capturedDefaultName = null;
+      NewResearchFileModal.prototype.open = function () {
+        capturedDefaultName = this.defaultName;
+        void this.onSubmit(this.defaultName);
+      };
+      try {
+        await createFiche();
+      } finally {
+        NewResearchFileModal.prototype.open = original;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      assert.equal(capturedDefaultName, expected, `proposed default name under locale "${locale}"`);
+      const created = fixture.vault.getAbstractFileByPath(`${themesFolder.path}/${expected}.md`);
+      assert.ok(created, `the file is actually created under the name "${expected}.md"`);
+    }
+  } finally {
+    setLocale(initial);
   }
 });

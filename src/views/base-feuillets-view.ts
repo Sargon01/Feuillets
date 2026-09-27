@@ -48,7 +48,7 @@ import {
 } from "../utils/project-modes.js";
 import { FolderSuggest } from "../ui/folder-suggest.js";
 import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
-import { t, getLocale } from "../i18n/index.js";
+import { t, translate, getLocale } from "../i18n/index.js";
 import {
   statusStoredValue,
   statusDisplayLabel,
@@ -494,7 +494,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     rf: typeof RESEARCH_FOLDERS,
     opLocale: ReturnType<typeof getLocale>
   ): void {
-    const defaultName = rf.sources.newName;
+    const defaultName = researchFolderNewName("sources", opLocale);
     new NewResearchFileModal(this.app, researchFolderLabel(rf, "sources"), defaultName, async (rawName) => {
       const cleanName = rawName.trim();
       if (this.isFileNameInvalid(cleanName)) {
@@ -1451,12 +1451,14 @@ export abstract class BaseFeuilletsView extends ItemView {
       spaces.push({
         key: bibliographieFolder.path,
         render: (siblingKeys) => {
-          this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () =>
-            this.promptCreateResearchFile(
+          this.renderSection(body, researchFolderLabel(rf, "bibliographie"), bibliographieFolder, async () => {
+            const defaultName = researchFolderNewName("bibliographie", opLocale);
+            return this.promptCreateResearchFile(
               bibliographieFolder,
-              rf.bibliographie.newName,
-              await getResearchTemplate(this.app, this.plugin.settings, "bibliographie", rf.bibliographie.newName, opLocale)
-            ), "bibliographie", undefined, undefined, undefined,
+              defaultName,
+              await getResearchTemplate(this.app, this.plugin.settings, "bibliographie", defaultName, opLocale)
+            );
+          }, "bibliographie", undefined, undefined, undefined,
             { parentKey: sectionsParentKey, key: bibliographieFolder.path, siblingKeys }
           );
         },
@@ -1467,12 +1469,14 @@ export abstract class BaseFeuilletsView extends ItemView {
       spaces.push({
         key: personnagesFolder.path,
         render: (siblingKeys) => {
-          this.renderSection(body, researchFolderLabel(rf, "personnages"), personnagesFolder, async () =>
-            this.promptCreateResearchFile(
+          this.renderSection(body, researchFolderLabel(rf, "personnages"), personnagesFolder, async () => {
+            const defaultName = researchFolderNewName("personnages", opLocale);
+            return this.promptCreateResearchFile(
               personnagesFolder,
-              rf.personnages.newName,
-              await getResearchTemplate(this.app, this.plugin.settings, "personnages", rf.personnages.newName, opLocale)
-            ), "personnages", undefined, undefined, undefined,
+              defaultName,
+              await getResearchTemplate(this.app, this.plugin.settings, "personnages", defaultName, opLocale)
+            );
+          }, "personnages", undefined, undefined, undefined,
             { parentKey: sectionsParentKey, key: personnagesFolder.path, siblingKeys }
           );
         },
@@ -1483,12 +1487,14 @@ export abstract class BaseFeuilletsView extends ItemView {
       spaces.push({
         key: lieuxFolder.path,
         render: (siblingKeys) => {
-          this.renderSection(body, researchFolderLabel(rf, "lieux"), lieuxFolder, async () =>
-            this.promptCreateResearchFile(
+          this.renderSection(body, researchFolderLabel(rf, "lieux"), lieuxFolder, async () => {
+            const defaultName = researchFolderNewName("lieux", opLocale);
+            return this.promptCreateResearchFile(
               lieuxFolder,
-              rf.lieux.newName,
-              await getResearchTemplate(this.app, this.plugin.settings, "lieux", rf.lieux.newName, opLocale)
-            ), "lieux", undefined, undefined, undefined,
+              defaultName,
+              await getResearchTemplate(this.app, this.plugin.settings, "lieux", defaultName, opLocale)
+            );
+          }, "lieux", undefined, undefined, undefined,
             { parentKey: sectionsParentKey, key: lieuxFolder.path, siblingKeys }
           );
         },
@@ -1499,12 +1505,14 @@ export abstract class BaseFeuilletsView extends ItemView {
       spaces.push({
         key: codexFolder.path,
         render: (siblingKeys) => {
-          this.renderSection(body, researchFolderLabel(rf, "codex"), codexFolder, async () =>
-            this.promptCreateResearchFile(
+          this.renderSection(body, researchFolderLabel(rf, "codex"), codexFolder, async () => {
+            const defaultName = researchFolderNewName("codex", opLocale);
+            return this.promptCreateResearchFile(
               codexFolder,
-              rf.codex.newName,
-              await getResearchTemplate(this.app, this.plugin.settings, "codex", rf.codex.newName, opLocale)
-            ), "codex", undefined, undefined, undefined,
+              defaultName,
+              await getResearchTemplate(this.app, this.plugin.settings, "codex", defaultName, opLocale)
+            );
+          }, "codex", undefined, undefined, undefined,
             { parentKey: sectionsParentKey, key: codexFolder.path, siblingKeys }
           );
         },
@@ -1515,12 +1523,14 @@ export abstract class BaseFeuilletsView extends ItemView {
       spaces.push({
         key: glossaireFolder.path,
         render: (siblingKeys) => {
-          this.renderSection(body, researchFolderLabel(rf, "glossaire"), glossaireFolder, async () =>
-            this.promptCreateResearchFile(
+          this.renderSection(body, researchFolderLabel(rf, "glossaire"), glossaireFolder, async () => {
+            const defaultName = researchFolderNewName("glossaire", opLocale);
+            return this.promptCreateResearchFile(
               glossaireFolder,
-              rf.glossaire.newName,
-              await getResearchTemplate(this.app, this.plugin.settings, "glossaire", rf.glossaire.newName, opLocale)
-            ), "glossaire", undefined, undefined, undefined,
+              defaultName,
+              await getResearchTemplate(this.app, this.plugin.settings, "glossaire", defaultName, opLocale)
+            );
+          }, "glossaire", undefined, undefined, undefined,
             { parentKey: sectionsParentKey, key: glossaireFolder.path, siblingKeys }
           );
         },
@@ -1531,12 +1541,14 @@ export abstract class BaseFeuilletsView extends ItemView {
       spaces.push({
         key: chronoFolder.path,
         render: (siblingKeys) => {
-          this.renderSection(body, researchFolderLabel(rf, "evenements"), chronoFolder, async () =>
-            this.promptCreateResearchFile(
+          this.renderSection(body, researchFolderLabel(rf, "evenements"), chronoFolder, async () => {
+            const defaultName = researchFolderNewName("evenements", opLocale);
+            return this.promptCreateResearchFile(
               chronoFolder,
-              rf.evenements.newName,
-              await getResearchTemplate(this.app, this.plugin.settings, "evenements", rf.evenements.newName, opLocale)
-            ), "evenements", undefined, undefined, undefined,
+              defaultName,
+              await getResearchTemplate(this.app, this.plugin.settings, "evenements", defaultName, opLocale)
+            );
+          }, "evenements", undefined, undefined, undefined,
             { parentKey: sectionsParentKey, key: chronoFolder.path, siblingKeys }
           );
         },
@@ -1550,7 +1562,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         key: folder.path,
         render: (siblingKeys) => {
           this.renderSection(body, folder.name, folder, async () => {
-            const defaultName = `Nouveau ${folder.name.toLowerCase().replace(/s$/, "")}`;
+            const defaultName = translate(opLocale, "research.newEntry.generic", { folder: folder.name.toLowerCase().replace(/s$/, "") });
             this.promptCreateResearchFile(
               folder,
               defaultName,

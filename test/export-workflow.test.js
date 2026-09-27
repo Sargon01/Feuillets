@@ -13,6 +13,7 @@ import {
   currentExportDerivation,
 } from "../src/services/export-workflow.js";
 import { createFileScope, createFolderScope, createSelectionScope, createProjectScope } from "../src/services/compile-scope.js";
+import { getLocale, setLocale } from "../src/i18n/index.js";
 import { contentExtractionsFilePath } from "../src/services/content-extractions.js";
 import { contentCollectionsFilePath } from "../src/services/content-collections.js";
 
@@ -132,6 +133,56 @@ test("exportBaseName : repli sur Manuscrit sans preset ni compileFileName", () =
   settings.activePreset = -1;
   delete settings.compileFileName;
   assert.equal(exportBaseName(settings), "Manuscrit");
+});
+
+test("exportBaseName : projet structurel anglais (racine 'Manuscript') sans preset -> 'Manuscript'", () => {
+  const manuscriptEn = new TFolder("Book/Manuscript");
+  const { vault } = createFakeVault([manuscriptEn]);
+  const app = { vault };
+  const settings = { compilePresets: [], activePreset: -1 };
+  const initial = getLocale();
+  try {
+    setLocale("en");
+    assert.equal(exportBaseName(settings, app, manuscriptEn), "Manuscript");
+  } finally {
+    setLocale(initial);
+  }
+});
+
+test("exportBaseName : la langue STRUCTURELLE du projet prime sur la locale UI momentanée", () => {
+  const manuscriptFr = new TFolder("Livre/Manuscrit");
+  const manuscriptEn = new TFolder("Book/Manuscript");
+  const { vault } = createFakeVault([manuscriptFr, manuscriptEn]);
+  const app = { vault };
+  const settings = { compilePresets: [], activePreset: -1 };
+  const initial = getLocale();
+  try {
+    // Projet FR sous UI anglaise -> reste "Manuscrit".
+    setLocale("en");
+    assert.equal(exportBaseName(settings, app, manuscriptFr), "Manuscrit");
+    // Projet EN sous UI française -> reste "Manuscript".
+    setLocale("fr");
+    assert.equal(exportBaseName(settings, app, manuscriptEn), "Manuscript");
+  } finally {
+    setLocale(initial);
+  }
+});
+
+test("runExportWorkflow : sans baseName explicite, le nom compilé suit la langue structurelle du projet (racine 'Manuscrit'), jamais la seule locale UI", async () => {
+  const { app, settings, manuscript } = buildProject();
+  settings.exportFormat = "md";
+  settings.compilePresets = [];
+  settings.activePreset = -1;
+  delete settings.compileFileName;
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const initial = getLocale();
+  try {
+    setLocale("en");
+    const outPath = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md");
+    assert.match(outPath, /Manuscrit\.md$/, "le projet FR garde 'Manuscrit' même sous une UI anglaise");
+  } finally {
+    setLocale(initial);
+  }
 });
 
 test("extraction d’export : état de session lié au projet et repli après changement", () => {

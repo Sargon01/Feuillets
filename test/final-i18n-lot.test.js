@@ -115,7 +115,7 @@ test("final i18n lot: English display under 'en' locale", () => {
     assert.equal(t("shared.research.citeSource"), "Cite this source…");
     assert.equal(t("shared.contextMenu.versions"), "Versions…");
     assert.equal(t("modal.layout.alignLeft"), "Left");
-    assert.equal(t("modal.layout.alignCenter"), "Centre");
+    assert.equal(t("modal.layout.alignCenter"), "Center");
     assert.equal(t("modal.layout.alignRight"), "Right");
     assert.equal(t("notes.section.workNotesInvalid"), "Invalid work-notes.json");
     assert.equal(t("editionLayout.ulyssesInvalidSyntax"), "Invalid ULSS syntax or no usable property.");

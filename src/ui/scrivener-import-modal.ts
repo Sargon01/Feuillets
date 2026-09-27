@@ -513,8 +513,8 @@ export class ScrivenerImportModal extends Modal {
 
     const typeField = createField(t("modal.newProject.typeLabel"));
     const typeSelect = typeField.createEl("select");
-    for (const [key, mode] of Object.entries(PROJECT_MODES)) {
-      typeSelect.createEl("option", { text: mode.label, value: key });
+    for (const key of Object.keys(PROJECT_MODES)) {
+      typeSelect.createEl("option", { text: t(`settings.projectType.${key}`), value: key });
     }
 
     const analyze = async () => {
@@ -903,6 +903,7 @@ export class ScrivenerImportModal extends Modal {
       unclassifiedFolderLabel,
       researchCategoryFolderNames,
       manuscriptFolderNoteUuids: folderNoteUuids,
+      titlePageBasename: `${creationNames.titlePage}.md`,
     });
     const cursor = new ScrivenerPlanCursor(plan.targets);
     const binderItemMap = plan.uuidToPath;
@@ -1214,7 +1215,7 @@ export class ScrivenerImportModal extends Modal {
       }
       if (item.labelTitle) encounteredLabels.add(item.labelTitle);
 
-      const isTitlePage = target.markdownPath && target.markdownPath.endsWith("/Front/Page de titre.md");
+      const isTitlePage = target.markdownPath === plan.titlePagePath;
       if (isTitlePage) {
         const cleanBody = body.replace(/^#\s+.*(?:\r?\n)+/, "").trim();
         const initialContent = titlePageContent(scrivenerTitle, projectAuthor);

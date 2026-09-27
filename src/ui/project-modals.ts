@@ -137,7 +137,7 @@ export class NewProjectModal extends Modal {
     const presets = Object.entries(PROJECT_MODES);
     for (const key of ["free", "fiction", "nonfiction"] as const) {
       const mode = presets.find(([presetKey]) => presetKey === key)?.[1];
-      if (mode) typeSelect.createEl("option", { text: mode.label, value: key });
+      if (mode) typeSelect.createEl("option", { text: t(`settings.projectType.${key}`), value: key });
     }
     typeSelect.value = "free";
     form.createDiv({
@@ -299,7 +299,7 @@ export class TransformToProjectModal extends Modal {
     const presets = Object.entries(PROJECT_MODES);
     for (const key of ["free", "fiction", "nonfiction"] as const) {
       const mode = presets.find(([presetKey]) => presetKey === key)?.[1];
-      if (mode) typeSelect.createEl("option", { text: mode.label, value: key });
+      if (mode) typeSelect.createEl("option", { text: t(`settings.projectType.${key}`), value: key });
     }
 
     const transform = async () => {
