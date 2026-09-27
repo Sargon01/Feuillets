@@ -658,7 +658,10 @@ declare type FeuilletsSettings = {
   filOrigins: NarrativeThreadState["filOrigins"];
   filResolved: NarrativeThreadState["filResolved"];
 
-  statuses: {name: string, color: string}[];
+  /** Stable-id built-in statuses (project-taxonomy.ts) or legacy/custom
+   *  `{ name, color }` entries — same contract as `ProjectMeta.statuses`
+   *  below; this declaration only lagged behind that one. */
+  statuses: ProjectStatusEntry[];
   hiddenPanels: string[];
   hiddenBoardModes: string[];
 

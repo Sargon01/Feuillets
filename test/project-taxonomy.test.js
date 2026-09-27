@@ -17,6 +17,8 @@ import {
   builtinStatusDefaults,
   builtinLabelDefaults,
   normalizeFilterSentinel,
+  legacyBuiltinStatusId,
+  legacyBuiltinLabelId,
 } from "../src/services/project-taxonomy.js";
 
 /* Stable-identity layer for built-in statuses, labels, and filters — pure
@@ -305,6 +307,61 @@ const FRENCH_ACCENT_PATTERN = /[éèêëàâäîïôöùûüçœÉÈÊËÀÂÄÎ
 const ELIMINATED_FRENCH_WORDS = [
   "Tous", "Sans statut", "Sans label", "Atteint", "En dessous", "Dépassé",
 ];
+
+/* ==================== legacy { name, color } -> id recognition ==================== */
+
+test("legacyBuiltinStatusId: a legacy French built-in status (name + canonical color) is recognized", () => {
+  assert.equal(legacyBuiltinStatusId({ name: frFixture("taxonomy.status.draft"), color: "#e08f4f" }), "draft");
+  assert.equal(legacyBuiltinStatusId({ name: frFixture("taxonomy.status.idea"), color: "#8a8a8a" }), "idea");
+  assert.equal(legacyBuiltinStatusId({ name: frFixture("taxonomy.status.in_progress"), color: "#d9c04a" }), "in_progress");
+  assert.equal(legacyBuiltinStatusId({ name: frFixture("taxonomy.status.revised"), color: "#5a8fd9" }), "revised");
+  assert.equal(legacyBuiltinStatusId({ name: frFixture("taxonomy.status.complete"), color: "#5aa564" }), "complete");
+});
+
+test("legacyBuiltinStatusId: a legacy English built-in status (name + canonical color) is also recognized, to the SAME stable id", () => {
+  assert.equal(legacyBuiltinStatusId({ name: enFixture("taxonomy.status.draft"), color: "#e08f4f" }), "draft");
+});
+
+test("legacyBuiltinStatusId: an already-migrated { id } entry is left alone (idempotent input)", () => {
+  assert.equal(legacyBuiltinStatusId({ id: "draft", color: "#e08f4f" }), null);
+});
+
+test("legacyBuiltinStatusId: a genuine custom status is never recognized", () => {
+  assert.equal(legacyBuiltinStatusId({ name: "My custom status", color: "#123456" }), null);
+});
+
+test("legacyBuiltinStatusId: name collision with the WRONG color is never recognized — the color must match the historical canonical one too", () => {
+  assert.equal(legacyBuiltinStatusId({ name: frFixture("taxonomy.status.draft"), color: "#123456" }), null);
+});
+
+test("legacyBuiltinStatusId: a matching color with an unrelated name is never recognized", () => {
+  assert.equal(legacyBuiltinStatusId({ name: "Unrelated name", color: "#e08f4f" }), null);
+});
+
+test("legacyBuiltinStatusId: an entry with no name at all is never recognized", () => {
+  assert.equal(legacyBuiltinStatusId({ color: "#e08f4f" }), null);
+});
+
+test("legacyBuiltinLabelId: a legacy French built-in label (name + canonical color) is recognized", () => {
+  assert.equal(legacyBuiltinLabelId({ name: frFixture("taxonomy.label.red"), color: "#e0524f" }), "red");
+  assert.equal(legacyBuiltinLabelId({ name: frFixture("taxonomy.label.purple"), color: "#9a6dd7" }), "purple");
+});
+
+test("legacyBuiltinLabelId: a legacy English built-in label is also recognized, to the SAME stable id", () => {
+  assert.equal(legacyBuiltinLabelId({ name: enFixture("taxonomy.label.red"), color: "#e0524f" }), "red");
+});
+
+test("legacyBuiltinLabelId: an already-migrated { id } entry is left alone", () => {
+  assert.equal(legacyBuiltinLabelId({ id: "red", color: "#e0524f" }), null);
+});
+
+test("legacyBuiltinLabelId: a genuine custom label is never recognized", () => {
+  assert.equal(legacyBuiltinLabelId({ name: "My custom label", color: "#123456" }), null);
+});
+
+test("legacyBuiltinLabelId: name collision with the wrong color is never recognized", () => {
+  assert.equal(legacyBuiltinLabelId({ name: frFixture("taxonomy.label.red"), color: "#123456" }), null);
+});
 
 test("project-taxonomy.ts contains no French literal in actual CODE (comments may still explain, in English, what a historical French sentinel looked like)", () => {
   const raw = readFileSync(join(process.cwd(), "src/services/project-taxonomy.ts"), "utf8");

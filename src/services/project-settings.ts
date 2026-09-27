@@ -1,6 +1,8 @@
 import type { App } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
 import { knownProjectType, resolveType } from "../utils/project-modes.js";
+import { translate } from "../i18n/index.js";
+import { builtinLabelKey, legacyBuiltinLabelId, legacyBuiltinStatusId } from "./project-taxonomy.js";
 
 export function migrateLegacyProjectTypes(settings: FeuilletsSettings): number {
   const paths = new Set<string>();
@@ -18,6 +20,95 @@ export function migrateLegacyProjectTypes(settings: FeuilletsSettings): number {
     }
   }
   return migrated;
+}
+
+/** Migrates one legacy `{ name, color }` status entry to `{ id, color }`
+ * when `legacyBuiltinStatusId` (project-taxonomy.ts) positively identifies
+ * it as an old built-in — returns the SAME object reference unchanged
+ * otherwise (a genuine custom status, or an already-migrated `{ id }`
+ * entry), so callers can detect "did anything change" via `!==`. `name` is
+ * dropped on migration: `ProjectStatusEntry.name` is optional, and display/
+ * storage for a built-in `id` never reads it (statusDisplayLabel,
+ * project-taxonomy.ts). */
+function migrateStatusEntry(entry: ProjectStatusEntry): ProjectStatusEntry {
+  const id = legacyBuiltinStatusId(entry);
+  return id ? { id, color: entry.color } : entry;
+}
+
+/** Migrates one legacy `{ name, color }` label entry to `{ id, color }` —
+ * see migrateStatusEntry. Unlike `ProjectStatusEntry`, `Label.name` is
+ * REQUIRED (types.d.ts): a migrated built-in keeps an English compatibility
+ * `name` fallback, exactly like a brand-new install's own defaults
+ * (builtinLabelDefaults, project-taxonomy.ts) — never re-read for display
+ * (labelDisplayLabel resolves through `id`), kept only for a surface that
+ * still reads `.name` directly. */
+function migrateLabelEntry(entry: Label): Label {
+  const id = legacyBuiltinLabelId(entry);
+  return id ? { id, name: translate("en", builtinLabelKey(id)), color: entry.color } : entry;
+}
+
+/** Migrates a whole array of legacy entries via `migrate`, returning the
+ * SAME array reference (never a needless copy) when nothing changed. */
+function migrateEntries<T extends { id?: string; name?: string; color: string }>(
+  entries: T[],
+  migrate: (entry: T) => T
+): { entries: T[]; changed: boolean } {
+  let changed = false;
+  const migrated = entries.map((entry) => {
+    const next = migrate(entry);
+    if (next !== entry) changed = true;
+    return next;
+  });
+  return changed ? { entries: migrated, changed: true } : { entries, changed: false };
+}
+
+/** Migrates legacy `{ name, color }` built-in statuses/labels to their
+ * stable `{ id, color }` form — at BOTH `settings.statuses`/`settings.labels`
+ * and, only where they already exist, every `projectMeta[path].statuses`/
+ * `.labels` override. Never creates a project override that did not already
+ * exist (a `ProjectMeta` with no `statuses`/`labels` array stays exactly
+ * that way). A genuine custom entry — one `legacyBuiltinStatusId`/
+ * `legacyBuiltinLabelId` cannot positively identify as an old built-in — is
+ * never modified. Idempotent: re-running this against already-migrated
+ * settings changes nothing and returns `false`.
+ *
+ * Returns whether anything actually changed, so the caller (main.ts's
+ * `loadSettings()`) only persists settings when this migration itself did
+ * something — never on every plugin load. */
+export function migrateLegacyTaxonomyEntries(settings: FeuilletsSettings): boolean {
+  let changed = false;
+
+  const statuses = migrateEntries(settings.statuses, migrateStatusEntry);
+  if (statuses.changed) {
+    settings.statuses = statuses.entries;
+    changed = true;
+  }
+
+  const labels = migrateEntries(settings.labels, migrateLabelEntry);
+  if (labels.changed) {
+    settings.labels = labels.entries;
+    changed = true;
+  }
+
+  for (const meta of Object.values(settings.projectMeta)) {
+    if (!meta) continue;
+    if (Array.isArray(meta.statuses)) {
+      const result = migrateEntries(meta.statuses, migrateStatusEntry);
+      if (result.changed) {
+        meta.statuses = result.entries;
+        changed = true;
+      }
+    }
+    if (Array.isArray(meta.labels)) {
+      const result = migrateEntries(meta.labels, migrateLabelEntry);
+      if (result.changed) {
+        meta.labels = result.entries;
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
 }
 
 export type ProjectPlanningField = "synopsis" | "summary";

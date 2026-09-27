@@ -16,7 +16,7 @@ import { DEFAULT_SETTINGS } from "./default-settings.js";
 import { type CompileScope, createProjectScope, createFolderScope, createFileScope, createSelectionScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
-import { migrateLegacyProjectTypes } from "./services/project-settings.js";
+import { migrateLegacyProjectTypes, migrateLegacyTaxonomyEntries } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
 import { dateKey, statsForDay, resolveProjectStats, validateStatsTable, recordDailyTotal, mergeLegacyStats, trimStatsTable, dailyWordDelta } from "./utils/journal-stats.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
@@ -3623,6 +3623,14 @@ class FeuilletsPlugin extends Plugin {
     if (this.settings.projectTypeMigrationVersion < 1) {
       migrateLegacyProjectTypes(this.settings);
       this.settings.projectTypeMigrationVersion = 1;
+      await this.saveData(this.settings);
+    }
+    /* Legacy `{ name, color }` built-in statuses/labels (settings.statuses/
+       labels, and any projectMeta[path].statuses/labels override) migrate
+       to their stable `{ id, color }` form — see
+       migrateLegacyTaxonomyEntries, services/project-settings.ts. Saved
+       only when it actually changed something, never on every load. */
+    if (migrateLegacyTaxonomyEntries(this.settings)) {
       await this.saveData(this.settings);
     }
   }

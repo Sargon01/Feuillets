@@ -3,9 +3,12 @@ import { translate, getLocale, type Locale } from "../i18n/index.js";
 /**
  * Stable-identity layer for built-in statuses, labels, and filter
  * sentinels. Pure: no Obsidian import, no Vault/settings access, no
- * mutable global state, no automatic migration — this module never reads
- * or writes anything, it only maps ids <-> colors <-> translated display
- * labels.
+ * mutable global state — this module never reads or writes settings
+ * itself, it only maps ids <-> colors <-> translated display labels (and,
+ * below, recognizes whether a legacy stored entry IS one of these
+ * built-ins — never mutating it itself; see legacyBuiltinStatusId/
+ * legacyBuiltinLabelId and services/project-settings.ts, which applies
+ * that recognition to actual settings).
  *
  * Existing settings entries shaped `{ name, color }` are legacy/custom:
  * `name` is real user data, displayed and stored EXACTLY as typed, never
@@ -184,4 +187,61 @@ const STABLE_FILTER_SENTINEL_IDS: ReadonlySet<string> = new Set(["all", "none", 
 export function normalizeFilterSentinel(value: string): string {
   if (STABLE_FILTER_SENTINEL_IDS.has(value)) return value;
   return LEGACY_FILTER_SENTINELS[value] ?? value;
+}
+
+/* ==================== legacy { name, color } -> { id } migration ==================== */
+
+/** Maps a canonical built-in's HISTORICAL persisted name — in both French
+ * and English, built once from `translate("fr"/"en", key)`, never a
+ * hardcoded literal here — to its stable id and canonical color. Built from
+ * the SAME catalog used for everything else in this module (never a second,
+ * independent list) — see this module's own doc comment for why `name` is
+ * never re-derived from the CURRENT active locale: an existing installation
+ * may have been created under either language, regardless of which locale
+ * is active now. */
+function buildLegacyNameMap<Id extends string>(
+  list: ReadonlyArray<{ id: Id; color: string; key: string }>
+): ReadonlyMap<string, { id: Id; color: string }> {
+  const map = new Map<string, { id: Id; color: string }>();
+  for (const entry of list) {
+    map.set(translate("fr", entry.key), { id: entry.id, color: entry.color });
+    map.set(translate("en", entry.key), { id: entry.id, color: entry.color });
+  }
+  return map;
+}
+
+const LEGACY_STATUS_NAME_MAP = buildLegacyNameMap(BUILTIN_STATUS_LIST);
+const LEGACY_LABEL_NAME_MAP = buildLegacyNameMap(BUILTIN_LABEL_LIST);
+
+/** Minimal shape a legacy stored entry needs for migration recognition —
+ * structurally satisfied by both `ProjectStatusEntry` and `Label`
+ * (types.d.ts), so callers pass either directly. */
+export type LegacyTaxonomyEntry = { id?: string; name?: string; color: string };
+
+/** The stable built-in status id `entry` should migrate to, or `null` when
+ * it must be preserved exactly as a genuine custom entry.
+ *
+ * Never touches an entry that already carries `id` (already migrated, or a
+ * brand-new install — idempotent by construction) or one with no `name` at
+ * all. For a `{ name, color }` entry, BOTH the name AND the color must
+ * match one canonical built-in's HISTORICAL name (French or English) and
+ * ITS canonical color — matching the name alone would risk converting a
+ * genuine custom status that happens to share a historical built-in's
+ * name but was deliberately given a different color; this module never
+ * mutates or constructs the migrated entry itself (the caller knows its
+ * own concrete stored shape — see services/project-settings.ts). */
+export function legacyBuiltinStatusId(entry: LegacyTaxonomyEntry): BuiltinStatusId | null {
+  if (entry.id || !entry.name) return null;
+  const canonical = LEGACY_STATUS_NAME_MAP.get(entry.name);
+  if (!canonical || canonical.color !== entry.color) return null;
+  return canonical.id;
+}
+
+/** The stable built-in label id `entry` should migrate to — see
+ * legacyBuiltinStatusId, identical rule applied to the label catalog. */
+export function legacyBuiltinLabelId(entry: LegacyTaxonomyEntry): BuiltinLabelId | null {
+  if (entry.id || !entry.name) return null;
+  const canonical = LEGACY_LABEL_NAME_MAP.get(entry.name);
+  if (!canonical || canonical.color !== entry.color) return null;
+  return canonical.id;
 }
