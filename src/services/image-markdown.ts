@@ -160,3 +160,47 @@ export function formatPlainImageMarkdown(target: string): string {
 export function formatCaptionedImageMarkdown(target: string, caption: string): string {
   return `![${escapeImageCaption(caption)}](${formatImageTarget(target)})`;
 }
+
+const FENCE_LINE_RE = /^(```|~~~)/;
+
+/**
+ * Every image embed found in a whole Markdown document — reuses
+ * `parseImageMarkdown()` for each candidate line, never a second,
+ * incompatible embed syntax. Same one-embed-per-whole-line convention
+ * already used throughout Feuillets (Continu's `parseImageLine`,
+ * cm-scrivenings-markdown.ts; the normal editor's own widget,
+ * cm-editor-image-caption.ts): a line only counts when its ENTIRE trimmed
+ * text is one recognized image embed — this is also what makes inline-code
+ * (`` `![[photo.jpg]]` ``) safe with NO separate detection: the leading
+ * backtick already fails `parseImageMarkdown`'s own strict `![[`/`![`
+ * prefix check.
+ *
+ * Lines inside a FENCED code block are skipped — any line starting with
+ * ` ``` ` or `~~~` toggles fence state. This is a deliberate simplification
+ * (a real CommonMark fence also requires the SAME character and at least
+ * the SAME length to close) rather than a full fence parser: correct for
+ * every ordinary fenced block, and this module has no Lezer/syntax-tree
+ * access to do better outside a live CodeMirror instance — exactly why this
+ * helper exists instead of reusing Continu's own AST-based fence detection
+ * (cm-scrivenings-markdown.ts), which requires a live EditorState this
+ * module never has (it is read straight from a file's on-disk content).
+ *
+ * Never a stale-cache concern: this reads the CONTENT the caller already
+ * has (see resolveImageResourceFileMove(), services/image-resources.ts),
+ * never `metadataCache`.
+ */
+export function findImageEmbedsInMarkdown(content: string): ParsedImageMarkdown[] {
+  const embeds: ParsedImageMarkdown[] = [];
+  let inFence = false;
+  for (const rawLine of content.split("\n")) {
+    const line = rawLine.trim();
+    if (FENCE_LINE_RE.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const parsed = parseImageMarkdown(line);
+    if (parsed) embeds.push(parsed);
+  }
+  return embeds;
+}

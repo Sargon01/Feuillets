@@ -56,7 +56,7 @@ import {
   CITABLE_ATTACHMENT_EXTENSIONS,
 } from "./services/citation-candidates.js";
 import { uniqueFileName } from "./services/canvas-bridge.js";
-import { handleEditorImagePaste, hasPastedImageItems, isEligiblePasteTarget } from "./services/image-resources.js";
+import { handleEditorImagePaste, hasPastedImageItems, isEligiblePasteTarget, syncImageResourceFolderAfterRename, syncImageResourceFileAfterMove } from "./services/image-resources.js";
 import { addImageCaption, editImageCaption, imageCaptionLineContext, removeImageCaption } from "./services/image-caption-actions.js";
 import { formatCitation } from "./services/citations.js";
 import {
@@ -1720,6 +1720,23 @@ class FeuilletsPlugin extends Plugin {
             if (error instanceof LayoutFileCorruptedError) console.warn("Feuillets layout.json rename maintenance", oldPath, file.path, error);
           });
         }
+        /* Content-folder rename/move: keep the mirrored Images resources
+           folder (if any) in sync — across ALL known projects, not only the
+           active one, and at most one owning manuscript root per event (see
+           resolveImageResourceFolderRename, services/image-resources.ts). A
+           failure here must never abort the rest of this Vault rename
+           maintenance. */
+        void syncImageResourceFolderAfterRename(this.app, knownProjectContexts(), oldPath, file.path).catch((error: unknown) => {
+          console.error("Feuillets image resource mirror rename maintenance", oldPath, file.path, error);
+        });
+        /* Single Markdown sheet moved to a different parent folder: its
+           OWN referenced pasted images (if any are eligible — see
+           resolveImageResourceFileMove, services/image-resources.ts) follow
+           it too. A same-directory filename-only rename is already a no-op
+           inside that resolver, so no extra guard is needed here. */
+        void syncImageResourceFileAfterMove(this.app, knownProjectContexts(), oldPath, file.path).catch((error: unknown) => {
+          console.error("Feuillets image resource file move maintenance", oldPath, file.path, error);
+        });
         /* §17/§18 : un dossier renommé/déplacé peut être le propriétaire
            canonique d'un Carnet (nouveau scope, nouveau titre) ou un dossier
            Recherche lié (linkedResearchFolderPath change) — jamais un nouveau

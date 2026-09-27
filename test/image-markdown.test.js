@@ -8,6 +8,7 @@ import {
   escapeImageCaption,
   formatPlainImageMarkdown,
   formatCaptionedImageMarkdown,
+  findImageEmbedsInMarkdown,
 } from "../src/services/image-markdown.js";
 
 /* Shared image-Markdown parser/formatter — the single rule reused by
@@ -165,4 +166,87 @@ test("wikilink syntax is never confused with a Markdown caption starting with '[
   const captioned = parseImageMarkdown(formatCaptionedImageMarkdown("image.png", "[note]"));
   assert.equal(captioned.syntax, "markdown");
   assert.equal(captioned.caption, "[note]");
+});
+
+/* --- findImageEmbedsInMarkdown: whole-document scan (Lot 3) ------------- */
+
+test("wikilink embed is found", () => {
+  const embeds = findImageEmbedsInMarkdown("Some prose.\n\n![[photo.jpg]]\n\nMore prose.");
+  assert.equal(embeds.length, 1);
+  assert.deepEqual(embeds[0], { syntax: "wikilink", target: "photo.jpg" });
+});
+
+test("numeric-size wikilink embed is found, with width parsed", () => {
+  const embeds = findImageEmbedsInMarkdown("![[photo.jpg|300]]");
+  assert.equal(embeds.length, 1);
+  assert.deepEqual(embeds[0], { syntax: "wikilink", target: "photo.jpg", width: 300 });
+});
+
+test("plain Markdown image is found", () => {
+  const embeds = findImageEmbedsInMarkdown("![](photo.jpg)");
+  assert.equal(embeds.length, 1);
+  assert.equal(embeds[0].target, "photo.jpg");
+});
+
+test("captioned Markdown image is found, with its caption", () => {
+  const embeds = findImageEmbedsInMarkdown("![Vue générale](photo.jpg)");
+  assert.equal(embeds.length, 1);
+  assert.equal(embeds[0].target, "photo.jpg");
+  assert.equal(embeds[0].caption, "Vue générale");
+});
+
+test("caption beginning with escaped square brackets is found correctly", () => {
+  const embeds = findImageEmbedsInMarkdown(formatCaptionedImageMarkdown("photo.jpg", "[Image 1] Vue générale"));
+  assert.equal(embeds.length, 1);
+  assert.equal(embeds[0].caption, "[Image 1] Vue générale");
+});
+
+test("target containing spaces, wrapped in <...>, is found", () => {
+  const embeds = findImageEmbedsInMarkdown("![Caption](<Pasted image 20260927 130801.png>)");
+  assert.equal(embeds.length, 1);
+  assert.equal(embeds[0].target, "Pasted image 20260927 130801.png");
+});
+
+test("a URI-encoded target is found, still encoded (decoding is a resolution-time concern)", () => {
+  const embeds = findImageEmbedsInMarkdown("![Caption](folder/image%20name.png)");
+  assert.equal(embeds.length, 1);
+  assert.equal(embeds[0].target, "folder/image%20name.png");
+});
+
+test("repeated reference to the same image is reported once per occurrence — deduplication is the caller's job", () => {
+  const embeds = findImageEmbedsInMarkdown("![[photo.jpg]]\n\nSome prose.\n\n![Again](photo.jpg)");
+  assert.equal(embeds.length, 2);
+  assert.equal(embeds[0].target, "photo.jpg");
+  assert.equal(embeds[1].target, "photo.jpg");
+});
+
+test("image syntax inside a fenced code block is ignored", () => {
+  const content = [
+    "Some prose.",
+    "```",
+    "![[photo.jpg]]",
+    "![Caption](other.jpg)",
+    "```",
+    "![[real.jpg]]",
+  ].join("\n");
+  const embeds = findImageEmbedsInMarkdown(content);
+  assert.equal(embeds.length, 1);
+  assert.equal(embeds[0].target, "real.jpg");
+});
+
+test("image syntax inside a tilde-fenced code block is ignored too", () => {
+  const content = ["~~~", "![[photo.jpg]]", "~~~", "![[real.jpg]]"].join("\n");
+  const embeds = findImageEmbedsInMarkdown(content);
+  assert.equal(embeds.length, 1);
+  assert.equal(embeds[0].target, "real.jpg");
+});
+
+test("image syntax inside inline code is ignored (the leading backtick already fails the strict prefix check)", () => {
+  const embeds = findImageEmbedsInMarkdown("Some prose with `![[photo.jpg]]` shown as code.\n\n![[real.jpg]]");
+  assert.equal(embeds.length, 1);
+  assert.equal(embeds[0].target, "real.jpg");
+});
+
+test("no embeds at all: empty array", () => {
+  assert.deepEqual(findImageEmbedsInMarkdown("Just plain prose, no images at all."), []);
 });
