@@ -193,6 +193,12 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
       afterBreak = normalizeAfterBreak;
       return;
     }
+    if (tag === "figcaption") {
+      // The caption text is already surfaced as its own dedicated paragraph
+      // (captionParagraphFor, below) — walking into it here as well would
+      // duplicate it as an inline TextRun right after the image.
+      return;
+    }
     const nextMarks = { ...marks };
     if (tag === "strong" || tag === "b") nextMarks.bold = true;
     if (tag === "em" || tag === "i") nextMarks.italics = true;

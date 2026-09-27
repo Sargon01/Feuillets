@@ -1,6 +1,7 @@
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import { StateField } from "@codemirror/state";
 import { parser, Table } from "@lezer/markdown";
+import { parseImageMarkdown } from "../services/image-markdown.js";
 
 const scriveningsMarkdownParser = parser.configure([Table]);
 
@@ -356,36 +357,25 @@ function imageExtension(target: string): boolean {
   return dot >= 0 && IMAGE_EXTENSIONS.has(clean.slice(dot + 1).toLowerCase());
 }
 
-function imageSize(value: string): { width?: number; height?: number } {
-  const match = /^([0-9]+)(?:x([0-9]+))?$/.exec(value);
-  if (!match) return {};
-  const width = Number(match[1]);
-  const height = match[2] === undefined ? undefined : Number(match[2]);
-  return {
-    ...(Number.isFinite(width) ? { width } : {}),
-    ...(height !== undefined && Number.isFinite(height) ? { height } : {}),
-  };
-}
-
 function parseImageLine(line: string, lineStart: number, lineEnd: number): ScriveningsImageNode | null {
   const trimmed = line.trim();
   const leading = line.length - line.trimStart().length;
   const from = lineStart + leading;
-  if (trimmed.startsWith("![[") && trimmed.endsWith("]]")) {
-    const inner = trimmed.slice(3, -2);
-    const pipe = inner.indexOf("|");
-    const target = (pipe < 0 ? inner : inner.slice(0, pipe)).trim();
-    if (!imageExtension(target)) return null;
-    const size = pipe < 0 ? {} : imageSize(inner.slice(pipe + 1).trim());
-    return { from, to: from + trimmed.length, lineFrom: lineStart, lineTo: lineEnd, lineStart, lineEnd, kind: "wikilink", target, ...size };
-  }
-  if (!trimmed.startsWith("![") || !trimmed.endsWith(")")) return null;
-  const closeAlt = trimmed.indexOf("](");
-  if (closeAlt < 2 || !trimmed.endsWith(")")) return null;
-  const target = trimmed.slice(closeAlt + 2, -1).trim();
-  if (!target || !imageExtension(target)) return null;
-  const alt = trimmed.slice(2, closeAlt);
-  return { from, to: from + trimmed.length, lineFrom: lineStart, lineTo: lineEnd, lineStart, lineEnd, kind: "markdown", target, ...(alt ? { alt } : {}) };
+  const parsed = parseImageMarkdown(trimmed);
+  if (!parsed || !imageExtension(parsed.target)) return null;
+  return {
+    from,
+    to: from + trimmed.length,
+    lineFrom: lineStart,
+    lineTo: lineEnd,
+    lineStart,
+    lineEnd,
+    kind: parsed.syntax,
+    target: parsed.target,
+    ...(parsed.caption ? { alt: parsed.caption } : {}),
+    ...(parsed.width !== undefined ? { width: parsed.width } : {}),
+    ...(parsed.height !== undefined ? { height: parsed.height } : {}),
+  };
 }
 
 /** Chaîne EXACTE (après `.trim()` de la ligne) d'un séparateur `***`

@@ -328,3 +328,55 @@ test("inlineChildren : une image trop large est réduite en gardant ses proporti
   assert.ok(s.includes(String(500 * 9525)), "largeur ramenée à 500 attendue");
   assert.ok(s.includes(String(400 * 9525)), "hauteur proportionnelle attendue");
 });
+
+/* Regression: audit found that export-render.ts wraps a captioned image in
+   <figure><img><figcaption>Caption</figcaption></figure> (nested inside the
+   original <p>). inlineChildren's generic "unknown element -> recurse into
+   children" fallback used to walk INTO <figcaption> too, turning its text
+   into an inline TextRun right after the image — in addition to the
+   dedicated paragraph captionParagraphFor already builds from the SAME
+   caption. Net effect before the fix: the caption text appeared twice. */
+function elDeep(tagName, { children = [] } = {}) {
+  return {
+    nodeType: 1,
+    tagName,
+    children,
+    childNodes: children,
+    textContent: children.map((c) => c.textContent ?? c.nodeValue ?? "").join(""),
+    getAttribute: () => null,
+    classList: { contains: () => false },
+    querySelector(sel) {
+      for (const c of children) {
+        if (c.tagName && c.tagName.toLowerCase() === sel) return c;
+        const found = c.querySelector?.(sel);
+        if (found) return found;
+      }
+      return null;
+    },
+  };
+}
+
+test("regression: a captioned image inside export-render's <figure>/<figcaption> wrapper produces the caption exactly once, never duplicated", () => {
+  const img = elDeep("IMG");
+  const figcaption = elDeep("FIGCAPTION", { children: [texte("Ma légende")] });
+  const figure = elDeep("FIGURE", { children: [img, figcaption] });
+  const paragraph = elDeep("P", { children: [figure] });
+  const images = new Map([[img, { caption: "Ma légende", bytes: PNG, ext: "png", width: 400, height: 300 }]]);
+
+  const paragraphs = blockToParagraphs(paragraph, noFootnotes, TPL, {}, images);
+  const allTexts = paragraphs.flatMap((para) => runTexts(para));
+  const occurrences = allTexts.filter((text) => text === "Ma légende").length;
+
+  assert.equal(occurrences, 1, `caption must appear exactly once, found ${occurrences} times in ${JSON.stringify(allTexts)}`);
+  assert.equal(paragraphs.length, 2, "the image's own paragraph plus captionParagraphFor's dedicated paragraph");
+});
+
+test("regression: a plain (uncaptioned) image inside a <figure> still produces exactly one ImageRun and no caption paragraph", () => {
+  const img = elDeep("IMG");
+  const figure = elDeep("FIGURE", { children: [img] });
+  const paragraph = elDeep("P", { children: [figure] });
+  const images = new Map([[img, { bytes: PNG, ext: "png", width: 400, height: 300 }]]);
+
+  const paragraphs = blockToParagraphs(paragraph, noFootnotes, TPL, {}, images);
+  assert.equal(paragraphs.length, 1, "no dedicated caption paragraph when there is no caption");
+});

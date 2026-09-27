@@ -57,6 +57,7 @@ import {
 } from "./services/citation-candidates.js";
 import { uniqueFileName } from "./services/canvas-bridge.js";
 import { handleEditorImagePaste, hasPastedImageItems, isEligiblePasteTarget } from "./services/image-resources.js";
+import { addImageCaption, editImageCaption, imageCaptionLineContext, removeImageCaption } from "./services/image-caption-actions.js";
 import { formatCitation } from "./services/citations.js";
 import {
   bibliographyEntriesForFiles,
@@ -177,7 +178,7 @@ import { ManageProjectsModal, NewProjectModal, DuplicateVersionModal } from "./u
 import { ProjectPropertiesModal, ProjectTagsModal } from "./ui/project-properties-modals.js";
 import { ScrivenerImportModal } from "./ui/scrivener-import-modal.js";
 import { DocxReviewView } from "./views/docx-review-view.js";
-import { NewSheetModal, ConfirmModal } from "./ui/basic-modals.js";
+import { NewSheetModal, ConfirmModal, promptText } from "./ui/basic-modals.js";
 import { FootnoteCheckModal } from "./ui/footnote-modals.js";
 import { FileStatsModal } from "./ui/stats-modal.js";
 import { AnnotationPopover } from "./ui/annotation-popover.js";
@@ -744,6 +745,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerNativeReviewHighlightSync();
     this.registerNativeReviewContextMenu();
     this.registerPastedImageHandling();
+    this.registerImageCaptionContextMenu();
     this.registerVaultEvents();
     this.carnetLifecycle = createCarnetLifecycle(
       this.app,
@@ -2446,6 +2448,53 @@ class FeuilletsPlugin extends Plugin {
         if (!isEligiblePasteTarget(this.app, this.settings, file) || !hasPastedImageItems(evt.clipboardData)) return;
         evt.preventDefault();
         void handleEditorImagePaste(this.app, this.settings, evt.clipboardData, editor, file);
+      })
+    );
+  }
+
+  /** Add/edit/remove-caption commands on a standalone local image embed
+   * under the cursor, in a normal Feuillets Markdown sheet — registration/
+   * wiring only, eligibility and text generation both live in
+   * services/image-caption-actions.ts. Native `editor-menu`, same pattern
+   * as `registerFootnoteContextMenu`; the three items are entirely absent
+   * (not just disabled) unless the current line is a lone local image
+   * embed belonging to the active project. */
+  registerImageCaptionContextMenu(): void {
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor, info) => {
+        const file = info.file;
+        if (!file || file.extension !== "md") return;
+        const cursor = editor.getCursor();
+        const context = imageCaptionLineContext(this.app, this.settings, file, editor.getLine(cursor.line));
+        if (!context) return;
+        menu.addSeparator();
+        if (!context.hasCaption) {
+          menu.addItem((item) =>
+            item.setTitle(t("editorMenu.addImageCaption")).setIcon("image-plus").onClick(async () => {
+              const caption = await promptText(this.app, t("modal.imageCaption.addTitle"), "");
+              if (caption === null || !caption.trim()) return;
+              const result = addImageCaption(context.parsed, caption.trim());
+              if (!result.ok) {
+                new Notice(t("main.notice.imageCaptionWouldLoseSize"));
+                return;
+              }
+              editor.setLine(cursor.line, result.markdown);
+            })
+          );
+        } else {
+          menu.addItem((item) =>
+            item.setTitle(t("editorMenu.editImageCaption")).setIcon("image-plus").onClick(async () => {
+              const caption = await promptText(this.app, t("modal.imageCaption.editTitle"), context.parsed.caption || "");
+              if (caption === null || !caption.trim()) return;
+              editor.setLine(cursor.line, editImageCaption(context.parsed, caption.trim()));
+            })
+          );
+          menu.addItem((item) =>
+            item.setTitle(t("editorMenu.removeImageCaption")).setIcon("image-minus").onClick(() => {
+              editor.setLine(cursor.line, removeImageCaption(context.parsed));
+            })
+          );
+        }
       })
     );
   }

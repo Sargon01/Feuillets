@@ -213,6 +213,21 @@ test("parseScriveningsSegmentFormatting : images seules wikilink et Markdown son
   assert.equal(parseScriveningsSegmentFormatting("```\n![[image.png]]\n```").images.length, 0);
 });
 
+test("parseScriveningsSegmentFormatting : la destination Markdown entre chevrons perd ses chevrons dans la cible logique", () => {
+  const parsed = parseScriveningsSegmentFormatting("![Vue générale](<Pasted image 20260927 130801.png>)");
+  assert.equal(parsed.images.length, 1);
+  assert.equal(parsed.images[0].kind, "markdown");
+  assert.equal(parsed.images[0].target, "Pasted image 20260927 130801.png");
+  assert.equal(parsed.images[0].alt, "Vue générale");
+});
+
+test("parseScriveningsSegmentFormatting : une destination Markdown URI-encodée reste reconnue comme image", () => {
+  const parsed = parseScriveningsSegmentFormatting("![Vue](folder/image%20name.png)");
+  assert.equal(parsed.images.length, 1);
+  assert.equal(parsed.images[0].target, "folder/image%20name.png");
+  assert.equal(parsed.images[0].alt, "Vue");
+});
+
 test("buildScriveningsMarkdownPlan : une image distante inactive devient un remplacement, active reste éditable", () => {
   const text = "![Carte](https://exemple.com/image.png)";
   const inactive = buildScriveningsMarkdownPlan({

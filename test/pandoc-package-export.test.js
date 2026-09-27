@@ -844,3 +844,43 @@ test("22. End-to-end ZIP: source markdown targeting media/schema.png in neighbor
     assert.equal(reportEntry, null);
   }
 });
+
+test("23. A captioned image with a whitespace destination (angle-bracket form) is packaged and its caption is preserved", async () => {
+  const { app, settings, manuscript, vault } = buildTestFixture({
+    scene1Text: "---\ntitle: Scene 1\n---\nHere: ![Vue générale](<Pasted image 20260927 130801.png>) and citation [@smith2024].",
+  });
+  await vault.create("Project/Manuscript/Chapter 1/Pasted image 20260927 130801.png", "fake-png-binary-pasted");
+
+  const projectScope = createProjectScope(manuscript.path);
+  const writtenPath = await exportWithScope(app, settings, projectScope, "pandoc", "Manuscript");
+  const zipFile = app.vault.getAbstractFileByPath(writtenPath);
+  const zip = await JSZip.loadAsync(zipFile.content);
+  const manuscriptText = await zip.file("manuscript.md").async("string");
+
+  // Caption preserved exactly, destination re-wrapped in <...> since the
+  // packaged name still contains whitespace (sanitizeArchiveSegment only
+  // strips filesystem-unsafe characters, never spaces).
+  assert.match(manuscriptText, /!\[Vue générale\]\(<media\/Pasted image 20260927 130801\.png>\)/);
+  assert.ok(zip.file("media/Pasted image 20260927 130801.png"));
+
+  const reportEntry = zip.file("citation-report.json");
+  const report = JSON.parse(await reportEntry.async("string"));
+  assert.deepEqual((report.warnings || []).filter((w) => w.includes("Pasted image")), []);
+});
+
+test("24. A captioned image with a URI-encoded destination is resolved, packaged, and its caption preserved", async () => {
+  const { app, settings, manuscript, vault } = buildTestFixture({
+    scene1Text: "---\ntitle: Scene 1\n---\nHere: ![Vue d'ensemble](Sous%20dossier/image%20avec%20espaces.png).",
+  });
+  await vault.createFolder("Project/Manuscript/Chapter 1/Sous dossier");
+  await vault.create("Project/Manuscript/Chapter 1/Sous dossier/image avec espaces.png", "fake-png-binary-spaced");
+
+  const projectScope = createProjectScope(manuscript.path);
+  const writtenPath = await exportWithScope(app, settings, projectScope, "pandoc", "Manuscript");
+  const zipFile = app.vault.getAbstractFileByPath(writtenPath);
+  const zip = await JSZip.loadAsync(zipFile.content);
+  const manuscriptText = await zip.file("manuscript.md").async("string");
+
+  assert.match(manuscriptText, /!\[Vue d'ensemble\]\(<media\/image avec espaces\.png>\)/);
+  assert.ok(zip.file("media/image avec espaces.png"));
+});

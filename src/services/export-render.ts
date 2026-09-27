@@ -454,7 +454,7 @@ function extractFootnotes(container: HTMLElement): RenderedFootnote[] {
  * `![[fichier.png]]` sans alias (le nom du fichier lui-même) ou d'un
  * indice de taille façon `![[fichier.png|300]]` (juste un nombre) — ni
  * l'un ni l'autre n'est une vraie légende à afficher. */
-function realCaption(alt: string | null, file: TFile): string {
+export function realCaption(alt: string | null, file: TFile): string {
   const a = (alt || "").trim();
   if (!a) return "";
   const lower = a.toLowerCase();

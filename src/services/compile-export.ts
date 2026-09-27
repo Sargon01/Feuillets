@@ -48,6 +48,7 @@ import { extractSectionsByRoles } from "./content-section-extraction.js";
 import type { ContentCollection } from "./content-collections.js";
 import { renderContentCollectionMarkdown } from "./content-collection-render.js";
 import { joinCompiledSegments } from "./compile-segments.js";
+import { formatImageTarget } from "./image-markdown.js";
 export { joinCompiledSegments } from "./compile-segments.js";
 import { effectiveComposition } from "./ouvrage-composition.js";
 export { effectiveComposition } from "./ouvrage-composition.js";
@@ -1269,19 +1270,22 @@ async function transformSegmentMedia(
 
       const isDimension = /^\d+(x\d+)?$/.test(alt);
       const effectiveAlt = isDimension ? "" : alt;
-      return `![${effectiveAlt}](media/${finalName})`;
+      return `![${effectiveAlt}](${formatImageTarget(`media/${finalName}`)})`;
     }
 
     mediaState.warnings.push(`Missing media asset: ${target}`);
     return fullMatch;
   });
 
-  const MD_IMAGE_RE = /!\[([^\]]*)\]\(([^)\s]+)(?:\s+["']([^"']*)["'])?\)/g;
+  // The destination group accepts either the CommonMark angle-bracket form
+  // (`<target with spaces>`, required whenever the target contains
+  // whitespace — see image-markdown.ts) or the plain no-whitespace form.
+  const MD_IMAGE_RE = /!\[([^\]]*)\]\((?:<([^<>\n]*)>|([^)\s]+))(?:\s+["']([^"']*)["'])?\)/g;
   protectedText = await replaceAsync(protectedText, MD_IMAGE_RE, async (match) => {
     const fullMatch = match[0];
     const alt = match[1] ?? "";
-    const rawTarget = match[2] ?? "";
-    const title = match[3];
+    const rawTarget = match[2] ?? match[3] ?? "";
+    const title = match[4];
     const target = rawTarget.trim();
 
     if (isRemoteUrl(target) || target.startsWith("data:") || isRegisteredPackageMedia(target, mediaState.mediaFiles)) {
@@ -1316,8 +1320,8 @@ async function transformSegmentMedia(
       }
 
       return title
-        ? `![${alt}](media/${finalName} "${title}")`
-        : `![${alt}](media/${finalName})`;
+        ? `![${alt}](${formatImageTarget(`media/${finalName}`)} "${title}")`
+        : `![${alt}](${formatImageTarget(`media/${finalName}`)})`;
     }
 
     mediaState.warnings.push(`Missing media asset: ${target}`);
