@@ -534,6 +534,20 @@ export function internalResourcesFolderPath(app: App, root: TFolder, fallbackLoc
   );
 }
 
+/** Path of the Images resources subfolder. Reuses an existing folder if
+ * present (whichever locale created it — "Images" is identical in both
+ * catalogues, so no alternate name is needed), otherwise selects the
+ * canonical name under the resolved Resources folder. Same pattern as
+ * internalResourcesFolderPath above: never a second resources hierarchy. */
+export function imagesFolderPath(app: App, root: TFolder, fallbackLocale?: Locale): string {
+  const fallback = fallbackLocale ?? FALLBACK_LOCALE;
+  const locale = detectProjectStructureLocale(app, root, fallback);
+  const resPath = resourcesFolderPath(app, root, locale);
+  const sub = FEUILLETS_RESOURCE_SUBFOLDERS.find((s) => s.key === "images");
+  const name = sub?.name ?? FEUILLETS_RESOURCE_FOLDERS.images;
+  return resourcesSubfolderPath(app, resPath, name, ...(sub?.variants ?? []));
+}
+
 export function depthOf(
   app: App,
   settings: FeuilletsSettings,

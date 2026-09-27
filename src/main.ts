@@ -56,6 +56,7 @@ import {
   CITABLE_ATTACHMENT_EXTENSIONS,
 } from "./services/citation-candidates.js";
 import { uniqueFileName } from "./services/canvas-bridge.js";
+import { handleEditorImagePaste, hasPastedImageItems, isEligiblePasteTarget } from "./services/image-resources.js";
 import { formatCitation } from "./services/citations.js";
 import {
   bibliographyEntriesForFiles,
@@ -742,6 +743,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerAnnotationHighlightSync();
     this.registerNativeReviewHighlightSync();
     this.registerNativeReviewContextMenu();
+    this.registerPastedImageHandling();
     this.registerVaultEvents();
     this.carnetLifecycle = createCarnetLifecycle(
       this.app,
@@ -2422,6 +2424,28 @@ class FeuilletsPlugin extends Plugin {
             item.setTitle(t("editorMenu.captureIdea")).setIcon("pen-line").onClick(() => this.openCaptureIdeaModal())
           );
         }
+      })
+    );
+  }
+
+  /** Automatic storage of images pasted into a normal Markdown sheet of the
+   * active project — registration/wiring only, the actual resolution and
+   * write logic lives in services/image-resources.ts. Native `editor-paste`
+   * event (never a global DOM listener): `preventDefault()` is called only
+   * once eligibility (project file, not under `_Feuillets/`) and at least
+   * one clipboard image item are both confirmed synchronously — a text-only
+   * or out-of-project paste always falls through to Obsidian's own
+   * handling untouched. Scrivenings/Continu never fires this event (it owns
+   * its own CodeMirror `EditorView`, not an Obsidian `Editor`), so its
+   * clipboard handling (scriveningsCopy/Cut/Paste) is unaffected. */
+  registerPastedImageHandling(): void {
+    this.registerEvent(
+      this.app.workspace.on("editor-paste", (evt, editor, info) => {
+        if (evt.defaultPrevented) return; // another handler already processed this paste
+        const file = info.file;
+        if (!isEligiblePasteTarget(this.app, this.settings, file) || !hasPastedImageItems(evt.clipboardData)) return;
+        evt.preventDefault();
+        void handleEditorImagePaste(this.app, this.settings, evt.clipboardData, editor, file);
       })
     );
   }
