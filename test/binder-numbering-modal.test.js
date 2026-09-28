@@ -52,31 +52,47 @@ function buildHost(settings) {
   };
 }
 
-/* --------------------------- Test A / Test B ---------------------------- */
+/* --------------------------- Test A / Test B / Test C -------------------- */
 
-test("Test A — right-clicking the project root shows 'Numérotation…' / 'Numbering…' exactly once", () => {
-  const root = buildRoot();
+function buildViewForDisplayMenu(root, plugin) {
   class TestBinderView extends FeuilletsView {
-    constructor(app, plugin) { super({ app, contentEl: null }); this.app = app; this.plugin = plugin; }
+    constructor() { super({ app: plugin.app, contentEl: null }); this.app = plugin.app; this.plugin = plugin; }
     async render() {}
   }
+  return new TestBinderView();
+}
+
+test("Test A — the Affichage menu shows 'Numérotation…' / 'Numbering…' exactly once, with the list-ordered icon", () => {
+  const root = buildRoot();
   const app = { vault: { getAbstractFileByPath: (p) => (p === root.path ? root : null) } };
-  const view = new TestBinderView(app, {});
+  const plugin = { app, getProjectFolder: () => root, settings: buildSettings() };
+  const view = buildViewForDisplayMenu(root, plugin);
   const initial = getLocale();
   try {
     for (const locale of ["fr", "en"]) {
       setLocale(locale);
-      view.showProjectRootContextMenu({ preventDefault() {} }, root);
-      const items = Menu.lastShown.items.filter((i) => i.title === t("binder.numbering"));
+      const menu = new Menu();
+      view.buildDisplayOptionsMenu(menu);
+      const items = menu.items.filter((i) => i.title === t("binder.numbering"));
       assert.equal(items.length, 1, `entry present exactly once under locale "${locale}"`);
       assert.equal(items[0].title, locale === "fr" ? "Numérotation…" : "Numbering…");
+      assert.equal(items[0].icon, "list-ordered");
     }
   } finally {
     setLocale(initial);
   }
 });
 
-test("Test B — a single sheet's context menu never gets the 'Numérotation…' entry", () => {
+test("Test B — the project root's context menu no longer contains 'Numérotation…'", () => {
+  const root = buildRoot();
+  const app = { vault: { getAbstractFileByPath: (p) => (p === root.path ? root : null) } };
+  const view = buildViewForDisplayMenu(root, { app, getProjectFolder: () => root, settings: buildSettings() });
+  view.showProjectRootContextMenu({ preventDefault() {} }, root);
+  const items = Menu.lastShown.items.filter((i) => i.title === t("binder.numbering"));
+  assert.equal(items.length, 0);
+});
+
+test("a single sheet's context menu never had the 'Numérotation…' entry (non-regression)", () => {
   const root = buildRoot();
   const chapter = new TFolder("Roman/Manuscrit/Chapitre 1");
   chapter.path = "Roman/Manuscrit/Chapitre 1";
@@ -114,14 +130,50 @@ test("Test B — a single sheet's context menu never gets the 'Numérotation…'
     getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
   };
-  class TestBinderView extends FeuilletsView {
-    constructor() { super({ app, contentEl: null }); this.app = app; this.plugin = plugin; }
-    async render() {}
-  }
-  const view = new TestBinderView();
+  const view = buildViewForDisplayMenu(root, plugin);
   view.showFileContextMenu({ preventDefault() {} }, scene, chapter, 0, []);
   const items = Menu.lastShown.items.filter((i) => i.title === t("binder.numbering"));
   assert.equal(items.length, 0);
+});
+
+test("Test C — Numérotation… always opens on the true global project root, even while the Binder is isolated on a subfolder", () => {
+  const root = buildRoot();
+  const isolatedChapter = new TFolder("Roman/Manuscrit/Chapitre 4");
+  isolatedChapter.path = "Roman/Manuscrit/Chapitre 4";
+  isolatedChapter.name = "Chapitre 4";
+  isolatedChapter.parent = root;
+  const files = new Map([[root.path, root], [isolatedChapter.path, isolatedChapter]]);
+  const app = { vault: { getAbstractFileByPath: (p) => files.get(p) || null } };
+  // The Binder is isolated on the subfolder — getProjectFolder() must still
+  // be consulted for Numérotation…, never the isolated/selected folder.
+  const plugin = {
+    app,
+    getProjectFolder: () => root,
+    getBinderWorkingRoot: () => isolatedChapter,
+    settings: { ...buildSettings(), binderSelectedPath: isolatedChapter.path },
+  };
+  const view = buildViewForDisplayMenu(root, plugin);
+  const menu = new Menu();
+  view.buildDisplayOptionsMenu(menu);
+  const item = menu.items.find((i) => i.title === t("binder.numbering"));
+  assert.ok(item, "Numérotation… must be present");
+
+  const originalOpen = NumberingModal.prototype.open;
+  let capturedGlobalRoot = null;
+  let capturedEditorialRoot = null;
+  NumberingModal.prototype.open = function () {
+    capturedGlobalRoot = this.globalRoot;
+    capturedEditorialRoot = this.editorialRoot;
+  };
+  try {
+    item.callback();
+  } finally {
+    NumberingModal.prototype.open = originalOpen;
+  }
+
+  assert.equal(capturedGlobalRoot, root, "receives the true global project root");
+  assert.equal(capturedEditorialRoot, root, "never the isolated subfolder");
+  assert.notEqual(capturedGlobalRoot, isolatedChapter);
 });
 
 /* ------------------------------- Test C-G -------------------------------- */
