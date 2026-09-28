@@ -124,7 +124,7 @@ export class AppearancesModal extends Modal {
         row.createDiv({ cls: "feuillets-appearances-excerpt" }).setText(r.excerpt);
       }
       row.addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), r.file);
+        void openFileActivating(this.app, this.app.workspace.getLeaf(false), r.file);
         this.close();
       });
     }

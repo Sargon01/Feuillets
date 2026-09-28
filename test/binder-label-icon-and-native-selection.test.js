@@ -26,7 +26,11 @@ import { FeuilletsView } from "../src/views/feuillets-view.js";
 if (typeof globalThis.CSS === "undefined") {
   globalThis.CSS = { escape: (value) => String(value).replace(/["\\]/g, "\\$&") };
 }
-globalThis.window ??= { setTimeout: (...args) => setTimeout(...args), clearTimeout: (handle) => clearTimeout(handle) };
+globalThis.window ??= {
+  setTimeout: (...args) => setTimeout(...args),
+  clearTimeout: (handle) => clearTimeout(handle),
+  requestAnimationFrame: (cb) => { cb(); return 0; },
+};
 
 class FakeElement {
   constructor(options = {}) {
@@ -52,6 +56,7 @@ class FakeElement {
   hide() { this.hidden = true; }
   show() { this.hidden = false; }
   scrollIntoView() {}
+  focus() {}
   setText(text) { this.text = String(text); return this; }
   setAttr(name, value) { this.attrs[name] = value; }
   getAttr(name) { return this.attrs[name] ?? null; }

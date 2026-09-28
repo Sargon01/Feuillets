@@ -295,7 +295,7 @@ export class AnalysisView extends BaseFeuilletsView {
     if (existing instanceof TFile) await this.app.vault.modify(existing, md);
     else await this.app.vault.create(path, md);
     const file = existing instanceof TFile ? existing : this.app.vault.getAbstractFileByPath(path);
-    if (file instanceof TFile) openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    if (file instanceof TFile) void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
     new Notice(t("analysis.dashboard.savedNotice", { folder: dir.split("/").pop() || "" }));
   }
 
@@ -905,9 +905,9 @@ export class AnalysisView extends BaseFeuilletsView {
           seg.style.flexGrow = String(r[d.key]);
           seg.setAttr("title", t("analysis.curve.segTooltip", { label: d.label, value: String(r[d.key]), max: String(RYTHME_MAX) }));
         }
-        rowEl.addEventListener("click", () =>
-          openFileActivating(this.app, this.app.workspace.getLeaf(false), f)
-        );
+        rowEl.addEventListener("click", () => {
+          void openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
+        });
       }
 
       const legend = section.createDiv({ cls: "feuillets-curve-legend" });

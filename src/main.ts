@@ -251,6 +251,7 @@ import {
   MarkdownView,
   Platform,
   setTooltip,
+  type App,
   type View,
   type WorkspaceLeaf,
   type Vault,
@@ -265,6 +266,30 @@ const RIGHT_SIDEBAR_WIDTH = 280;
 
 export function isFileInsideProject(file: TFile | null, root: TFolder | null): boolean {
   return !!file && !!root && (file.path === root.path || file.path.startsWith(`${root.path}/`));
+}
+
+/** Bug fix "writing colors vanish when switching projects with the file
+ * still open": a MarkdownView must stay eligible for the writing-surface
+ * colors as long as its file belongs to ANY known, switchable Feuillets
+ * project — not just the currently active one (`.feuillets-project-editor`,
+ * whose contract stays strictly "the active project only", untouched here).
+ * Known projects = `settings.projectFolder` + `settings.projects`
+ * (switchProject() already pushes the outgoing active project there before
+ * switching — the exact same source of truth, never projectMeta alone and
+ * never a "Manuscrit" name heuristic). A path is only considered if it
+ * actually resolves to a real `TFolder` right now — a stale entry for a
+ * deleted/moved folder is silently ignored, never matched by a loose
+ * `startsWith` without the `/` boundary (same rule as isFileInsideProject). */
+export function isFileInsideKnownProject(app: App, settings: FeuilletsSettings, file: TFile | null): boolean {
+  if (!file) return false;
+  const candidates = new Set<string>();
+  if (settings.projectFolder) candidates.add(settings.projectFolder);
+  for (const p of settings.projects || []) candidates.add(p);
+  for (const path of candidates) {
+    const root = app.vault.getAbstractFileByPath(path);
+    if (root instanceof TFolder && isFileInsideProject(file, root)) return true;
+  }
+  return false;
 }
 
 /** Un Preview déjà ouvert doit accepter un scope résolu pour un OUVRAGE
@@ -1568,6 +1593,17 @@ class FeuilletsPlugin extends Plugin {
           root,
           this.settings.roleEditorDisplay as "callouts" | "compact" | undefined,
         );
+        /* Bug fix "writing colors vanish on project switch while the file
+           stays open": `.feuillets-project-editor` above keeps its
+           historical, strict "active project only" contract — every other
+           behavior it drives (composition directives, semantic roles,
+           callouts, compact display…) must never widen. The writing-surface
+           colors alone need a broader, independent eligibility: any KNOWN
+           switchable Feuillets project, not just the active one. */
+        leaf.view.contentEl.toggleClass(
+          "feuillets-writing-editor",
+          isFileInsideKnownProject(this.app, this.settings, leaf.view.file),
+        );
       }
     }
   }
@@ -1605,6 +1641,7 @@ class FeuilletsPlugin extends Plugin {
         if (leaf.view instanceof MarkdownView) {
           leaf.view.contentEl.removeClass("feuillets-project-editor");
           leaf.view.contentEl.removeClass("feuillets-role-display-compact");
+          leaf.view.contentEl.removeClass("feuillets-writing-editor");
         }
       }
     });
@@ -1800,6 +1837,18 @@ class FeuilletsPlugin extends Plugin {
     );
   }
 
+  /** Bug fix "writing colors/project-editor class missing until the first
+   * click": at `layout-ready`, a restored Markdown leaf can still be
+   * `isDeferred` — `syncProjectEditorScope()` (registerProjectEditorScope,
+   * called on the same `layout-ready`) then sees `leaf.view` as a
+   * placeholder, never a real `MarkdownView`, and skips it. Nothing
+   * resynchronizes `.feuillets-project-editor` again until the user's first
+   * `file-open`/`active-leaf-change` (a click). Once THIS function has
+   * actually turned a deferred placeholder into its real view, immediately
+   * resyncing here closes that gap without waiting for any user
+   * interaction. `applyWritingColors()` itself is untouched on purpose: its
+   * class/custom properties live on `document.body` and never depend on
+   * which leaf/view is loaded. */
   async loadDeferredViews() {
     const pending: Promise<void>[] = [];
     this.app.workspace.iterateAllLeaves((leaf) => {
@@ -1807,7 +1856,10 @@ class FeuilletsPlugin extends Plugin {
         pending.push(leaf.loadIfDeferred().catch(() => {}));
       }
     });
-    if (pending.length > 0) await Promise.all(pending);
+    if (pending.length > 0) {
+      await Promise.all(pending);
+      this.syncProjectEditorScope();
+    }
   }
 
   registerConcentrationTracking() {
@@ -3477,7 +3529,7 @@ class FeuilletsPlugin extends Plugin {
     }
     const leaf = this.getLeafForOpeningFile();
     if (focusEditor) {
-      openFileActivating(this.app, leaf, next);
+      void openFileActivating(this.app, leaf, next);
       void this.app.workspace.revealLeaf(leaf);
     } else {
       // Attendu ici (contrairement au cas focusEditor) : l'appelant clavier
@@ -3858,6 +3910,16 @@ class FeuilletsPlugin extends Plugin {
     S.projectFolder = path;
     await this.saveSettings();
     this.renderAllViews(true);
+    /* Same deferred-leaf gap as registerAutoOpenPanels()/loadDeferredViews():
+       a leaf can still be `isDeferred` if switchProject() runs before
+       layout-ready's own loadDeferredViews() has settled (e.g. a very early
+       command-palette switch). Reusing loadDeferredViews() (a no-op when
+       nothing is deferred, the common case) loads any such leaf and already
+       resyncs the project-editor scope for it; the unconditional
+       syncProjectEditorScope() right after still runs every time, exactly as
+       before — every already-loaded leaf's project membership must be
+       re-evaluated on every project switch, deferred or not. */
+    await this.loadDeferredViews();
     this.syncProjectEditorScope();
     void this.updateStatusBar();
     this.carnetLifecycle?.refresh();
@@ -3976,7 +4038,7 @@ class FeuilletsPlugin extends Plugin {
     const content = buildSourceSheetContent(template, finalBaseName, finalBaseName, attachmentFile.path);
 
     const file = await this.app.vault.create(destPath, content);
-    openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
     new Notice(t("modal.citation.sourceSheetCreatedNotice"));
   }
 
@@ -5060,7 +5122,7 @@ class FeuilletsPlugin extends Plugin {
        cas extrême sans notice dédiée, comme ailleurs dans le plugin. */
     await this.switchProject(destProjectRootPath);
     const leaf = this.getLeafForOpeningFile();
-    openFileActivating(this.app, leaf, moved);
+    void openFileActivating(this.app, leaf, moved);
     this.renderAllViews(true);
     new Notice(
       t("main.notice.draftMovedToProject", {
@@ -5226,7 +5288,7 @@ class FeuilletsPlugin extends Plugin {
       void this.app.workspace.revealLeaf(existing);
       return;
     }
-    openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
+    void openFileActivating(this.app, this.app.workspace.getLeaf(true), result.file);
   }
 
   canUseFolderCarnet(folder: TFolder): boolean {
@@ -5334,7 +5396,7 @@ class FeuilletsPlugin extends Plugin {
     this.carnetLifecycle?.refresh();
     const existing = this.app.workspace.getLeavesOfType("canvas").find((leaf) => (leaf.view as unknown as { file?: TFile }).file?.path === file.path);
     if (existing) { await this.app.workspace.revealLeaf(existing); return; }
-    openFileActivating(this.app, this.app.workspace.getLeaf(true), file);
+    void openFileActivating(this.app, this.app.workspace.getLeaf(true), file);
   }
 
   /* ---------- Mindmap (Prompt 2/5) ----------
@@ -5938,7 +6000,7 @@ class FeuilletsPlugin extends Plugin {
     if (existing) writePlanState(existing, state);
     else data.nodes.push(createPlanNode(data, crypto.randomUUID().replace(/-/g, "").slice(0, 16), state));
     await session.persist(data);
-    openFileActivating(this.app, this.app.workspace.getLeaf(true), board.file);
+    void openFileActivating(this.app, this.app.workspace.getLeaf(true), board.file);
     this.carnetLifecycle?.refresh();
   }
 
@@ -6111,7 +6173,7 @@ class FeuilletsPlugin extends Plugin {
       await this.applySiblingOrder(folder, others, false);
       this.renderAllViews(true);
       const leaf = this.getLeafForOpeningFile();
-      openFileActivating(this.app, leaf, file);
+      void openFileActivating(this.app, leaf, file);
       void this.app.workspace.revealLeaf(leaf);
     }).open();
   }

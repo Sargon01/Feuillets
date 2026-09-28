@@ -115,10 +115,21 @@ export function isEditing(rootEl: ObsidianElement) {
  * Obsidian. `leaf.openFile()` seul ne suffit pas : sans activation
  * explicite, l'événement "file-open" — dont dépendent les panneaux Notes
  * et Progression ainsi que le panneau Propriétés natif d'Obsidian — ne se
- * déclenche pas pour une feuille simplement révélée mais pas "active". */
-export function openFileActivating(app: App, leaf: WorkspaceLeaf, file: TFile) {
-  void leaf.openFile(file, { active: true });
+ * déclenche pas pour une feuille simplement révélée mais pas "active".
+ *
+ * Retourne le `Promise` réel de `leaf.openFile()` — historiquement
+ * abandonné (`void`) ici, ce qui forçait certains appelants (voir le clic
+ * simple du Binder, feuillets-view.ts) à deviner la fin de l'ouverture via
+ * un délai arbitraire. L'ORDRE historique reste strictement identique
+ * (`openFile()` déclenché puis `setActiveLeaf({ focus: true })` immédiatement
+ * après, sans attendre) : seul le retour change, pour que les appelants qui
+ * en ont besoin puissent désormais enchaîner sur la fin réelle de
+ * l'ouverture. Un appelant historique en `void openFileActivating(...)` ou
+ * en appel simple, sans `await`, garde exactement le même comportement. */
+export function openFileActivating(app: App, leaf: WorkspaceLeaf, file: TFile): Promise<void> {
+  const opening = leaf.openFile(file, { active: true });
   app.workspace.setActiveLeaf(leaf, { focus: true });
+  return opening;
 }
 
 /** Comme openFileActivating, mais attend réellement l'ouverture du fichier

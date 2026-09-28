@@ -1657,7 +1657,7 @@ export class BoardView extends BaseFeuilletsView {
       );
       menu.addItem((item) =>
         item.setTitle(t("shared.research.openFile")).onClick(() => {
-          openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+          void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
         })
       );
 
@@ -1686,7 +1686,7 @@ export class BoardView extends BaseFeuilletsView {
     } else {
       const excerpt = card.createDiv({ cls: "feuillets-card-excerpt", text: "…" });
       excerpt.addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+        void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
       void this.app.vault.cachedRead(file).then((raw) => {
         const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "").trim();
@@ -1939,7 +1939,7 @@ export class BoardView extends BaseFeuilletsView {
       fileTitle.addClass("feuillets-clickable");
       fileTitle.addEventListener("click", (event) => {
         event.stopPropagation();
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+        void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
 
       /* §6 LOT 4 — contrat final Synopsis du Chemin de fer : option
@@ -2316,7 +2316,7 @@ export class BoardView extends BaseFeuilletsView {
     title.addEventListener("click", (event) => {
       event.stopPropagation();
       if (this._lanesDragging) return;
-      openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
     });
 
     const synopsis = toValue(this.fm(file)[this.lanesPlanningField()]);
@@ -2441,7 +2441,7 @@ export class BoardView extends BaseFeuilletsView {
       setFm: (file, key, value) => this.setFm(file, key, value),
       rerenderAfterDateEdit: () => this.render(true),
       makeClickToEditFmArea: (parent, file, key, placeholder, maxLines) => this.makeClickToEditFmArea(parent, file, key, placeholder, maxLines),
-      openFile: (file) => openFileActivating(this.app, this.app.workspace.getLeaf(false), file),
+      openFile: (file) => { void openFileActivating(this.app, this.app.workspace.getLeaf(false), file); },
     });
   }
 
@@ -2623,7 +2623,7 @@ export class BoardView extends BaseFeuilletsView {
       attachDragHandlers: (handle, row, parent, index, siblings, table) => this.attachDragHandlers(handle, row, parent, index, siblings, table),
       handleMultiSelectClick: (event, file, parent, index, siblings, table) => this.handleMultiSelectClick(event, file, parent, index, siblings, table),
       beginInlineShortTitleEdit: (cell, title, file) => this.beginInlineShortTitleEdit(cell, title, file),
-      openFile: (file) => openFileActivating(this.app, this.app.workspace.getLeaf(false), file),
+      openFile: (file) => { void openFileActivating(this.app, this.app.workspace.getLeaf(false), file); },
       makeClickToEditFmArea: (parent, file, key, placeholder, maxLines) => this.makeClickToEditFmArea(parent, file, key, placeholder, maxLines),
       makeClickToEditFmList: (parent, file, key, values, rerender) => this.makeClickToEditFmList(parent, file, key, values, rerender),
       makeTagsEditor: (parent, file) => this.makeTagsEditor(parent, file),
@@ -2784,7 +2784,7 @@ export class BoardView extends BaseFeuilletsView {
       if (this.handleMultiSelectClick(e, file, parentFolder, binderIndex, siblings, table)) return;
       if (singleClickTimer) window.clearTimeout(singleClickTimer);
       singleClickTimer = window.setTimeout(() => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+        void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       }, this.outlineDblClickDelayMs);
     });
     titleSpan.addEventListener("dblclick", (e) => {

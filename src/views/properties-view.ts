@@ -435,7 +435,7 @@ export class PropertiesView extends BaseFeuilletsView {
           frow.setText(this.plugin.shortTitleFor(f));
           frow.addEventListener("click", (e) => {
             e.stopPropagation();
-            openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
+            void openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
           });
         }
       }
@@ -555,7 +555,7 @@ export class PropertiesView extends BaseFeuilletsView {
         frow.setText(this.plugin.shortTitleFor(f));
         frow.addEventListener("click", (e) => {
           e.stopPropagation();
-          openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
+          void openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
         });
       }
     };

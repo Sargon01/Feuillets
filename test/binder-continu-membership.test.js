@@ -13,7 +13,11 @@ if (typeof globalThis.CSS === "undefined") {
 }
 // Le clic "historique" (hors Continu) reprend le focus via window.setTimeout
 // (voir renderFileRow, feuillets-view.ts) — absent du runtime Node de test.
-globalThis.window ??= { setTimeout: (...args) => setTimeout(...args), clearTimeout: (handle) => clearTimeout(handle) };
+globalThis.window ??= {
+  setTimeout: (...args) => setTimeout(...args),
+  clearTimeout: (handle) => clearTimeout(handle),
+  requestAnimationFrame: (cb) => { cb(); return 0; },
+};
 
 /* LOT FINAL Binder ↔ Continu — grammaire Scrivener : quand Continu est
  * RÉELLEMENT actif (leaf active), le Binder devient temporairement son
@@ -60,6 +64,7 @@ class FakeElement {
   hide() { this.hidden = true; }
   show() { this.hidden = false; }
   scrollIntoView() {}
+  focus() {}
   setText(text) { this.text = String(text); return this; }
   setAttr(name, value) { this.attrs[name] = value; }
   getAttr(name) { return this.attrs[name] ?? null; }

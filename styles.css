@@ -11504,17 +11504,21 @@ body.feuillets-text-width
  * Off by default (`feuillets-writing-colors` absent from <body> until the
  * user explicitly enables it) — an existing installation sees no visual
  * change whatsoever. Scoped strictly to the two writing surfaces this
- * feature targets: a Feuillets project's own MarkdownView
- * (`.feuillets-project-editor`, syncMarkdownViewProjectEditorClass) and
- * Continu (`[data-type="feuillets-scrivenings"]`) — never a global
- * `.markdown-source-view` override, so any Markdown note outside the active
- * Feuillets project keeps the active theme's normal colors untouched. Only
- * `--background-primary`/`--text-normal` are redefined LOCALLY on these two
- * selectors: every other themed color (links, quotes, selection, cursor,
- * callouts, annotations, code, accent, headings) keeps following the active
- * theme's own logic exactly as before — no Minimal Theme detection, no
- * Style Settings write, no global Obsidian color change. */
-body.feuillets-writing-colors .feuillets-project-editor,
+ * feature targets: any MarkdownView belonging to a known, switchable
+ * Feuillets project (`.feuillets-writing-editor`, syncProjectEditorScope —
+ * a DIFFERENT, broader class than `.feuillets-project-editor`: a file from
+ * a project you just switched AWAY from, but left open, must keep its
+ * colors even though it's no longer "the active project" for every other
+ * purpose that class drives) and Continu (`[data-type="feuillets-
+ * scrivenings"]`) — never a global `.markdown-source-view` override, so any
+ * Markdown note outside every known Feuillets project keeps the active
+ * theme's normal colors untouched. Only `--background-primary`/
+ * `--text-normal` are redefined LOCALLY on these two selectors: every other
+ * themed color (links, quotes, selection, cursor, callouts, annotations,
+ * code, accent, headings) keeps following the active theme's own logic
+ * exactly as before — no Minimal Theme detection, no Style Settings write,
+ * no global Obsidian color change. */
+body.feuillets-writing-colors .workspace-leaf-content[data-type="markdown"] .feuillets-writing-editor,
 body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scrivenings"] {
   --background-primary: var(--feuillets-writing-background);
   --text-normal: var(--feuillets-writing-text);
@@ -11529,7 +11533,7 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
  * descendant with its own explicit `color` (links, syntax markers,
  * headings, callouts, citations, code, annotations) still wins the cascade
  * exactly as before — nothing here overrides them. */
-body.feuillets-writing-colors .workspace-leaf-content[data-type="markdown"] .feuillets-project-editor .markdown-source-view.mod-cm6 .cm-content,
+body.feuillets-writing-colors .workspace-leaf-content[data-type="markdown"] .feuillets-writing-editor .markdown-source-view.mod-cm6 .cm-content,
 body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scrivenings"] .cm-content {
   color: var(--feuillets-writing-text);
 }

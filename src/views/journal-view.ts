@@ -251,7 +251,7 @@ export class JournalView extends BaseFeuilletsView {
       dateEl.setAttr("aria-label", t("journal.openEditNewTab"));
       dateEl.setAttr("title", t("journal.openEditNewTab"));
       dateEl.addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf("tab"), entry.file);
+        void openFileActivating(this.app, this.app.workspace.getLeaf("tab"), entry.file);
       });
 
       // Affichage en lecture seule : rendu Markdown
@@ -275,7 +275,7 @@ export class JournalView extends BaseFeuilletsView {
           void (async () => {
             const file = await this.plugin.ensureJournalEntry(viewedDate);
             if (file) {
-              openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
+              void openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
               void this.render();
             }
           })();

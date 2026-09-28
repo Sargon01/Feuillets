@@ -771,6 +771,25 @@ export class FeuilletsView extends BaseFeuilletsView {
     toggle(t("binder.display.progressBars"), "binderShowProgress");
     menu.addSeparator();
 
+    /* Binder access point for Numbering… moved here from the project root's
+       context menu — same shortcut to the SAME structure fields as Édition
+       → Composition → Le manuscrit → Structure (createCompositionBinding,
+       see ui/numbering-modal.ts, unchanged). Always the true GLOBAL project
+       root (`getProjectFolder()`), never the isolated working root/selected
+       folder: this menu can be opened while the Binder is isolated on a
+       subfolder, but Numbering… is a shortcut to the project's own
+       composition, not to whatever subfolder happens to be displayed. */
+    const numberingRoot = this.plugin.getProjectFolder();
+    if (numberingRoot) {
+      menu.addItem((item) =>
+        item
+          .setTitle(t("binder.numbering"))
+          .setIcon("list-ordered")
+          .onClick(() => new NumberingModal(this.app, this.plugin, numberingRoot).open())
+      );
+      menu.addSeparator();
+    }
+
     menu.addItem((item) =>
       item
         .setTitle(t("binder.display.moreOptions"))
@@ -1663,7 +1682,7 @@ export class FeuilletsView extends BaseFeuilletsView {
            on connaît déjà le fichier ciblé, pas besoin de le redéduire. */
         highlightActive(this.contentEl, file.path);
         const leaf = this.plugin.getLeafForOpeningFile();
-        openFileActivating(this.app, leaf, file);
+        const opening = openFileActivating(this.app, leaf, file);
         void this.app.workspace.revealLeaf(leaf);
         // LOT 3 — pont clic simple Binder → Preview existant : jamais un
         // second appel depuis Shift/Cmd/Ctrl/dossier (retournés plus haut) —
@@ -1675,13 +1694,23 @@ export class FeuilletsView extends BaseFeuilletsView {
             ?? createFileScope(folder.path, file.path);
           void this.plugin.syncExistingPreviewScope?.(fileScope, null);
         }
-        /* openFileActivating déplace le focus DOM vers l'éditeur — sans le
-           reprendre ici, la 1ère flèche haut/bas après un simple clic ne
-           navigue jamais (le keydown du Binder, sur this.contentEl, ne
-           reçoit rien tant que le focus n'y est pas revenu ; voir onOpen). */
-        window.setTimeout(() => {
-          this.contentEl.querySelector<HTMLElement>(".feuillets-item.is-active")?.focus();
-        }, 60);
+        /* Bug fix "unstable Binder focus after a single click": openFileActivating
+           moves the DOM focus to the editor, and until now the Binder focus was
+           reclaimed after an ARBITRARY 60ms setTimeout — a race against the
+           real, asynchronous end of leaf.openFile() (a heavier file, a slower
+           CodeMirror mount, or a late Obsidian event could all still move focus
+           back to the editor afterwards). Chaining on the REAL Promise returned
+           by openFileActivating(), then waiting one animation frame, is
+           deterministic: the Binder only reclaims focus once the file is
+           genuinely open. `item` is this exact clicked row — no need to
+           re-search ".feuillets-item.is-active" in the whole Binder DOM.
+           `{ preventScroll: true }` avoids an unwanted Binder scroll jump on
+           every single click. */
+        void opening.then(() => {
+          window.requestAnimationFrame(() => {
+            item.focus({ preventScroll: true });
+          });
+        });
       });
 
       if (!effectivelyHidden) {
@@ -2096,7 +2125,7 @@ export class FeuilletsView extends BaseFeuilletsView {
               name = `${t("binder.research.newFileDefaultName")} ${n++}`;
             }
             const file = await this.app.vault.create(normalizePath(`${folder.path}/${name}.md`), "");
-            openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
+            void openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
           })
       );
       menu.showAtMouseEvent(e);
@@ -2220,7 +2249,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           // Toujours dans un nouvel onglet : consulter une fiche de
           // recherche ne doit jamais remplacer la scène en cours d'écriture.
           row.addEventListener("click", () => {
-            openFileActivating(this.app, this.app.workspace.getLeaf("tab"), child);
+            void openFileActivating(this.app, this.app.workspace.getLeaf("tab"), child);
           });
           row.addEventListener("contextmenu", (e) => showResearchFileMenu(e, child));
         }
@@ -2355,16 +2384,6 @@ export class FeuilletsView extends BaseFeuilletsView {
         .onClick(() => void this.plugin.openVisualOutline())
     );
     menu.addSeparator();
-    /* Binder shortcut to the SAME structure fields as Édition → Composition
-       → Le manuscrit → Structure — createCompositionBinding(plugin, root,
-       root), never a parallel setting (see ui/numbering-modal.ts). */
-    menu.addItem((item) =>
-      item
-        .setTitle(t("binder.numbering"))
-        .setIcon("list-ordered")
-        .onClick(() => new NumberingModal(this.app, this.plugin, root).open())
-    );
-    menu.addSeparator();
     menu.addItem((item) =>
       item
         .setTitle(t("binder.duplicateAsVersion"))
@@ -2483,6 +2502,19 @@ export class FeuilletsView extends BaseFeuilletsView {
       rootName.setText(this.plugin.projectDisplayName(root.path));
       rootName.setAttr("role", "button");
       rootName.setAttr("tabindex", "0");
+      /* Bug fix "clicking the project name steals the central working
+         focus": the browser's default mousedown behavior moves focus to
+         this span BEFORE the click handler below ever runs, stealing focus
+         away from whatever editor/Continu leaf currently has it. Only the
+         native focus transfer is prevented here — click still opens
+         ManageProjectsModal exactly as before, and Tab + Enter/Space still
+         reaches and activates this same element via the keyboard (role/
+         tabindex untouched). Never triggers selectFolder() or touches
+         binderSelectedPath/workspaceFolderPath — this listener does nothing
+         but preventDefault(). */
+      rootName.addEventListener("mousedown", (e: MouseEvent) => {
+        e.preventDefault();
+      });
       rootName.addEventListener("click", (e) => {
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();
@@ -2857,7 +2889,7 @@ export class FeuilletsView extends BaseFeuilletsView {
                Continu/CompileScope/sélection — jamais S.binderSelectedPath
                modifié (voir doc de méthode). */
             row.addEventListener("click", () => {
-              openFileActivating(this.app, this.plugin.getLeafForOpeningFile(), child);
+              void openFileActivating(this.app, this.plugin.getLeafForOpeningFile(), child);
             });
             row.addEventListener("contextmenu", (e) => {
               e.preventDefault();
@@ -3226,6 +3258,13 @@ export class FeuilletsView extends BaseFeuilletsView {
       rootName.setText(this.plugin.projectDisplayName(treeRoot.path));
       rootName.setAttr("role", "button");
       rootName.setAttr("tabindex", "0");
+      /* Bug fix "clicking the project name steals the central working
+         focus" — see the same guard in renderSplitBody above for the full
+         rationale. Only preventDefault(): never triggers selectFolder() nor
+         touches binderSelectedPath/workspaceFolderPath. */
+      rootName.addEventListener("mousedown", (e: MouseEvent) => {
+        e.preventDefault();
+      });
       rootName.addEventListener("click", (e) => {
         if (e.preventDefault) e.preventDefault();
         if (e.stopPropagation) e.stopPropagation();

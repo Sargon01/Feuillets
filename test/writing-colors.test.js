@@ -7,9 +7,11 @@ import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 
 /*
  * Custom writing-surface colors: off by default, scoped strictly to
- * Feuillets project editors (.feuillets-project-editor) and Continu
- * ([data-type="feuillets-scrivenings"]) — never Minimal Theme, never a
- * global Obsidian color, never Binder/Board/Preview/Recherche.
+ * MarkdownViews of any known Feuillets project (.feuillets-writing-editor —
+ * a broader, independent class from .feuillets-project-editor, see the
+ * project-switch scenario covered by deferred-views-project-editor-sync.test.js)
+ * and Continu ([data-type="feuillets-scrivenings"]) — never Minimal Theme,
+ * never a global Obsidian color, never Binder/Board/Preview/Recherche.
  */
 
 const mainSource = readFileSync(resolve(process.cwd(), "src/main.ts"), "utf8");
@@ -135,21 +137,21 @@ function cssRuleFor(marker) {
   return stylesSource.slice(start, end + 1);
 }
 
-test("Test F — the writing-colors CSS rule targets .feuillets-project-editor, never a global Markdown selector", () => {
-  const rule = cssRuleFor("body.feuillets-writing-colors .feuillets-project-editor");
-  assert.match(rule, /\.feuillets-project-editor/);
+test("Test F — the writing-colors CSS rule targets .feuillets-writing-editor, never a global Markdown selector", () => {
+  const rule = cssRuleFor("body.feuillets-writing-colors .workspace-leaf-content[data-type=\"markdown\"] .feuillets-writing-editor");
+  assert.match(rule, /\.feuillets-writing-editor/);
   assert.doesNotMatch(rule, /^\s*\.markdown-source-view\s*\{/m, "never a bare global .markdown-source-view rule");
 });
 
 test("Test G — the writing-colors CSS rule also targets Continu via [data-type=\"feuillets-scrivenings\"], same variables", () => {
-  const rule = cssRuleFor("body.feuillets-writing-colors .feuillets-project-editor");
+  const rule = cssRuleFor("body.feuillets-writing-colors .workspace-leaf-content[data-type=\"markdown\"] .feuillets-writing-editor");
   assert.match(rule, /\[data-type="feuillets-scrivenings"\]/);
   assert.match(rule, /--background-primary:\s*var\(--feuillets-writing-background\)/);
   assert.match(rule, /--text-normal:\s*var\(--feuillets-writing-text\)/);
 });
 
 test("Test H — the writing-colors rule never targets Board/Preview/Recherche surfaces", () => {
-  const rule = cssRuleFor("body.feuillets-writing-colors .feuillets-project-editor");
+  const rule = cssRuleFor("body.feuillets-writing-colors .workspace-leaf-content[data-type=\"markdown\"] .feuillets-writing-editor");
   assert.doesNotMatch(rule, /feuillets-board/);
   assert.doesNotMatch(rule, /feuillets-preview/);
   assert.doesNotMatch(rule, /feuillets-research/);
@@ -168,9 +170,9 @@ function fullFeatureBlock() {
   return stylesSource.slice(start, end + 1);
 }
 
-test("Test K — .cm-content receives color: var(--feuillets-writing-text) for both the project editor and Continu", () => {
+test("Test K — .cm-content receives color: var(--feuillets-writing-text) for both the writing editor and Continu", () => {
   const block = fullFeatureBlock();
-  assert.match(block, /\.feuillets-project-editor\s+\.markdown-source-view\.mod-cm6\s+\.cm-content/, "targets the project editor's CM6 content layer");
+  assert.match(block, /\.feuillets-writing-editor\s+\.markdown-source-view\.mod-cm6\s+\.cm-content/, "targets the writing editor's CM6 content layer");
   assert.match(block, /\[data-type="feuillets-scrivenings"\]\s+\.cm-content/, "targets Continu's content layer");
   // The color declaration must belong to the .cm-content rule, not the
   // variables rule above it — isolate the text after the last selector.
@@ -178,11 +180,26 @@ test("Test K — .cm-content receives color: var(--feuillets-writing-text) for b
   assert.match(contentRule, /color:\s*var\(--feuillets-writing-text\)/);
 });
 
-test("Test L — no dangerous wildcard selector (.cm-content * / .feuillets-project-editor *) — descendants keep their own colors", () => {
+test("Test L — no dangerous wildcard selector (.cm-content * / .feuillets-writing-editor *) — descendants keep their own colors", () => {
   const block = fullFeatureBlock();
   assert.doesNotMatch(block, /\.cm-content\s*\*/, "never every descendant of .cm-content");
-  assert.doesNotMatch(block, /\.feuillets-project-editor\s*\*/, "never every descendant of .feuillets-project-editor");
+  assert.doesNotMatch(block, /\.feuillets-writing-editor\s*\*/, "never every descendant of .feuillets-writing-editor");
   assert.doesNotMatch(block, /!important/);
+});
+
+test("no global migration: every other .feuillets-project-editor rule (composition directives, semantic roles, callouts, compact display…) is untouched", () => {
+  // The writing-colors feature switched to .feuillets-writing-editor for its
+  // OWN two rules only — every other, pre-existing use of
+  // .feuillets-project-editor in the stylesheet must still target exactly
+  // that class, never be swept into a global find/replace.
+  const occurrences = (stylesSource.match(/\.feuillets-project-editor\b/g) || []).length;
+  assert.ok(occurrences > 30, `expected the many pre-existing .feuillets-project-editor rules to remain (found ${occurrences})`);
+  // Only the two actual CSS selector lines matter here — not the
+  // explanatory comment above them, which legitimately names the class it
+  // deliberately does NOT use anymore.
+  const selectorLines = fullFeatureBlock().split("\n").filter((line) => !line.trim().startsWith("*") && !line.trim().startsWith("/*"));
+  assert.equal(selectorLines.some((line) => line.includes(".feuillets-project-editor")), false,
+    "the writing-colors rules themselves no longer reference .feuillets-project-editor");
 });
 
 test("applyWritingColors() never reads or writes Style Settings / Minimal Theme's own configuration", () => {

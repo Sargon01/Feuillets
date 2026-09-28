@@ -908,7 +908,7 @@ export class NotesView extends BaseFeuilletsView {
     const nameEl = head.createSpan({ cls: "feuillets-entity-name" });
     nameEl.setText(this.plugin.titleFor(ent));
     nameEl.addEventListener("click", () => {
-      openFileActivating(this.app, this.app.workspace.getLeaf(false), ent);
+      void openFileActivating(this.app, this.app.workspace.getLeaf(false), ent);
     });
 
     if (kind === "personnage" && sceneDate) {
@@ -983,7 +983,7 @@ export class NotesView extends BaseFeuilletsView {
     nameEl.addEventListener("click", () => {
       const found = this.app.vault.getAbstractFileByPath(match.path);
       if (found instanceof TFile) {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), found);
+        void openFileActivating(this.app, this.app.workspace.getLeaf(false), found);
       }
     });
 
@@ -1895,7 +1895,7 @@ export class NotesView extends BaseFeuilletsView {
       row.createSpan().setText(fn.text);
       row.addClass("feuillets-clickable");
       row.addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+        void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
     }
   }

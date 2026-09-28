@@ -957,6 +957,6 @@ export function newSheet(app: App, settings: FeuilletsSettings, folder: TFolder,
     const position = getOrderedChildren(app, settings, folder).length + 1;
     const file = await createSheetFile(app, settings, folder, fileName, chapTitle || "", position);
     if (options?.onDone) options.onDone();
-    if (options?.openCreatedFile !== false) openFileActivating(app, app.workspace.getLeaf(false), file);
+    if (options?.openCreatedFile !== false) void openFileActivating(app, app.workspace.getLeaf(false), file);
   }).open();
 }

@@ -187,7 +187,7 @@ export class ProjectPropertiesModal extends Modal {
           frow.setText(this.plugin.shortTitleFor(f));
           frow.addEventListener("click", (e) => {
             e.stopPropagation();
-            openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
+            void openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
             this.close();
           });
         }
@@ -332,7 +332,7 @@ export class ProjectTagsModal extends Modal {
         frow.setText(this.plugin.shortTitleFor(f));
         frow.addEventListener("click", (e) => {
           e.stopPropagation();
-          openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
+          void openFileActivating(this.app, this.app.workspace.getLeaf(false), f);
           this.close();
         });
       }

@@ -228,8 +228,21 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
   ImportedModal.prototype.open = function () { modalsOpened.push("manage"); };
   try {
     view.render = async () => {};
+    // Bug fix: a mouse mousedown on the project name must never steal the
+    // central working focus — only preventDefault(), no folder selection,
+    // no modal opened yet at this point.
+    const selectedPathBeforeMousedown = settings.binderSelectedPath;
+    let mousedownPrevented = false;
+    rootName.events.get("mousedown")({ preventDefault: () => { mousedownPrevented = true; } });
+    assert.equal(mousedownPrevented, true, "mousedown on the project name prevents the native focus transfer");
+    assert.deepEqual(modalsOpened, [], "mousedown alone never opens the modal");
+    assert.equal(settings.binderSelectedPath, selectedPathBeforeMousedown, "mousedown never selects a folder");
     rootName.events.get("click")({ stopPropagation() {} });
     assert.deepEqual(modalsOpened, ["manage"], "le clic sur le nom racine ouvre ManageProjectsModal");
+    // Keyboard accessibility is preserved: Enter still opens the modal.
+    modalsOpened.length = 0;
+    rootName.events.get("keydown")({ key: "Enter", preventDefault() {}, stopPropagation() {} });
+    assert.deepEqual(modalsOpened, ["manage"], "Enter on the focused project name still opens ManageProjectsModal");
     quickDraftAdd[0].events.get("click")({ preventDefault() {}, stopPropagation() {} });
     assert.equal(quickDrafts.length, 1, "le bouton de brouillon rapide appelle le chemin métier unique");
     assert.deepEqual(modalsOpened, ["manage"], "le bouton de brouillon rapide n'ouvre pas la modale projet");
@@ -424,9 +437,19 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   ProjectModal.prototype.open = function () { modalsOpened2.push("manage"); };
   const rootName = findElements(contentEl, (el) => el.classes.has("feuillets-tree-root"))[0]
     .children.find((c) => c.classes.has("feuillets-folder-name"));
+  // Bug fix: mousedown never steals the central working focus, and never
+  // triggers a folder selection.
+  let mousedownPrevented2 = false;
+  rootName.events.get("mousedown")({ preventDefault: () => { mousedownPrevented2 = true; } });
+  assert.equal(mousedownPrevented2, true, "mousedown on the project name prevents the native focus transfer");
+  assert.deepEqual(modalsOpened2, [], "mousedown alone never opens the modal");
   rootName.events.get("click")({ stopPropagation() {} });
   assert.deepEqual(modalsOpened2, ["manage"], "le clic sur le nom du projet ouvre ManageProjectsModal");
   assert.equal(settings.collapsed[root.path], undefined, "le clic ne replie pas la racine");
+  // Keyboard accessibility is preserved: Space still opens the modal.
+  modalsOpened2.length = 0;
+  rootName.events.get("keydown")({ key: " ", preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(modalsOpened2, ["manage"], "Space on the focused project name still opens ManageProjectsModal");
   ProjectModal.prototype.open = originalOpen2;
 
   // Préparer l'état collapsed manuellement pour tester le dépli par chevron.

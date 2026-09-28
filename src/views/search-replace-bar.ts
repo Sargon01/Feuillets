@@ -414,7 +414,7 @@ export class SearchReplaceBar {
       if (!leaf) {
         leaf = this.app.workspace.getLeaf(false);
       }
-      openFileActivating(this.app, leaf, match.file);
+      void openFileActivating(this.app, leaf, match.file);
       await new Promise((resolve) => window.setTimeout(resolve, 80));
       targetView = this.app.workspace.getActiveViewOfType(MarkdownView);
     }

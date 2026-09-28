@@ -436,7 +436,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
     const path = normalizePath(`${folder.path}/${name}.md`);
     const file = await this.app.vault.create(path, template);
-    openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
   }
 
   /** Valide un nom de fichier (sans extension) : refuse les noms vides, / et \\. */
@@ -467,7 +467,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     // Research views would keep displaying that generic title via titleFor().
     const content = syncResearchFileTitle(template, defaultName, cleanName);
     const file = await this.app.vault.create(destPath, content);
-    openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
     void this.render(true);
   }
 
@@ -552,7 +552,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .onClick(() => {
           void (async () => {
             const file = await createResearchCanvas(this.app, folder);
-            openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+            void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
             void this.render(true);
           })();
         })
@@ -564,7 +564,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .onClick(() => {
           void (async () => {
             const file = await createResearchBase(this.app, folder);
-            openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+            void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
             void this.render(true);
           })();
         })
@@ -1933,7 +1933,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       void this.render();
     });
     this.iconBtn(bar, "external-link", t("shared.openNewTab"), () => {
-      openFileActivating(this.app, this.app.workspace.getLeaf(true), file);
+      void openFileActivating(this.app, this.app.workspace.getLeaf(true), file);
     });
 
     this.barSep(bar);
@@ -2210,7 +2210,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     nameEl.setAttr("title", this.plugin.titleFor(f));
     nameEl.addEventListener("click", (e) => {
       if (isAttachment || Keymap.isModEvent(e)) {
-        openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
+        void openFileActivating(this.app, this.app.workspace.getLeaf(Keymap.isModEvent(e) ? true : "tab"), f);
         return;
       }
       this.viewingFile = f;
@@ -2825,7 +2825,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       head.setText(`${numbering.get(file.path) || ""} ${this.plugin.shortTitleFor(file)}`.trim());
       head.setAttr("title", t("shared.footnotes.openSceneTooltip"));
       head.addEventListener("click", () => {
-        openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+        void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
       });
 
       for (const row of rows) {
@@ -3620,7 +3620,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(t("shared.openNewTab"))
         .setIcon("file-plus")
         .onClick(() => {
-          openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
+          void openFileActivating(this.app, this.app.workspace.getLeaf("tab"), file);
         })
     );
     /* « Ouvrir avec aperçu » vit ICI et pas seulement dans le hook
@@ -3703,7 +3703,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setTitle(t("binder.research.openSplit"))
         .setIcon("columns-2")
         .onClick(() => {
-          openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file);
+          void openFileActivating(this.app, this.app.workspace.getLeaf("split", "vertical"), file);
         })
     );
     menu.addItem((item) =>
@@ -4010,7 +4010,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         .setIcon("notebook-text")
         .onClick(async () => {
           const note = await plugin.getOrCreateFolderNote(folder);
-          openFileActivating(this.app, this.app.workspace.getLeaf(false), note);
+          void openFileActivating(this.app, this.app.workspace.getLeaf(false), note);
         })
     );
     menu.addItem((item) => item.setTitle(t("shared.contextMenu.newMenu")).setIcon("plus").onClick((evt) => showChoices(evt, e, (choices) => {

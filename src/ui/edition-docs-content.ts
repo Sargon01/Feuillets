@@ -258,7 +258,7 @@ export class EditionDocsContent {
     const letter = this.submissionLetterFile(summary.letterPath);
     this.submissionAction(actions, "file-text", t("editionDocs.submission.openLetter"), () => {
       if (!letter) return new Notice(t("editionDocs.submission.letterMissing"));
-      openFileActivating(this.app, this.app.workspace.getLeaf(false), letter);
+      void openFileActivating(this.app, this.app.workspace.getLeaf(false), letter);
     });
     this.submissionAction(actions, "folder-open", t("editionDocs.submission.openFolder"), () => {
       if (!letter || !revealInFileExplorer(this.app, letter)) new Notice(t("editionDocs.submission.explorerUnavailable"));
@@ -331,7 +331,7 @@ export class EditionDocsContent {
     }
     const title = fileName.replace(/\.md$/, "");
     const file = await this.app.vault.create(path, `# ${title}\n\n`);
-    openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+    void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
     await this.render();
   }
 
@@ -411,7 +411,7 @@ export class EditionDocsContent {
     row.createSpan({ cls: "feuillets-project-row-label" }).setText(file.name);
     row.createSpan({ cls: "feuillets-edition-file-kind" }).setText(this.fileKind(file));
     row.addEventListener("click", () => {
-      openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
+      void openFileActivating(this.app, this.app.workspace.getLeaf(false), file);
     });
     const actions = row.createDiv({ cls: "feuillets-project-row-actions" });
     this.iconBtn(actions, "folder-open", t("editionDocs.revealTooltip"), (e) => {
