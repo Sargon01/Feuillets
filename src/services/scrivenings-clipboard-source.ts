@@ -60,6 +60,11 @@ export function createScriveningsClipboardRules(
   /** Titled ancestor folders of a segment, outermost first. */
   const chainOf = (segment: ScriveningsSegment): TFolder[] => {
     if (!editorialRoot) return [];
+    /* A single-file scope (Binder "Copy contents" on one sheet) copies
+       exactly that sheet — no ancestor folder title is ever injected,
+       however deeply nested the file is. Folder/project/selection scopes
+       are untouched: they still title the structure exactly as before. */
+    if (scope?.type === "file") return [];
     const prefix = `${editorialRoot.path}/`;
     if (!segment.path.startsWith(prefix)) return [];
     const ancestors: TFolder[] = [];

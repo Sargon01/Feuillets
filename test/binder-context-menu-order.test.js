@@ -40,6 +40,7 @@ test("Binder file context menu keeps the requested functional order", () => {
     't("shared.contextMenu.move")',
     't("shared.duplicate")',
     't("shared.contextMenu.versions")',
+    't("binder.copyContents")',
     't("binder.compileFile")',
     't("shared.trash")',
   ]);

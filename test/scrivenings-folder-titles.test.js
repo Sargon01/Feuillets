@@ -168,7 +168,7 @@ test("Binder « Copier le contenu » = Continu select-all for the same scope, no
   try {
     for (const folder of [fx.root, fx.sub, fx.rahmanPart]) {
       fx.view.showFolderContextMenu({ preventDefault() {} }, folder, fx.root, 0, []);
-      await Menu.lastShown.items.find((i) => i.title === t("binder.copyFolderContents")).callback();
+      await Menu.lastShown.items.find((i) => i.title === t("binder.copyContents")).callback();
       const scope = scopeOf(fx, folder);
       const doc = await scopeDoc(fx, scope);
       assert.equal(written.at(-1), buildScriveningsRangeClipboardText(fx.app, fx.settings, scope, doc, 0, doc.text.length));

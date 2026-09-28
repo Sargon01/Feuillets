@@ -121,7 +121,7 @@ function withClipboard(writeText) {
 
 function copyItemFor(fx, folder) {
   fx.view.showFolderContextMenu({ preventDefault() {} }, folder, fx.root, 0, []);
-  const item = Menu.lastShown.items.find((i) => i.title === t("binder.copyFolderContents"));
+  const item = Menu.lastShown.items.find((i) => i.title === t("binder.copyContents"));
   assert.ok(item, "« Copier le contenu » must be in the folder menu");
   return item;
 }
