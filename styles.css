@@ -11499,3 +11499,23 @@ body.feuillets-text-width
   color: var(--text-normal);
   font-weight: 700;
 }
+
+/* ===== custom writing colors (main.ts applyWritingColors) =====
+ * Off by default (`feuillets-writing-colors` absent from <body> until the
+ * user explicitly enables it) — an existing installation sees no visual
+ * change whatsoever. Scoped strictly to the two writing surfaces this
+ * feature targets: a Feuillets project's own MarkdownView
+ * (`.feuillets-project-editor`, syncMarkdownViewProjectEditorClass) and
+ * Continu (`[data-type="feuillets-scrivenings"]`) — never a global
+ * `.markdown-source-view` override, so any Markdown note outside the active
+ * Feuillets project keeps the active theme's normal colors untouched. Only
+ * `--background-primary`/`--text-normal` are redefined LOCALLY on these two
+ * selectors: every other themed color (links, quotes, selection, cursor,
+ * callouts, annotations, code, accent, headings) keeps following the active
+ * theme's own logic exactly as before — no Minimal Theme detection, no
+ * Style Settings write, no global Obsidian color change. */
+body.feuillets-writing-colors .feuillets-project-editor,
+body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scrivenings"] {
+  --background-primary: var(--feuillets-writing-background);
+  --text-normal: var(--feuillets-writing-text);
+}

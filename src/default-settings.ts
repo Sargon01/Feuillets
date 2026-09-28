@@ -148,6 +148,9 @@ export type DefaultSettings = {
   uiTransparentTabBar: boolean;
   uiHideVaultSwitcher: boolean;
   uiDimTabActions: boolean;
+  writingColorsEnabled: boolean;
+  writingBackgroundColor: string;
+  writingTextColor: string;
   projectMeta: Record<string, ProjectMeta>;
   autoOpenBinder: boolean;
   autoOpenInspector: boolean;
@@ -349,6 +352,9 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   uiTransparentTabBar: false,
   uiHideVaultSwitcher: false,
   uiDimTabActions: false,
+  writingColorsEnabled: false,
+  writingBackgroundColor: "#292d25",
+  writingTextColor: "#c4b49b",
   projectMeta: {},
   autoOpenBinder: true,
   autoOpenInspector: true,

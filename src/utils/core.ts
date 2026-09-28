@@ -88,6 +88,15 @@ export function foldAccents(str: unknown): string {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+/** Strict `#RRGGBB` check — the only format Obsidian's own ColorPicker
+ * produces. Used as a defensive fallback before either writing-surface
+ * color ever reaches the CSS (applyWritingColors, main.ts): a hand-edited
+ * data.json or a value from an older/different format must never inject an
+ * arbitrary string into a `style.setProperty` call. */
+export function isValidHexColor(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{6}$/.test(value);
+}
+
 export function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

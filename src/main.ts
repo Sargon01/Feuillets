@@ -17,7 +17,7 @@ import { type CompileScope, createProjectScope, createFolderScope, createFileSco
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
 import { migrateLegacyProjectTypes, migrateLegacyTaxonomyEntries } from "./services/project-settings.js";
-import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography } from "./utils/core.js";
+import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography, isValidHexColor } from "./utils/core.js";
 import { dateKey, statsForDay, resolveProjectStats, validateStatsTable, recordDailyTotal, mergeLegacyStats, trimStatsTable, dailyWordDelta } from "./utils/journal-stats.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
@@ -728,6 +728,7 @@ class FeuilletsPlugin extends Plugin {
 
     this.applyIndentClass();
     this.applyLeanInterfaceClasses();
+    this.applyWritingColors();
 
     this.registerAutoOpenPanels();
     this.registerConcentrationTracking();
@@ -2791,6 +2792,9 @@ class FeuilletsPlugin extends Plugin {
     document.body.removeClass("feuillets-lignesvides-invisible");
     document.body.removeClass("feuillets-lignesvides-reduit");
     document.body.removeClass("feuillets-cesure");
+    document.body.removeClass("feuillets-writing-colors");
+    document.body.style.removeProperty("--feuillets-writing-background");
+    document.body.style.removeProperty("--feuillets-writing-text");
     if (this._originalGetDisplayText) {
       /* Ne restaurer QUE si le prototype porte encore notre patch. Un autre
          plugin ayant patché après nous a enveloppé le nôtre : écraser avec
@@ -3402,6 +3406,33 @@ class FeuilletsPlugin extends Plugin {
     document.body.toggleClass("feuillets-transparent-panels", !!this.settings.uiTransparentPanels);
     document.body.toggleClass("feuillets-transparent-tabbar", !!this.settings.uiTransparentTabBar);
     document.body.toggleClass("feuillets-dim-tab-actions", !!this.settings.uiDimTabActions);
+  }
+
+  /** Custom writing-surface colors (Feuillets project editors + Continu
+   * only — see the `.feuillets-writing-colors` overrides in styles.css,
+   * scoped to `.feuillets-project-editor` and
+   * `[data-type="feuillets-scrivenings"]`, never a global theme change and
+   * never anything touching Minimal Theme or Style Settings). Off by
+   * default: `writingColorsEnabled` starts `false`, so an existing
+   * installation sees no visual change at all. Disabling the toggle never
+   * "restores" a remembered theme color — it simply removes the class and
+   * the two custom properties, so whatever the active theme currently
+   * renders (Minimal or otherwise, even if changed in the meantime) shows
+   * immediately. A hand-edited data.json with an invalid color value fails
+   * closed: the class is never added with a bad value on either side. */
+  applyWritingColors(): void {
+    const enabled =
+      !!this.settings.writingColorsEnabled &&
+      isValidHexColor(this.settings.writingBackgroundColor) &&
+      isValidHexColor(this.settings.writingTextColor);
+    document.body.toggleClass("feuillets-writing-colors", enabled);
+    if (enabled) {
+      document.body.style.setProperty("--feuillets-writing-background", this.settings.writingBackgroundColor);
+      document.body.style.setProperty("--feuillets-writing-text", this.settings.writingTextColor);
+    } else {
+      document.body.style.removeProperty("--feuillets-writing-background");
+      document.body.style.removeProperty("--feuillets-writing-text");
+    }
   }
 
   /** Série de jours consécutifs avec un delta positif — PROPRE au projet

@@ -758,6 +758,14 @@ declare type FeuilletsSettings = {
   uiHideVaultSwitcher: boolean;
   uiDimTabActions: boolean;
 
+  /** Custom writing-surface colors (applyWritingColors) — off by default,
+   * scoped to Feuillets project editors and Continu only, never a global
+   * theme override. See #RRGGBB-6-hex-digit format enforced by
+   * isValidHexColor (main.ts) before either value ever reaches the CSS. */
+  writingColorsEnabled: boolean;
+  writingBackgroundColor: string;
+  writingTextColor: string;
+
   [key: string]: unknown;
 };
 

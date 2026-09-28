@@ -72,6 +72,7 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   refreshPresentationAppearance(): Promise<void>;
   applyIndentClass(): void;
   applyLeanInterfaceClasses(): void;
+  applyWritingColors(): void;
   removeConcentrationCounter(): void;
   getVaultConfig(key: string): unknown;
   setVaultConfig(key: string, value: unknown): void;
@@ -591,6 +592,41 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         const current = this.plugin.getVaultConfig("accentColor");
         if (typeof current === "string" && current) cp.setValue(current);
         cp.onChange((v) => this.plugin.setVaultConfig("accentColor", v));
+      });
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.writingColors.section") });
+
+    new Setting(container)
+      .setName(t("settings.writingColors.enabled.name"))
+      .setDesc(t("settings.writingColors.enabled.desc"))
+      .addToggle((t2) =>
+        t2.setValue(!!S.writingColorsEnabled).onChange(async (v) => {
+          S.writingColorsEnabled = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyWritingColors();
+        })
+      );
+
+    new Setting(container)
+      .setName(t("settings.writingColors.background.name"))
+      .addColorPicker((cp) => {
+        cp.setValue(S.writingBackgroundColor);
+        cp.onChange(async (v) => {
+          S.writingBackgroundColor = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyWritingColors();
+        });
+      });
+
+    new Setting(container)
+      .setName(t("settings.writingColors.text.name"))
+      .addColorPicker((cp) => {
+        cp.setValue(S.writingTextColor);
+        cp.onChange(async (v) => {
+          S.writingTextColor = v;
+          await this.plugin.saveSettings();
+          this.plugin.applyWritingColors();
+        });
       });
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.focusMode") });
