@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { TFile, TFolder, Menu } from "obsidian";
 import { FeuilletsView } from "../src/views/feuillets-view.js";
 
-/* Micro-lot "simplification définitive du Binder" : le Binder redevient
- * strictement un navigateur de structure — indentation, chevron, icône
- * neutre, liseré de label, fond de ligne, titre, aperçu facultatif très
- * court. Plus jamais de barre de progression, nombre de mots, tags/chips ni
- * pastille de statut sur une ligne Binder, MÊME si les anciens réglages
- * (`binderShowTags`/`binderShowStatus`/`binderShowProgress`/
- * `binderShowWords`) sont encore à `true` en donnée sauvegardée (aucune
- * migration, simplement inertes pour ce rendu — voir renderFileRow et
- * buildDisplayOptionsMenu, feuillets-view.ts).
+/* Micro-lot "simplification définitive du Binder", puis micro-lot "repère
+ * d'avancement sans dashboard" : le Binder reste un navigateur de structure
+ * — indentation, chevron, icône neutre, liseré de label, fond de ligne,
+ * titre, aperçu facultatif très court — auquel s'ajoutent, uniquement quand
+ * explicitement activés, une pastille de statut compacte et une micro-barre
+ * de progression sur la MÊME ligne que le titre (voir renderBinderIndicators,
+ * feuillets-view.ts). Tags/chips et nombre de mots en chiffres restent eux
+ * INERTES même à `true` en donnée sauvegardée (`binderShowTags`/
+ * `binderShowWords`, aucune migration, voir buildDisplayOptionsMenu).
  *
  * Même harnais minimal que test/binder-label-icon-and-native-selection.test.js
  * (aucun Continu actif nécessaire ici). */
@@ -90,8 +90,9 @@ function baseSettings(overrides = {}) {
     folderPositions: {},
     compileFileName: "Manuscrit.md",
     binderShowLabels: true,
-    // Anciens réglages volontairement à `true` : ne doivent plus produire
-    // aucun rendu dans le Binder (§9-A du micro-lot).
+    // Réactivés (§1 du micro-lot "repère d'avancement sans dashboard") :
+    // status dot / progress ring DO render when explicitly on. Tags/words
+    // stay inert even at `true` (§9-A of the earlier micro-lot).
     binderShowTags: true,
     binderShowStatus: true,
     binderShowProgress: true,
@@ -184,7 +185,7 @@ function itemFor(contentEl, path) {
 
 /* ===================== A — rendu minimal, anciens réglages à true ===================== */
 
-test("Binder : binderShowTags/Status/Progress/Words à true ne créent malgré tout aucun tag chip / status dot / anneau / nombre de mots", async () => {
+test("Binder : binderShowTags/Words à true still create no tag chip / word count number — binderShowStatus does show its status dot, binderShowProgress shows no ring absent a valid goal", async () => {
   const fixture = buildFixture();
   const { view, contentEl } = buildView(fixture);
   await view.render(true);
@@ -192,11 +193,73 @@ test("Binder : binderShowTags/Status/Progress/Words à true ne créent malgré t
   const itemA = itemFor(contentEl, fixture.a.path);
   assert.ok(itemA, "la ligne du feuillet A doit exister");
 
-  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-status-dot")).length, 0);
+  // Status is reactivated: the fixture's file has status "Brouillon" and
+  // binderShowStatus is true, so its dot renders on the title row.
+  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-status-dot")).length, 1);
+  // Tags/word count remain permanently inert, whatever the setting.
   assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-tags")).length, 0);
   assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-tag-chip")).length, 0);
-  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-ring")).length, 0);
   assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-item-wc")).length, 0);
+  // Progress is reactivated too, but this fixture's file has no valid word
+  // goal — no ring is ever rendered for a goal-less sheet.
+  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-ring")).length, 0);
+});
+
+test("Binder : with binderShowStatus/Progress on and a valid goal set, both the status dot and the progress ring render on the title row, never a second line", async () => {
+  const fixture = buildFixture();
+  const { view, contentEl } = buildView(fixture);
+  view.plugin.fmOf = () => ({ synopsis: "Résumé.", status: "Brouillon", goal: 1000 });
+  await view.render(true);
+
+  const itemA = itemFor(contentEl, fixture.a.path);
+  const nameRow = findAll(itemA, (el) => el.classes.has("feuillets-item-name-row"))[0];
+  assert.ok(nameRow, "the name row must exist");
+  const indicators = findAll(nameRow, (el) => el.classes.has("feuillets-binder-indicators"));
+  assert.equal(indicators.length, 1, "indicators belong to the existing title row, never a second row");
+  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-status-dot")).length, 1);
+  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-ring")).length, 1);
+  // No permanent percentage text is ever rendered.
+  assert.doesNotMatch(itemA.text || "", /%/);
+});
+
+test("Test C — status dot: correct color and a translated, human-readable accessible label, never a raw internal id", async () => {
+  const fixture = buildFixture();
+  const { view, contentEl } = buildView(fixture);
+  await view.render(true);
+
+  const itemA = itemFor(contentEl, fixture.a.path);
+  const dot = findAll(itemA, (el) => el.classes.has("feuillets-status-dot"))[0];
+  assert.ok(dot, "the fixture's status 'Brouillon' must produce a dot once binderShowStatus is on");
+  assert.equal(dot.style.background, "#00ff00", "color comes from plugin.getStatusColor(), never a local color table");
+  assert.equal(dot.getAttr("aria-label"), "Brouillon", "the accessible label is the readable status name, never an internal id like 'in_progress'");
+});
+
+test("Test E — progress ring: goal 1000, word count 500 -> exactly 50%, via the existing fillRing() engine, never a visible '50 %' text", async () => {
+  const fixture = buildFixture();
+  const { view, contentEl } = buildView(fixture);
+  view.plugin.fmOf = () => ({ synopsis: "Résumé.", status: "", goal: 1000 });
+  view.plugin.getWordCounts = async () => new Map([[fixture.a.path, { wc: 500 }], [fixture.b.path, { wc: 0 }]]);
+  await view.render(true);
+
+  const itemA = itemFor(contentEl, fixture.a.path);
+  const ring = findAll(itemA, (el) => el.classes.has("feuillets-ring"))[0];
+  assert.ok(ring, "a valid goal must produce a ring");
+  assert.equal(ring.style._props["--pct"], "50%");
+  assert.equal(ring.getAttr("aria-valuenow"), "50");
+  assert.equal(ring.getAttr("role"), "progressbar");
+  assert.doesNotMatch(itemA.text || "", /50\s*%/, "the percentage is available via aria/tooltip, never as visible row text");
+});
+
+test("Binder : with binderShowStatus/Progress off, no indicators render at all, even with a status and a valid goal", async () => {
+  const fixture = buildFixture();
+  const { view, contentEl } = buildView(fixture, { binderShowStatus: false, binderShowProgress: false });
+  view.plugin.fmOf = () => ({ synopsis: "Résumé.", status: "Brouillon", goal: 1000 });
+  await view.render(true);
+
+  const itemA = itemFor(contentEl, fixture.a.path);
+  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-binder-indicators")).length, 0);
+  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-status-dot")).length, 0);
+  assert.equal(findAll(itemA, (el) => el.classes.has("feuillets-ring")).length, 0);
 });
 
 test("Binder : le titre reste l'information dominante — un feuillet sans aperçu ne rend que son titre dans le corps de ligne", async () => {
@@ -278,7 +341,7 @@ test("ancienne valeur listPanePreviewLines=6 (donnée non migrée) : rendu born�
 
 /* ===================== B — menu d'affichage ===================== */
 
-test("le menu d'affichage du Binder ne propose plus tags/statut/progression/mots, garde le liseré de label et les options existantes", async () => {
+test("le menu d'affichage du Binder propose liseré de label + statut + progression, mais toujours pas tags/mots", async () => {
   const fixture = buildFixture();
   const { view } = buildView(fixture);
   const menu = new Menu();
@@ -289,19 +352,27 @@ test("le menu d'affichage du Binder ne propose plus tags/statut/progression/mots
   // porter un état `checked` — contrairement à "Options supplémentaires",
   // qui a un callback mais aucun `setChecked`.
   const toggleItems = menu.items.filter((i) => typeof i.callback === "function" && i.checked !== undefined);
-  // Un seul toggle attendu ici : celui du liseré de label — plus aucun pour
-  // tags/statut/progression/mots.
-  assert.equal(toggleItems.length, 1, "un seul toggle doit rester dans ce menu (liseré de label)");
+  // Trois toggles désormais : liseré de label, statut, progression — plus
+  // aucun pour tags/mots.
+  assert.equal(toggleItems.length, 3, "label stripes + status dot + progress bars, nothing else");
 
   const before = S.binderShowLabels;
   await toggleItems[0].callback();
-  assert.equal(S.binderShowLabels, !before, "le toggle restant doit bien piloter binderShowLabels");
+  assert.equal(S.binderShowLabels, !before, "the first toggle must drive binderShowLabels");
 
-  // Les anciens réglages ne doivent plus être modifiables depuis ce menu,
-  // même si leurs clés restent en donnée pour compatibilité.
+  const statusBefore = S.binderShowStatus;
+  await toggleItems[1].callback();
+  assert.equal(S.binderShowStatus, !statusBefore, "the second toggle must drive binderShowStatus");
+
+  const progressBefore = S.binderShowProgress;
+  await toggleItems[2].callback();
+  assert.equal(S.binderShowProgress, !progressBefore, "the third toggle must drive binderShowProgress");
+
+  // Tags/words remain permanently absent from this menu, even though their
+  // settings still exist for backward compatibility.
+  assert.equal(menu.items.some((i) => i.title === "Pastilles de tags" || i.title === "Tag chips"), false);
+  assert.equal(menu.items.some((i) => i.title === "Nombre de mots en chiffres" || i.title === "Word count numbers"), false);
   assert.equal(S.binderShowTags, true);
-  assert.equal(S.binderShowStatus, true);
-  assert.equal(S.binderShowProgress, true);
   assert.equal(S.binderShowWords, true);
 
   // "Options supplémentaires" (accès aux réglages complets) reste présent.

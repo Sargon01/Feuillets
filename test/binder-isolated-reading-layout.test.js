@@ -160,6 +160,8 @@ function buildView(fixture, settingsOverrides = {}) {
     generateCanvasBoard() {},
     getLeafForOpeningFile: () => workLeaf,
     getStatusColor: () => "#00ff00",
+    folderNoteFor: () => null,
+    folderGoal: () => 0,
   };
 
   const view = new FeuilletsView(
@@ -331,6 +333,8 @@ function buildViewWithGrandparent(fixture, settingsOverrides = {}) {
     generateCanvasBoard() {},
     getLeafForOpeningFile: () => workLeaf,
     getStatusColor: () => "#00ff00",
+    folderNoteFor: () => null,
+    folderGoal: () => 0,
   };
 
   const view = new FeuilletsView(

@@ -3287,6 +3287,21 @@ body.feuillets-text-width
   display: inline-block;
 }
 
+/* Repère d'avancement compact (micro-lot "statut + progression sans
+   dashboard") : petit groupe aligné à droite du titre, sur la MÊME ligne —
+   `.feuillets-status-dot` et `.feuillets-ring` gardent ici leurs dimensions
+   existantes (8px / 20x4px) sans jamais grandir la ligne. `margin-left: auto`
+   pousse le groupe vers la droite quelle que soit la longueur du titre,
+   pendant que `flex-shrink: 0` l'empêche de jamais être compressé par
+   l'ellipsis du titre voisin (voir renderBinderIndicators, feuillets-view.ts). */
+.feuillets-binder-indicators {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 /* ===== badge d'écart temporel dans la chronologie ===== */
 
 .feuillets-timeline-gap {

@@ -5,6 +5,7 @@ import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } fro
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
 import { NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { FolderWorkspaceModal } from "../ui/folder-workspace-modal.js";
+import { NumberingModal } from "../ui/numbering-modal.js";
 import { ScrivenerImportModal } from "../ui/scrivener-import-modal.js";
 import { CompareFilesModal, PickFileModal } from "../ui/diff-modal.js";
 import { BaseFeuilletsView } from "./base-feuillets-view.js";
@@ -20,7 +21,7 @@ import {
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { getDraftsFolder, isProjectDraft } from "../services/project-drafts.js";
-import { Menu, MarkdownView, TFile, TFolder, setIcon, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
+import { Menu, MarkdownView, TFile, TFolder, setIcon, setTooltip, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import { folderPathToWorkspaceScope } from "../services/folder-workspaces.js";
 import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
@@ -129,6 +130,10 @@ type SplitBodyCtx = {
   /** Dossier Drafts canonique révélé dans une projection Binder, jamais une
    * racine de compilation ou de statistiques. */
   revealDraftsFolder?: TFolder | null;
+  /** Folder path -> total word count of its descendant sheets, precomputed
+   * once per render from `wcCache` (see render()) — the single source a
+   * folder row's progress bar reads from, never a second async word count. */
+  folderWordTotals: Map<string, number>;
 };
 
 /* _binderMultiSelect est attaché dynamiquement au plugin par
@@ -326,6 +331,63 @@ export class FeuilletsView extends BaseFeuilletsView {
       wrap.style.setProperty("--feuillets-label-color", labelColor);
     }
     return wrap;
+  }
+
+  /** Translated display label for a raw stored status value, resolved
+   * against the status catalogue actually in effect for `folder`
+   * (workspaceStatuses) — same lookup already used by the Binder's status
+   * filter menu and the folder context menu's "Changer de statut" choices.
+   * A genuine custom status (no match in the catalogue) keeps showing its
+   * own stored name verbatim: never a raw built-in id like "in_progress". */
+  private statusDotLabel(value: string, folder: TFolder | null): string {
+    for (const status of workspaceStatuses(this.app, this.plugin.settings, folder)) {
+      if (statusStoredValue(status).trim() === value) return statusDisplayLabel(status, getLocale());
+    }
+    return value;
+  }
+
+  /** Compact status dot + progress ring, appended to `host` (the title row
+   * of a file or folder line) when `binderShowStatus`/`binderShowProgress`
+   * are on — the two settings reactivated by this batch. Reuses the exact
+   * existing rendering primitives (`.feuillets-status-dot`,
+   * `plugin.getStatusColor`, `.feuillets-ring`/`fillRing`, `goalFor`) so a
+   * file's own indicators and a folder's indicators (via its folder note)
+   * are visually and semantically identical. Renders nothing at all when
+   * both settings are off, when there is no status, or when there is no
+   * valid word-count goal — never an empty placeholder reserving space. */
+  private renderBinderIndicators(
+    host: HTMLElement,
+    opts: { statusValue: string; contextFolder: TFolder | null; wc: number; goal: number }
+  ): void {
+    const S = this.plugin.settings;
+    if (!S.binderShowStatus && !S.binderShowProgress) return;
+    const showStatus = S.binderShowStatus && opts.statusValue !== "";
+    const showProgress = S.binderShowProgress && opts.goal > 0;
+    if (!showStatus && !showProgress) return;
+
+    const indicators = host.createSpan({ cls: "feuillets-binder-indicators" });
+
+    if (showStatus) {
+      const dot = indicators.createSpan({ cls: "feuillets-status-dot" });
+      dot.style.background = this.plugin.getStatusColor(opts.statusValue, opts.contextFolder) || "var(--text-faint)";
+      const label = this.statusDotLabel(opts.statusValue, opts.contextFolder);
+      dot.setAttr("role", "img");
+      dot.setAttr("aria-label", label);
+      setTooltip(dot, label);
+    }
+
+    if (showProgress) {
+      const pct = Math.min(100, Math.round((opts.wc / opts.goal) * 100));
+      const ring = indicators.createSpan({ cls: "feuillets-ring" });
+      this.fillRing(ring, opts.wc, opts.goal, opts.contextFolder);
+      ring.setAttr("role", "progressbar");
+      ring.setAttr("aria-valuemin", "0");
+      ring.setAttr("aria-valuemax", "100");
+      ring.setAttr("aria-valuenow", String(pct));
+      const tooltip = t("binder.progress.tooltip", { pct: String(pct), wc: String(opts.wc), goal: String(opts.goal) });
+      ring.setAttr("aria-label", tooltip);
+      setTooltip(ring, tooltip);
+    }
   }
 
   /** Clé de l'éventuel override de densité de session : le chemin de la
@@ -693,14 +755,20 @@ export class FeuilletsView extends BaseFeuilletsView {
           })
       );
 
-    /* Micro-lot "simplification définitive du Binder", §2 : puces de tags,
-       statut, barres de progression et nombre de mots retirés de ce menu —
-       le Binder ne les rend plus jamais (voir renderFileRow). Leurs clés de
-       réglage restent en place pour compatibilité, simplement plus
-       proposées ici. Ces métadonnées restent réglables/consultables dans
+    /* Statut et progression réintroduits (micro-lot "repère d'avancement
+       sans dashboard") : une pastille de statut compacte et une micro-barre
+       de progression, sur la MÊME ligne que le titre — jamais une seconde
+       ligne, jamais un pourcentage permanent (voir renderBinderIndicators).
+       Tags et nombre de mots en chiffres restent volontairement retirés de
+       ce menu : trop de bruit visuel pour un simple repère d'avancement.
+       Leurs clés de réglage (`binderShowTags`/`binderShowWords`) restent en
+       place pour compatibilité des données, simplement toujours inertes
+       pour ce rendu. Ces métadonnées restent réglables/consultables dans
        Cartes et Plan. */
     menu.addItem((item) => item.setTitle(t("binder.display.header")).setDisabled(true));
     toggle(t("binder.display.labelStripes"), "binderShowLabels");
+    toggle(t("binder.display.statusDot"), "binderShowStatus");
+    toggle(t("binder.display.progressBars"), "binderShowProgress");
     menu.addSeparator();
 
     menu.addItem((item) =>
@@ -1255,6 +1323,24 @@ export class FeuilletsView extends BaseFeuilletsView {
     const wcCache = await this.plugin.getWordCounts(binderFiles);
     if (this._renderGen !== myGen) return;
 
+    /* Folder progress bars (binderShowProgress on a TFolder row, see
+       renderHierarchyContents): a folder's word count is the sum of its
+       descendant sheets' counts, exactly `wordCountOfFolder()`'s own
+       semantics — but computed here from the wcCache already fetched above,
+       never a second async read per folder row (that would be an O(folder
+       count) burst of vault reads on a large manuscript). One pass over the
+       already-resolved files, walking each file's ancestor chain (already
+       in memory via `.parent`), accumulates every ancestor folder's total in
+       a single O(files × depth) sweep. */
+    const folderWordTotals = new Map<string, number>();
+    for (const file of binderFiles) {
+      const entry = wcCache.get(file.path);
+      if (!entry) continue;
+      for (let ancestor = file.parent; ancestor; ancestor = ancestor.parent) {
+        folderWordTotals.set(ancestor.path, (folderWordTotals.get(ancestor.path) || 0) + entry.wc);
+      }
+    }
+
     /* Instantané capturé UNE FOIS pour tout ce rendu — strict (§3 du
        micro-lot "sélection continu par clic simple") : Continu compatible
        uniquement si sa leaf est RÉELLEMENT active, voir
@@ -1358,6 +1444,19 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       }
 
+      /* Optional status dot + progress ring, same title line as the name
+         above — see renderBinderIndicators(). Never rendered for a hidden
+         row (an underscore-prefixed folder's contents, or the revealed
+         Drafts projection's own housekeeping files). */
+      if (!effectivelyHidden) {
+        this.renderBinderIndicators(nameRow, {
+          statusValue: toValue(this.fm(file).status).trim(),
+          contextFolder: file.parent,
+          wc: wcCache.get(file.path)?.wc ?? 0,
+          goal: this.goalFor(file),
+        });
+      }
+
       /* Mode compact (voir showSplitPaneOptionsMenu) : aucun aperçu, quel
          que soit le champ choisi — la densité prime, l'aperçu se consulte
          en mode standard. Ajustement "aperçu du Binder" : la valeur brute
@@ -1400,15 +1499,15 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
       }
 
-      /* Micro-lot "simplification définitive du Binder" : la grammaire finale
-         de la ligne s'arrête au titre + aperçu facultatif — puces de tags,
-         pastille de statut, anneau de progression et nombre de mots ne sont
-         plus jamais rendus ici (§1 du lot). Ces métadonnées restent
-         entièrement disponibles ailleurs (Cartes, Plan, filtres, propriétés)
-         et leurs réglages historiques (`binderShowTags`/`binderShowStatus`/
-         `binderShowProgress`/`binderShowWords`) restent en place pour la
-         compatibilité des données sauvegardées, simplement inertes pour ce
-         rendu — voir buildDisplayOptionsMenu. */
+      /* Micro-lot "repère d'avancement sans dashboard" : la grammaire de la
+         ligne reste titre + aperçu facultatif + indicateurs compacts
+         (statut/progression, voir renderBinderIndicators just above) — les
+         puces de tags et le nombre de mots en chiffres, eux, ne sont
+         toujours jamais rendus ici. Ces métadonnées restent entièrement
+         disponibles ailleurs (Cartes, Plan, filtres, propriétés) et leurs
+         réglages historiques (`binderShowTags`/`binderShowWords`) restent en
+         place pour la compatibilité des données sauvegardées, simplement
+         toujours inertes pour ce rendu — voir buildDisplayOptionsMenu. */
 
       item.setAttr("data-path", file.path);
 
@@ -1605,6 +1704,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         projectRoot: folder,
         binderCompact: effectiveBinderCompact,
         revealDraftsFolder: draftsFolder,
+        folderWordTotals,
       };
       if (S.binderLayout === "split") {
         this.renderSplitBody(container, folder, hierarchyCtx);
@@ -2255,6 +2355,16 @@ export class FeuilletsView extends BaseFeuilletsView {
         .onClick(() => void this.plugin.openVisualOutline())
     );
     menu.addSeparator();
+    /* Binder shortcut to the SAME structure fields as Édition → Composition
+       → Le manuscrit → Structure — createCompositionBinding(plugin, root,
+       root), never a parallel setting (see ui/numbering-modal.ts). */
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.numbering"))
+        .setIcon("list-ordered")
+        .onClick(() => new NumberingModal(this.app, this.plugin, root).open())
+    );
+    menu.addSeparator();
     menu.addItem((item) =>
       item
         .setTitle(t("binder.duplicateAsVersion"))
@@ -2807,7 +2917,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     isTruncated: () => boolean;
     rowsRendered: () => number;
   } {
-    const { S, binderFilterActive, folderHasMatch, renderFileRow } = ctx;
+    const { S, binderFilterActive, folderHasMatch, renderFileRow, folderWordTotals } = ctx;
 
     // Filet de sécurité : chaque dossier jamais replié explicitement
     // (S.collapsed) se déplie par défaut — sur un dossier de projet
@@ -2920,6 +3030,25 @@ export class FeuilletsView extends BaseFeuilletsView {
         this.buildBinderNodeIcon(row, "folder", null);
 
         row.createSpan({ cls: "feuillets-folder-name" }).setText(child.name);
+
+        /* Optional status dot + progress ring on the folder's own row —
+           read-only, from its existing folder note (never created here) and
+           from the word-count totals precomputed once per render
+           (ctx.folderWordTotals), never a second wordCountOfFolder() read
+           per row. Works exactly the same collapsed or expanded: a folded
+           chapter still shows its own indicators without rendering its
+           children. */
+        if (S.binderShowStatus || S.binderShowProgress) {
+          const note = S.binderShowStatus ? this.plugin.folderNoteFor(child) : null;
+          const statusValue = note ? toValue(this.fm(note).status).trim() : "";
+          const goal = S.binderShowProgress ? this.plugin.folderGoal(child) : 0;
+          this.renderBinderIndicators(row, {
+            statusValue,
+            contextFolder: child,
+            wc: folderWordTotals.get(child.path) || 0,
+            goal,
+          });
+        }
 
         /* Clic simple sur le NOM (§11-12) : ouvre ce dossier en Continu
            dans la leaf de travail centrale — jamais un repli/dépli, devenu
