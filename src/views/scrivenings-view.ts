@@ -1327,26 +1327,52 @@ export async function openScopeInContinu(app: App, scope: CompileScope): Promise
   return leaf;
 }
 
+/** Bug fix "open folder in Continu with no note open": a leaf's built-in
+ * empty view (Obsidian's own placeholder, `getViewType() === "empty"`) is
+ * just as safely replaceable as a MarkdownView — it holds no file, no
+ * unsaved state, nothing a promotion to Continu could ever clobber. Every
+ * other view (Board, Preview, Recherche, Canvas, PDF, another plugin's
+ * view…) stays strictly off-limits: a folder click in the Binder must never
+ * overwrite a view that could be showing something the user cares about.
+ * No `instanceof` for the empty case — Obsidian exposes no public
+ * `EmptyView` class to import — only the same public `getViewType()`
+ * surface already used by `isOpenScopeView` below. */
+function canReplaceWithContinu(view: unknown): boolean {
+  if (view instanceof MarkdownView) return true;
+  return (
+    typeof view === "object" &&
+    view !== null &&
+    "getViewType" in view &&
+    typeof view.getViewType === "function" &&
+    view.getViewType() === "empty"
+  );
+}
+
 /**
- * Transforme UNE leaf Markdown précise en Continu, EN PLACE — jamais une
+ * Transforme EN PLACE une leaf centrale remplaçable en Continu — jamais une
  * nouvelle leaf (jamais `getLeaf("tab")`/`getLeaf("split")`). Distinct de
  * `openScopeInContinu` ci-dessus (onglet Continu UNIQUE du plugin, révélé ou
  * créé) : utilisé par la promotion automatique Maj+clic du micro-lot delta
- * "bascule Markdown ↔ Continu", qui cible la MÊME leaf de travail choisie
- * par l'appelant (voir feuillets-view.ts). Revérifie strictement que
- * `leaf.view` est bien un `MarkdownView` avant toute transformation —
- * l'appelant l'a déjà vérifié, mais ce helper ne fait jamais confiance à
- * distance : rien n'est modifié si ce n'est pas le cas.
+ * "bascule Markdown ↔ Continu" ET par le clic sur un dossier du Binder
+ * lorsque la leaf centrale ne contient aucune note ouverte (bug confirmé :
+ * une leaf vide n'est pas un `MarkdownView` et était rejetée avant même
+ * `setViewState`), qui ciblent tous deux la MÊME leaf de travail choisie par
+ * l'appelant (voir feuillets-view.ts). Revérifie strictement, via
+ * `canReplaceWithContinu`, que `leaf.view` est bien remplaçable — Markdown
+ * OU vue vide Obsidian, jamais autre chose — avant toute transformation :
+ * l'appelant l'a peut-être déjà vérifié, mais ce helper ne fait jamais
+ * confiance à distance : rien n'est modifié si ce n'est pas le cas.
  *
  * `setViewState` reste le SEUL mécanisme employé pour changer la vue —
  * jamais de copie manuelle du texte du MarkdownView vers le Vault : le
  * fichier reste sur disque tel quel (déjà sauvegardé par Obsidian comme
  * n'importe quel MarkdownView), `openScope()` reconstruit le texte affiché
  * à partir des vrais fichiers (voir ScriveningsView.openScope), jamais
- * depuis l'éditeur qui disparaît.
+ * depuis l'éditeur qui disparaît (une leaf vide n'a de toute façon aucun
+ * texte à préserver).
  */
 export async function openScopeInContinuOnLeaf(app: App, leaf: WorkspaceLeaf, scope: CompileScope): Promise<boolean> {
-  if (!(leaf.view instanceof MarkdownView)) return false;
+  if (!canReplaceWithContinu(leaf.view)) return false;
 
   // §6 du micro-correctif "focus binder + 2→1 + typographie same-leaf" :
   // `active: false` ici, et non `true` — monter la vue comme active AVANT

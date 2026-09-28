@@ -4,6 +4,7 @@ import { TFile, TFolder, MarkdownView } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { ScriveningsView, openScopeInContinuOnLeaf } from "../src/views/scrivenings-view.js";
 import { createSelectionScope } from "../src/services/compile-scope.js";
+import { VIEW_SCRIVENINGS } from "../src/constants.js";
 
 /* Micro-lot delta "bascule Markdown ↔ Continu dans la même leaf" — tests
  * unitaires des deux helpers ajoutés : `openScopeInContinuOnLeaf` (Markdown
@@ -202,6 +203,104 @@ test("openScopeInContinuOnLeaf : refuse si la leaf n'affiche pas un MarkdownView
 
   assert.equal(ok, false);
   assert.equal(setViewStateCalled, false, "aucune transformation tentée");
+});
+
+/* Bug fix "open folder in Continu with no note open" — a leaf's own built-in
+ * empty view (Obsidian's `getViewType() === "empty"`) must be just as
+ * replaceable as a MarkdownView, never rejected before setViewState. */
+
+function buildEmptyLeaf(project) {
+  const plugin = { app: project.app, settings: project.settings, updateStatusBar: () => {} };
+  const leaf = {
+    view: { getViewType: () => "empty" },
+    isDeferred: false,
+    setViewState: async () => {
+      const nextView = new ScriveningsView(leaf, plugin);
+      nextView.mountEditor = () => {};
+      nextView.destroyEditor = () => {};
+      leaf.view = nextView;
+    },
+    loadIfDeferred: async () => {},
+  };
+  leaf.app = project.app;
+  leaf.contentEl = null;
+  return leaf;
+}
+
+test("Test 2 — openScopeInContinuOnLeaf : an empty leaf (no note open) becomes Continu in place, exactly like a MarkdownView would", async () => {
+  const project = buildProject();
+  let focusedLeaf = null;
+  let revealedLeaf = null;
+  const setViewStateCalls = [];
+  project.app.workspace = {
+    setActiveLeaf: (l) => { focusedLeaf = l; },
+    revealLeaf: async (l) => { revealedLeaf = l; },
+  };
+  const leaf = buildEmptyLeaf(project);
+  const realSetViewState = leaf.setViewState;
+  leaf.setViewState = async (state) => { setViewStateCalls.push(state); return realSetViewState(state); };
+  const scope = createSelectionScope(project.root.path, [project.a.path, project.b.path]);
+
+  const ok = await openScopeInContinuOnLeaf(project.app, leaf, scope);
+
+  assert.equal(ok, true);
+  assert.ok(leaf.view instanceof ScriveningsView, "the leaf's empty view is replaced by Continu");
+  assert.deepEqual(leaf.view.getMemberPaths(), [project.a.path, project.b.path]);
+  assert.equal(setViewStateCalls.length, 1, "setViewState is called exactly once");
+  assert.deepEqual(setViewStateCalls[0], { type: VIEW_SCRIVENINGS, active: false });
+  assert.equal(focusedLeaf, leaf);
+  assert.equal(revealedLeaf, leaf);
+});
+
+test("Test 3 — openScopeInContinuOnLeaf : a view that is neither Markdown nor empty (e.g. a Board view) is refused, nothing is touched", async () => {
+  const project = buildProject();
+  let setViewStateCalled = false;
+  let setActiveLeafCalled = false;
+  project.app.workspace = {
+    setActiveLeaf: () => { setActiveLeafCalled = true; },
+    revealLeaf: async () => {},
+  };
+  const boardView = { getViewType: () => "feuillets-board" };
+  const leaf = { view: boardView, setViewState: async () => { setViewStateCalled = true; } };
+  const scope = createSelectionScope(project.root.path, [project.a.path, project.b.path]);
+
+  const ok = await openScopeInContinuOnLeaf(project.app, leaf, scope);
+
+  assert.equal(ok, false);
+  assert.equal(setViewStateCalled, false, "setViewState is never even attempted");
+  assert.equal(setActiveLeafCalled, false);
+  assert.equal(leaf.view, boardView, "the unrelated view is left completely untouched");
+});
+
+test("Test 6 — openScopeInContinuOnLeaf : an empty leaf that becomes deferred is still loaded before openScope", async () => {
+  const project = buildProject();
+  project.app.workspace = { setActiveLeaf: () => {}, revealLeaf: async () => {} };
+  const plugin = { app: project.app, settings: project.settings, updateStatusBar: () => {} };
+  const leaf = {
+    view: { getViewType: () => "empty" },
+    isDeferred: false,
+    setViewState: async () => {
+      leaf.view = {}; // deferred placeholder, exactly as Obsidian would produce
+      leaf.isDeferred = true;
+    },
+    loadIfDeferred: async () => {
+      leaf.isDeferred = false;
+      const nextView = new ScriveningsView(leaf, plugin);
+      nextView.mountEditor = () => {};
+      nextView.destroyEditor = () => {};
+      leaf.view = nextView;
+    },
+  };
+  leaf.app = project.app;
+  leaf.contentEl = null;
+  const scope = createSelectionScope(project.root.path, [project.a.path, project.b.path]);
+
+  const ok = await openScopeInContinuOnLeaf(project.app, leaf, scope);
+
+  assert.equal(ok, true);
+  assert.equal(leaf.isDeferred, false);
+  assert.ok(leaf.view instanceof ScriveningsView);
+  assert.deepEqual(leaf.view.getMemberPaths(), [project.a.path, project.b.path]);
 });
 
 test("openScopeInContinuOnLeaf : charge une leaf différée avant openScope", async () => {

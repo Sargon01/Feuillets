@@ -71,7 +71,11 @@ function buildHarness(fixture, { workLeafFile = null } = {}) {
       workLeaf.view = Object.assign(new MarkdownView(), { file });
     },
   };
-  workLeaf.view = workLeafFile ? Object.assign(new MarkdownView(), { file: workLeafFile }) : {};
+  // No file open in the central leaf: Obsidian's own built-in empty view —
+  // `getViewType() === "empty"` is its real public surface, never a bare
+  // `{}` (which has no `getViewType` at all and would never have matched
+  // even the bug this file now reproduces, see the "empty leaf" test below).
+  workLeaf.view = workLeafFile ? Object.assign(new MarkdownView(), { file: workLeafFile }) : { getViewType: () => "empty" };
 
   const getLeafForOpeningFileCalls = [];
   const workspace = {
@@ -115,6 +119,33 @@ test("clic simple dossier, leaf centrale Markdown : la MÊME leaf devient Contin
   assert.deepEqual(h.workLeaf.view.getMemberPaths(), [fixture.a.path, fixture.b.path]);
   assert.equal(h.setViewStateCalls.length, 1, "un seul changement de vue, sur cette leaf");
   assert.equal(h.setViewStateCalls[0].type, VIEW_SCRIVENINGS);
+});
+
+test("Test 7 / bug fix — clic simple dossier, AUCUNE note ouverte (leaf vide) : la MÊME leaf devient Continu, scope du dossier chargé", async () => {
+  const fixture = buildFixture();
+  const h = buildHarness(fixture); // no workLeafFile: central leaf starts as Obsidian's built-in empty view
+
+  assert.equal(h.workLeaf.view.getViewType(), "empty", "sanity: the fixture reproduces the exact reported state");
+
+  await h.view.openFolderInContinu(fixture.chapitre1);
+
+  assert.ok(h.workLeaf.view instanceof ScriveningsView, "the empty leaf becomes Continu in place");
+  assert.deepEqual(h.workLeaf.view.getMemberPaths(), [fixture.a.path, fixture.b.path]);
+  assert.equal(h.setViewStateCalls.length, 1, "a single view change, on this same leaf");
+  assert.equal(h.setViewStateCalls[0].type, VIEW_SCRIVENINGS);
+  assert.equal(h.setViewStateCalls[0].active, false);
+});
+
+test("clic simple dossier, vue centrale NI Markdown NI vide (ex. Board) : refuse, vue centrale intacte, aucune leaf créée", async () => {
+  const fixture = buildFixture();
+  const h = buildHarness(fixture);
+  const boardView = { getViewType: () => "feuillets-board" };
+  h.workLeaf.view = boardView;
+
+  await h.view.openFolderInContinu(fixture.chapitre1);
+
+  assert.equal(h.workLeaf.view, boardView, "the unrelated view is never overwritten");
+  assert.equal(h.setViewStateCalls.length, 0, "setViewState is never even attempted");
 });
 
 test("clic simple dossier, leaf centrale DÉJÀ Continu : recharge ce scope sur place (openScope), jamais openScopeInContinuOnLeaf", async () => {
