@@ -11519,3 +11519,17 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
   --background-primary: var(--feuillets-writing-background);
   --text-normal: var(--feuillets-writing-text);
 }
+
+/* Bug fix (visual test with the default Obsidian theme): redefining
+ * `--text-normal` above is enough for Minimal Theme, but the default
+ * theme's CM6 content layer doesn't consistently inherit from it — the
+ * text stayed the theme's normal gray/white. `color` set directly on the
+ * `.cm-content` element itself (deliberately not on a wildcard covering its
+ * descendants) sets the INHERITED text color for that layer; every
+ * descendant with its own explicit `color` (links, syntax markers,
+ * headings, callouts, citations, code, annotations) still wins the cascade
+ * exactly as before — nothing here overrides them. */
+body.feuillets-writing-colors .workspace-leaf-content[data-type="markdown"] .feuillets-project-editor .markdown-source-view.mod-cm6 .cm-content,
+body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scrivenings"] .cm-content {
+  color: var(--feuillets-writing-text);
+}

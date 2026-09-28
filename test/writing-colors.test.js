@@ -155,6 +155,36 @@ test("Test H — the writing-colors rule never targets Board/Preview/Recherche s
   assert.doesNotMatch(rule, /feuillets-research/);
 });
 
+/* ===== bug fix: default Obsidian theme's .cm-content text color ===== */
+
+function fullFeatureBlock() {
+  const start = stylesSource.indexOf("custom writing colors");
+  assert.notEqual(start, -1, "the writing-colors CSS section must exist");
+  // Second rule's own closing brace: the .cm-content selector is unique
+  // enough on its own to anchor past the first (variables) rule.
+  const contentRuleStart = stylesSource.indexOf(".cm-content {", start);
+  assert.notEqual(contentRuleStart, -1, "the .cm-content color rule must exist");
+  const end = stylesSource.indexOf("}", contentRuleStart);
+  return stylesSource.slice(start, end + 1);
+}
+
+test("Test K — .cm-content receives color: var(--feuillets-writing-text) for both the project editor and Continu", () => {
+  const block = fullFeatureBlock();
+  assert.match(block, /\.feuillets-project-editor\s+\.markdown-source-view\.mod-cm6\s+\.cm-content/, "targets the project editor's CM6 content layer");
+  assert.match(block, /\[data-type="feuillets-scrivenings"\]\s+\.cm-content/, "targets Continu's content layer");
+  // The color declaration must belong to the .cm-content rule, not the
+  // variables rule above it — isolate the text after the last selector.
+  const contentRule = block.slice(block.lastIndexOf(".cm-content"));
+  assert.match(contentRule, /color:\s*var\(--feuillets-writing-text\)/);
+});
+
+test("Test L — no dangerous wildcard selector (.cm-content * / .feuillets-project-editor *) — descendants keep their own colors", () => {
+  const block = fullFeatureBlock();
+  assert.doesNotMatch(block, /\.cm-content\s*\*/, "never every descendant of .cm-content");
+  assert.doesNotMatch(block, /\.feuillets-project-editor\s*\*/, "never every descendant of .feuillets-project-editor");
+  assert.doesNotMatch(block, /!important/);
+});
+
 test("applyWritingColors() never reads or writes Style Settings / Minimal Theme's own configuration", () => {
   const method = methodBody(mainSource, "applyWritingColors(): void {", "\n  }");
   // The only externally-visible effects are the class toggle and the two
