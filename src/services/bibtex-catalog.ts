@@ -41,17 +41,146 @@ function cleanDelimiters(raw: string): string {
   return val;
 }
 
+function decodeLatexSequences(text: string): string {
+  let result = text;
+
+  // Cedilla: \c{c} -> ç, \c{C} -> Ç
+  result = result.replace(/\\c\{c\}/g, "ç");
+  result = result.replace(/\\c\{C\}/g, "Ç");
+
+  // Ring above: \r{a} -> å, \r{A} -> Å
+  result = result.replace(/\\r\{a\}/g, "å");
+  result = result.replace(/\\r\{A\}/g, "Å");
+
+  // Acute accent: \'{e} or \'e -> é
+  result = result.replace(/\\'\{a\}/g, "á");
+  result = result.replace(/\\'\{e\}/g, "é");
+  result = result.replace(/\\'\{i\}/g, "í");
+  result = result.replace(/\\'\{o\}/g, "ó");
+  result = result.replace(/\\'\{u\}/g, "ú");
+  result = result.replace(/\\'\{A\}/g, "Á");
+  result = result.replace(/\\'\{E\}/g, "É");
+  result = result.replace(/\\'\{I\}/g, "Í");
+  result = result.replace(/\\'\{O\}/g, "Ó");
+  result = result.replace(/\\'\{U\}/g, "Ú");
+  result = result.replace(/\\'a/g, "á");
+  result = result.replace(/\\'e/g, "é");
+  result = result.replace(/\\'i/g, "í");
+  result = result.replace(/\\'o/g, "ó");
+  result = result.replace(/\\'u/g, "ú");
+  result = result.replace(/\\'A/g, "Á");
+  result = result.replace(/\\'E/g, "É");
+  result = result.replace(/\\'I/g, "Í");
+  result = result.replace(/\\'O/g, "Ó");
+  result = result.replace(/\\'U/g, "Ú");
+
+  // Grave accent: \`{e} or \`e -> è
+  result = result.replace(/\\`\{a\}/g, "à");
+  result = result.replace(/\\`\{e\}/g, "è");
+  result = result.replace(/\\`\{i\}/g, "ì");
+  result = result.replace(/\\`\{o\}/g, "ò");
+  result = result.replace(/\\`\{u\}/g, "ù");
+  result = result.replace(/\\`\{A\}/g, "À");
+  result = result.replace(/\\`\{E\}/g, "È");
+  result = result.replace(/\\`\{I\}/g, "Ì");
+  result = result.replace(/\\`\{O\}/g, "Ò");
+  result = result.replace(/\\`\{U\}/g, "Ù");
+  result = result.replace(/\\`a/g, "à");
+  result = result.replace(/\\`e/g, "è");
+  result = result.replace(/\\`i/g, "ì");
+  result = result.replace(/\\`o/g, "ò");
+  result = result.replace(/\\`u/g, "ù");
+  result = result.replace(/\\`A/g, "À");
+  result = result.replace(/\\`E/g, "È");
+  result = result.replace(/\\`I/g, "Ì");
+  result = result.replace(/\\`O/g, "Ò");
+  result = result.replace(/\\`U/g, "Ù");
+
+  // Circumflex: \^{a} or \^a -> â
+  result = result.replace(/\\\^\{a\}/g, "â");
+  result = result.replace(/\\\^\{e\}/g, "ê");
+  result = result.replace(/\\\^\{i\}/g, "î");
+  result = result.replace(/\\\^\{o\}/g, "ô");
+  result = result.replace(/\\\^\{u\}/g, "û");
+  result = result.replace(/\\\^\{A\}/g, "Â");
+  result = result.replace(/\\\^\{E\}/g, "Ê");
+  result = result.replace(/\\\^\{I\}/g, "Î");
+  result = result.replace(/\\\^\{O\}/g, "Ô");
+  result = result.replace(/\\\^\{U\}/g, "Û");
+  result = result.replace(/\\\^a/g, "â");
+  result = result.replace(/\\\^e/g, "ê");
+  result = result.replace(/\\\^i/g, "î");
+  result = result.replace(/\\\^o/g, "ô");
+  result = result.replace(/\\\^u/g, "û");
+  result = result.replace(/\\\^A/g, "Â");
+  result = result.replace(/\\\^E/g, "Ê");
+  result = result.replace(/\\\^I/g, "Î");
+  result = result.replace(/\\\^O/g, "Ô");
+  result = result.replace(/\\\^U/g, "Û");
+
+  // Diaeresis: \"{u} or \"u -> ü
+  // Using character codes to avoid quote escaping: \\ + " + { + u + }
+  result = result.replace(/\\"\{a\}/g, "ä");
+  result = result.replace(/\\"\{e\}/g, "ë");
+  result = result.replace(/\\"\{i\}/g, "ï");
+  result = result.replace(/\\"\{o\}/g, "ö");
+  result = result.replace(/\\"\{u\}/g, "ü");
+  result = result.replace(/\\"\{A\}/g, "Ä");
+  result = result.replace(/\\"\{E\}/g, "Ë");
+  result = result.replace(/\\"\{I\}/g, "Ï");
+  result = result.replace(/\\"\{O\}/g, "Ö");
+  result = result.replace(/\\"\{U\}/g, "Ü");
+  result = result.replace(/\\"a/g, "ä");
+  result = result.replace(/\\"e/g, "ë");
+  result = result.replace(/\\"i/g, "ï");
+  result = result.replace(/\\"o/g, "ö");
+  result = result.replace(/\\"u/g, "ü");
+  result = result.replace(/\\"A/g, "Ä");
+  result = result.replace(/\\"E/g, "Ë");
+  result = result.replace(/\\"I/g, "Ï");
+  result = result.replace(/\\"O/g, "Ö");
+  result = result.replace(/\\"U/g, "Ü");
+
+  // Tilde: \~{n} or \~n -> ñ
+  result = result.replace(/\\~\{a\}/g, "ã");
+  result = result.replace(/\\~\{n\}/g, "ñ");
+  result = result.replace(/\\~\{o\}/g, "õ");
+  result = result.replace(/\\~\{A\}/g, "Ã");
+  result = result.replace(/\\~\{N\}/g, "Ñ");
+  result = result.replace(/\\~\{O\}/g, "Õ");
+  result = result.replace(/\\~a/g, "ã");
+  result = result.replace(/\\~n/g, "ñ");
+  result = result.replace(/\\~o/g, "õ");
+  result = result.replace(/\\~A/g, "Ã");
+  result = result.replace(/\\~N/g, "Ñ");
+  result = result.replace(/\\~O/g, "Õ");
+
+  // Special ligatures and characters
+  result = result.replace(/\\ae/g, "æ");
+  result = result.replace(/\\AE/g, "Æ");
+  result = result.replace(/\\oe/g, "œ");
+  result = result.replace(/\\OE/g, "Œ");
+  result = result.replace(/\\aa/g, "å");
+  result = result.replace(/\\AA/g, "Å");
+  result = result.replace(/\\o(?!\w)/g, "ø");
+  result = result.replace(/\\O(?!\w)/g, "Ø");
+  result = result.replace(/\\ss/g, "ß");
+
+  return result;
+}
 
 function cleanFieldValue(raw?: string): string | undefined {
   if (!raw) return undefined;
   const unwrapped = cleanDelimiters(raw);
-  const cleaned = unwrapped.replace(/[{}]/g, "").trim();
+  const decoded = decodeLatexSequences(unwrapped);
+  const cleaned = decoded.replace(/[{}]/g, "").trim();
   return cleaned || undefined;
 }
 
 function cleanTitle(raw: string): string {
   const unwrapped = cleanDelimiters(raw);
-  return unwrapped.replace(/[{}]/g, "").trim();
+  const decoded = decodeLatexSequences(unwrapped);
+  return decoded.replace(/[{}]/g, "").trim();
 }
 
 function extractLastName(author: string): string {
@@ -59,24 +188,24 @@ function extractLastName(author: string): string {
 
   // Institutional authors in {{...}} or {...}
   if (cleaned.startsWith("{{") && cleaned.endsWith("}}")) {
-    return cleaned.slice(2, -2).trim();
+    return decodeLatexSequences(cleaned.slice(2, -2).trim());
   }
   if (cleaned.startsWith("{") && cleaned.endsWith("}")) {
     const inner = cleaned.slice(1, -1).trim();
     if (inner.startsWith("{") && inner.endsWith("}")) {
-      return inner.slice(1, -1).trim();
+      return decodeLatexSequences(inner.slice(1, -1).trim());
     }
-    return inner;
+    return decodeLatexSequences(inner);
   }
 
   // Comma separated: "Last, First" -> "Last"
   if (cleaned.includes(",")) {
-    return cleaned.split(",")[0].trim();
+    return decodeLatexSequences(cleaned.split(",")[0].trim());
   }
 
   // Space separated: "First Middle Last" -> "Last"
   const parts = cleaned.split(/\s+/);
-  return parts[parts.length - 1] || "";
+  return decodeLatexSequences(parts[parts.length - 1] || "");
 }
 
 function extractAuthors(authorField: string): string[] {

@@ -523,3 +523,67 @@ test("35. extended bibliographic fields are parsed and cleaned", () => {
   assert.equal(e.doi, "10.1234/test.5678");
   assert.equal(e.url, "https://example.org/complex");
 });
+
+test("LaTeX 1. real-world case: Théâtre and Épistémocritique", () => {
+  const bib = `@article{cappelletto2013,
+    author = {Cappelletto, Chiara},
+    title = {Th\\'e\\^atre et Neurosciences : Fiction versus Naturalisation},
+    publisher = {\\'Epist\\'emocritique},
+    year = {2013}
+  }`;
+  const entries = parseBibtexCatalog(bib);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].key, "cappelletto2013");
+  assert.deepEqual(entries[0].authors, ["Cappelletto"]);
+  assert.equal(entries[0].title, "Théâtre et Neurosciences : Fiction versus Naturalisation");
+  assert.equal(entries[0].publisher, "Épistémocritique");
+  assert.equal(entries[0].year, "2013");
+});
+
+test("LaTeX 2. cedilla and acute with braces", () => {
+  const bib = `@article{test1,
+    author = {Fran\\c{c}ois and Jos\\'e},
+    title = {Test},
+    year = {2024}
+  }`;
+  const entries = parseBibtexCatalog(bib);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].authors, ["François", "José"]);
+});
+
+test("LaTeX 3. uppercase acuted vowel", () => {
+  const bib = `@article{uppercase2024,
+    author = {\\'Ecole},
+    title = {Test},
+    year = {2024}
+  }`;
+  const entries = parseBibtexCatalog(bib);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].authors, ["École"]);
+});
+
+test("LaTeX 4. native Unicode is preserved unchanged", () => {
+  const bib = `@article{unicode2024,
+    author = {Müller and François and García},
+    title = {Étude Théorique Avancée},
+    year = {2024}
+  }`;
+  const entries = parseBibtexCatalog(bib);
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].authors, ["Müller", "François", "García"]);
+  assert.equal(entries[0].title, "Étude Théorique Avancée");
+});
+
+test("LaTeX 5. unknown LaTeX command does not cause silent text loss", () => {
+  const bib = `@article{unknown2024,
+    author = {Smith},
+    title = {Title with \\unknowncmd{text} and other words},
+    year = {2024}
+  }`;
+  const entries = parseBibtexCatalog(bib);
+  assert.equal(entries.length, 1);
+  const title = entries[0].title;
+  // Unknown commands are preserved, but braces are removed (as with all fields)
+  // The text 'text' should not be silently lost
+  assert.ok(title.includes("unknowncmd") && title.includes("text"), `title="${title}" should preserve both command and argument`);
+});
