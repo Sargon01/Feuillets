@@ -1337,15 +1337,9 @@ export async function openScopeInContinu(app: App, scope: CompileScope): Promise
  * No `instanceof` for the empty case — Obsidian exposes no public
  * `EmptyView` class to import — only the same public `getViewType()`
  * surface already used by `isOpenScopeView` below. */
-function canReplaceWithContinu(view: unknown): boolean {
+function canReplaceWithContinu(view: WorkspaceLeaf["view"]): boolean {
   if (view instanceof MarkdownView) return true;
-  return (
-    typeof view === "object" &&
-    view !== null &&
-    "getViewType" in view &&
-    typeof view.getViewType === "function" &&
-    view.getViewType() === "empty"
-  );
+  return view !== null && "getViewType" in view && view.getViewType() === "empty";
 }
 
 /**
