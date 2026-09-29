@@ -25,7 +25,7 @@ test("le renommage Binder TFile est explicitement réservé à FeuilletsView", (
   assert.match(modalSource, /modal\.renameBinder\.binderTitleLabel/);
   assert.match(modalSource, /modal\.renameBinder\.fileNameLabel/);
   assert.match(baseSource, /showFileContextMenu\([^\n]+binderRename = false/);
-  assert.match(binderSource, /showFileContextMenu\(e, file, parent, i, siblings, true\)/);
+  assert.match(binderSource, /showFileContextMenu\(e, file, parent, i, siblings, this\.headingOutlineContextMenuExtras\(file\), true\)/);
   assert.doesNotMatch(boardSource, /showFileContextMenu\([^\n]+, true\)/);
 });
 

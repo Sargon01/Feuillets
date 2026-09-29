@@ -3597,7 +3597,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     this.app.workspace.setActiveLeaf(workLeaf, { focus: true });
   }
 
-  showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[], binderRename = false): void {
+  showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[], extraItems?: (menu: Menu) => void, binderRename = false): void {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -3719,6 +3719,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     if (isGroup) {
       menu.addItem((item) => item.setTitle(t("shared.contextMenu.groupSelected", { count: String(groupFiles.length) })).setDisabled(true));
     }
+    extraItems?.(menu);
     menu.addSeparator();
 
     /* Structure : Carnet et création. */

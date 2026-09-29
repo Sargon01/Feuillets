@@ -1,5 +1,7 @@
 import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, BOARD_MODES } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
+import { headingOutlineForFile } from "../services/heading-outline-cache.js";
+import type { HeadingOutlineNode } from "../services/heading-outline.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
@@ -168,6 +170,13 @@ export class FeuilletsView extends BaseFeuilletsView {
    * dossier. Indexée par chemin de dossier isolé ; un dossier sans entrée
    * ici suit `settings.binderCompact` (voir getEffectiveBinderCompact). */
   _binderCompactOverrides?: Map<string, boolean>;
+  /** Which files currently show their Markdown heading structure (GitHub
+   * #17), toggled from each file's own context menu — session runtime state
+   * only, keyed by `file.path`: never in FeuilletsSettings, never in
+   * ProjectMeta, never persisted. Empty by default, so every file's
+   * structure starts hidden on a fresh view/session. Cleared naturally when
+   * this view instance is destroyed. */
+  private _visibleHeadingOutlinePaths = new Set<string>();
 
   /** Racine à afficher dans le Binder : le scope partagé s'il existe encore
    * et appartient toujours au projet actif, sinon la racine réelle du
@@ -212,6 +221,32 @@ export class FeuilletsView extends BaseFeuilletsView {
           .setTitle(t("binder.isolateFolder"))
           .setIcon("focus")
           .onClick(() => this.isolateFolder(folder))
+      );
+    };
+  }
+
+  /** GitHub #17: "Show/Hide file structure", added to the Binder's own file
+   * context menu (showFileContextMenu, `extraItems`) — never a second menu,
+   * and never leaking into Board or any other surface that shares the same
+   * base method (they simply never pass this callback). `headingOutlineForFile()`
+   * is called once, right when the menu opens, purely to decide whether the
+   * action should appear at all: a file with no heading gets no entry, and
+   * the menu stays exactly as before. Toggling only flips this SESSION-ONLY
+   * runtime Set (`_visibleHeadingOutlinePaths`) and re-renders — never opens
+   * the file, never touches selection/Continu, never calls saveSettings(). */
+  headingOutlineContextMenuExtras(file: TFile): (menu: Menu) => void {
+    return (menu: Menu) => {
+      if (headingOutlineForFile(this.app, file).length === 0) return;
+      const visible = this._visibleHeadingOutlinePaths.has(file.path);
+      menu.addItem((item) =>
+        item
+          .setTitle(t(visible ? "binder.headingOutline.hide" : "binder.headingOutline.show"))
+          .setIcon("list-tree")
+          .onClick(() => {
+            if (visible) this._visibleHeadingOutlinePaths.delete(file.path);
+            else this._visibleHeadingOutlinePaths.add(file.path);
+            void this.render(true);
+          })
       );
     };
   }
@@ -1718,7 +1753,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         item.addEventListener("contextmenu", (e) => {
           e.preventDefault();
           this.ensureSelectionForContextMenu(file.path, dragScopeEl);
-          this.showFileContextMenu(e, file, parent, i, siblings, true);
+          this.showFileContextMenu(e, file, parent, i, siblings, this.headingOutlineContextMenuExtras(file), true);
         });
       }
       return true;
@@ -2961,6 +2996,48 @@ export class FeuilletsView extends BaseFeuilletsView {
     let treeRowCount = 0;
     let treeTruncated = false;
 
+    /* GitHub #17: read-only visual projection of a file's Markdown H1-H6
+       heading structure, shown ONLY on demand from that file's own context
+       menu (headingOutlineContextMenuExtras) — never a project/global
+       setting. Recursively renders the tree already built by
+       buildHeadingOutline() (heading-outline.ts) — visual depth comes from
+       THAT tree, never directly from `node.level` (a document can jump
+       from H1 to H4 with no phantom level in between). These rows stay
+       VIRTUAL nodes: no `data-path`, no tabindex, no listener, never
+       `.feuillets-item`/`.feuillets-folder-row` — see styles.css. Counts
+       toward the SAME `MAX_TREE_ROWS` as physical rows.
+       `fileDepth` is the SAME `--feuillets-binder-depth` as the file row
+       itself (physical folder depth) — the CSS formula (styles.css) adds
+       the file row's own chevron/icon/label column width on top of it, so
+       a heading never starts at the chevron's own column. `relativeDepth`
+       starts at 1 for a root heading and grows by 1 per nesting level. */
+    const renderHeadingOutlineNodes = (
+      nodes: HeadingOutlineNode[],
+      host: HTMLElement,
+      fileDepth: number,
+      relativeDepth: number,
+      withLabelColumn: boolean
+    ): void => {
+      for (const node of nodes) {
+        if (treeRowCount >= MAX_TREE_ROWS) {
+          treeTruncated = true;
+          treePane.createDiv({ cls: "feuillets-empty" }).setText(t("binder.tree.truncated", { max: String(MAX_TREE_ROWS) }));
+          return;
+        }
+        treeRowCount++;
+        const row = host.createDiv({ cls: "feuillets-heading-outline-row" });
+        row.toggleClass("feuillets-heading-outline-row--with-label-column", withLabelColumn);
+        row.style.setProperty("--feuillets-binder-depth", String(fileDepth));
+        row.style.setProperty("--feuillets-heading-outline-depth", String(relativeDepth));
+        row.setAttr("data-heading-level", String(node.level));
+        row.createSpan({ cls: "feuillets-heading-outline-text" }).setText(node.text);
+        if (node.children.length > 0) {
+          renderHeadingOutlineNodes(node.children, host, fileDepth, relativeDepth + 1, withLabelColumn);
+          if (treeTruncated) return;
+        }
+      }
+    };
+
     /* Ouverture Continu d'un dossier au simple clic sur son NOM (LOT FINAL
        Binder ↔ Continu, §11-12) : programmée après ce court délai plutôt
        qu'exécutée tout de suite, pour qu'un double-clic (isolation, voir
@@ -2977,6 +3054,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       if (treeTruncated) return;
       const siblings = this.plugin.getOrderedChildren(parent);
       for (let i = 0; i < siblings.length; i++) {
+        if (treeTruncated) return;
         const child = siblings[i];
         if (
           collapseCheckRoot &&
@@ -2999,6 +3077,10 @@ export class FeuilletsView extends BaseFeuilletsView {
             revealProjectDraft: !!ctx.revealDraftsFolder,
           })) {
             treeRowCount++;
+            if (this._visibleHeadingOutlinePaths.has(child.path)) {
+              const outline = headingOutlineForFile(this.app, child);
+              if (outline.length > 0) renderHeadingOutlineNodes(outline, treePane, depth, 1, S.binderShowLabels);
+            }
           }
           continue;
         }

@@ -1,5 +1,14 @@
 /* Feuillets 2.0 — styles, alignés sur les variables natives d'Obsidian */
 
+/* Fixed column widths reused by both a file row's own layout (chevron/label/
+ * icon, below) and the heading outline row's indentation base (GitHub #17) —
+ * defined once here so neither ever drifts from the other. */
+:root {
+  --feuillets-binder-chevron-w: 14px;
+  --feuillets-binder-label-w: 3px;
+  --feuillets-binder-icon-w: 16px;
+}
+
 /* ===== binder (vue latérale) ===== */
 
 /* fond forcé à --background-secondary sur les trois panneaux du plugin :
@@ -291,6 +300,51 @@
   padding-left: calc(var(--size-4-2) + var(--feuillets-binder-depth, 0) * 9px);
 }
 
+/* GitHub #17: read-only visual projection, shown on demand from a file's
+ * context menu (FeuilletsView.headingOutlineContextMenuExtras), of its
+ * Markdown H1-H6 heading structure under that file's own row (see
+ * renderHierarchyContents/renderHeadingOutlineNodes, feuillets-view.ts).
+ *
+ * A file row's title does NOT start at the row's own padding-left: it sits
+ * after the chevron, an optional label swatch, and the node icon — each a
+ * fixed width, reused here as custom properties so this offset is computed
+ * once, deterministically, never measured from the DOM. A heading row's
+ * base indent is therefore: the file row's own `--feuillets-binder-depth`
+ * (same physical folder depth, so nested files still align), PLUS that
+ * title-column offset, PLUS 9px per relative depth in the heading tree
+ * (`--feuillets-heading-outline-depth`, root = 1 — never `node.level`,
+ * see renderHeadingOutlineNodes: a document can jump from H1 to H4 with no
+ * phantom level in between). `--with-label-column` is toggled in JS from
+ * `S.binderShowLabels`, the same flag that reserves the label swatch on
+ * file rows. */
+.feuillets-heading-outline-row {
+  display: flex;
+  align-items: center;
+  padding: 2px var(--size-4-2);
+  padding-left: calc(
+    var(--size-4-2) + var(--feuillets-binder-depth, 0) * 9px
+    + var(--feuillets-binder-chevron-w) + var(--feuillets-binder-icon-w) + var(--size-4-2) * 2
+    + var(--feuillets-heading-outline-depth, 1) * 9px
+  );
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.feuillets-heading-outline-row.feuillets-heading-outline-row--with-label-column {
+  padding-left: calc(
+    var(--size-4-2) + var(--feuillets-binder-depth, 0) * 9px
+    + var(--feuillets-binder-chevron-w) + var(--feuillets-binder-label-w) + var(--feuillets-binder-icon-w) + var(--size-4-2) * 3
+    + var(--feuillets-heading-outline-depth, 1) * 9px
+  );
+}
+
+.feuillets-heading-outline-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-smaller);
+}
+
 /* Colonnes chevron/icône (§16) : largeur fixe identique fichiers/dossiers,
  * pour que chevron + icône + titre restent alignés sans zigzag, qu'une
  * ligne soit un dossier (chevron parfois actif) ou un feuillet (chevron
@@ -299,8 +353,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  min-width: 14px;
+  width: var(--feuillets-binder-chevron-w);
+  min-width: var(--feuillets-binder-chevron-w);
   height: 14px;
   color: var(--text-faint);
   cursor: pointer;
@@ -345,8 +399,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  min-width: 16px;
+  width: var(--feuillets-binder-icon-w);
+  min-width: var(--feuillets-binder-icon-w);
   height: 16px;
   color: var(--text-muted);
   flex-shrink: 0;
@@ -369,8 +423,8 @@
  * coloré via `--feuillets-label-color` uniquement avec `.has-label`. Aucun
  * fond, aucune ombre : seule la petite barre elle-même est visible. */
 .feuillets-label-swatch {
-  width: 3px;
-  min-width: 3px;
+  width: var(--feuillets-binder-label-w);
+  min-width: var(--feuillets-binder-label-w);
   font-size: var(--font-ui-small);
   height: 1.5em;
   border-radius: 2px;
@@ -416,6 +470,53 @@
 }
 .feuillets-binder-isolated .feuillets-item:last-child {
   border-bottom: none;
+}
+
+/* GitHub #17 follow-up: a file and its (on-demand) heading structure must
+ * read as ONE visual group in isolated mode — the §8 separator above
+ * belongs BETWEEN groups, never between a file and its own headings, nor
+ * between two headings of the same file. Heading rows are always rendered
+ * as flat DOM siblings right after their own file row (renderFileRow ->
+ * renderHeadingOutlineNodes, feuillets-view.ts), whatever their visual
+ * nesting — so a contiguous run of `.feuillets-heading-outline-row` is
+ * always exactly one file's own structure, however deep.
+ * 1) a file immediately followed by its first heading row loses its own
+ *    border: the group's separator moves to the group's LAST row instead. */
+.feuillets-binder-isolated .feuillets-item:has(+ .feuillets-heading-outline-row) {
+  border-bottom: none;
+}
+/* 2) the separator lands on the LAST heading row of a contiguous run — the
+ *    one NOT immediately followed by another heading row — never on an
+ *    intermediate one between two headings of the same file. */
+.feuillets-binder-isolated .feuillets-heading-outline-row:not(:has(+ .feuillets-heading-outline-row)) {
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+/* 3) same historical rule as `.feuillets-item:last-child` above: the very
+ *    last row of the whole list never gets a final separator, even when
+ *    that last row is a heading row closing the last file's group. Later
+ *    in source than rule 2 above, same specificity, so it wins on it. */
+.feuillets-binder-isolated .feuillets-heading-outline-row:last-child {
+  border-bottom: none;
+}
+
+/* GitHub #17 follow-up: the isolated file row above hides its chevron and
+ * icon entirely and drops the physical folder depth from its own
+ * padding-left — a heading row's base must follow suit, or it keeps
+ * reserving space for columns that no longer exist here. Same
+ * `--feuillets-heading-outline-depth` term as the normal formula (never
+ * `node.level`), just against the isolated file row's own flat base
+ * instead of chevron+icon+`--feuillets-binder-depth`. The label swatch
+ * itself is NOT hidden in isolated mode (no rule above does so), so its
+ * width is still accounted for when present. */
+.feuillets-binder-isolated .feuillets-heading-outline-row {
+  padding-left: calc(var(--size-4-2) + var(--feuillets-heading-outline-depth, 1) * 9px);
+}
+
+.feuillets-binder-isolated .feuillets-heading-outline-row.feuillets-heading-outline-row--with-label-column {
+  padding-left: calc(
+    var(--size-4-2) + var(--feuillets-binder-label-w) + var(--size-4-2)
+    + var(--feuillets-heading-outline-depth, 1) * 9px
+  );
 }
 
 /* .feuillets-binder-isolated .feuillets-item-preview (marge titre/aperçu) :

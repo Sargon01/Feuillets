@@ -156,6 +156,8 @@ export const en = {
   "binder.isolation.up": "Go up one folder",
   "binder.folder.expand": "Expand folder",
   "binder.folder.collapse": "Collapse folder",
+  "binder.headingOutline.show": "Show file structure",
+  "binder.headingOutline.hide": "Hide file structure",
   "binder.tree.truncated": "Display limited to {max} folders (very large project) — collapse some folders to see the rest.",
   "binder.list.truncated": "Display limited to {max} sheets (very large project) — pick a more specific folder, or disable the recursive list.",
   "binder.list.emptyRecursive": "No sheet in this folder or its subfolders.",
