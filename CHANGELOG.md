@@ -2,6 +2,34 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.2.0 — 2026-09-29
+
+### Images et légendes
+
+- Les images collées dans un projet sont désormais enregistrées dans les ressources du projet afin de rester organisées avec le manuscrit.
+- Les ressources image restent synchronisées lorsque les fichiers qui les utilisent sont renommés ou déplacés.
+- Les images peuvent recevoir des légendes portables conservées avec le contenu Markdown.
+- Les légendes sont prises en charge de manière cohérente dans l'éditeur, Continu, l'Aperçu et les exports concernés.
+
+### Binder et Continu
+
+- Les feuillets du Binder proposent désormais une action **« Copier le contenu »**, en complément de la copie structurée des dossiers.
+- L'affichage de la progression des dossiers et les contrôles de numérotation du Binder ont été améliorés.
+- Correction de l'ouverture d'un dossier dans **Continu** depuis une feuille vide.
+- Stabilisation du focus entre le Binder, l'éditeur et les vues différées.
+
+### Écriture
+
+- Ajout de couleurs d'écriture personnalisables pour le fond et le texte des surfaces d'écriture Feuillets.
+- Les couleurs personnalisées restent correctement limitées au projet et aux surfaces Feuillets concernées.
+
+### Compatibilité et interface
+
+- Migration automatique des anciens statuts et étiquettes intégrés vers leurs identifiants actuels.
+- Finalisation de plusieurs éléments de localisation française et anglaise.
+- Renforcement du rendu statique afin que les éléments interactifs des citations ne contaminent pas l'Aperçu ou les exports.
+- Divers ajustements de stabilité et de cohérence de l'interface.
+
 ## 3.1.0 — 2026-09-26
 
 ### Citations et références
