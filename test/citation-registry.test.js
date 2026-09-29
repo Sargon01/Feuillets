@@ -376,10 +376,10 @@ test("insertCitationFor preserves logical frontmatter mapping", async () => {
 });
 
 test("bibliography generator preserves ZotFlow creators", async () => {
-  const { bibliographyEntries } = await import("../src/services/bibliography-generator.js");
+  const { bibliographyEntriesForFiles } = await import("../src/services/bibliography-generator.js");
   const state = fixture();
 
-  // Override metadataCache to return ZotFlow frontmatter
+  // Override metadataCache so the fixture's Source file carries ZotFlow frontmatter
   state.app.metadataCache.getFileCache = (_file) => ({
     frontmatter: {
       creators: ["Jane Doe", "John Smith"],
@@ -389,12 +389,11 @@ test("bibliography generator preserves ZotFlow creators", async () => {
     },
   });
 
-  const entries = bibliographyEntries(state.app, state.settings);
-  // Find our test source in the entries
-  const ourEntry = entries.find((e) => e.title === "A Study");
-  if (ourEntry) {
-    assert.equal(ourEntry.author, "Jane Doe, John Smith");
-    assert.equal(ourEntry.publisher, "Historical Review");
-    assert.equal(ourEntry.date, "2024");
-  }
+  const entries = bibliographyEntriesForFiles(state.app, [state.source]);
+  assert.equal(entries.length, 1);
+  const [entry] = entries;
+  assert.equal(entry.author, "Jane Doe, John Smith");
+  assert.equal(entry.title, "A Study");
+  assert.equal(entry.publisher, "Historical Review");
+  assert.equal(entry.date, "2024");
 });

@@ -205,12 +205,14 @@ test("16. creator array (singular field)", () => {
   assert.equal(result.author, "Jane Doe, John Smith");
 });
 
-test("17. mixed array with null, empty strings, and objects", () => {
+test("17. mixed array with null, empty strings, numbers, and objects", () => {
   const frontmatter = {
     creators: ["Jane Doe", null, {}, "John Smith", "", undefined, 42],
   };
   const result = resolveBibliographyMetadataFromFrontmatter(frontmatter);
-  assert.equal(result.author, "Jane Doe, John Smith, 42");
+  assert.equal(result.author, "Jane Doe, John Smith");
+  assert.doesNotMatch(result.author, /\[object Object\]/);
+  assert.doesNotMatch(result.author, /42/);
 });
 
 test("18. empty array returns undefined", () => {
@@ -224,6 +226,14 @@ test("18. empty array returns undefined", () => {
 test("19. array of all nulls returns undefined", () => {
   const frontmatter = {
     creators: [null, undefined, ""],
+  };
+  const result = resolveBibliographyMetadataFromFrontmatter(frontmatter);
+  assert.equal(result.author, undefined);
+});
+
+test("20. array of numbers only is ignored, never coerced to author names", () => {
+  const frontmatter = {
+    creators: [42, 2024],
   };
   const result = resolveBibliographyMetadataFromFrontmatter(frontmatter);
   assert.equal(result.author, undefined);

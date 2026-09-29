@@ -114,8 +114,10 @@ function resolveUrl(fm: Record<string, unknown>): string | undefined {
 }
 
 /** Safely converts value to string, handling both strings and arrays.
- *  Arrays are joined with ", " after filtering nulls/objects.
- *  Returns undefined for null, empty string, or empty array. */
+ *  Arrays are joined with ", " after keeping only string items — numbers,
+ *  booleans, objects and nested arrays are silently dropped, since an
+ *  author list entry that isn't already text is never a plausible name.
+ *  Returns undefined for null, empty string, or an array with no string items. */
 function asStringOrArray(value: unknown): string | undefined {
   if (value === null || value === undefined) return undefined;
 
@@ -126,7 +128,7 @@ function asStringOrArray(value: unknown): string | undefined {
 
   if (Array.isArray(value)) {
     const items = value
-      .map((item) => asString(item))
+      .map((item) => asArrayAuthorString(item))
       .filter((item): item is string => Boolean(item));
     if (items.length > 0) {
       return items.join(", ");
@@ -136,6 +138,14 @@ function asStringOrArray(value: unknown): string | undefined {
 
   // Reject single objects, numbers converted to strings, etc.
   return undefined;
+}
+
+/** Keeps only string entries of an author array, trimmed and non-empty.
+ *  Numbers, booleans, objects and nested arrays are rejected. */
+function asArrayAuthorString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 /** Safely converts a value to a string.

@@ -2,6 +2,19 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.2.1 — 2026-09-29
+
+### Citations et bibliographie
+
+- Les séquences LaTeX courantes utilisées pour les caractères accentués et certaines ligatures dans les métadonnées BibTeX sont désormais correctement décodées à l'affichage et dans les bibliographies Feuillets.
+- Les fiches Source reconnaissent certaines propriétés bibliographiques courantes de ZotFlow (`creator`, `creators`, `publication`, `year`) tout en conservant la priorité des propriétés Feuillets existantes.
+- Les listes simples d'auteurs sont normalisées sans convertir les valeurs non textuelles en noms d'auteur.
+
+### Qualité et documentation
+
+- Renforcement du typage interne de Continu sans modification de son comportement.
+- Mise à jour de la documentation des citations afin de distinguer les fiches Source du workflow BibTeX/Pandoc et de préciser le comportement réel de l'aperçu auteur-date et des exports natifs.
+
 ## 3.2.0 — 2026-09-29
 
 ### Images et légendes
