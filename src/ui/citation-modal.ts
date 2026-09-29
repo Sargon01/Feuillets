@@ -2,8 +2,8 @@ import { FuzzySuggestModal, type App, type FuzzyMatch, type TFile } from "obsidi
 import { TextInputModal } from "../scenes-editor.js";
 import { ConfirmModal } from "./basic-modals.js";
 import { t } from "../i18n/index.js";
-import { toValue } from "../utils/scene-fields.js";
 import type { CitationCandidate } from "../services/citation-candidates.js";
+import { resolveBibliographyMetadataFromFrontmatter } from "../services/source-bibliography-resolver.js";
 
 type CitationPlugin = {
   fmOf(file: TFile): Record<string, unknown>;
@@ -50,8 +50,9 @@ export class CitationSourceModal extends FuzzySuggestModal<CitationCandidate> {
 
   getItemText(item: CitationCandidate): string {
     if (item.kind === "source-sheet") {
-      const fm = this.plugin.fmOf(item.sourceFile);
-      const authorStr = toValue(fm.author);
+      const logicalFm = this.plugin.fmOf(item.sourceFile);
+      const bib = resolveBibliographyMetadataFromFrontmatter(logicalFm);
+      const authorStr = bib.author;
       const title = this.plugin.titleFor(item.sourceFile);
       const sheetName = item.sourceFile.basename || item.sourceFile.name;
       const attNames = item.attachmentFiles.map((f) => f.name).join(" ");
@@ -68,8 +69,9 @@ export class CitationSourceModal extends FuzzySuggestModal<CitationCandidate> {
     el.empty();
 
     if (item.kind === "source-sheet") {
-      const fm = this.plugin.fmOf(item.sourceFile);
-      const authorStr = toValue(fm.author);
+      const logicalFm = this.plugin.fmOf(item.sourceFile);
+      const bib = resolveBibliographyMetadataFromFrontmatter(logicalFm);
+      const authorStr = bib.author;
       const author = authorStr ? ` — ${authorStr}` : "";
       const atts = item.attachmentFiles.map((f) => f.name).join(", ");
       const attLabel = atts ? ` (${atts})` : "";
@@ -172,8 +174,9 @@ export class CitationAmbiguousSheetModal extends FuzzySuggestModal<TFile> {
   }
 
   getItemText(file: TFile): string {
-    const fm = this.plugin.fmOf(file);
-    const authorStr = toValue(fm.author);
+    const logicalFm = this.plugin.fmOf(file);
+    const bib = resolveBibliographyMetadataFromFrontmatter(logicalFm);
+    const authorStr = bib.author;
     const author = authorStr ? ` — ${authorStr}` : "";
     return `${this.plugin.titleFor(file)}${author}`;
   }

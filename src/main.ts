@@ -77,6 +77,7 @@ import {
 } from "./utils/cm-citekey-trigger.js";
 import { getCachedBibtexCatalog } from "./services/bibtex-catalog.js";
 import { resolveWorkspaceCitationResources } from "./services/workspace-citations.js";
+import { resolveBibliographyMetadataFromFrontmatter } from "./services/source-bibliography-resolver.js";
 import { CitekeyModal } from "./ui/citekey-modal.js";
 import {
   createPandocCitationLivePreviewExtension,
@@ -4273,13 +4274,14 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.cannotCiteDirectlyBinary"));
       return;
     }
-    const rawFm = this.fmOf(sourceFile);
+    const logicalFrontmatter = this.fmOf(sourceFile);
+    const bib = resolveBibliographyMetadataFromFrontmatter(logicalFrontmatter);
     const fm = {
-      author: asString(rawFm.author),
-      title: asString(rawFm.title) || this.titleFor(sourceFile),
-      date: rawFm.date || rawFm.annee,
-      publisher: asString(rawFm.publisher),
-      url: asString(rawFm.url),
+      author: bib.author,
+      title: bib.title || this.titleFor(sourceFile),
+      date: bib.date,
+      publisher: bib.publisher,
+      url: bib.url,
     };
     const style = this.citationStyleFor();
     const citationTarget = targetFile || this.app.workspace.getActiveFile();

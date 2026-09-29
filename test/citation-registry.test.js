@@ -41,6 +41,9 @@ function fixture(registryContent) {
   const entries = [project, manuscript, resources, resourcesRoot, internal, sheet, source];
   if (registry) entries.push(registry);
   const { vault } = createFakeVault(entries);
+  const frontmatterMap = new Map([
+    [source.path, { author: "Dupont", title: "Titre", date: "2025", publisher: "Éditeur" }],
+  ]);
   const settings = {
     projectFolder: manuscript.path,
     projectMeta: { [manuscript.path]: {} },
@@ -48,7 +51,7 @@ function fixture(registryContent) {
     folderPositions: {},
   };
   return {
-    app: { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } },
+    app: { vault, metadataCache: { getFileCache: (file) => ({ frontmatter: frontmatterMap.get(file.path) || {} }) } },
     settings,
     manuscript,
     sheet,
@@ -139,6 +142,7 @@ test("insertCitationFor conserve l'insertion parenthétique et enregistre la cib
     settings: state.settings,
     _lastCitedSourceByFile: new Map(),
     fmOf: () => ({ author: "Dupont", title: "Titre", date: "2025", publisher: "Éditeur" }),
+    titleFor: () => "Titre",
     citationStyleFor: () => "parenthetical",
     markSourceCited: () => {},
     recordCitationOccurrence: FeuilletsPlugin.prototype.recordCitationOccurrence,
@@ -169,6 +173,7 @@ test("note de bas de page et Ibid. enregistrent le corps de citation", async () 
     settings: state.settings,
     _lastCitedSourceByFile: new Map(),
     fmOf: () => ({ author: "Dupont", title: "Titre", date: "2025", publisher: "Éditeur" }),
+    titleFor: () => "Titre",
     citationStyleFor: () => "footnote",
     markSourceCited: () => {},
     recordCitationOccurrence: FeuilletsPlugin.prototype.recordCitationOccurrence,
@@ -292,4 +297,104 @@ test("la compilation utilise les citations du CompileScope et ignore cite_count 
   assert.match(result.manuscript, /Auteur A/);
   assert.match(result.manuscript, /Auteur B/);
   assert.doesNotMatch(result.manuscript, /Legacy/);
+});
+
+test("ZotFlow integration: insertCitationFor with creators array", async () => {
+  const state = fixture();
+  // Update source with ZotFlow metadata
+  const frontmatter = {
+    creators: ["Jane Doe", "John Smith"],
+    publication: "Historical Review",
+    year: 2024,
+    title: "A Study",
+  };
+  state.app.metadataCache.getFileCache = (file) => ({
+    frontmatter: file.path === state.source.path ? frontmatter : {},
+  });
+
+  const editor = {
+    value: "Avant ",
+    getValue() { return this.value; },
+    getCursor() { return { line: 0, ch: 6 }; },
+    posToOffset(position) { return position.ch; },
+    replaceRange(text, from) { this.value = `${this.value.slice(0, from.ch)}${text}${this.value.slice(from.ch)}`; },
+    setCursor() {},
+    focus() {},
+  };
+
+  const plugin = {
+    app: state.app,
+    settings: state.settings,
+    _lastCitedSourceByFile: new Map(),
+    fmOf: () => frontmatter,
+    titleFor: () => "A Study",
+    citationStyleFor: () => "parenthetical",
+    markSourceCited: () => {},
+    recordCitationOccurrence: FeuilletsPlugin.prototype.recordCitationOccurrence,
+  };
+
+  FeuilletsPlugin.prototype.insertCitationFor.call(plugin, state.source, "", editor, state.sheet);
+  assert.match(editor.getValue(), /Jane Doe, John Smith/);
+  assert.match(editor.getValue(), /2024/);
+});
+
+test("insertCitationFor preserves logical frontmatter mapping", async () => {
+  const state = fixture();
+  // Simulate fmOf() returning mapped date field
+  const logicalFrontmatter = {
+    creator: "Alice",
+    date: "2020",  // Mapped via plugin.fmOf() logic
+  };
+  state.app.metadataCache.getFileCache = () => ({
+    frontmatter: { creator: "Alice" },  // Raw FM has no date
+  });
+
+  const editor = {
+    value: "Avant ",
+    getValue() { return this.value; },
+    getCursor() { return { line: 0, ch: 6 }; },
+    posToOffset(position) { return position.ch; },
+    replaceRange(text, from) { this.value = `${this.value.slice(0, from.ch)}${text}${this.value.slice(from.ch)}`; },
+    setCursor() {},
+    focus() {},
+  };
+
+  const plugin = {
+    app: state.app,
+    settings: state.settings,
+    _lastCitedSourceByFile: new Map(),
+    fmOf: () => logicalFrontmatter,  // Returns mapped date
+    titleFor: () => "Title",
+    citationStyleFor: () => "parenthetical",
+    markSourceCited: () => {},
+    recordCitationOccurrence: FeuilletsPlugin.prototype.recordCitationOccurrence,
+  };
+
+  FeuilletsPlugin.prototype.insertCitationFor.call(plugin, state.source, "", editor, state.sheet);
+  assert.match(editor.getValue(), /2020/);
+  assert.match(editor.getValue(), /Alice/);
+});
+
+test("bibliography generator preserves ZotFlow creators", async () => {
+  const { bibliographyEntries } = await import("../src/services/bibliography-generator.js");
+  const state = fixture();
+
+  // Override metadataCache to return ZotFlow frontmatter
+  state.app.metadataCache.getFileCache = (_file) => ({
+    frontmatter: {
+      creators: ["Jane Doe", "John Smith"],
+      publication: "Historical Review",
+      year: 2024,
+      title: "A Study",
+    },
+  });
+
+  const entries = bibliographyEntries(state.app, state.settings);
+  // Find our test source in the entries
+  const ourEntry = entries.find((e) => e.title === "A Study");
+  if (ourEntry) {
+    assert.equal(ourEntry.author, "Jane Doe, John Smith");
+    assert.equal(ourEntry.publisher, "Historical Review");
+    assert.equal(ourEntry.date, "2024");
+  }
 });

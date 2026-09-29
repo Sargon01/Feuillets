@@ -4,7 +4,7 @@ import { getProjectFolder, feuilletsAuxiliaryPathFor, candidateLocalesForProject
 import { projectCreationNames } from "../i18n/project-creation.js";
 import { translate, getLocale, type Locale } from "../i18n/index.js";
 import { resolveWorkspaceResearchFolder } from "./workspace-research.js";
-import { toValue } from "../utils/scene-fields.js";
+import { resolveBibliographyMetadata } from "./source-bibliography-resolver.js";
 
 /** Génération de la Bibliographie (Phase 7).
  *
@@ -105,19 +105,14 @@ export function resolveBibliographySource(
   return resolveBibliographySourceInResearchRoot(app, researchRoot);
 }
 
-function fieldOf(fm: Record<string, unknown>, key: string): string | undefined {
-  const value = toValue(fm[key]).trim();
-  return value || undefined;
-}
-
 function bibliographyEntryForFile(app: App, file: TFile): BibliographyEntry {
-  const fm = app.metadataCache.getFileCache(file)?.frontmatter || {};
+  const bib = resolveBibliographyMetadata(app, file);
   return {
-    author: fieldOf(fm, "author"),
-    title: fieldOf(fm, "title"),
-    publisher: fieldOf(fm, "publisher"),
-    date: fieldOf(fm, "date"),
-    url: fieldOf(fm, "url"),
+    author: bib.author,
+    title: bib.title,
+    publisher: bib.publisher,
+    date: bib.date,
+    url: bib.url,
   };
 }
 
