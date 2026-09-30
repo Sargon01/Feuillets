@@ -1,7 +1,9 @@
 import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, BOARD_MODES } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
 import { headingOutlineForFile, headingOutlineInputsForFile } from "../services/heading-outline-cache.js";
-import type { HeadingOutlineNode } from "../services/heading-outline.js";
+import { headingTrailAtOffset } from "../services/heading-position.js";
+import type { HeadingOutlineInput, HeadingOutlineNode } from "../services/heading-outline.js";
+import type { EditorCursorChange, EditorCursorListener } from "../services/editor-cursor-tracking.js";
 import { moveHeadingSection, type HeadingSectionPlacement } from "../services/heading-section-move.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
@@ -167,7 +169,23 @@ type SplitBodyCtx = {
    inférable depuis son propre type. */
 type FeuilletsViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
   _binderMultiSelect?: Set<string>;
+  registerEditorCursorListener?: (listener: EditorCursorListener) => () => void;
 };
+
+function buildHeadingSemanticKeys<T extends Pick<HeadingOutlineInput, "level" | "text">>(
+  file: TFile,
+  headings: readonly T[]
+): Map<T, string> {
+  const keys = new Map<T, string>();
+  const occurrences = new Map<string, number>();
+  for (const heading of headings) {
+    const base = `${file.path}\u0000${heading.level}\u0000${heading.text}`;
+    const occurrence = occurrences.get(base) ?? 0;
+    occurrences.set(base, occurrence + 1);
+    keys.set(heading, `${base}\u0000${occurrence}`);
+  }
+  return keys;
+}
 
 /* app.setting (panneau de réglages) est une API interne d'Obsidian, non
    déclarée dans obsidian.d.ts. */
@@ -509,19 +527,15 @@ export class FeuilletsView extends BaseFeuilletsView {
     file: TFile,
     roots: readonly HeadingOutlineNode[]
   ): Map<HeadingOutlineNode, string> {
-    const keys = new Map<HeadingOutlineNode, string>();
-    const occurrences = new Map<string, number>();
-    const visit = (nodes: readonly HeadingOutlineNode[]) => {
-      for (const node of nodes) {
-        const base = `${file.path}\u0000${node.level}\u0000${node.text}`;
-        const occurrence = occurrences.get(base) ?? 0;
-        occurrences.set(base, occurrence + 1);
-        keys.set(node, `${base}\u0000${occurrence}`);
-        if (node.children.length > 0) visit(node.children);
+    const nodes: HeadingOutlineNode[] = [];
+    const visit = (items: readonly HeadingOutlineNode[]) => {
+      for (const node of items) {
+        nodes.push(node);
+        visit(node.children);
       }
     };
     visit(roots);
-    return keys;
+    return buildHeadingSemanticKeys(file, nodes);
   }
 
   /** The ONE place that flips a heading's collapsed state — shared by the
@@ -758,9 +772,13 @@ export class FeuilletsView extends BaseFeuilletsView {
   }
 
   async onOpen(): Promise<void> {
+    if (this.plugin.registerEditorCursorListener) {
+      this.register(this.plugin.registerEditorCursorListener((change) => this.onEditorCursorChanged(change)));
+    }
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
         this.updateActiveHighlight("active-leaf-change");
+        this.refreshCurrentHeadingHighlight();
         /* Continu peut devenir (ou cesser d'être) la leaf active sans
            qu'aucun "layout-change" ne survienne (ex. Alt+Tab entre deux
            onglets déjà ouverts) — voir §3/§10 du micro-lot "sélection
@@ -769,7 +787,10 @@ export class FeuilletsView extends BaseFeuilletsView {
       })
     );
     this.registerEvent(
-      this.app.workspace.on("file-open", () => this.updateActiveHighlight("file-open"))
+      this.app.workspace.on("file-open", () => {
+        this.updateActiveHighlight("file-open");
+        this.refreshCurrentHeadingHighlight();
+      })
     );
     /* Ouverture/fermeture de Continu ailleurs (menu Binder d'un AUTRE
        panneau, fermeture d'onglet…) : "layout-change" est l'événement
@@ -857,6 +878,62 @@ export class FeuilletsView extends BaseFeuilletsView {
     const redundantActiveLeafChange = reason === "active-leaf-change" && this.isBinderPathAlreadyActive(activePath);
     const scroll = this._headingNavigationDepth === 0 && !redundantActiveLeafChange;
     highlightActive(this.contentEl, activePath, { scroll });
+  }
+
+  private centralMarkdownView(): MarkdownView | null {
+    const workspace = this.app.workspace;
+    if (typeof workspace.getMostRecentLeaf !== "function") return null;
+    const leaf = workspace.getMostRecentLeaf(workspace.rootSplit);
+    if (!leaf) return null;
+    if (typeof leaf.getRoot === "function" && leaf.getRoot() !== workspace.rootSplit) return null;
+    const view = leaf.view;
+    if (!(view instanceof MarkdownView) || !view.file) return null;
+    return view;
+  }
+
+  private onEditorCursorChanged(change: EditorCursorChange): void {
+    const view = this.centralMarkdownView();
+    if (!view || view.file?.path !== change.filePath) return;
+    this.refreshCurrentHeadingHighlight(change.cursorOffset);
+  }
+
+  private refreshCurrentHeadingHighlight(cursorOffset?: number): void {
+    if (typeof this.contentEl.querySelectorAll !== "function") return;
+    const rows = Array.from(this.contentEl.querySelectorAll<HTMLElement>(".feuillets-heading-outline-row"));
+    for (const row of rows) {
+      row.removeClass("feuillets-heading-outline-current");
+      row.removeClass("feuillets-heading-outline-current-ancestor");
+    }
+
+    const view = this.centralMarkdownView();
+    const file = view?.file;
+    if (!view || !file || !this._visibleHeadingOutlinePaths.has(file.path)) return;
+
+    const offset = cursorOffset ?? view.editor.posToOffset(view.editor.getCursor("head"));
+    const headings = headingOutlineInputsForFile(this.app, file);
+    const trail = headingTrailAtOffset(headings, offset);
+    if (trail.length === 0) return;
+
+    const keys = buildHeadingSemanticKeys(file, headings);
+    const currentKey = keys.get(trail[trail.length - 1]);
+    if (!currentKey) return;
+    const rowForKey = (key: string): HTMLElement | undefined =>
+      rows.find((row) => row.getAttr("data-heading-outline-key") === key);
+
+    const exact = rowForKey(currentKey);
+    if (exact) {
+      exact.addClass("feuillets-heading-outline-current");
+      return;
+    }
+
+    for (let index = trail.length - 2; index >= 0; index--) {
+      const ancestorKey = keys.get(trail[index]);
+      const ancestor = ancestorKey ? rowForKey(ancestorKey) : undefined;
+      if (ancestor) {
+        ancestor.addClass("feuillets-heading-outline-current-ancestor");
+        return;
+      }
+    }
   }
 
   /** Onglet Continu RÉELLEMENT au travail (dernière leaf CENTRALE, pas la
@@ -2118,6 +2195,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        qu'un simple clic sur un dossier (repli/dépli, sélection…) ne fasse
        jamais sauter le Binder loin de sa position — voir _captureScroll. */
     this.updateActiveHighlight("render-end");
+    this.refreshCurrentHeadingHighlight();
     if (opts.resetScroll) this._resetScroll();
     else this._restoreScroll(savedScroll);
   }
@@ -3395,6 +3473,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         const hasChildren = node.children.length > 0;
         const collapseKey = collapseKeys.get(node) ?? "";
+        row.setAttr("data-heading-outline-key", collapseKey);
         const collapsed = hasChildren && this._collapsedHeadingKeys.has(collapseKey);
         row.toggleClass("feuillets-heading-outline-row--collapsed", collapsed);
 

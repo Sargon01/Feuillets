@@ -84,6 +84,7 @@ import {
   notifyPandocCitationBibliographyChanged,
 } from "./utils/cm-pandoc-citation-live-preview.js";
 import { createEditorImageCaptionExtension } from "./utils/cm-editor-image-caption.js";
+import { createEditorCursorTrackingExtension, type EditorCursorListener } from "./services/editor-cursor-tracking.js";
 import {
   registerPandocCitationReadingMode,
   refreshPandocCitationReadingModeViews,
@@ -628,6 +629,12 @@ class FeuilletsPlugin extends Plugin {
   _isSyncingPanels?: boolean;
   _lastFeuilletsActive?: boolean;
   _activeCitekeyViews = new WeakSet<CitekeyEditorView>();
+  _editorCursorListeners = new Set<EditorCursorListener>();
+
+  registerEditorCursorListener(listener: EditorCursorListener): () => void {
+    this._editorCursorListeners.add(listener);
+    return () => this._editorCursorListeners.delete(listener);
+  }
 
   /* Attachées dynamiquement par initScenesEditor (scenes-editor.js), pas
      déclarées ici en tant que méthodes de classe — voir scenes-editor.ts,
@@ -816,6 +823,9 @@ class FeuilletsPlugin extends Plugin {
     );
     this.registerEditorExtension(createPandocCitationLivePreviewExtension(() => this.settings));
     this.registerEditorExtension(createEditorImageCaptionExtension(() => this.settings));
+    this.registerEditorExtension(createEditorCursorTrackingExtension((change) => {
+      for (const listener of this._editorCursorListeners) listener(change);
+    }));
     registerPandocCitationReadingMode(this);
     this.registerEvent(this.app.vault.on("modify", (file) => {
       if (!(file instanceof TFile) || file.extension.toLowerCase() !== "bib") return;
