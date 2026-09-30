@@ -116,13 +116,13 @@ test("registre : les abonnés sont notifiés des changements, et un abonné qui 
   assert.equal(seen.length, 2, "après désabonnement, plus de notification");
 });
 
-test("API publique : exactement les trois méthodes du contrat", () => {
+test("API publique : contrat existant et namespace citations", () => {
   const registry = new TextAnalysisRegistry();
   const api = createPublicApi(registry);
 
   assert.deepEqual(
     Object.keys(api).sort(),
-    ["apiVersion", "getAnalysisProvider", "registerAnalysisProvider", "unregisterAnalysisProvider"]
+    ["apiVersion", "citations", "getAnalysisProvider", "registerAnalysisProvider", "unregisterAnalysisProvider"]
   );
   assert.equal(api.apiVersion, FEUILLETS_API_VERSION);
 

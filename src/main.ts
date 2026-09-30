@@ -241,6 +241,7 @@ import {
   type FeuilletsPublicApi,
   type TextAnalysisProvider,
 } from "./api/text-analysis.js";
+import { CitationEngineRegistry } from "./api/citation-engine.js";
 import { runAnalysis, type AnalysisRun } from "./services/text-analysis.js";
 
 import {
@@ -601,9 +602,11 @@ class FeuilletsPlugin extends Plugin {
      inerte — aucune commande ne plante, le panneau explique simplement
      qu'il manque un module. */
   analysisRegistry = new TextAnalysisRegistry();
+  citationRegistry = new CitationEngineRegistry();
   /** Surface publique lue par les greffons compagnons. Nommée `api` par
    *  convention Obsidian (`app.plugins.plugins["feuillets"].api`). */
-  api: FeuilletsPublicApi = createPublicApi(this.analysisRegistry);
+  api: FeuilletsPublicApi = createPublicApi(this.analysisRegistry, this.citationRegistry);
+
   /** Dernière analyse effectuée, affichée par l'onglet Relecture. */
   analysisRun: AnalysisRun | null = null;
   analysisRunning = false;

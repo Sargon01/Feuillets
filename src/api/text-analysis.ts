@@ -13,6 +13,12 @@
  * Toute modification est une rupture d'API : n'ajouter que ce qu'un
  * compagnon réel a besoin d'appeler. */
 
+import {
+  type FeuilletsCitationApi,
+  CitationEngineRegistry,
+  createCitationApi,
+} from "./citation-engine.js";
+
 /** Texte soumis à un fournisseur. Les offsets sont ceux de `text` lui-même,
  * jamais ceux du fichier : c'est Feuillets qui fait la conversion (voir
  * `analysisRangeFor`), pour que le compagnon n'ait rien à savoir du
@@ -216,15 +222,20 @@ export interface FeuilletsPublicApi {
   registerAnalysisProvider(provider: TextAnalysisProvider): void;
   unregisterAnalysisProvider(providerId: string): void;
   getAnalysisProvider(providerId?: string): TextAnalysisProvider | null;
+  readonly citations: FeuilletsCitationApi;
 }
 
 export const FEUILLETS_API_VERSION = 1;
 
-export function createPublicApi(registry: TextAnalysisRegistry): FeuilletsPublicApi {
+export function createPublicApi(
+  registry: TextAnalysisRegistry,
+  citationRegistry: CitationEngineRegistry = new CitationEngineRegistry()
+): FeuilletsPublicApi {
   return {
     apiVersion: FEUILLETS_API_VERSION,
     registerAnalysisProvider: (provider) => registry.register(provider),
     unregisterAnalysisProvider: (providerId) => registry.unregister(providerId),
     getAnalysisProvider: (providerId) => registry.get(providerId),
+    citations: createCitationApi(citationRegistry),
   };
 }
