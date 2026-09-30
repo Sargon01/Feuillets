@@ -738,43 +738,42 @@ test("isolated separator: a file with no visible structure keeps the historical 
   assert.match(stylesSource, /\.feuillets-binder-isolated \.feuillets-item:last-child \{\s*border-bottom: none;\s*\}/);
 });
 
-test("isolated separator: a file immediately followed by a heading row loses its own border-bottom", () => {
-  const block = cssBlock(stylesSource, ".feuillets-binder-isolated .feuillets-item:has(+ .feuillets-heading-outline-row)");
+test("isolated separator: a file with a visible heading outline loses its own border-bottom", () => {
+  const block = cssBlock(stylesSource, ".feuillets-binder-isolated .feuillets-item.feuillets-item--with-visible-heading-outline");
   assert.match(block, /border-bottom:\s*none/);
 });
 
-test("isolated separator: the group separator lands on the LAST heading row of a contiguous run, never an intermediate one", () => {
+test("isolated separator: the group separator lands on the explicitly marked final visible heading row", () => {
   const block = cssBlock(
     stylesSource,
-    ".feuillets-binder-isolated .feuillets-heading-outline-row:not(:has(+ .feuillets-heading-outline-row))"
+    ".feuillets-binder-isolated .feuillets-heading-outline-row.feuillets-heading-outline-row--last-visible-for-file"
   );
   assert.match(block, /border-bottom:\s*1px solid var\(--background-modifier-border\)/);
 });
 
-test("isolated separator: the very last row of the whole list never gets a final separator, even a heading row", () => {
-  const lastChildSelector = ".feuillets-binder-isolated .feuillets-heading-outline-row:last-child";
+test("isolated separator: the very last outline row of the whole list never gets a final separator", () => {
+  const lastChildSelector = ".feuillets-binder-isolated .feuillets-heading-outline-row.feuillets-heading-outline-row--last-visible-for-file:last-child";
   const block = cssBlock(stylesSource, lastChildSelector);
   assert.match(block, /border-bottom:\s*none/);
 
-  // Cascade order matters: same specificity as the "last of run" rule above,
+  // Cascade order matters: same specificity as the marked final-row rule above,
   // so this override must come AFTER it in source to actually win.
-  const groupEndIndex = stylesSource.indexOf(".feuillets-binder-isolated .feuillets-heading-outline-row:not(:has(+ .feuillets-heading-outline-row))");
+  const groupEndIndex = stylesSource.indexOf(".feuillets-binder-isolated .feuillets-heading-outline-row.feuillets-heading-outline-row--last-visible-for-file");
   const lastChildIndex = stylesSource.indexOf(lastChildSelector);
   assert.ok(groupEndIndex !== -1 && lastChildIndex !== -1);
   assert.ok(lastChildIndex > groupEndIndex, "the :last-child override must appear AFTER the group-end rule to win the cascade");
 });
 
 test("isolated separator: none of this grouping logic touches folder rows", () => {
-  assert.doesNotMatch(stylesSource, /\.feuillets-folder-row:has\(/);
-  assert.doesNotMatch(stylesSource, /:not\(:has\(\+ \.feuillets-folder-row\)\)/);
+  assert.doesNotMatch(stylesSource, /\.feuillets-folder-row\.feuillets-item--with-visible-heading-outline/);
+  assert.doesNotMatch(stylesSource, /\.feuillets-folder-row\.feuillets-heading-outline-row--last-visible-for-file/);
 });
 
-test("isolated separator: the normal (non-isolated) Binder gets no new grouping rule at all", () => {
-  assert.doesNotMatch(stylesSource, /(?<!\.feuillets-binder-isolated )\.feuillets-item:has\(\+ \.feuillets-heading-outline-row\)/);
-  assert.doesNotMatch(stylesSource, /(?<!\.feuillets-binder-isolated )\.feuillets-heading-outline-row:not\(:has\(\+ \.feuillets-heading-outline-row\)\)/);
+test("isolated separator: styles.css contains no :has() selector", () => {
+  assert.doesNotMatch(stylesSource, /:has\(/);
 });
 
-test("isolated separator: heading rows are rendered as flat DOM siblings immediately after their own file row (the precondition the :has() selector relies on)", async () => {
+test("isolated separator: rendering marks the file and final visible outline row explicitly", async () => {
   const root = new TFolder("Roman/Manuscrit");
   const sub = new TFolder("Roman/Manuscrit/Sub");
   sub.name = "Sub";
@@ -803,6 +802,32 @@ test("isolated separator: heading rows are rendered as flat DOM siblings immedia
   const rows = findAll(isolatedPane, (el) => el.classes.has("feuillets-item") || el.classes.has("feuillets-heading-outline-row"));
   const kinds = rows.map((r) => (r.classes.has("feuillets-item") ? `file:${r.getAttr("data-path")}` : "heading"));
   assert.deepEqual(kinds, ["file:Roman/Manuscrit/Sub/A.md", "heading", "heading", "file:Roman/Manuscrit/Sub/B.md"]);
+  assert.ok(rows[0].classes.has("feuillets-item--with-visible-heading-outline"));
+  assert.equal(rows[1].classes.has("feuillets-heading-outline-row--last-visible-for-file"), false);
+  assert.ok(rows[2].classes.has("feuillets-heading-outline-row--last-visible-for-file"));
+});
+
+test("isolated separator: a collapsed branch marks its visible parent as the final outline row", async () => {
+  const root = new TFolder("Roman/Manuscrit");
+  const file = new TFile("Roman/Manuscrit/A.md");
+  file.basename = "A";
+  root.children = [file];
+  file.parent = root;
+
+  const fixture = {
+    root,
+    byPath: new Map([[root.path, root], [file.path, file]]),
+    headingsByPath: new Map([[file.path, [headingCache("A1", 1, 0, 1), headingCache("A2", 2, 1, 2)]]]),
+  };
+  const { view, contentEl } = buildView(fixture);
+  view._visibleHeadingOutlinePaths.add(file.path);
+  view._collapsedHeadingKeys.add(`${file.path}\u00001\u0000A1\u00000`);
+  await view.render(true);
+
+  const row = headingRows(contentEl)[0];
+  assert.equal(headingRows(contentEl).length, 1);
+  assert.ok(fileRow(contentEl, file.path).classes.has("feuillets-item--with-visible-heading-outline"));
+  assert.ok(row.classes.has("feuillets-heading-outline-row--last-visible-for-file"));
 });
 
 // ===== GitHub #17 follow-up: click-to-navigate =====

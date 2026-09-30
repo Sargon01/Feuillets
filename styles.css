@@ -581,24 +581,22 @@
  * between two headings of the same file. Heading rows are always rendered
  * as flat DOM siblings right after their own file row (renderFileRow ->
  * renderHeadingOutlineNodes, feuillets-view.ts), whatever their visual
- * nesting — so a contiguous run of `.feuillets-heading-outline-row` is
- * always exactly one file's own structure, however deep.
- * 1) a file immediately followed by its first heading row loses its own
- *    border: the group's separator moves to the group's LAST row instead. */
-.feuillets-binder-isolated .feuillets-item:has(+ .feuillets-heading-outline-row) {
+ * nesting. The renderer marks the file row and the final visible heading
+ * row explicitly, so the group needs no relational selector.
+ * 1) a file with a visible heading structure loses its own border: the
+ *    group's separator moves to the group's LAST visible row instead. */
+.feuillets-binder-isolated .feuillets-item.feuillets-item--with-visible-heading-outline {
   border-bottom: none;
 }
-/* 2) the separator lands on the LAST heading row of a contiguous run — the
- *    one NOT immediately followed by another heading row — never on an
- *    intermediate one between two headings of the same file. */
-.feuillets-binder-isolated .feuillets-heading-outline-row:not(:has(+ .feuillets-heading-outline-row)) {
+/* 2) the separator lands on the LAST visible heading row of a file's
+ *    structure, never on an intermediate row. */
+.feuillets-binder-isolated .feuillets-heading-outline-row.feuillets-heading-outline-row--last-visible-for-file {
   border-bottom: 1px solid var(--background-modifier-border);
 }
 /* 3) same historical rule as `.feuillets-item:last-child` above: the very
  *    last row of the whole list never gets a final separator, even when
- *    that last row is a heading row closing the last file's group. Later
- *    in source than rule 2 above, same specificity, so it wins on it. */
-.feuillets-binder-isolated .feuillets-heading-outline-row:last-child {
+ *    that last row is a heading row closing the last file's group. */
+.feuillets-binder-isolated .feuillets-heading-outline-row.feuillets-heading-outline-row--last-visible-for-file:last-child {
   border-bottom: none;
 }
 

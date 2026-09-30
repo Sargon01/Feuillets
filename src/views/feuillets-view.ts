@@ -151,7 +151,7 @@ type RenderFileRow = (
   depth: number,
   dragScopeEl: HTMLElement,
   opts?: RenderFileRowOpts
-) => boolean;
+) => HTMLElement | null;
 
 type SplitBodyCtx = {
   S: FeuilletsSettings;
@@ -1993,7 +1993,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         parent.path === draftsFolder.path || parent.path.startsWith(`${draftsFolder.path}/`)
       );
       const effectivelyHidden = hidden && !visible;
-      if (!effectivelyHidden && !passesBinderFilter(file)) return false;
+      if (!effectivelyHidden && !passesBinderFilter(file)) return null;
 
       const role = effectivelyHidden ? "cachee" : this.plugin.roleOfFile(file);
       const item = host.createDiv({
@@ -2342,7 +2342,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           this.showFileContextMenu(e, file, parent, i, siblings, this.headingOutlineContextMenuExtras(file), true);
         });
       }
-      return true;
+      return item;
     };
 
     if (folder && workingRoot) {
@@ -3612,8 +3612,8 @@ export class FeuilletsView extends BaseFeuilletsView {
        collapsed via `_collapsedHeadingKeys` simply isn't recursed into, so
        its descendants never become rows and never count toward
        `MAX_TREE_ROWS`. Rows stay FLAT DOM siblings (never wrapped in a
-       per-node children container) — the isolated-mode separator CSS
-       (`:has(+ .feuillets-heading-outline-row)`) depends on that flatness.
+       per-node children container), so the last rendered row of each file's
+       outline can carry its isolated-mode separator class.
        Hierarchy guides are therefore drawn INSIDE each row instead: one
        absolutely-positioned `feuillets-heading-outline-guide` per ancestor
        level (never a real "│" character), so stacked rows sharing the same
@@ -3626,15 +3626,17 @@ export class FeuilletsView extends BaseFeuilletsView {
       relativeDepth: number,
       withLabelColumn: boolean,
       collapseKeys: Map<HeadingOutlineNode, string>
-    ): void => {
+    ): HTMLElement | null => {
+      let lastVisibleRow: HTMLElement | null = null;
       for (const node of nodes) {
         if (treeRowCount >= MAX_TREE_ROWS) {
           treeTruncated = true;
           treePane.createDiv({ cls: "feuillets-empty" }).setText(t("binder.tree.truncated", { max: String(MAX_TREE_ROWS) }));
-          return;
+          return lastVisibleRow;
         }
         treeRowCount++;
         const row = host.createDiv({ cls: "feuillets-heading-outline-row" });
+        lastVisibleRow = row;
         row.toggleClass("feuillets-heading-outline-row--with-label-column", withLabelColumn);
         row.style.setProperty("--feuillets-binder-depth", String(fileDepth));
         row.style.setProperty("--feuillets-heading-outline-depth", String(relativeDepth));
@@ -3689,10 +3691,12 @@ export class FeuilletsView extends BaseFeuilletsView {
         }
         this.attachHeadingDragHandlers(row, file, node);
         if (hasChildren && !collapsed) {
-          renderHeadingOutlineNodes(node.children, host, file, fileDepth, relativeDepth + 1, withLabelColumn, collapseKeys);
-          if (treeTruncated) return;
+          const lastChildRow = renderHeadingOutlineNodes(node.children, host, file, fileDepth, relativeDepth + 1, withLabelColumn, collapseKeys);
+          if (lastChildRow) lastVisibleRow = lastChildRow;
+          if (treeTruncated) return lastVisibleRow;
         }
       }
+      return lastVisibleRow;
     };
 
     /* Ouverture Continu d'un dossier au simple clic sur son NOM (LOT FINAL
@@ -3729,16 +3733,21 @@ export class FeuilletsView extends BaseFeuilletsView {
              fichier (plus de `depth + 1` artificiel) — un feuillet et un
              dossier du même niveau alignent désormais leur colonne
              chevron/icône/titre via la MÊME `--feuillets-binder-depth`. */
-          if (renderFileRow(treePane, child, parent, i, siblings, depth, treePane, {
+          const fileRow = renderFileRow(treePane, child, parent, i, siblings, depth, treePane, {
             showPreview: true,
             revealProjectDraft: !!ctx.revealDraftsFolder,
-          })) {
+          });
+          if (fileRow) {
             treeRowCount++;
             if (this._visibleHeadingOutlinePaths.has(child.path)) {
               const outline = headingOutlineForFile(this.app, child);
               if (outline.length > 0) {
                 const collapseKeys = this.buildHeadingCollapseKeys(child, outline);
-                renderHeadingOutlineNodes(outline, treePane, child, depth, 1, S.binderShowLabels, collapseKeys);
+                const lastHeadingRow = renderHeadingOutlineNodes(outline, treePane, child, depth, 1, S.binderShowLabels, collapseKeys);
+                if (lastHeadingRow) {
+                  fileRow.addClass("feuillets-item--with-visible-heading-outline");
+                  lastHeadingRow.addClass("feuillets-heading-outline-row--last-visible-for-file");
+                }
               }
             }
           }
