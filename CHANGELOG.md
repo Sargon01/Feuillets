@@ -2,6 +2,10 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.3.1 — 2026-09-30
+
+- Les sélecteurs CSS `:has()` du Binder Markdown ont été remplacés par des classes explicites, supprimant le warning de performance signalé par le scanner Obsidian Community sans changement fonctionnel ou visuel attendu.
+
 ## 3.3.0 — 2026-09-30
 
 ### Structure Markdown du Binder
