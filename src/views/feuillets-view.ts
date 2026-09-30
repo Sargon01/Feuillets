@@ -4,6 +4,7 @@ import { headingOutlineForFile, headingOutlineInputsForFile } from "../services/
 import { headingTrailAtOffset } from "../services/heading-position.js";
 import type { HeadingOutlineInput, HeadingOutlineNode } from "../services/heading-outline.js";
 import type { EditorCursorChange, EditorCursorListener } from "../services/editor-cursor-tracking.js";
+import { shiftHeadingSubtree, type HeadingSubtreeShiftDirection } from "../services/heading-subtree-shift.js";
 import { moveHeadingSection, type HeadingSectionPlacement } from "../services/heading-section-move.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
@@ -125,6 +126,12 @@ type HeadingDragState = {
   filePath: string;
   sourceStartOffset: number;
   level: number;
+};
+
+type CollapsedHeadingSnapshot = {
+  keys: string[];
+  texts: string[];
+  collapsedOrdinals: number[];
 };
 
 type RenderFileRowOpts = { showPreview?: boolean; revealProjectDraft?: boolean };
@@ -536,6 +543,102 @@ export class FeuilletsView extends BaseFeuilletsView {
     };
     visit(roots);
     return buildHeadingSemanticKeys(file, nodes);
+  }
+
+  private collapsedHeadingSnapshot(file: TFile): CollapsedHeadingSnapshot {
+    const outline = headingOutlineForFile(this.app, file);
+    const keys = this.buildHeadingCollapseKeys(file, outline);
+    const nodes = Array.from(keys.keys());
+    return {
+      keys: nodes.map((node) => keys.get(node) ?? ""),
+      texts: nodes.map((node) => node.text),
+      collapsedOrdinals: nodes.flatMap((node, index) => this._collapsedHeadingKeys.has(keys.get(node) ?? "") ? [index] : []),
+    };
+  }
+
+  private restoreCollapsedHeadingSnapshot(file: TFile, snapshot: CollapsedHeadingSnapshot): void {
+    const outline = headingOutlineForFile(this.app, file);
+    const keys = this.buildHeadingCollapseKeys(file, outline);
+    const nodes = Array.from(keys.keys());
+    if (nodes.length !== snapshot.texts.length || nodes.some((node, index) => node.text !== snapshot.texts[index])) return;
+    for (const key of snapshot.keys) this._collapsedHeadingKeys.delete(key);
+    for (const ordinal of snapshot.collapsedOrdinals) {
+      const key = keys.get(nodes[ordinal]);
+      if (key) this._collapsedHeadingKeys.add(key);
+    }
+  }
+
+  private async shiftHeadingSubtreeInFile(
+    file: TFile,
+    sourceStartOffset: number,
+    expectedLevel: number,
+    expectedText: string,
+    direction: HeadingSubtreeShiftDirection
+  ): Promise<void> {
+    const currentFile = this.app.vault.getAbstractFileByPath(file.path);
+    if (!(currentFile instanceof TFile)) return;
+
+    const collapseSnapshot = this.collapsedHeadingSnapshot(currentFile);
+    let shiftChanged = false;
+    let eventRef: EventRef | null = null;
+    const metadataRefreshed = new Promise<void>((resolve) => {
+      eventRef = this.app.metadataCache.on("changed", (changedFile) => {
+        if (shiftChanged && changedFile.path === currentFile.path) resolve();
+      });
+    });
+
+    try {
+      let didChange = false;
+      try {
+        await this.app.vault.process(currentFile, (text) => {
+          const headings = headingOutlineInputsForFile(this.app, currentFile);
+          const source = headings.find((heading) => heading.startOffset === sourceStartOffset);
+          if (!source || source.level !== expectedLevel || source.text !== expectedText) return text;
+
+          const result = shiftHeadingSubtree(text, headings, sourceStartOffset, direction);
+          if (!result || !result.changed) return text;
+
+          didChange = true;
+          shiftChanged = true;
+          return result.text;
+        });
+      } catch {
+        return;
+      }
+
+      if (!didChange) return;
+
+      await metadataRefreshed;
+      this.restoreCollapsedHeadingSnapshot(currentFile, collapseSnapshot);
+      await this.render(true);
+    } finally {
+      if (eventRef) this.app.metadataCache.offref(eventRef);
+    }
+  }
+
+  private headingSubtreeContainsLevel(node: HeadingOutlineNode, level: number): boolean {
+    return node.level === level || node.children.some((child) => this.headingSubtreeContainsLevel(child, level));
+  }
+
+  private showHeadingShiftMenu(e: MouseEvent, file: TFile, node: HeadingOutlineNode): void {
+    const target = typeof HTMLElement !== "undefined" && e.target instanceof HTMLElement ? e.target : null;
+    if (target?.closest(".feuillets-heading-outline-chevron")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const menu = new Menu();
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.headingOutline.promote"))
+        .setDisabled(node.level === 1)
+        .onClick(() => void this.shiftHeadingSubtreeInFile(file, node.startOffset, node.level, node.text, "promote"))
+    );
+    menu.addItem((item) =>
+      item
+        .setTitle(t("binder.headingOutline.demote"))
+        .setDisabled(this.headingSubtreeContainsLevel(node, 6))
+        .onClick(() => void this.shiftHeadingSubtreeInFile(file, node.startOffset, node.level, node.text, "demote"))
+    );
+    menu.showAtMouseEvent(e);
   }
 
   /** The ONE place that flips a heading's collapsed state — shared by the
@@ -3494,6 +3597,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
         const text = row.createSpan({ cls: "feuillets-heading-outline-text" });
         text.setText(node.text);
+        text.addEventListener("contextmenu", (e) => this.showHeadingShiftMenu(e, file, node));
         row.addEventListener("click", (e) => {
           e.preventDefault();
           e.stopPropagation();

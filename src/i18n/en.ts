@@ -160,6 +160,8 @@ export const en = {
   "binder.headingOutline.hide": "Hide file structure",
   "binder.headingOutline.expand": "Expand subheadings",
   "binder.headingOutline.collapse": "Collapse subheadings",
+  "binder.headingOutline.promote": "Promote",
+  "binder.headingOutline.demote": "Demote",
   "binder.tree.truncated": "Display limited to {max} folders (very large project) — collapse some folders to see the rest.",
   "binder.list.truncated": "Display limited to {max} sheets (very large project) — pick a more specific folder, or disable the recursive list.",
   "binder.list.emptyRecursive": "No sheet in this folder or its subfolders.",
