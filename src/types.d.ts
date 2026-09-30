@@ -765,6 +765,10 @@ declare type FeuilletsSettings = {
   writingColorsEnabled: boolean;
   writingBackgroundColor: string;
   writingTextColor: string;
+  writingLightBackgroundColor: string;
+  writingLightTextColor: string;
+  writingDarkBackgroundColor: string;
+  writingDarkTextColor: string;
 
   [key: string]: unknown;
 };

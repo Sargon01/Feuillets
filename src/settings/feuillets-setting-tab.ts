@@ -607,27 +607,26 @@ export class FeuilletsSettingTab extends PluginSettingTab {
         })
       );
 
-    new Setting(container)
-      .setName(t("settings.writingColors.background.name"))
-      .addColorPicker((cp) => {
-        cp.setValue(S.writingBackgroundColor);
-        cp.onChange(async (v) => {
-          S.writingBackgroundColor = v;
-          await this.plugin.saveSettings();
-          this.plugin.applyWritingColors();
+    const addWritingColorPicker = (name: string, key: "writingLightBackgroundColor" | "writingLightTextColor" | "writingDarkBackgroundColor" | "writingDarkTextColor") => {
+      new Setting(container)
+        .setName(name)
+        .addColorPicker((cp) => {
+          cp.setValue(S[key]);
+          cp.onChange(async (v) => {
+            S[key] = v;
+            await this.plugin.saveSettings();
+            this.plugin.applyWritingColors();
+          });
         });
-      });
+    };
 
-    new Setting(container)
-      .setName(t("settings.writingColors.text.name"))
-      .addColorPicker((cp) => {
-        cp.setValue(S.writingTextColor);
-        cp.onChange(async (v) => {
-          S.writingTextColor = v;
-          await this.plugin.saveSettings();
-          this.plugin.applyWritingColors();
-        });
-      });
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.writingColors.lightMode") });
+    addWritingColorPicker(t("settings.writingColors.background.name"), "writingLightBackgroundColor");
+    addWritingColorPicker(t("settings.writingColors.text.name"), "writingLightTextColor");
+
+    container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.writingColors.darkMode") });
+    addWritingColorPicker(t("settings.writingColors.background.name"), "writingDarkBackgroundColor");
+    addWritingColorPicker(t("settings.writingColors.text.name"), "writingDarkTextColor");
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.focusMode") });
 

@@ -151,6 +151,10 @@ export type DefaultSettings = {
   writingColorsEnabled: boolean;
   writingBackgroundColor: string;
   writingTextColor: string;
+  writingLightBackgroundColor: string;
+  writingLightTextColor: string;
+  writingDarkBackgroundColor: string;
+  writingDarkTextColor: string;
   projectMeta: Record<string, ProjectMeta>;
   autoOpenBinder: boolean;
   autoOpenInspector: boolean;
@@ -355,6 +359,10 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   writingColorsEnabled: false,
   writingBackgroundColor: "#292d25",
   writingTextColor: "#c4b49b",
+  writingLightBackgroundColor: "#F7F4ED",
+  writingLightTextColor: "#2E2B26",
+  writingDarkBackgroundColor: "#282B24",
+  writingDarkTextColor: "#C2B49A",
   projectMeta: {},
   autoOpenBinder: true,
   autoOpenInspector: true,

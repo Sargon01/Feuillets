@@ -1425,6 +1425,8 @@ export const en = {
   "settings.writingColors.enabled.desc": "Use custom background and text colors for Feuillets writing surfaces.",
   "settings.writingColors.background.name": "Background",
   "settings.writingColors.text.name": "Text",
+  "settings.writingColors.lightMode": "LIGHT MODE",
+  "settings.writingColors.darkMode": "DARK MODE",
   "settings.hideRibbon.name": "Hide the whole ribbon",
   "settings.hideRibbon.desc": "Hides the entire icon ribbon (Obsidian's, across all plugins) — more radical than hiding individual Feuillets panels one by one (the \"hidden panels\" setting above).",
   "settings.transparentPanels.name": "Transparent panel backgrounds",

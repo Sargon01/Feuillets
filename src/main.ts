@@ -12,7 +12,7 @@
  * Objectif des chapitres (dossiers) : stocké dans les réglages du plugin.
  */
 
-import { DEFAULT_SETTINGS } from "./default-settings.js";
+import { DEFAULT_SETTINGS, type DefaultSettings } from "./default-settings.js";
 import { type CompileScope, createProjectScope, createFolderScope, createFileScope, createSelectionScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
@@ -439,6 +439,31 @@ function isSettingsRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type WritingColorSettings = Pick<DefaultSettings,
+  "writingBackgroundColor" | "writingTextColor" |
+  "writingLightBackgroundColor" | "writingLightTextColor" |
+  "writingDarkBackgroundColor" | "writingDarkTextColor"
+>;
+
+export function migrateWritingColorSettings(settings: WritingColorSettings, savedSettings: Readonly<Record<string, unknown>>): boolean {
+  const fields: ReadonlyArray<readonly [
+    "writingLightBackgroundColor" | "writingLightTextColor" | "writingDarkBackgroundColor" | "writingDarkTextColor",
+    "writingBackgroundColor" | "writingTextColor"
+  ]> = [
+    ["writingLightBackgroundColor", "writingBackgroundColor"],
+    ["writingLightTextColor", "writingTextColor"],
+    ["writingDarkBackgroundColor", "writingBackgroundColor"],
+    ["writingDarkTextColor", "writingTextColor"],
+  ];
+  let changed = false;
+  for (const [destination, legacy] of fields) {
+    if (Object.prototype.hasOwnProperty.call(savedSettings, destination)) continue;
+    settings[destination] = settings[legacy];
+    changed = true;
+  }
+  return changed;
+}
+
 /** Comme `Array.isArray`, mais garde le type élément en `unknown` plutôt que
  * de retomber sur `any[]` (signature de la lib standard). */
 function isUnknownArray(value: unknown): value is unknown[] {
@@ -762,6 +787,7 @@ class FeuilletsPlugin extends Plugin {
     this.applyIndentClass();
     this.applyLeanInterfaceClasses();
     this.applyWritingColors();
+    this.registerEvent(this.app.workspace.on("css-change", () => this.applyWritingColors()));
 
     this.registerAutoOpenPanels();
     this.registerConcentrationTracking();
@@ -3484,14 +3510,17 @@ class FeuilletsPlugin extends Plugin {
    * immediately. A hand-edited data.json with an invalid color value fails
    * closed: the class is never added with a bad value on either side. */
   applyWritingColors(): void {
+    const darkTheme = document.body.classList.contains("theme-dark");
+    const background = darkTheme ? this.settings.writingDarkBackgroundColor : this.settings.writingLightBackgroundColor;
+    const text = darkTheme ? this.settings.writingDarkTextColor : this.settings.writingLightTextColor;
     const enabled =
       !!this.settings.writingColorsEnabled &&
-      isValidHexColor(this.settings.writingBackgroundColor) &&
-      isValidHexColor(this.settings.writingTextColor);
+      isValidHexColor(background) &&
+      isValidHexColor(text);
     document.body.toggleClass("feuillets-writing-colors", enabled);
     if (enabled) {
-      document.body.style.setProperty("--feuillets-writing-background", this.settings.writingBackgroundColor);
-      document.body.style.setProperty("--feuillets-writing-text", this.settings.writingTextColor);
+      document.body.style.setProperty("--feuillets-writing-background", background);
+      document.body.style.setProperty("--feuillets-writing-text", text);
     } else {
       document.body.style.removeProperty("--feuillets-writing-background");
       document.body.style.removeProperty("--feuillets-writing-text");
@@ -3661,6 +3690,7 @@ class FeuilletsPlugin extends Plugin {
     for (const [key] of legacyAutoOpenPanels) delete data[key];
 
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data) as unknown as FeuilletsSettings;
+    const writingColorsMigrated = migrateWritingColorSettings(this.settings, data);
     if (!hasAutoOpenInspector) {
       const migratedPanels = directLegacyPanels.length > 0 ? directLegacyPanels : historicalPanels;
       if (migratedPanels.length > 0) {
@@ -3725,6 +3755,9 @@ class FeuilletsPlugin extends Plugin {
        migrateLegacyTaxonomyEntries, services/project-settings.ts. Saved
        only when it actually changed something, never on every load. */
     if (migrateLegacyTaxonomyEntries(this.settings)) {
+      await this.saveData(this.settings);
+    }
+    if (writingColorsMigrated) {
       await this.saveData(this.settings);
     }
   }

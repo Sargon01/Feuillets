@@ -1425,6 +1425,8 @@ export const fr = {
   "settings.writingColors.enabled.desc": "Utiliser un fond et une couleur de texte propres aux surfaces d'écriture Feuillets.",
   "settings.writingColors.background.name": "Fond",
   "settings.writingColors.text.name": "Texte",
+  "settings.writingColors.lightMode": "MODE CLAIR",
+  "settings.writingColors.darkMode": "MODE SOMBRE",
   "settings.hideRibbon.name": "Masquer tout le ruban",
   "settings.hideRibbon.desc": "Masque le ruban d'icônes entier (celui d'Obsidian, tous plugins confondus) — plus radical que masquer certains panneaux Feuillets un par un (réglage « panneaux masqués » plus haut).",
   "settings.transparentPanels.name": "Fond transparent pour les panneaux latéraux",

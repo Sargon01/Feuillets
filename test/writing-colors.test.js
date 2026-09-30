@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import FeuilletsPlugin from "../src/main.js";
+import FeuilletsPlugin, { migrateWritingColorSettings } from "../src/main.js";
 import { DEFAULT_SETTINGS } from "../src/default-settings.js";
 
 /*
@@ -25,12 +25,28 @@ function fakeBody() {
     classes: new Set(),
     styleProps: {},
     toggleClass(cls, on) { on ? this.classes.add(cls) : this.classes.delete(cls); },
+    classList: {
+      contains: (cls) => body.classes.has(cls),
+    },
     style: {
       setProperty: (name, value) => { body.styleProps[name] = value; },
       removeProperty: (name) => { delete body.styleProps[name]; },
     },
   };
   return body;
+}
+
+function writingSettings(overrides = {}) {
+  return {
+    writingColorsEnabled: true,
+    writingBackgroundColor: "#292d25",
+    writingTextColor: "#c4b49b",
+    writingLightBackgroundColor: "#f5f1e8",
+    writingLightTextColor: "#332b20",
+    writingDarkBackgroundColor: "#292d25",
+    writingDarkTextColor: "#c4b49b",
+    ...overrides,
+  };
 }
 
 function withFakeDocument(run) {
@@ -50,13 +66,17 @@ test("Test A — writingColorsEnabled defaults to false, a fresh install sees no
   assert.equal(DEFAULT_SETTINGS.writingColorsEnabled, false);
   assert.equal(DEFAULT_SETTINGS.writingBackgroundColor, "#292d25");
   assert.equal(DEFAULT_SETTINGS.writingTextColor, "#c4b49b");
+  assert.equal(DEFAULT_SETTINGS.writingLightBackgroundColor, "#F7F4ED");
+  assert.equal(DEFAULT_SETTINGS.writingLightTextColor, "#2E2B26");
+  assert.equal(DEFAULT_SETTINGS.writingDarkBackgroundColor, "#282B24");
+  assert.equal(DEFAULT_SETTINGS.writingDarkTextColor, "#C2B49A");
 });
 
 /* ===================== Tests B/C/D — applyWritingColors() ===================== */
 
 test("Test B — applyWritingColors(): disabled leaves no class and no custom properties", () => {
   withFakeDocument((body) => {
-    const fakePlugin = { settings: { writingColorsEnabled: false, writingBackgroundColor: "#292d25", writingTextColor: "#c4b49b" } };
+    const fakePlugin = { settings: writingSettings({ writingColorsEnabled: false }) };
     FeuilletsPlugin.prototype.applyWritingColors.call(fakePlugin);
     assert.equal(body.classes.has("feuillets-writing-colors"), false);
     assert.equal("--feuillets-writing-background" in body.styleProps, false);
@@ -64,9 +84,21 @@ test("Test B — applyWritingColors(): disabled leaves no class and no custom pr
   });
 });
 
-test("Test C — applyWritingColors(): enabled with valid colors sets the class and both custom properties exactly", () => {
+test("Test C — applyWritingColors(): light mode applies the light pair", () => {
   withFakeDocument((body) => {
-    const fakePlugin = { settings: { writingColorsEnabled: true, writingBackgroundColor: "#292d25", writingTextColor: "#c4b49b" } };
+    const fakePlugin = { settings: writingSettings() };
+    FeuilletsPlugin.prototype.applyWritingColors.call(fakePlugin);
+    assert.equal(body.classes.has("feuillets-writing-colors"), true);
+    assert.equal(body.styleProps["--feuillets-writing-background"], "#f5f1e8");
+    assert.equal(body.styleProps["--feuillets-writing-text"], "#332b20");
+  });
+});
+
+test("Test C bis — applyWritingColors(): dark mode applies the dark pair and updates immediately after a theme change", () => {
+  withFakeDocument((body) => {
+    const fakePlugin = { settings: writingSettings() };
+    FeuilletsPlugin.prototype.applyWritingColors.call(fakePlugin);
+    body.classes.add("theme-dark");
     FeuilletsPlugin.prototype.applyWritingColors.call(fakePlugin);
     assert.equal(body.classes.has("feuillets-writing-colors"), true);
     assert.equal(body.styleProps["--feuillets-writing-background"], "#292d25");
@@ -74,9 +106,10 @@ test("Test C — applyWritingColors(): enabled with valid colors sets the class 
   });
 });
 
-test("Test C bis — applyWritingColors(): an invalid stored color (hand-edited data.json) fails closed, never injected into CSS", () => {
+test("Test C ter — applyWritingColors(): an invalid selected color fails closed, never injected into CSS", () => {
   withFakeDocument((body) => {
-    const fakePlugin = { settings: { writingColorsEnabled: true, writingBackgroundColor: "not-a-color", writingTextColor: "#c4b49b" } };
+    const fakePlugin = { settings: writingSettings({ writingDarkBackgroundColor: "not-a-color" }) };
+    body.classes.add("theme-dark");
     FeuilletsPlugin.prototype.applyWritingColors.call(fakePlugin);
     assert.equal(body.classes.has("feuillets-writing-colors"), false);
     assert.equal("--feuillets-writing-background" in body.styleProps, false);
@@ -86,7 +119,7 @@ test("Test C bis — applyWritingColors(): an invalid stored color (hand-edited 
 
 test("Test D — enabling then disabling removes the class and both properties; nothing from the theme is ever copied into settings", () => {
   withFakeDocument((body) => {
-    const settings = { writingColorsEnabled: true, writingBackgroundColor: "#292d25", writingTextColor: "#c4b49b" };
+    const settings = writingSettings();
     const fakePlugin = { settings };
     FeuilletsPlugin.prototype.applyWritingColors.call(fakePlugin);
     assert.equal(body.classes.has("feuillets-writing-colors"), true);
@@ -100,8 +133,40 @@ test("Test D — enabling then disabling removes the class and both properties; 
     // Disabling never records a theme-derived color anywhere in settings.
     assert.equal(settings.writingBackgroundColor, "#292d25");
     assert.equal(settings.writingTextColor, "#c4b49b");
-    assert.equal(Object.keys(settings).length, 3, "no extra field was ever written by applyWritingColors");
+    assert.equal(Object.keys(settings).length, 7, "no extra field was ever written by applyWritingColors");
   });
+});
+
+test("writing-color migration copies legacy values only into missing theme-specific fields", () => {
+  const settings = writingSettings({
+    writingBackgroundColor: "#123456",
+    writingTextColor: "#abcdef",
+    writingLightBackgroundColor: "#292d25",
+    writingLightTextColor: "#c4b49b",
+    writingDarkBackgroundColor: "#292d25",
+    writingDarkTextColor: "#c4b49b",
+  });
+  const changed = migrateWritingColorSettings(settings, {
+    writingBackgroundColor: "#123456",
+    writingTextColor: "#abcdef",
+  });
+  assert.equal(changed, true);
+  assert.equal(settings.writingLightBackgroundColor, "#123456");
+  assert.equal(settings.writingLightTextColor, "#abcdef");
+  assert.equal(settings.writingDarkBackgroundColor, "#123456");
+  assert.equal(settings.writingDarkTextColor, "#abcdef");
+
+  settings.writingDarkBackgroundColor = "#010203";
+  const preserved = migrateWritingColorSettings(settings, {
+    writingBackgroundColor: "#123456",
+    writingTextColor: "#abcdef",
+    writingLightBackgroundColor: "#123456",
+    writingLightTextColor: "#abcdef",
+    writingDarkBackgroundColor: "#010203",
+    writingDarkTextColor: "#abcdef",
+  });
+  assert.equal(preserved, false);
+  assert.equal(settings.writingDarkBackgroundColor, "#010203");
 });
 
 /* ===================== Test E — onunload() cleanup ===================== */
@@ -125,6 +190,13 @@ test("applyWritingColors() is called at load time, alongside the other appearanc
   assert.match(
     mainSource,
     /this\.applyIndentClass\(\);\s*this\.applyLeanInterfaceClasses\(\);\s*this\.applyWritingColors\(\);/
+  );
+});
+
+test("theme changes reapply writing colors through the workspace css-change event", () => {
+  assert.match(
+    mainSource,
+    /this\.registerEvent\(this\.app\.workspace\.on\("css-change", \(\) => this\.applyWritingColors\(\)\)\);/
   );
 });
 
@@ -214,13 +286,15 @@ test("applyWritingColors() never reads or writes Style Settings / Minimal Theme'
 
 /* ===================== Test I — settings UI ===================== */
 
-test("Test I — Interface -> Apparence exposes the three writing-colors controls with the FR/EN i18n keys", () => {
+test("Test I — Interface -> Appearance exposes the enabled toggle and light/dark writing color pairs", () => {
   const section = methodBody(settingTabSource, 'settings.accentColor.name")', 'settings.section.focusMode")');
   assert.match(section, /t\("settings\.writingColors\.section"\)/);
   assert.match(section, /t\("settings\.writingColors\.enabled\.name"\)/);
   assert.match(section, /t\("settings\.writingColors\.enabled\.desc"\)/);
   assert.match(section, /t\("settings\.writingColors\.background\.name"\)/);
   assert.match(section, /t\("settings\.writingColors\.text\.name"\)/);
+  assert.match(section, /t\("settings\.writingColors\.lightMode"\)/);
+  assert.match(section, /t\("settings\.writingColors\.darkMode"\)/);
   assert.match(section, /addToggle/);
   assert.match(section, /addColorPicker/);
 
@@ -232,6 +306,8 @@ test("Test I — Interface -> Apparence exposes the three writing-colors control
       "settings.writingColors.enabled.desc",
       "settings.writingColors.background.name",
       "settings.writingColors.text.name",
+      "settings.writingColors.lightMode",
+      "settings.writingColors.darkMode",
     ]) {
       assert.match(dict, new RegExp(`"${key.replace(/\./g, "\\.")}":`), `${key} must exist in ${locale}`);
     }
@@ -240,8 +316,12 @@ test("Test I — Interface -> Apparence exposes the three writing-colors control
 
 /* ===================== Test J — immediate application ===================== */
 
-test("Test J — each of the three controls calls saveSettings() then applyWritingColors(), no full plugin reload", () => {
+test("Test J — each writing-color control saves and applies immediately, with no full plugin reload", () => {
   const section = methodBody(settingTabSource, 'settings.accentColor.name")', 'settings.section.focusMode")');
   const occurrences = section.match(/await this\.plugin\.saveSettings\(\);\s*this\.plugin\.applyWritingColors\(\);/g) || [];
-  assert.equal(occurrences.length, 3, "enabled toggle + background picker + text picker, each applying immediately");
+  assert.equal(occurrences.length, 2, "enabled toggle and the shared color-picker helper apply immediately");
+  assert.match(section, /addWritingColorPicker\(t\("settings\.writingColors\.background\.name"\), "writingLightBackgroundColor"\)/);
+  assert.match(section, /addWritingColorPicker\(t\("settings\.writingColors\.text\.name"\), "writingLightTextColor"\)/);
+  assert.match(section, /addWritingColorPicker\(t\("settings\.writingColors\.background\.name"\), "writingDarkBackgroundColor"\)/);
+  assert.match(section, /addWritingColorPicker\(t\("settings\.writingColors\.text\.name"\), "writingDarkTextColor"\)/);
 });
