@@ -118,6 +118,7 @@ type ActiveHighlightReason = "active-leaf-change" | "file-open" | "render-end";
  * in-progress heading drag is `FeuilletsView._headingDragState`, never
  * this MIME payload — it only exists to make the native HTML5 drag start. */
 const HEADING_DRAG_MIME = "application/x-feuillets-heading";
+const HEADING_HORIZONTAL_DRAG_THRESHOLD = 24;
 
 /** Session-only state of an in-progress heading drag — see
  * FeuilletsView._headingDragState. Never persisted, never shared with
@@ -126,6 +127,11 @@ type HeadingDragState = {
   filePath: string;
   sourceStartOffset: number;
   level: number;
+  text: string;
+  startClientX: number;
+  containsLevelSix: boolean;
+  horizontalMode: "move" | HeadingSubtreeShiftDirection | "invalid";
+  row: HTMLElement;
 };
 
 type CollapsedHeadingSnapshot = {
@@ -367,11 +373,30 @@ export class FeuilletsView extends BaseFeuilletsView {
    * drag system (attachDragHandlers, base-feuillets-view.ts). */
   private clearHeadingDropIndicators(): void {
     this.contentEl
-      .querySelectorAll<HTMLElement>(".feuillets-heading-outline-drop-before, .feuillets-heading-outline-drop-after")
+      .querySelectorAll<HTMLElement>(
+        ".feuillets-heading-outline-drop-before, .feuillets-heading-outline-drop-after, .feuillets-heading-outline-drag-promote, .feuillets-heading-outline-drag-demote, .feuillets-heading-outline-drag-invalid"
+      )
       .forEach((el) => {
         el.removeClass("feuillets-heading-outline-drop-before");
         el.removeClass("feuillets-heading-outline-drop-after");
+        el.removeClass("feuillets-heading-outline-drag-promote");
+        el.removeClass("feuillets-heading-outline-drag-demote");
+        el.removeClass("feuillets-heading-outline-drag-invalid");
       });
+  }
+
+  private updateHeadingHorizontalDragMode(source: HeadingDragState, clientX: number): void {
+    const deltaX = clientX - source.startClientX;
+    let mode: HeadingDragState["horizontalMode"] = "move";
+    if (deltaX <= -HEADING_HORIZONTAL_DRAG_THRESHOLD) mode = source.level === 1 ? "invalid" : "promote";
+    if (deltaX >= HEADING_HORIZONTAL_DRAG_THRESHOLD) mode = source.containsLevelSix ? "invalid" : "demote";
+    source.horizontalMode = mode;
+    source.row.removeClass("feuillets-heading-outline-drag-promote");
+    source.row.removeClass("feuillets-heading-outline-drag-demote");
+    source.row.removeClass("feuillets-heading-outline-drag-invalid");
+    if (mode === "promote") source.row.addClass("feuillets-heading-outline-drag-promote");
+    if (mode === "demote") source.row.addClass("feuillets-heading-outline-drag-demote");
+    if (mode === "invalid") source.row.addClass("feuillets-heading-outline-drag-invalid");
   }
 
   /** Wires a single heading row for section-reordering drag & drop — kept
@@ -396,7 +421,16 @@ export class FeuilletsView extends BaseFeuilletsView {
       }
       e.stopPropagation();
       if (!e.dataTransfer) return;
-      this._headingDragState = { filePath: file.path, sourceStartOffset: node.startOffset, level: node.level };
+      this._headingDragState = {
+        filePath: file.path,
+        sourceStartOffset: node.startOffset,
+        level: node.level,
+        text: node.text,
+        startClientX: e.clientX,
+        containsLevelSix: this.headingSubtreeContainsLevel(node, 6),
+        horizontalMode: "move",
+        row,
+      };
       e.dataTransfer.setData(HEADING_DRAG_MIME, file.path);
       e.dataTransfer.effectAllowed = "move";
       row.addClass("feuillets-heading-outline-dragging");
@@ -411,6 +445,16 @@ export class FeuilletsView extends BaseFeuilletsView {
     row.addEventListener("dragover", (e: DragEvent) => {
       const source = this._headingDragState;
       if (!source) return;
+      if (source.filePath !== file.path) return;
+      this.updateHeadingHorizontalDragMode(source, e.clientX);
+      if (source.horizontalMode !== "move") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = source.horizontalMode === "invalid" ? "none" : "move";
+        this.clearHeadingDropIndicators();
+        this.updateHeadingHorizontalDragMode(source, e.clientX);
+        return;
+      }
       if (!this.isValidHeadingDropTarget(source, file, node)) {
         row.removeClass("feuillets-heading-outline-drop-before");
         row.removeClass("feuillets-heading-outline-drop-after");
@@ -432,7 +476,19 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     row.addEventListener("drop", (e: DragEvent) => {
       const source = this._headingDragState;
-      if (!source || !this.isValidHeadingDropTarget(source, file, node)) return;
+      if (!source) return;
+      if (source.filePath !== file.path) return;
+      if (source.horizontalMode !== "move") {
+        e.preventDefault();
+        e.stopPropagation();
+        this._headingDragState = null;
+        this.clearHeadingDropIndicators();
+        if (source.horizontalMode === "promote" || source.horizontalMode === "demote") {
+          void this.shiftHeadingSubtreeInFile(file, source.sourceStartOffset, source.level, source.text, source.horizontalMode);
+        }
+        return;
+      }
+      if (!this.isValidHeadingDropTarget(source, file, node)) return;
       e.preventDefault();
       e.stopPropagation();
       const rect = row.getBoundingClientRect();

@@ -377,7 +377,11 @@ test("dragstart sets _headingDragState, the private MIME, and effectAllowed=move
   const event = fakeDragEvent();
   fire(row, "dragstart", event);
 
-  assert.deepEqual(view._headingDragState, { filePath: fixture.alpha.path, sourceStartOffset: b.startOffset, level: 2 });
+  assert.equal(view._headingDragState.filePath, fixture.alpha.path);
+  assert.equal(view._headingDragState.sourceStartOffset, b.startOffset);
+  assert.equal(view._headingDragState.level, 2);
+  assert.equal(view._headingDragState.text, "B");
+  assert.equal(view._headingDragState.horizontalMode, "move");
   assert.equal(event.dataTransfer.data["application/x-feuillets-heading"], fixture.alpha.path);
   assert.equal(event.dataTransfer.effectAllowed, "move");
   assert.equal(Object.prototype.hasOwnProperty.call(event.dataTransfer.data, "text/plain"), false);
