@@ -2034,12 +2034,15 @@ export class FeuilletsView extends BaseFeuilletsView {
          résolue au rendu vers la grammaire actuelle — jamais migrée sur
          disque (voir resolveBinderPreviewField, utils/binder-preview.ts). */
       const effectiveField = resolveBinderPreviewField(S.listPanePreviewField, binderPreviewSemantic);
-      const previewExpanded =
+      const headingOutlineVisible = this._visibleHeadingOutlinePaths.has(file.path);
+      const previewTitleEmphasized =
         !effectivelyHidden
         && !effectiveBinderCompact
         && opts.showPreview === true
         && effectiveField !== "none";
+      const previewExpanded = previewTitleEmphasized && !headingOutlineVisible;
       item.toggleClass("feuillets-item-has-preview", previewExpanded);
+      item.toggleClass("feuillets-item-preview-title", previewTitleEmphasized);
       if (previewExpanded) {
         /* §5 : le Binder ne doit jamais devenir une fiche — l'aperçu est
            borné à 3 lignes maximum, quelle que soit une ancienne valeur

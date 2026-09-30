@@ -3984,7 +3984,8 @@ body.feuillets-text-width
 /* Grammaire commune : seule une ligne explicitement rendue avec aperçu est
    semi-grasse. Le mode actif, isolé ou en volet droit n'ajoute plus de
    graisse par lui-même. */
-.feuillets-item.feuillets-item-has-preview .feuillets-item-name {
+.feuillets-item.feuillets-item-has-preview .feuillets-item-name,
+.feuillets-item.feuillets-item-preview-title .feuillets-item-name {
   font-weight: var(--font-semibold, 600);
   color: var(--text-normal);
 }

@@ -5,10 +5,11 @@ import fs from "node:fs";
 const viewSource = fs.readFileSync(`${process.cwd()}/src/views/feuillets-view.ts`, "utf8");
 const stylesSource = fs.readFileSync(`${process.cwd()}/styles.css`, "utf8");
 
-test("la graisse Binder dépend uniquement de l'état aperçu", () => {
-  assert.match(viewSource, /const previewExpanded\s*=\s*[\s\S]*?effectiveField !== "none"/);
+test("la graisse Binder dépend de la configuration d'aperçu", () => {
+  assert.match(viewSource, /const previewTitleEmphasized\s*=\s*[\s\S]*?effectiveField !== "none"/);
+  assert.match(viewSource, /const previewExpanded = previewTitleEmphasized && !headingOutlineVisible/);
   assert.match(viewSource, /item\.toggleClass\("feuillets-item-has-preview", previewExpanded\)/);
-  assert.match(stylesSource, /\.feuillets-item\.feuillets-item-has-preview \.feuillets-item-name\s*\{[\s\S]*?font-weight:\s*var\(--font-semibold/);
+  assert.match(stylesSource, /\.feuillets-item\.feuillets-item-preview-title \.feuillets-item-name\s*\{[\s\S]*?font-weight:\s*var\(--font-semibold/);
   assert.doesNotMatch(stylesSource, /\.feuillets-binder-isolated \.feuillets-item-name\s*\{[\s\S]*?font-weight/);
   assert.match(stylesSource, /\.feuillets-list-pane \.feuillets-item \.feuillets-item-name\s*\{[\s\S]*?font-weight:\s*var\(--font-normal/);
 });
