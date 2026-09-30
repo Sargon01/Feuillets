@@ -59,6 +59,12 @@ Project configuration opens from **Manage projects…**. The **Edition** tab con
 
 Feuillets settings let you adjust the interface language (French or English, with English as the technical fallback), writing presentation, text width, and selected interface elements. Suggested values remain a starting point, never a lock.
 
+## Custom writing colors
+
+In **Settings → Feuillets → Appearance**, enable **Custom writing colors** to choose separate Background and Text pairs for **Light mode** and **Dark mode**. Feuillets selects the matching pair automatically when the Obsidian theme changes, and updates the writing surfaces immediately.
+
+These colors apply only to the Feuillets editor and **Continuous**; they do not alter the rest of the vault interface.
+
 ## Focus Mode
 
 Focus Mode can reduce panels, recenter the writing column, use a dedicated width, keep the active area stable and dim surrounding text. None of these effects are written to Markdown.

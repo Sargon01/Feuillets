@@ -59,6 +59,12 @@ L’**Aperçu** peut rester à côté du texte pour relire la composition pagin�
 
 Les réglages Feuillets permettent notamment d’ajuster la langue de l’interface (français ou anglais avec repli technique en anglais), la présentation d’écriture, la largeur du texte et certains éléments de l’interface. Les valeurs suggérées restent un point de départ, jamais un verrou.
 
+## Couleurs d’écriture personnalisées
+
+Dans **Réglages → Feuillets → Apparence**, activez **Couleurs personnalisées** pour choisir une paire Fond/Texte distincte pour le **mode clair** et le **mode sombre**. Feuillets sélectionne automatiquement la paire correspondant au thème Obsidian et actualise immédiatement les surfaces d’écriture lors d’un changement de thème.
+
+Ces couleurs s’appliquent uniquement à l’éditeur Feuillets et à **Continu** ; elles ne modifient pas le reste de l’interface du coffre.
+
 ## Concentration
 
 Concentration peut réduire les panneaux, recentrer la colonne, utiliser une largeur propre, maintenir la zone active à une position stable et estomper le texte environnant. Aucun de ces effets n’est écrit dans le Markdown.
