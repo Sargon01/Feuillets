@@ -318,6 +318,7 @@
  * `S.binderShowLabels`, the same flag that reserves the label swatch on
  * file rows. */
 .feuillets-heading-outline-row {
+  position: relative;
   display: flex;
   align-items: center;
   padding: 2px var(--size-4-2);
@@ -329,6 +330,33 @@
   color: var(--text-muted);
   user-select: none;
   cursor: grab;
+}
+
+/* GitHub #17 follow-up: hierarchy guides, one thin absolutely-positioned
+ * line per ancestor level, never a real "│" character in the DOM. Each
+ * guide is positioned under the CENTER of the chevron column that ancestor
+ * level owns (see renderHeadingOutlineNodes: `--feuillets-heading-outline-
+ * guide-level` is the ancestor's own relative depth, 1-based), so stacked
+ * rows sharing the same ancestor line up into one continuous-looking rail
+ * without any single element spanning more than its own row's height.
+ * `position: relative` above and `position: absolute` here mean a guide
+ * never affects row height, row width, or any sibling's layout. Always to
+ * the LEFT of the row's own chevron (a row never draws a guide for its own
+ * level, only for levels strictly above it), so it never crosses this
+ * row's own chevron or text. */
+.feuillets-heading-outline-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--background-modifier-border);
+  pointer-events: none;
+  left: calc(
+    var(--size-4-2) + var(--feuillets-binder-depth, 0) * 9px
+    + var(--feuillets-binder-chevron-w) + var(--feuillets-binder-icon-w) + var(--size-4-2) * 2
+    + var(--feuillets-heading-outline-guide-level, 1) * 9px
+    + var(--feuillets-binder-chevron-w) / 2
+  );
 }
 
 .feuillets-heading-outline-row:hover {
@@ -366,6 +394,38 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--font-ui-smaller);
+}
+
+/* GitHub #17 follow-up: collapse/expand chevron — same fixed width for a
+ * real chevron (heading with children) and its empty spacer (leaf heading),
+ * so a leaf's text starts at the exact same column as a sibling parent's.
+ * Fixed `height`/`width`, no padding change on the row itself: expanding or
+ * collapsing never shifts the row's own height or any neighbor's position. */
+.feuillets-heading-outline-chevron,
+.feuillets-heading-outline-chevron-spacer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--feuillets-binder-chevron-w);
+  min-width: var(--feuillets-binder-chevron-w);
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.feuillets-heading-outline-chevron {
+  color: var(--text-faint);
+  cursor: pointer;
+  border-radius: var(--radius-s);
+}
+
+.feuillets-heading-outline-chevron:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.feuillets-heading-outline-chevron .svg-icon {
+  width: 12px;
+  height: 12px;
 }
 
 /* Colonnes chevron/icône (§16) : largeur fixe identique fichiers/dossiers,
@@ -533,6 +593,17 @@
  * width is still accounted for when present. */
 .feuillets-binder-isolated .feuillets-heading-outline-row {
   padding-left: calc(var(--size-4-2) + var(--feuillets-heading-outline-depth, 1) * 9px);
+}
+
+/* Same simplified (chevron/icon-less) base as the isolated row's own
+ * padding-left above — a guide's ancestor-level offset must follow the
+ * isolated row's own flat base too, or it would land far to the right of
+ * where the isolated chevron column actually is. */
+.feuillets-binder-isolated .feuillets-heading-outline-guide {
+  left: calc(
+    var(--size-4-2) + var(--feuillets-heading-outline-guide-level, 1) * 9px
+    + var(--feuillets-binder-chevron-w) / 2
+  );
 }
 
 .feuillets-binder-isolated .feuillets-heading-outline-row.feuillets-heading-outline-row--with-label-column {

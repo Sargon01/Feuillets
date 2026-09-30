@@ -155,6 +155,8 @@ export const fr = {
   "binder.folder.collapse": "Replier le dossier",
   "binder.headingOutline.show": "Afficher la structure du fichier",
   "binder.headingOutline.hide": "Masquer la structure du fichier",
+  "binder.headingOutline.expand": "Déplier les sous-titres",
+  "binder.headingOutline.collapse": "Replier les sous-titres",
   "binder.tree.truncated": "Affichage limité à {max} dossiers (projet très volumineux) — replie certains dossiers pour voir le reste.",
   "binder.list.truncated": "Affichage limité à {max} feuillets (projet très volumineux) — choisis un dossier plus précis, ou désactive la liste récursive.",
   "binder.list.emptyRecursive": "Aucun feuillet dans ce dossier ni ses sous-dossiers.",

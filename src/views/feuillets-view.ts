@@ -218,6 +218,16 @@ export class FeuilletsView extends BaseFeuilletsView {
    * The physical TFile/TFolder drag system (attachDragHandlers,
    * base-feuillets-view.ts) neither reads nor writes this. */
   private _headingDragState: HeadingDragState | null = null;
+  /** Which headings are currently collapsed (their descendants hidden) in
+   * the Binder's outline — session-only runtime state, never
+   * FeuilletsSettings, never ProjectMeta, never YAML/frontmatter, never
+   * `settings.collapsed` (that map is physical folders only). Empty by
+   * default, so every heading starts expanded. Keyed by a semantic key built
+   * from `file.path` + level + text + occurrence (buildHeadingCollapseKeys)
+   * — deliberately NEVER `startOffset`, because heading-to-heading drag &
+   * drop and any ordinary edit shift offsets on every mutation; a collapsed
+   * heading must stay collapsed across a move or a MetadataCache refresh. */
+  private _collapsedHeadingKeys = new Set<string>();
 
   /** Racine à afficher dans le Binder : le scope partagé s'il existe encore
    * et appartient toujours au projet actif, sinon la racine réelle du
@@ -274,7 +284,10 @@ export class FeuilletsView extends BaseFeuilletsView {
    * action should appear at all: a file with no heading gets no entry, and
    * the menu stays exactly as before. Toggling only flips this SESSION-ONLY
    * runtime Set (`_visibleHeadingOutlinePaths`) and re-renders — never opens
-   * the file, never touches selection/Continu, never calls saveSettings(). */
+   * the file, never touches selection/Continu, never calls saveSettings().
+   * A double-click on the file's own name (renderFileRow) shares the exact
+   * same toggle via `toggleHeadingOutlineForFile()` — never a second, drift-
+   * prone implementation of the same Set flip. */
   headingOutlineContextMenuExtras(file: TFile): (menu: Menu) => void {
     return (menu: Menu) => {
       if (headingOutlineForFile(this.app, file).length === 0) return;
@@ -283,11 +296,7 @@ export class FeuilletsView extends BaseFeuilletsView {
         item
           .setTitle(t(visible ? "binder.headingOutline.hide" : "binder.headingOutline.show"))
           .setIcon("list-tree")
-          .onClick(() => {
-            if (visible) this._visibleHeadingOutlinePaths.delete(file.path);
-            else this._visibleHeadingOutlinePaths.add(file.path);
-            void this.render(true);
-          })
+          .onClick(() => this.toggleHeadingOutlineForFile(file))
       );
     };
   }
@@ -350,6 +359,16 @@ export class FeuilletsView extends BaseFeuilletsView {
     row.setAttr("draggable", "true");
 
     row.addEventListener("dragstart", (e: DragEvent) => {
+      // A drag started ON the collapse chevron is structure, not a section
+      // move — refuse it here rather than making the chevron itself
+      // undraggable, since the row it sits in must stay draggable everywhere
+      // else. See §18: no other dragstart/dragover/dragleave/drop/dragend
+      // rule changes.
+      const target = e.target as HTMLElement | null;
+      if (target?.closest(".feuillets-heading-outline-chevron")) {
+        e.preventDefault();
+        return;
+      }
       e.stopPropagation();
       if (!e.dataTransfer) return;
       this._headingDragState = { filePath: file.path, sourceStartOffset: node.startOffset, level: node.level };
@@ -475,6 +494,57 @@ export class FeuilletsView extends BaseFeuilletsView {
     } finally {
       if (eventRef) this.app.metadataCache.offref(eventRef);
     }
+  }
+
+  /** Builds a deterministic, `startOffset`-independent collapse key for
+   * every node in `roots` (a heading outline tree for `file`), keyed by
+   * `file.path` + level + text + occurrence — occurrence is a per-document,
+   * preorder counter over nodes sharing the same path/level/text, so two
+   * identical headings (e.g. two "Introduction" H2s) always get distinct
+   * keys. Walked in preorder (document order) so occurrence numbering is
+   * stable across renders as long as the DOCUMENT's heading order is
+   * unchanged — exactly what `_collapsedHeadingKeys` needs to survive a
+   * drag/drop move or a MetadataCache refresh that only shifts offsets. */
+  private buildHeadingCollapseKeys(
+    file: TFile,
+    roots: readonly HeadingOutlineNode[]
+  ): Map<HeadingOutlineNode, string> {
+    const keys = new Map<HeadingOutlineNode, string>();
+    const occurrences = new Map<string, number>();
+    const visit = (nodes: readonly HeadingOutlineNode[]) => {
+      for (const node of nodes) {
+        const base = `${file.path}\u0000${node.level}\u0000${node.text}`;
+        const occurrence = occurrences.get(base) ?? 0;
+        occurrences.set(base, occurrence + 1);
+        keys.set(node, `${base}\u0000${occurrence}`);
+        if (node.children.length > 0) visit(node.children);
+      }
+    };
+    visit(roots);
+    return keys;
+  }
+
+  /** The ONE place that flips a heading's collapsed state — shared by the
+   * chevron's click and a double-click on the heading's own text, so
+   * neither can drift out of sync with the other. Purely a `Set` toggle
+   * plus a rerender: no navigation, no drag state, no persistence. */
+  private toggleHeadingCollapsed(key: string): void {
+    if (this._collapsedHeadingKeys.has(key)) this._collapsedHeadingKeys.delete(key);
+    else this._collapsedHeadingKeys.add(key);
+    void this.render(true);
+  }
+
+  /** The ONE place that flips whether `file`'s heading structure is shown
+   * in the Binder — shared by the file's context menu entry
+   * (headingOutlineContextMenuExtras) and a double-click on the file's own
+   * name, so neither can drift out of sync with the other. A file with no
+   * heading is a no-op: never adds an empty/pointless entry to
+   * `_visibleHeadingOutlinePaths`. */
+  private toggleHeadingOutlineForFile(file: TFile): void {
+    if (headingOutlineForFile(this.app, file).length === 0) return;
+    if (this._visibleHeadingOutlinePaths.has(file.path)) this._visibleHeadingOutlinePaths.delete(file.path);
+    else this._visibleHeadingOutlinePaths.add(file.path);
+    void this.render(true);
   }
 
   /** Configure uniquement un dossier Manuscrit descendant du projet. La
@@ -1735,9 +1805,22 @@ export class FeuilletsView extends BaseFeuilletsView {
       const nameRow = body.createDiv({ cls: "feuillets-item-name-row" });
 
       const num = effectivelyHidden ? "" : `${numbering.get(file.path) || ""} `;
-      nameRow
-        .createSpan({ cls: "feuillets-item-name" })
-        .setText(`${num}${this.plugin.shortTitleFor(file)}`);
+      const nameSpan = nameRow.createSpan({ cls: "feuillets-item-name" });
+      nameSpan.setText(`${num}${this.plugin.shortTitleFor(file)}`);
+      /* Double-click on the NAME ONLY (never the whole row): toggles the
+         same `_visibleHeadingOutlinePaths` truth as the file's context menu
+         (toggleHeadingOutlineForFile) — a file with no heading is a silent
+         no-op there. A held modifier key means some other historical
+         gesture might be in play, so this returns without
+         preventDefault/stopPropagation, never intercepting it. No timer:
+         the single click(s) that precede a real double-click still open the
+         file exactly as before. */
+      nameSpan.addEventListener("dblclick", (e) => {
+        if (e.altKey || e.shiftKey || e.ctrlKey || e.metaKey) return;
+        e.preventDefault();
+        e.stopPropagation();
+        this.toggleHeadingOutlineForFile(file);
+      });
 
       if (!effectivelyHidden && searchTerm && contentIndex) {
         const inTitle = foldAccents(
@@ -3266,14 +3349,31 @@ export class FeuilletsView extends BaseFeuilletsView {
        itself (physical folder depth) — the CSS formula (styles.css) adds
        the file row's own chevron/icon/label column width on top of it, so
        a heading never starts at the chevron's own column. `relativeDepth`
-       starts at 1 for a root heading and grows by 1 per nesting level. */
+       starts at 1 for a root heading and grows by 1 per nesting level.
+       Since GitHub #17's collapse follow-up: a heading WITH children gets a
+       real `feuillets-heading-outline-chevron` (structure only — never
+       navigates, never drags); a leaf heading gets an empty
+       `feuillets-heading-outline-chevron-spacer` of the same width so leaf
+       and parent rows at the same depth stay aligned. `collapseKeys` is
+       built ONCE per file (buildHeadingCollapseKeys, preorder over the
+       WHOLE tree) and threaded through the recursion unchanged — a node
+       collapsed via `_collapsedHeadingKeys` simply isn't recursed into, so
+       its descendants never become rows and never count toward
+       `MAX_TREE_ROWS`. Rows stay FLAT DOM siblings (never wrapped in a
+       per-node children container) — the isolated-mode separator CSS
+       (`:has(+ .feuillets-heading-outline-row)`) depends on that flatness.
+       Hierarchy guides are therefore drawn INSIDE each row instead: one
+       absolutely-positioned `feuillets-heading-outline-guide` per ancestor
+       level (never a real "│" character), so stacked rows sharing the same
+       ancestor line up into a continuous-looking rail purely via CSS. */
     const renderHeadingOutlineNodes = (
       nodes: HeadingOutlineNode[],
       host: HTMLElement,
       file: TFile,
       fileDepth: number,
       relativeDepth: number,
-      withLabelColumn: boolean
+      withLabelColumn: boolean,
+      collapseKeys: Map<HeadingOutlineNode, string>
     ): void => {
       for (const node of nodes) {
         if (treeRowCount >= MAX_TREE_ROWS) {
@@ -3287,15 +3387,55 @@ export class FeuilletsView extends BaseFeuilletsView {
         row.style.setProperty("--feuillets-binder-depth", String(fileDepth));
         row.style.setProperty("--feuillets-heading-outline-depth", String(relativeDepth));
         row.setAttr("data-heading-level", String(node.level));
-        row.createSpan({ cls: "feuillets-heading-outline-text" }).setText(node.text);
+
+        for (let ancestorLevel = 1; ancestorLevel < relativeDepth; ancestorLevel++) {
+          const guide = row.createSpan({ cls: "feuillets-heading-outline-guide" });
+          guide.style.setProperty("--feuillets-heading-outline-guide-level", String(ancestorLevel));
+        }
+
+        const hasChildren = node.children.length > 0;
+        const collapseKey = collapseKeys.get(node) ?? "";
+        const collapsed = hasChildren && this._collapsedHeadingKeys.has(collapseKey);
+        row.toggleClass("feuillets-heading-outline-row--collapsed", collapsed);
+
+        if (hasChildren) {
+          const chevron = row.createSpan({ cls: "feuillets-heading-outline-chevron" });
+          setIcon(chevron, collapsed ? "chevron-right" : "chevron-down");
+          const chevronLabel = t(collapsed ? "binder.headingOutline.expand" : "binder.headingOutline.collapse");
+          chevron.setAttr("aria-label", chevronLabel);
+          chevron.setAttr("title", chevronLabel);
+          chevron.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleHeadingCollapsed(collapseKey);
+          });
+        } else {
+          row.createSpan({ cls: "feuillets-heading-outline-chevron-spacer" });
+        }
+
+        const text = row.createSpan({ cls: "feuillets-heading-outline-text" });
+        text.setText(node.text);
         row.addEventListener("click", (e) => {
           e.preventDefault();
           e.stopPropagation();
           void this.navigateToHeading(file, node);
         });
+        /* A double-click on the TEXT (never the whole row) toggles collapse
+           exactly like the chevron, for a heading with children — a leaf
+           heading has nothing to collapse, so this is a structural no-op.
+           No timer: the row's own "click" above still fires first and still
+           navigates, same as a real double-click always fires its
+           constituent clicks first — see §21/§22 of this follow-up. */
+        if (hasChildren) {
+          text.addEventListener("dblclick", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleHeadingCollapsed(collapseKey);
+          });
+        }
         this.attachHeadingDragHandlers(row, file, node);
-        if (node.children.length > 0) {
-          renderHeadingOutlineNodes(node.children, host, file, fileDepth, relativeDepth + 1, withLabelColumn);
+        if (hasChildren && !collapsed) {
+          renderHeadingOutlineNodes(node.children, host, file, fileDepth, relativeDepth + 1, withLabelColumn, collapseKeys);
           if (treeTruncated) return;
         }
       }
@@ -3342,7 +3482,10 @@ export class FeuilletsView extends BaseFeuilletsView {
             treeRowCount++;
             if (this._visibleHeadingOutlinePaths.has(child.path)) {
               const outline = headingOutlineForFile(this.app, child);
-              if (outline.length > 0) renderHeadingOutlineNodes(outline, treePane, child, depth, 1, S.binderShowLabels);
+              if (outline.length > 0) {
+                const collapseKeys = this.buildHeadingCollapseKeys(child, outline);
+                renderHeadingOutlineNodes(outline, treePane, child, depth, 1, S.binderShowLabels, collapseKeys);
+              }
             }
           }
           continue;
