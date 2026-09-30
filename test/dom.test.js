@@ -4,7 +4,8 @@ import { MarkdownView } from "obsidian";
 import { getActiveFileSafe, highlightActive, isEditing, openFileActivatingWithCursor } from "../src/utils/dom.js";
 
 test("highlightActive : nettoie les classes et révèle le chemin actif", () => {
-  const active = { classes: [], addClass(name) { this.classes.push(name); }, scrollIntoView() {} };
+  let scrollCalls = 0;
+  const active = { classes: [], addClass(name) { this.classes.push(name); }, scrollIntoView() { scrollCalls++; } };
   const stale = { removed: [], removeClass(name) { this.removed.push(name); } };
   globalThis.CSS = { escape: (value) => value };
   highlightActive({ querySelectorAll(selector) {
@@ -12,6 +13,20 @@ test("highlightActive : nettoie les classes et révèle le chemin actif", () => 
   } }, "Scene.md");
   assert.deepEqual(stale.removed, ["is-active", "feuillets-dragover", "feuillets-dragging"]);
   assert.deepEqual(active.classes, ["is-active"]);
+  assert.equal(scrollCalls, 1, "the historical call must still reveal the active row by default");
+});
+
+test("highlightActive : { scroll: false } still updates .is-active but never scrolls the Binder", () => {
+  let scrollCalls = 0;
+  const active = { classes: [], addClass(name) { this.classes.push(name); }, scrollIntoView() { scrollCalls++; } };
+  const stale = { removed: [], removeClass(name) { this.removed.push(name); } };
+  globalThis.CSS = { escape: (value) => value };
+  highlightActive({ querySelectorAll(selector) {
+    return selector.startsWith("[data-path") ? [active] : [stale];
+  } }, "Scene.md", { scroll: false });
+  assert.deepEqual(stale.removed, ["is-active", "feuillets-dragover", "feuillets-dragging"], "stale classes are still cleared");
+  assert.deepEqual(active.classes, ["is-active"], ".is-active is still applied to the right row");
+  assert.equal(scrollCalls, 0, "scrollIntoView must never be called with { scroll: false }");
 });
 
 test("isEditing : détecte uniquement les champs actifs contenus dans la vue", () => {

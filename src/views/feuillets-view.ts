@@ -3,7 +3,7 @@ import { hasKnownProject } from "../services/folder-structure.js";
 import { headingOutlineForFile } from "../services/heading-outline-cache.js";
 import type { HeadingOutlineNode } from "../services/heading-outline.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
-import { highlightActive, isEditing, getActiveFileSafe, openFileActivating } from "../utils/dom.js";
+import { highlightActive, isEditing, getActiveFileSafe, openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
 import { NewProjectModal, OpenExistingFolderModal, DuplicateVersionModal, ManageProjectsModal } from "../ui/project-modals.js";
 import { FolderWorkspaceModal } from "../ui/folder-workspace-modal.js";
@@ -102,6 +102,11 @@ function asFolder(af: TAbstractFile | null): TFolder {
   return af;
 }
 
+/** Which workspace event triggered updateActiveHighlight() — see that
+ * method: only "active-leaf-change" is checked against an already-active
+ * row (GitHub #17, a late event fired once a heading navigation settles). */
+type ActiveHighlightReason = "active-leaf-change" | "file-open" | "render-end";
+
 type RenderFileRowOpts = { showPreview?: boolean; revealProjectDraft?: boolean };
 type RenderFileRow = (
   host: HTMLElement,
@@ -177,6 +182,18 @@ export class FeuilletsView extends BaseFeuilletsView {
    * structure starts hidden on a fresh view/session. Cleared naturally when
    * this view instance is destroyed. */
   private _visibleHeadingOutlinePaths = new Set<string>();
+  /** Depth counter, not a boolean, so two overlapping heading navigations
+   * (a fast double-click landing on two different rows before the first
+   * one settles) each keep the Binder's scroll suppressed until BOTH have
+   * finished — never reset to "normal" while one is still in flight. Purely
+   * transient: never persisted, never causes a render, unrelated to
+   * `_visibleHeadingOutlinePaths`. See navigateToHeading() and
+   * updateActiveHighlight(): while this is above 0, `file-open`/
+   * `active-leaf-change` still mark the parent file `.is-active`, but must
+   * never scroll the Binder — the click already scrolled the EDITOR to the
+   * right place, and the file row clicked from a heading is typically
+   * already visible. */
+  private _headingNavigationDepth = 0;
 
   /** Racine à afficher dans le Binder : le scope partagé s'il existe encore
    * et appartient toujours au projet actif, sinon la racine réelle du
@@ -249,6 +266,33 @@ export class FeuilletsView extends BaseFeuilletsView {
           })
       );
     };
+  }
+
+  /** GitHub #17 follow-up: navigates from a clicked heading row to its exact
+   * position in `file` — same leaf policy as a normal Binder file click
+   * (`getLeafForOpeningFile()` + `revealLeaf()`), then delegates entirely to
+   * the existing `openFileAndSelectRange()` (utils/dom.ts) for opening,
+   * waiting on the real open, converting the offset, selecting, scrolling
+   * and focusing the editor — no navigation logic duplicated here. `start`
+   * and `end` are BOTH `node.startOffset`: a heading click places the
+   * cursor, it never selects the whole heading line. Never touches
+   * `_visibleHeadingOutlinePaths`, never calls `render()`, never touches
+   * Binder selection or Continu — a heading click is pure editor
+   * navigation. `revealLeaf()` is genuinely AWAITED (not fired and
+   * forgotten): the workspace events it can still trigger (`file-open`,
+   * `active-leaf-change`) must find `_headingNavigationDepth` still above
+   * 0 — releasing the lock any earlier let one of those events reach
+   * `updateActiveHighlight()` before `revealLeaf()` had settled, letting
+   * the Binder scroll again despite the lock. */
+  async navigateToHeading(file: TFile, node: HeadingOutlineNode): Promise<void> {
+    this._headingNavigationDepth++;
+    try {
+      const leaf = this.plugin.getLeafForOpeningFile();
+      await openFileAndSelectRange(this.app, leaf, file, node.startOffset, node.startOffset);
+      await this.app.workspace.revealLeaf(leaf);
+    } finally {
+      this._headingNavigationDepth--;
+    }
   }
 
   /** Configure uniquement un dossier Manuscrit descendant du projet. La
@@ -464,7 +508,7 @@ export class FeuilletsView extends BaseFeuilletsView {
   async onOpen(): Promise<void> {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => {
-        this.updateActiveHighlight();
+        this.updateActiveHighlight("active-leaf-change");
         /* Continu peut devenir (ou cesser d'être) la leaf active sans
            qu'aucun "layout-change" ne survienne (ex. Alt+Tab entre deux
            onglets déjà ouverts) — voir §3/§10 du micro-lot "sélection
@@ -473,7 +517,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       })
     );
     this.registerEvent(
-      this.app.workspace.on("file-open", () => this.updateActiveHighlight())
+      this.app.workspace.on("file-open", () => this.updateActiveHighlight("file-open"))
     );
     /* Ouverture/fermeture de Continu ailleurs (menu Binder d'un AUTRE
        panneau, fermeture d'onglet…) : "layout-change" est l'événement
@@ -533,8 +577,34 @@ export class FeuilletsView extends BaseFeuilletsView {
     await this.render();
   }
 
-  updateActiveHighlight(): void {
-    highlightActive(this.contentEl, getActiveFileSafe(this.app)?.path);
+  /** Whether `path` already labels a `.feuillets-item.is-active` row in the
+   * Binder — used to recognize a REDUNDANT `active-leaf-change` (see
+   * updateActiveHighlight): Obsidian still fires this event once a heading
+   * click's `openFileAndSelectRange()`/`revealLeaf()` sequence has fully
+   * settled, even though the active file never actually changed. Compares
+   * `dataset.path` explicitly rather than assuming the only
+   * `.is-active` row matches — safe even if several exist momentarily. */
+  private isBinderPathAlreadyActive(path: string | null | undefined): boolean {
+    if (!path) return false;
+    return Array.from(this.contentEl.querySelectorAll<HTMLElement>(".feuillets-item.is-active"))
+      .some((el) => el.dataset.path === path);
+  }
+
+  updateActiveHighlight(reason: ActiveHighlightReason = "file-open"): void {
+    const activePath = getActiveFileSafe(this.app)?.path;
+    /* GitHub #17: a heading click's own openFileAndSelectRange()/revealLeaf()
+     * sequence still fires a LATE "active-leaf-change" once fully settled
+     * (`_headingNavigationDepth` back to 0), even though the active file
+     * never actually changed — its row already carries `.is-active`. That
+     * redundant event must not scroll the Binder a second time on top of
+     * the editor's own scroll. A REAL "active-leaf-change" (next/previous
+     * sheet, another tab, an internal link) still targets a row that is
+     * NOT yet `.is-active`, so it keeps revealing it exactly as before.
+     * Scoped to "active-leaf-change" only — "file-open" and "render-end"
+     * keep their historical behavior unconditionally. */
+    const redundantActiveLeafChange = reason === "active-leaf-change" && this.isBinderPathAlreadyActive(activePath);
+    const scroll = this._headingNavigationDepth === 0 && !redundantActiveLeafChange;
+    highlightActive(this.contentEl, activePath, { scroll });
   }
 
   /** Onglet Continu RÉELLEMENT au travail (dernière leaf CENTRALE, pas la
@@ -1782,7 +1852,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        APRÈS, _restoreScroll/_resetScroll a toujours le dernier mot, pour
        qu'un simple clic sur un dossier (repli/dépli, sélection…) ne fasse
        jamais sauter le Binder loin de sa position — voir _captureScroll. */
-    this.updateActiveHighlight();
+    this.updateActiveHighlight("render-end");
     if (opts.resetScroll) this._resetScroll();
     else this._restoreScroll(savedScroll);
   }
@@ -3003,9 +3073,11 @@ export class FeuilletsView extends BaseFeuilletsView {
        buildHeadingOutline() (heading-outline.ts) — visual depth comes from
        THAT tree, never directly from `node.level` (a document can jump
        from H1 to H4 with no phantom level in between). These rows stay
-       VIRTUAL nodes: no `data-path`, no tabindex, no listener, never
-       `.feuillets-item`/`.feuillets-folder-row` — see styles.css. Counts
-       toward the SAME `MAX_TREE_ROWS` as physical rows.
+       VIRTUAL nodes: no `data-path`, no tabindex, no draggable, never
+       `.feuillets-item`/`.feuillets-folder-row` — see styles.css. The ONLY
+       listener is the click-to-navigate one below (navigateToHeading) —
+       never contextmenu, dragstart or drop. Counts toward the SAME
+       `MAX_TREE_ROWS` as physical rows.
        `fileDepth` is the SAME `--feuillets-binder-depth` as the file row
        itself (physical folder depth) — the CSS formula (styles.css) adds
        the file row's own chevron/icon/label column width on top of it, so
@@ -3014,6 +3086,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     const renderHeadingOutlineNodes = (
       nodes: HeadingOutlineNode[],
       host: HTMLElement,
+      file: TFile,
       fileDepth: number,
       relativeDepth: number,
       withLabelColumn: boolean
@@ -3031,8 +3104,13 @@ export class FeuilletsView extends BaseFeuilletsView {
         row.style.setProperty("--feuillets-heading-outline-depth", String(relativeDepth));
         row.setAttr("data-heading-level", String(node.level));
         row.createSpan({ cls: "feuillets-heading-outline-text" }).setText(node.text);
+        row.addEventListener("click", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void this.navigateToHeading(file, node);
+        });
         if (node.children.length > 0) {
-          renderHeadingOutlineNodes(node.children, host, fileDepth, relativeDepth + 1, withLabelColumn);
+          renderHeadingOutlineNodes(node.children, host, file, fileDepth, relativeDepth + 1, withLabelColumn);
           if (treeTruncated) return;
         }
       }
@@ -3079,7 +3157,7 @@ export class FeuilletsView extends BaseFeuilletsView {
             treeRowCount++;
             if (this._visibleHeadingOutlinePaths.has(child.path)) {
               const outline = headingOutlineForFile(this.app, child);
-              if (outline.length > 0) renderHeadingOutlineNodes(outline, treePane, depth, 1, S.binderShowLabels);
+              if (outline.length > 0) renderHeadingOutlineNodes(outline, treePane, child, depth, 1, S.binderShowLabels);
             }
           }
           continue;

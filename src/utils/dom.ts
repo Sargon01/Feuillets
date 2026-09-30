@@ -83,7 +83,22 @@ export function iconBtn(parent: ObsidianElement, icon: string, tooltip: string, 
   return btn;
 }
 
-export function highlightActive(rootEl: ObsidianElement | null, activePath: string | null | undefined) {
+export type HighlightActiveOptions = {
+  /** Whether to reveal the newly active row in the Binder's own scroll
+   * container. Defaults to `true` — the historical behavior for every
+   * caller (internal link, command palette, next/previous sheet…). Pass
+   * `false` only when the caller already knows the Binder's own scroll
+   * position must stay untouched (see FeuilletsView.navigateToHeading: a
+   * heading click already scrolled the EDITOR to the right place, and must
+   * never also nudge the Binder's own scroll). */
+  scroll?: boolean;
+};
+
+export function highlightActive(
+  rootEl: ObsidianElement | null,
+  activePath: string | null | undefined,
+  options: HighlightActiveOptions = {}
+) {
   if (!rootEl) return;
   rootEl
     .querySelectorAll(".is-active, .feuillets-dragover, .feuillets-dragging")
@@ -97,6 +112,7 @@ export function highlightActive(rootEl: ObsidianElement | null, activePath: stri
     .querySelectorAll(`[data-path="${CSS.escape(activePath)}"]`)
     .forEach((el) => {
       el.addClass("is-active");
+      if (options.scroll === false) return;
       /* Révèle la scène active dans le Binder quand on y arrive par un
          lien interne, la palette de commandes ou "Feuillet suivant/
          précédent" — pas seulement par un clic direct dans la liste,

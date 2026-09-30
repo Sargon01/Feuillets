@@ -328,6 +328,12 @@
   );
   color: var(--text-muted);
   user-select: none;
+  cursor: pointer;
+}
+
+.feuillets-heading-outline-row:hover {
+  color: var(--text-normal);
+  background-color: var(--background-modifier-hover);
 }
 
 .feuillets-heading-outline-row.feuillets-heading-outline-row--with-label-column {

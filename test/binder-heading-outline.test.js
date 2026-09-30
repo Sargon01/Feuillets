@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFile, TFolder, Menu } from "obsidian";
+import { TFile, TFolder, Menu, MarkdownView } from "obsidian";
 import { FeuilletsView } from "../src/views/feuillets-view.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { t } from "../src/i18n/index.js";
@@ -188,6 +188,7 @@ function buildView(fixture, { settingsOverrides = {}, headingsByPath = fixture.h
       getLeavesOfType: () => [],
       getActiveViewOfType: () => null,
       getMostRecentLeaf: (splitRoot) => (splitRoot === rootSplit ? workLeaf : null),
+      getActiveFile: () => null,
       setActiveLeaf: () => {},
       revealLeaf: async () => {},
     },
@@ -416,7 +417,7 @@ test("duplicate heading text produces two distinct rows", async () => {
   assert.notEqual(rows[0], rows[1]);
 });
 
-test("heading rows are always passive: no data-path, no draggable, no tabindex, never .feuillets-item/.feuillets-folder-row, no listeners", async () => {
+test("heading rows stay virtual: no data-path, no draggable, no tabindex, no role, never .feuillets-item/.feuillets-folder-row, and ONLY a click listener (no contextmenu/dragstart/drop)", async () => {
   const fixture = buildFixture();
   const { view, contentEl } = buildView(fixture);
   view._visibleHeadingOutlinePaths.add(fixture.alpha.path);
@@ -428,9 +429,10 @@ test("heading rows are always passive: no data-path, no draggable, no tabindex, 
     assert.equal(row.getAttr("data-path"), null);
     assert.equal(row.getAttr("draggable"), null);
     assert.equal(row.getAttr("tabindex"), null);
+    assert.equal(row.getAttr("role"), null);
     assert.equal(row.classes.has("feuillets-item"), false);
     assert.equal(row.classes.has("feuillets-folder-row"), false);
-    assert.equal(row.events.size, 0);
+    assert.deepEqual([...row.events.keys()], ["click"]);
   }
 });
 
@@ -798,4 +800,543 @@ test("isolated separator: heading rows are rendered as flat DOM siblings immedia
   const rows = findAll(isolatedPane, (el) => el.classes.has("feuillets-item") || el.classes.has("feuillets-heading-outline-row"));
   const kinds = rows.map((r) => (r.classes.has("feuillets-item") ? `file:${r.getAttr("data-path")}` : "heading"));
   assert.deepEqual(kinds, ["file:Roman/Manuscrit/Sub/A.md", "heading", "heading", "file:Roman/Manuscrit/Sub/B.md"]);
+});
+
+// ===== GitHub #17 follow-up: click-to-navigate =====
+
+/** Wires the fake leaf `buildView()` already returns from
+ * `plugin.getLeafForOpeningFile()` with an `openFile()` that records calls
+ * and a MarkdownView-shaped `.view` (a fake editor recording every call) —
+ * the same `Object.assign(Object.create(MarkdownView.prototype), { editor })`
+ * pattern used elsewhere in this test suite so `openFileAndSelectRange()`
+ * (utils/dom.ts) recognizes it as a real MarkdownView. */
+function setupNavigableLeaf(plugin, app) {
+  const leaf = plugin.getLeafForOpeningFile();
+  const openFileCalls = [];
+  leaf.openFile = async (file, opts) => { openFileCalls.push({ file, opts }); };
+  const setActiveLeafCalls = [];
+  app.workspace.setActiveLeaf = (l, opts) => { setActiveLeafCalls.push({ leaf: l, opts }); };
+  const revealLeafCalls = [];
+  app.workspace.revealLeaf = async (l) => { revealLeafCalls.push(l); };
+  const editorCalls = { offsetToPos: [], setSelection: [], scrollIntoView: [], focus: 0 };
+  const fakeEditor = {
+    getValue: () => "x".repeat(10000),
+    offsetToPos: (offset) => { editorCalls.offsetToPos.push(offset); return { line: 0, ch: offset }; },
+    setSelection: (from, to) => { editorCalls.setSelection.push({ from, to }); },
+    scrollIntoView: (range) => { editorCalls.scrollIntoView.push(range); },
+    focus: () => { editorCalls.focus++; },
+  };
+  leaf.view = Object.assign(Object.create(MarkdownView.prototype), { editor: fakeEditor });
+  return { leaf, openFileCalls, setActiveLeafCalls, revealLeafCalls, editorCalls };
+}
+
+test("a heading row has exactly one click listener wired to navigation", async () => {
+  const fixture = buildFixture();
+  const { view, contentEl } = buildView(fixture);
+  view._visibleHeadingOutlinePaths.add(fixture.alpha.path);
+  await view.render(true);
+
+  const row = headingRows(contentEl)[0];
+  assert.ok(row.events.has("click"));
+});
+
+test("clicking a heading row calls preventDefault/stopPropagation and delegates to navigateToHeading with the exact file and node", async () => {
+  const fixture = buildFixture();
+  const { view, contentEl } = buildView(fixture);
+  view._visibleHeadingOutlinePaths.add(fixture.alpha.path);
+  await view.render(true);
+
+  const calls = [];
+  view.navigateToHeading = async (file, node) => { calls.push({ file, node }); };
+
+  const row = headingRows(contentEl)[0];
+  let defaultPrevented = false;
+  let propagationStopped = false;
+  row.events.get("click")({
+    preventDefault: () => { defaultPrevented = true; },
+    stopPropagation: () => { propagationStopped = true; },
+  });
+
+  assert.equal(defaultPrevented, true);
+  assert.equal(propagationStopped, true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, fixture.alpha);
+  assert.equal(calls[0].node.text, "A");
+  assert.equal(calls[0].node.startOffset, 0);
+});
+
+test("navigateToHeading() calls getLeafForOpeningFile() exactly once and opens the correct file", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  const { openFileCalls } = setupNavigableLeaf(plugin, app);
+
+  let leafCallsBefore = 0;
+  const originalGetLeaf = plugin.getLeafForOpeningFile;
+  plugin.getLeafForOpeningFile = (...args) => { leafCallsBefore++; return originalGetLeaf(...args); };
+
+  await view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+
+  assert.equal(leafCallsBefore, 1);
+  assert.equal(openFileCalls.length, 1);
+  assert.equal(openFileCalls[0].file, fixture.alpha);
+});
+
+test("navigateToHeading() opens with { active: true }, activates the leaf with focus, selects the COLLAPSED startOffset, scrolls, and focuses the editor", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  const { leaf, openFileCalls, setActiveLeafCalls, revealLeafCalls, editorCalls } = setupNavigableLeaf(plugin, app);
+
+  const node = { text: "B", level: 2, startOffset: 42, endOffset: 60, children: [] };
+  await view.navigateToHeading(fixture.alpha, node);
+
+  assert.deepEqual(openFileCalls[0].opts, { active: true });
+  assert.equal(setActiveLeafCalls.length, 1);
+  assert.equal(setActiveLeafCalls[0].leaf, leaf);
+  assert.deepEqual(setActiveLeafCalls[0].opts, { focus: true });
+
+  // The cursor lands EXACTLY on node.startOffset, never node.endOffset.
+  assert.deepEqual(editorCalls.offsetToPos, [42, 42], "both ends of the selection are computed from startOffset only");
+  assert.equal(editorCalls.setSelection.length, 1);
+  assert.deepEqual(editorCalls.setSelection[0].from, { line: 0, ch: 42 });
+  assert.deepEqual(editorCalls.setSelection[0].to, { line: 0, ch: 42 });
+  assert.deepEqual(editorCalls.setSelection[0].from, editorCalls.setSelection[0].to, "the selection must be collapsed: never the whole heading line");
+
+  assert.equal(editorCalls.scrollIntoView.length, 1);
+  assert.equal(editorCalls.focus, 1, "the editor, not the Binder row, ends up focused");
+  assert.equal(revealLeafCalls.length, 1);
+  assert.equal(revealLeafCalls[0], leaf);
+});
+
+test("navigateToHeading() never uses node.endOffset for the selection range", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  const { editorCalls } = setupNavigableLeaf(plugin, app);
+
+  await view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 5, endOffset: 500, children: [] });
+
+  assert.ok(!editorCalls.offsetToPos.includes(500), "endOffset (500) must never reach the editor");
+  assert.deepEqual(editorCalls.offsetToPos, [5, 5]);
+});
+
+test("duplicate heading text navigates by startOffset alone, never by searching the text", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  const { openFileCalls, editorCalls } = setupNavigableLeaf(plugin, app);
+
+  const first = { text: "Introduction", level: 1, startOffset: 10, endOffset: 20, children: [] };
+  const second = { text: "Introduction", level: 1, startOffset: 250, endOffset: 262, children: [] };
+
+  await view.navigateToHeading(fixture.alpha, first);
+  await view.navigateToHeading(fixture.alpha, second);
+
+  assert.equal(openFileCalls.length, 2);
+  assert.deepEqual(editorCalls.setSelection.map((s) => s.from.ch), [10, 250]);
+});
+
+test("two headings of the SAME already-open file each reposition the cursor: no shortcut skips selection because the file is already active", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  const { openFileCalls, editorCalls } = setupNavigableLeaf(plugin, app);
+
+  await view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+  await view.navigateToHeading(fixture.alpha, { text: "C", level: 3, startOffset: 2, endOffset: 3, children: [] });
+
+  assert.equal(openFileCalls.length, 2, "leaf.openFile() is still awaited on the second click, even for the same file");
+  assert.deepEqual(editorCalls.setSelection.map((s) => s.from.ch), [0, 2]);
+});
+
+test("navigateToHeading() opening a DIFFERENT, not-yet-open file still opens it and positions the cursor after the open completes", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  const { openFileCalls, editorCalls } = setupNavigableLeaf(plugin, app);
+
+  await view.navigateToHeading(fixture.jump, { text: "B", level: 4, startOffset: 1, endOffset: 2, children: [] });
+
+  assert.equal(openFileCalls.length, 1);
+  assert.equal(openFileCalls[0].file, fixture.jump);
+  assert.deepEqual(editorCalls.setSelection[0].from, { line: 0, ch: 1 });
+});
+
+test("navigateToHeading() never touches Binder multi-select or the visible-heading-outline set", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin, multiSelect } = buildView(fixture);
+  setupNavigableLeaf(plugin, app);
+  view._visibleHeadingOutlinePaths.add(fixture.alpha.path);
+  const visibleSnapshot = new Set(view._visibleHeadingOutlinePaths);
+
+  await view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+
+  assert.equal(multiSelect.size, 0);
+  assert.deepEqual(view._visibleHeadingOutlinePaths, visibleSnapshot);
+});
+
+test("navigateToHeading() never calls saveSettings() or re-renders the Binder", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin, saveSettingsCalls } = buildView(fixture);
+  setupNavigableLeaf(plugin, app);
+  let renderCalls = 0;
+  view.render = async () => { renderCalls++; };
+
+  await view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+
+  assert.equal(saveSettingsCalls.count, 0);
+  assert.equal(renderCalls, 0);
+});
+
+test("keyboard non-regression: the Binder's ArrowUp/ArrowDown -> openNeighbor listener never references heading rows", () => {
+  const source = readFileSync(resolve(process.cwd(), "src/views/feuillets-view.ts"), "utf8");
+  const start = source.indexOf('this.registerDomEvent(window, "keydown"');
+  assert.notEqual(start, -1, "the Binder keydown listener must still exist");
+  const end = source.indexOf("}, { capture: true });", start);
+  assert.notEqual(end, -1, "the handler must still end with its capture-phase registration");
+  const body = source.slice(start, end);
+  assert.doesNotMatch(body, /heading/i, "the ArrowUp/Down handler must not special-case heading rows in any way");
+});
+
+test("heading rows remain non-focusable: no tabindex, no role, so they never become the ArrowUp/Down keydown target", async () => {
+  const fixture = buildFixture();
+  const { view, contentEl } = buildView(fixture);
+  view._visibleHeadingOutlinePaths.add(fixture.alpha.path);
+  await view.render(true);
+
+  for (const row of headingRows(contentEl)) {
+    assert.equal(row.getAttr("tabindex"), null);
+    assert.equal(row.getAttr("role"), null);
+  }
+});
+
+// ===== Regression: a heading click must never scroll the Binder itself =====
+
+/** A minimal, purpose-built Binder root for exercising the REAL
+ * `highlightActive()`/`updateActiveHighlight()` — decoupled from the shared
+ * `FakeElement` used for rendering assertions elsewhere in this file, whose
+ * `querySelectorAll()` does not resolve attribute VALUES (only attribute
+ * presence), so it cannot stand in for `[data-path="..."]` matching. */
+function makeHighlightableBinderRoot(filePath) {
+  const scrollCalls = { count: 0 };
+  const fileEl = {
+    classes: new Set(),
+    addClass(name) { this.classes.add(name); },
+    removeClass(name) { this.classes.delete(name); },
+    scrollIntoView() { scrollCalls.count++; },
+  };
+  const root = {
+    querySelectorAll(selector) {
+      if (selector.startsWith("[data-path=")) {
+        const match = selector.match(/\[data-path="([^"]*)"\]/);
+        return match && match[1] === filePath ? [fileEl] : [];
+      }
+      return [fileEl].filter((el) => el.classes.has("is-active") || el.classes.has("feuillets-dragover") || el.classes.has("feuillets-dragging"));
+    },
+  };
+  return { root, fileEl, scrollCalls };
+}
+
+/** Restores the REAL `updateActiveHighlight()` — `buildView()` stubs it out
+ * to `() => {}` so ordinary render() tests never need a working
+ * `app.workspace.getActiveFile()`. */
+function useRealActiveHighlight(view) {
+  delete view.updateActiveHighlight;
+}
+
+test("navigateToHeading(): while file-open/active-leaf-change fire during the click, the file becomes .is-active but the Binder itself never scrolls — the EDITOR still scrolls", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { leaf, editorCalls } = setupNavigableLeaf(plugin, app);
+  const { root, fileEl, scrollCalls } = makeHighlightableBinderRoot(fixture.alpha.path);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  const originalOpenFile = leaf.openFile;
+  leaf.openFile = async (file, opts) => {
+    await originalOpenFile(file, opts);
+    // Simulates Obsidian firing "file-open"/"active-leaf-change" for real,
+    // synchronously inside the awaited leaf.openFile() — the exact moment
+    // the reported bug reproduced: the Binder's own highlight/scroll ran
+    // WHILE the heading click was still in flight.
+    view.updateActiveHighlight();
+  };
+
+  await view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+
+  assert.ok(fileEl.classes.has("is-active"), "the parent file must still become .is-active");
+  assert.equal(scrollCalls.count, 0, "the Binder's own scrollIntoView must NEVER fire during a heading navigation");
+  assert.equal(editorCalls.scrollIntoView.length, 1, "the EDITOR itself must still scroll to the heading");
+});
+
+test("after navigateToHeading() resolves, the transient depth counter is back to 0 and normal scroll-revealing highlight behavior is restored", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  useRealActiveHighlight(view);
+  setupNavigableLeaf(plugin, app);
+  const { root, scrollCalls } = makeHighlightableBinderRoot(fixture.alpha.path);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  await view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+  assert.equal(view._headingNavigationDepth, 0);
+
+  view.updateActiveHighlight(); // e.g. "Next/previous sheet", an internal link, a command
+  assert.equal(scrollCalls.count, 1, "outside a heading navigation, the historical scrollIntoView must fire again");
+});
+
+test("if leaf.openFile() rejects, the transient depth counter still returns to 0 (try/finally), and normal scroll behavior is restored", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { leaf } = setupNavigableLeaf(plugin, app);
+  leaf.openFile = async () => { throw new Error("boom"); };
+  const { root, scrollCalls } = makeHighlightableBinderRoot(fixture.alpha.path);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  await assert.rejects(() => view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] }));
+  assert.equal(view._headingNavigationDepth, 0, "an error must not leave the scroll suppression stuck on");
+
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 1, "normal scroll behavior is restored even after a failed navigation");
+});
+
+test("two overlapping heading navigations keep the Binder scroll suppressed until BOTH finish (a counter, not a boolean, is required)", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { leaf } = setupNavigableLeaf(plugin, app);
+  let resolveFirstOpen;
+  const firstOpenGate = new Promise((resolve) => { resolveFirstOpen = resolve; });
+  let openCount = 0;
+  leaf.openFile = async () => {
+    openCount++;
+    if (openCount === 1) await firstOpenGate;
+  };
+  const { root, scrollCalls } = makeHighlightableBinderRoot(fixture.alpha.path);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  const navA = view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+  const navB = view.navigateToHeading(fixture.alpha, { text: "C", level: 3, startOffset: 2, endOffset: 3, children: [] });
+  await navB;
+
+  assert.equal(view._headingNavigationDepth, 1, "A is still in flight: depth must still be 1, not 0");
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 0, "scroll must STILL be suppressed while A is in flight");
+
+  resolveFirstOpen();
+  await navA;
+  assert.equal(view._headingNavigationDepth, 0);
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 1, "scroll resumes only once BOTH overlapping navigations have finished");
+});
+
+test("navigateToHeading(): while workspace.revealLeaf() itself is still pending (openFile already done), the Binder scroll stays suppressed; it resumes only once revealLeaf() actually resolves", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { openFileCalls } = setupNavigableLeaf(plugin, app);
+  const { root, scrollCalls } = makeHighlightableBinderRoot(fixture.alpha.path);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  let resolveReveal;
+  const revealGate = new Promise((resolve) => { resolveReveal = resolve; });
+  let revealCalled = false;
+  app.workspace.revealLeaf = async () => {
+    revealCalled = true;
+    await revealGate;
+  };
+
+  const nav = view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+
+  // Poll microtasks until revealLeaf() has actually been entered — proves
+  // openFile()/selectRange() already completed and we are now stuck
+  // specifically INSIDE revealLeaf(), not merely somewhere earlier.
+  for (let i = 0; i < 20 && !revealCalled; i++) await Promise.resolve();
+  assert.ok(revealCalled, "revealLeaf() must have been called by now");
+  assert.equal(openFileCalls.length, 1, "openFile() must have already completed by the time revealLeaf() runs");
+
+  assert.ok(view._headingNavigationDepth > 0, "the lock must still be held while revealLeaf() is pending");
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 0, "the Binder must not scroll while revealLeaf() is still pending");
+
+  resolveReveal();
+  await nav;
+
+  assert.equal(view._headingNavigationDepth, 0);
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 1, "the Binder scroll resumes once revealLeaf() has actually resolved");
+});
+
+test("if workspace.revealLeaf() rejects, navigateToHeading() rejects too, but the transient counter still returns to 0 and normal scroll behavior is restored", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  useRealActiveHighlight(view);
+  setupNavigableLeaf(plugin, app);
+  app.workspace.revealLeaf = async () => { throw new Error("reveal failed"); };
+  const { root, scrollCalls } = makeHighlightableBinderRoot(fixture.alpha.path);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  await assert.rejects(() => view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] }));
+  assert.equal(view._headingNavigationDepth, 0, "a revealLeaf() rejection must not leave the scroll suppression stuck on");
+
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 1, "normal scroll behavior is restored even after a failed revealLeaf()");
+});
+
+test("concurrent: while navigation A is blocked specifically inside its own revealLeaf(), navigation B can still start and finish, and the scroll stays suppressed until A's revealLeaf() resolves", async () => {
+  const fixture = buildFixture();
+  const { view, app, plugin } = buildView(fixture);
+  useRealActiveHighlight(view);
+  setupNavigableLeaf(plugin, app);
+  const { root, scrollCalls } = makeHighlightableBinderRoot(fixture.alpha.path);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  let resolveARevealGate;
+  const aRevealGate = new Promise((resolve) => { resolveARevealGate = resolve; });
+  let revealCallCount = 0;
+  app.workspace.revealLeaf = async () => {
+    revealCallCount++;
+    if (revealCallCount === 1) await aRevealGate;
+  };
+
+  const navA = view.navigateToHeading(fixture.alpha, { text: "A", level: 1, startOffset: 0, endOffset: 1, children: [] });
+  const navB = view.navigateToHeading(fixture.alpha, { text: "C", level: 3, startOffset: 2, endOffset: 3, children: [] });
+  await navB;
+
+  assert.equal(view._headingNavigationDepth, 1, "A is still stuck inside its own revealLeaf(): depth must still be 1");
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 0, "scroll must STILL be suppressed while A's revealLeaf() is pending");
+
+  resolveARevealGate();
+  await navA;
+  assert.equal(view._headingNavigationDepth, 0);
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 1, "scroll resumes only once A's revealLeaf() has actually resolved");
+});
+
+test("normal file-click navigation (not a heading) is untouched: highlightActive still scrolls the Binder to reveal the active row", async () => {
+  const fixture = buildFixture();
+  const { view, app } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { root, scrollCalls } = makeHighlightableBinderRoot(fixture.alpha.path);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  view.updateActiveHighlight();
+  assert.equal(scrollCalls.count, 1, "a normal active-file change (command, internal link, next/previous sheet) must still reveal the row");
+});
+
+// ===== GitHub #17 follow-up: a LATE, redundant "active-leaf-change" toward =====
+// ===== an already-active row must not scroll the Binder a second time    =====
+
+/** A minimal fake Binder root supporting exactly what `isBinderPathAlreadyActive()`
+ * and `highlightActive()` need: compound class selectors (".feuillets-item.is-active"),
+ * comma-separated OR selectors (the cleanup selector), and `[data-path="..."]`
+ * attribute-value matching — plus a real `.dataset.path` on each element, since
+ * production code reads `el.dataset.path`, not `getAttr("data-path")`. */
+function makeActiveHighlightFixture(paths) {
+  const scrollCalls = { count: 0 };
+  const elements = paths.map((path) => ({
+    classes: new Set(["feuillets-item"]),
+    dataset: { path },
+    addClass(name) { this.classes.add(name); },
+    removeClass(name) { this.classes.delete(name); },
+    scrollIntoView() { scrollCalls.count++; },
+  }));
+
+  function matchesPart(el, part) {
+    const dataMatch = part.match(/\[data-path="([^"]*)"\]/);
+    // Strip the attribute selector FIRST: a real file path can contain a
+    // literal "." (extension, folder name…), which the class-name regex
+    // below would otherwise misread as a stray ".class" token.
+    const withoutAttr = part.replace(/\[[^\]]*\]/g, "");
+    const classNames = (withoutAttr.match(/\.[\w-]+/g) || []).map((c) => c.slice(1));
+    const classOk = classNames.every((c) => el.classes.has(c));
+    const dataOk = !dataMatch || el.dataset.path === dataMatch[1];
+    return classOk && dataOk;
+  }
+
+  const root = {
+    querySelectorAll(selector) {
+      const parts = selector.split(",").map((s) => s.trim());
+      return elements.filter((el) => parts.some((part) => matchesPart(el, part)));
+    },
+  };
+
+  return { root, elements, scrollCalls };
+}
+
+test("updateActiveHighlight('active-leaf-change') fired AFTER a heading navigation has settled, toward the row it already marked active, does not scroll the Binder again — the exact reported bug", () => {
+  const fixture = buildFixture();
+  const { view, app } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { root, elements, scrollCalls } = makeActiveHighlightFixture([fixture.alpha.path]);
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  // 1-2: navigation heading in flight — a "file-open" fires while
+  // _headingNavigationDepth > 0, marking the row active without scrolling
+  // (exactly what navigateToHeading()'s own sequence does in production).
+  view._headingNavigationDepth = 1;
+  view.updateActiveHighlight("file-open");
+  assert.ok(elements[0].classes.has("is-active"));
+  assert.equal(scrollCalls.count, 0);
+
+  // 3-4: navigation has fully settled.
+  view._headingNavigationDepth = 0;
+
+  // 5-6: the LATE, redundant "active-leaf-change" Obsidian still fires
+  // once openFileAndSelectRange()/revealLeaf() have completed — the row is
+  // already .is-active, so this must not scroll the Binder a second time.
+  view.updateActiveHighlight("active-leaf-change");
+
+  assert.ok(elements[0].classes.has("is-active"), "the row must stay active");
+  assert.equal(scrollCalls.count, 0, "a redundant active-leaf-change toward an already-active row must never scroll the Binder");
+});
+
+test("updateActiveHighlight('active-leaf-change') for a REAL file change (A active, B not yet) still reveals B: scrollIntoView is still called exactly once", () => {
+  const fixture = buildFixture();
+  const { view, app } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { root, elements, scrollCalls } = makeActiveHighlightFixture([fixture.alpha.path, fixture.jump.path]);
+  elements[0].addClass("is-active"); // A is the currently active file
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.jump; // the user really switched to B
+
+  view.updateActiveHighlight("active-leaf-change");
+
+  assert.equal(elements[0].classes.has("is-active"), false, "A loses .is-active");
+  assert.ok(elements[1].classes.has("is-active"), "B receives .is-active");
+  assert.equal(scrollCalls.count, 1, "a real file change must still scroll to reveal the newly active row — Next/previous sheet, another tab, an internal link keep working");
+});
+
+test("updateActiveHighlight('active-leaf-change') is a scroll no-op whenever the active path already has .is-active, independent of any heading navigation", () => {
+  const fixture = buildFixture();
+  const { view, app } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { root, elements, scrollCalls } = makeActiveHighlightFixture([fixture.alpha.path]);
+  elements[0].addClass("is-active");
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  view.updateActiveHighlight("active-leaf-change");
+
+  assert.ok(elements[0].classes.has("is-active"));
+  assert.equal(scrollCalls.count, 0);
+});
+
+test("updateActiveHighlight('file-open') keeps its historical scroll behavior unconditionally — the redundant-active-leaf-change optimization is scoped to 'active-leaf-change' only", () => {
+  const fixture = buildFixture();
+  const { view, app } = buildView(fixture);
+  useRealActiveHighlight(view);
+  const { root, elements, scrollCalls } = makeActiveHighlightFixture([fixture.alpha.path]);
+  elements[0].addClass("is-active"); // already active, exactly like the redundant active-leaf-change case above
+  view.contentEl = root;
+  app.workspace.getActiveFile = () => fixture.alpha;
+
+  view.updateActiveHighlight("file-open");
+
+  assert.equal(scrollCalls.count, 1, "file-open must scroll regardless of whether the row was already active");
 });
