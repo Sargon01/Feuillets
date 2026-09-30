@@ -1,7 +1,8 @@
 import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, BOARD_MODES } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
-import { headingOutlineForFile } from "../services/heading-outline-cache.js";
+import { headingOutlineForFile, headingOutlineInputsForFile } from "../services/heading-outline-cache.js";
 import type { HeadingOutlineNode } from "../services/heading-outline.js";
+import { moveHeadingSection, type HeadingSectionPlacement } from "../services/heading-section-move.js";
 import { foldAccents, stripMarkdown } from "../utils/core.js";
 import { highlightActive, isEditing, getActiveFileSafe, openFileActivating, openFileAndSelectRange } from "../utils/dom.js";
 import { ImportOutlineModal } from "../ui/import-outline-modal.js";
@@ -23,7 +24,7 @@ import {
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
 import { createProjectScope, createFileScope, createFolderScope, createSelectionScope, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import { getDraftsFolder, isProjectDraft } from "../services/project-drafts.js";
-import { Menu, MarkdownView, TFile, TFolder, setIcon, setTooltip, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf } from "obsidian";
+import { Menu, MarkdownView, TFile, TFolder, setIcon, setTooltip, Notice, normalizePath, type TAbstractFile, type WorkspaceLeaf, type EventRef } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import { folderPathToWorkspaceScope } from "../services/folder-workspaces.js";
 import { workspaceLabels, workspaceStatuses } from "../services/folder-workspaces.js";
@@ -106,6 +107,23 @@ function asFolder(af: TAbstractFile | null): TFolder {
  * method: only "active-leaf-change" is checked against an already-active
  * row (GitHub #17, a late event fired once a heading navigation settles). */
 type ActiveHighlightReason = "active-leaf-change" | "file-open" | "render-end";
+
+/** GitHub #17 follow-up: private MIME for heading-to-heading drag — never
+ * `FEUILLETS_FILE_DRAG_MIME`, never `text/plain`, so a heading drag can
+ * never be picked up by the physical TFile/TFolder drag system
+ * (attachDragHandlers, base-feuillets-view.ts) or Canvas. The truth of an
+ * in-progress heading drag is `FeuilletsView._headingDragState`, never
+ * this MIME payload — it only exists to make the native HTML5 drag start. */
+const HEADING_DRAG_MIME = "application/x-feuillets-heading";
+
+/** Session-only state of an in-progress heading drag — see
+ * FeuilletsView._headingDragState. Never persisted, never shared with
+ * `plugin.dragState`/`_binderMultiSelect`/`_visibleHeadingOutlinePaths`. */
+type HeadingDragState = {
+  filePath: string;
+  sourceStartOffset: number;
+  level: number;
+};
 
 type RenderFileRowOpts = { showPreview?: boolean; revealProjectDraft?: boolean };
 type RenderFileRow = (
@@ -194,6 +212,12 @@ export class FeuilletsView extends BaseFeuilletsView {
    * right place, and the file row clicked from a heading is typically
    * already visible. */
   private _headingNavigationDepth = 0;
+  /** The heading currently being dragged, or `null` — entirely private to
+   * heading-to-heading section reordering, never `plugin.dragState`, never
+   * `_binderMultiSelect`, never linked to `_visibleHeadingOutlinePaths`.
+   * The physical TFile/TFolder drag system (attachDragHandlers,
+   * base-feuillets-view.ts) neither reads nor writes this. */
+  private _headingDragState: HeadingDragState | null = null;
 
   /** Racine à afficher dans le Binder : le scope partagé s'il existe encore
    * et appartient toujours au projet actif, sinon la racine réelle du
@@ -292,6 +316,164 @@ export class FeuilletsView extends BaseFeuilletsView {
       await this.app.workspace.revealLeaf(leaf);
     } finally {
       this._headingNavigationDepth--;
+    }
+  }
+
+  /** Whether a heading-to-heading drop is allowed in THIS first version:
+   * same file, same Markdown level, and not a no-op self-target. Never any
+   * other criterion — no cross-file, no cross-level, no promotion or
+   * demotion. */
+  private isValidHeadingDropTarget(source: HeadingDragState, file: TFile, node: HeadingOutlineNode): boolean {
+    return source.filePath === file.path && source.level === node.level && source.sourceStartOffset !== node.startOffset;
+  }
+
+  /** Removes the drop-position indicator classes from every heading row in
+   * this Binder — never touches the physical drag/drop classes
+   * (`feuillets-dragover`/`feuillets-dragging`) used by the TFile/TFolder
+   * drag system (attachDragHandlers, base-feuillets-view.ts). */
+  private clearHeadingDropIndicators(): void {
+    this.contentEl
+      .querySelectorAll<HTMLElement>(".feuillets-heading-outline-drop-before, .feuillets-heading-outline-drop-after")
+      .forEach((el) => {
+        el.removeClass("feuillets-heading-outline-drop-before");
+        el.removeClass("feuillets-heading-outline-drop-after");
+      });
+  }
+
+  /** Wires a single heading row for section-reordering drag & drop — kept
+   * out of the recursive renderer (renderHeadingOutlineNodes) so that
+   * function stays focused on rendering. Entirely independent of the
+   * physical TFile/TFolder drag system: its own MIME (`HEADING_DRAG_MIME`),
+   * its own runtime state (`_headingDragState`), its own CSS classes —
+   * never `plugin.dragState`, never `_binderMultiSelect`. */
+  private attachHeadingDragHandlers(row: HTMLElement, file: TFile, node: HeadingOutlineNode): void {
+    row.setAttr("draggable", "true");
+
+    row.addEventListener("dragstart", (e: DragEvent) => {
+      e.stopPropagation();
+      if (!e.dataTransfer) return;
+      this._headingDragState = { filePath: file.path, sourceStartOffset: node.startOffset, level: node.level };
+      e.dataTransfer.setData(HEADING_DRAG_MIME, file.path);
+      e.dataTransfer.effectAllowed = "move";
+      row.addClass("feuillets-heading-outline-dragging");
+    });
+
+    row.addEventListener("dragend", () => {
+      this._headingDragState = null;
+      row.removeClass("feuillets-heading-outline-dragging");
+      this.clearHeadingDropIndicators();
+    });
+
+    row.addEventListener("dragover", (e: DragEvent) => {
+      const source = this._headingDragState;
+      if (!source) return;
+      if (!this.isValidHeadingDropTarget(source, file, node)) {
+        row.removeClass("feuillets-heading-outline-drop-before");
+        row.removeClass("feuillets-heading-outline-drop-after");
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+      const rect = row.getBoundingClientRect();
+      const placement: HeadingSectionPlacement = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+      row.toggleClass("feuillets-heading-outline-drop-before", placement === "before");
+      row.toggleClass("feuillets-heading-outline-drop-after", placement === "after");
+    });
+
+    row.addEventListener("dragleave", () => {
+      row.removeClass("feuillets-heading-outline-drop-before");
+      row.removeClass("feuillets-heading-outline-drop-after");
+    });
+
+    row.addEventListener("drop", (e: DragEvent) => {
+      const source = this._headingDragState;
+      if (!source || !this.isValidHeadingDropTarget(source, file, node)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = row.getBoundingClientRect();
+      const placement: HeadingSectionPlacement = e.clientY < rect.top + rect.height / 2 ? "before" : "after";
+      this._headingDragState = null;
+      this.clearHeadingDropIndicators();
+      void this.moveHeadingSectionInFile(file, source.sourceStartOffset, node.startOffset, source.level, placement);
+    });
+  }
+
+  /** Moves a Markdown heading section within `file` — the ONLY place that
+   * mutates the file for a heading drag. Delegates all section math to
+   * `moveHeadingSection()` (heading-section-move.ts): this method's sole
+   * job is fetching a trustworthy `text`/`headings` pair, revalidating
+   * source and target still exist at the expected level, writing
+   * atomically, and waiting for the real MetadataCache refresh before
+   * re-rendering.
+   *
+   * `Vault.process()` — never `cachedRead()`/`read()` + `modify()` — is
+   * used because its callback receives the file's CURRENT content at the
+   * moment of the atomic write, never a stale snapshot captured at
+   * dragstart. `headingOutlineInputsForFile()` is likewise read fresh
+   * INSIDE that callback: if the file changed since the Binder was
+   * rendered, source/target are re-identified by `startOffset` alone
+   * (never by heading text) against this fresh list, and the move is
+   * refused — original text returned — if either is missing or no longer
+   * at `expectedLevel`. Never an approximate/heuristic repair. */
+  private async moveHeadingSectionInFile(
+    file: TFile,
+    sourceStartOffset: number,
+    targetStartOffset: number,
+    expectedLevel: number,
+    placement: HeadingSectionPlacement
+  ): Promise<void> {
+    const currentFile = this.app.vault.getAbstractFileByPath(file.path);
+    if (!(currentFile instanceof TFile)) return;
+
+    let moveChanged = false;
+    let eventRef: EventRef | null = null;
+    /* Installed BEFORE the write so the real "changed" event can never be
+       missed — but it only resolves once THIS move has genuinely written a
+       change to THIS file, never on an unrelated or earlier event: see
+       `moveChanged`, set true only right before the callback below returns
+       the actually-moved text. */
+    const metadataRefreshed = new Promise<void>((resolve) => {
+      eventRef = this.app.metadataCache.on("changed", (changedFile) => {
+        if (moveChanged && changedFile.path === currentFile.path) resolve();
+      });
+    });
+
+    try {
+      let didChange = false;
+      try {
+        await this.app.vault.process(currentFile, (text) => {
+          const headings = headingOutlineInputsForFile(this.app, currentFile);
+          const source = headings.find((heading) => heading.startOffset === sourceStartOffset);
+          const target = headings.find((heading) => heading.startOffset === targetStartOffset);
+          if (!source || !target) return text;
+          if (source.level !== expectedLevel || target.level !== expectedLevel) return text;
+
+          const result = moveHeadingSection(text, headings, sourceStartOffset, targetStartOffset, placement);
+          if (!result || !result.changed) return text;
+
+          didChange = true;
+          moveChanged = true;
+          return result.text;
+        });
+      } catch {
+        // `vault.process()` itself failing (a disk error, a stale file
+        // handle…) means nothing was written — there is nothing to refresh.
+        // This method is always invoked as a fire-and-forget `void` call, so
+        // a write failure is swallowed here rather than becoming an
+        // unhandled rejection. `finally` below still removes the listener.
+        // An error from `metadataRefreshed` or `render(true)` below is
+        // deliberately OUTSIDE this catch — those happen only after a real
+        // write succeeded, and must stay observable.
+        return;
+      }
+
+      if (!didChange) return;
+
+      await metadataRefreshed;
+      await this.render(true);
+    } finally {
+      if (eventRef) this.app.metadataCache.offref(eventRef);
     }
   }
 
@@ -3073,10 +3255,12 @@ export class FeuilletsView extends BaseFeuilletsView {
        buildHeadingOutline() (heading-outline.ts) — visual depth comes from
        THAT tree, never directly from `node.level` (a document can jump
        from H1 to H4 with no phantom level in between). These rows stay
-       VIRTUAL nodes: no `data-path`, no tabindex, no draggable, never
-       `.feuillets-item`/`.feuillets-folder-row` — see styles.css. The ONLY
-       listener is the click-to-navigate one below (navigateToHeading) —
-       never contextmenu, dragstart or drop. Counts toward the SAME
+       VIRTUAL nodes: still no `data-path`, no tabindex, no `role="button"`,
+       never `.feuillets-item`/`.feuillets-folder-row` — see styles.css. The
+       row IS click-to-navigate (navigateToHeading) and, since GitHub #17's
+       drag & drop follow-up, `draggable` for same-file/same-level section
+       reordering (attachHeadingDragHandlers) — never contextmenu, never
+       the physical TFile/TFolder drag system. Counts toward the SAME
        `MAX_TREE_ROWS` as physical rows.
        `fileDepth` is the SAME `--feuillets-binder-depth` as the file row
        itself (physical folder depth) — the CSS formula (styles.css) adds
@@ -3109,6 +3293,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           e.stopPropagation();
           void this.navigateToHeading(file, node);
         });
+        this.attachHeadingDragHandlers(row, file, node);
         if (node.children.length > 0) {
           renderHeadingOutlineNodes(node.children, host, file, fileDepth, relativeDepth + 1, withLabelColumn);
           if (treeTruncated) return;

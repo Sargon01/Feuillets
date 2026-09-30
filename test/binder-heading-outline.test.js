@@ -417,7 +417,7 @@ test("duplicate heading text produces two distinct rows", async () => {
   assert.notEqual(rows[0], rows[1]);
 });
 
-test("heading rows stay virtual: no data-path, no draggable, no tabindex, no role, never .feuillets-item/.feuillets-folder-row, and ONLY a click listener (no contextmenu/dragstart/drop)", async () => {
+test("heading rows stay virtual: no data-path, no tabindex, no role, never .feuillets-item/.feuillets-folder-row, and never contextmenu — only click and section-drag listeners", async () => {
   const fixture = buildFixture();
   const { view, contentEl } = buildView(fixture);
   view._visibleHeadingOutlinePaths.add(fixture.alpha.path);
@@ -427,12 +427,15 @@ test("heading rows stay virtual: no data-path, no draggable, no tabindex, no rol
   assert.ok(rows.length > 0);
   for (const row of rows) {
     assert.equal(row.getAttr("data-path"), null);
-    assert.equal(row.getAttr("draggable"), null);
+    assert.equal(row.getAttr("draggable"), "true");
     assert.equal(row.getAttr("tabindex"), null);
     assert.equal(row.getAttr("role"), null);
     assert.equal(row.classes.has("feuillets-item"), false);
     assert.equal(row.classes.has("feuillets-folder-row"), false);
-    assert.deepEqual([...row.events.keys()], ["click"]);
+    assert.deepEqual(
+      [...row.events.keys()].sort(),
+      ["click", "dragend", "dragleave", "dragover", "dragstart", "drop"]
+    );
   }
 });
 

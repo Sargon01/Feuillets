@@ -328,12 +328,29 @@
   );
   color: var(--text-muted);
   user-select: none;
-  cursor: pointer;
+  cursor: grab;
 }
 
 .feuillets-heading-outline-row:hover {
   color: var(--text-normal);
   background-color: var(--background-modifier-hover);
+}
+
+/* GitHub #17 follow-up: same-file, same-level section reordering — the row
+ * being dragged loses no layout space (opacity only, no border/height
+ * change), and the before/after indicator is an INSET box-shadow so it
+ * never shifts the row's own height or its neighbors. */
+.feuillets-heading-outline-row.feuillets-heading-outline-dragging {
+  opacity: 0.55;
+  cursor: grabbing;
+}
+
+.feuillets-heading-outline-row.feuillets-heading-outline-drop-before {
+  box-shadow: inset 0 2px 0 var(--interactive-accent);
+}
+
+.feuillets-heading-outline-row.feuillets-heading-outline-drop-after {
+  box-shadow: inset 0 -2px 0 var(--interactive-accent);
 }
 
 .feuillets-heading-outline-row.feuillets-heading-outline-row--with-label-column {
