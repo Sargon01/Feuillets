@@ -121,6 +121,7 @@ The **Binder** is primarily for finding and moving text. It can:
 - open a folder or scope in **Continuous** mode;
 - link an existing Research folder from anywhere in the vault;
 - switch between the **single Binder** and **split view**.
+- optionally show a sheet’s H1 to H6 Markdown structure, navigate its headings, and move, promote or demote a complete section with its descendants.
 
 In split view, the left pane reflects the current navigation layers: **Manuscript**, **Research**, **Workspaces** and **Vault**. The right pane remains the working Binder and reflects the active workspace; it keeps the same rows, menus, selections and interactions as single view.
 

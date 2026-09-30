@@ -95,6 +95,7 @@ Le **Classeur** sert d’abord à trouver et déplacer les textes. Il permet not
 - ouvrir un dossier ou une portée en **Continu** ;
 - associer un dossier Recherche existant, même ailleurs dans le coffre ;
 - basculer entre le **Classeur simple** et la **double vue**.
+- afficher au besoin la structure Markdown H1 à H6 d’un feuillet, naviguer dans ses titres et déplacer, promouvoir ou rétrograder une section complète avec ses descendants.
 
 En double vue, le volet gauche reflète les couches de navigation actuelles : **Manuscrit**, **Recherche**, **Espaces** et **Coffre**. Le volet droit reste le Classeur de travail et reflète l’espace actif ; il conserve la même grammaire de lignes, menus, sélections et interactions que la vue simple.
 

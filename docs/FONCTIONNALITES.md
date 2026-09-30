@@ -28,6 +28,8 @@ Voir [Projet portable `.feuil`](PROJET-PORTABLE-FEUIL.md).
 - recherche titre/contenu ;
 - filtres statut/label/progression ;
 - aperçu configurable des feuillets ;
+- structure Markdown optionnelle par feuillet : titres H1 à H6, navigation directe, repli des branches et suivi discret du titre courant ;
+- déplacement vertical d’une section complète par ses titres, promotion/rétrogradation de toute une sous-arborescence par menu ou glisser horizontal, avec prise en charge ATX et Setext ;
 - isolation d’un dossier et navigation vers le parent/projet ;
 - ouverture dans Aperçu ou Continu ;
 - association d’un dossier Recherche existant ;

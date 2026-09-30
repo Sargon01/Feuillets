@@ -28,6 +28,8 @@ See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 - title/content search;
 - status/label/progress filters;
 - configurable sheet preview;
+- optional per-sheet Markdown structure: H1 to H6 headings, direct navigation, collapsible branches, and subtle current-heading tracking;
+- vertical movement of a complete section by its heading, plus subtree promotion/demotion from the menu or horizontal dragging, with ATX and Setext support;
 - isolate a folder and navigate back upward/project-wide;
 - open in Preview or Continuous;
 - link an existing Research folder;

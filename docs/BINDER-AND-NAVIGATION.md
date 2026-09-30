@@ -4,6 +4,12 @@
 
 The **Binder** is the manuscript’s working structure. It is used to find text, move sheets, open a folder in Continuous mode, or inspect hierarchy without turning the Obsidian vault into a parallel database.
 
+## A sheet’s Markdown structure
+
+From the Binder, you can show or hide a sheet’s Markdown structure. H1 to H6 headings then appear below the sheet as a view of its real file structure. When the structure is hidden, the sheet preview continues to follow the usual preview setting.
+
+Click a heading to navigate directly to it in the editor. Branches can collapse, while the Binder subtly marks the current heading or, when it is hidden inside a collapsed branch, its nearest visible ancestor, without expanding the branch. Dragging a heading vertically between headings of the same level in the same file moves its section together with all of its descendants. **Promote** and **Demote**, available from the heading or through horizontal dragging, change the level of the entire subtree. Operations beyond the H1/H6 limits are refused. Both ATX and Setext headings are supported.
+
 ## Single view and split view
 
 Feuillets provides two presentations of the same Binder.

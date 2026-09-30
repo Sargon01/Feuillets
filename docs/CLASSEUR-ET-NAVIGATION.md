@@ -4,6 +4,12 @@
 
 Le **Classeur** est la structure de travail du manuscrit. Il sert à trouver un texte, déplacer un feuillet, ouvrir un dossier en Continu ou prendre du recul sur la hiérarchie sans transformer le coffre Obsidian en base de données parallèle.
 
+## Structure Markdown d’un feuillet
+
+Depuis le Classeur, vous pouvez afficher ou masquer la structure Markdown d’un feuillet. Les titres H1 à H6 apparaissent alors sous le feuillet comme une vue de sa structure réelle. Lorsque la structure est masquée, l’aperçu du feuillet reste régi par le réglage d’aperçu habituel.
+
+Un clic sur un titre ouvre directement sa position dans l’éditeur. Les branches peuvent être repliées, et le Classeur indique discrètement le titre courant ou, s’il est masqué dans une branche repliée, son ancêtre visible le plus proche, sans déplier la branche. Glisser un titre verticalement entre des titres de même niveau dans le même fichier déplace sa section avec tous ses descendants. Les actions **Promouvoir** et **Rétrograder**, disponibles depuis le titre ou par glisser horizontal, changent aussi le niveau de toute sa sous-arborescence. Les opérations impossibles aux limites H1/H6 sont refusées. Les titres ATX et Setext sont pris en charge.
+
 ## Vue simple et double vue
 
 Feuillets propose deux présentations du même Classeur.
