@@ -9,7 +9,7 @@ const styles = readFileSync(resolve(process.cwd(), "styles.css"), "utf8");
 test("Binder preview is suppressed only while the file heading outline is visible", () => {
   assert.match(
     source,
-    /const headingOutlineVisible = this\._visibleHeadingOutlinePaths\.has\(file\.path\);[\s\S]*?const previewExpanded = previewTitleEmphasized && !headingOutlineVisible;/
+    /const headingOutlineVisible = this\._visibleHeadingOutlinePaths\.has\(file\.path\)[\s\S]*?headingOutlineForFile\(this\.app, file\)\.length > 0;[\s\S]*?const previewExpanded = previewTitleEmphasized && !headingOutlineVisible;/
   );
 });
 

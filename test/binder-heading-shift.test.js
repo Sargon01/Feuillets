@@ -14,6 +14,17 @@ function buildDoc(entries) {
   return { text, headings };
 }
 
+function headingsFromText(text) {
+  const headings = [];
+  for (const match of text.matchAll(/^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+[ \t]*)?\r?$/gm)) {
+    headings.push({ text: match[2], level: match[1].length, startOffset: match.index, endOffset: match.index + match[0].length });
+  }
+  for (const match of text.matchAll(/^(.+?)\r?\n([=-]+)[ \t]*\r?$/gm)) {
+    headings.push({ text: match[1], level: match[2][0] === "=" ? 1 : 2, startOffset: match.index, endOffset: match.index + match[0].length });
+  }
+  return headings.sort((a, b) => a.startOffset - b.startOffset);
+}
+
 function buildView(entries, { fresh = null, rejectProcess = false } = {}) {
   const file = new TFile("Roman/Manuscrit/Shift.md");
   const other = new TFile("Roman/Manuscrit/Other.md");
@@ -31,7 +42,7 @@ function buildView(entries, { fresh = null, rejectProcess = false } = {}) {
         if (rejectProcess) throw new Error("disk failure");
         const next = callback(stored.text);
         if (next !== stored.text) {
-          stored = { text: next, headings: cache.map((heading) => ({ ...heading, level: heading.level + 1 })) };
+          stored = { text: next, headings: headingsFromText(next) };
           cache = stored.headings;
           for (const listener of listeners) listener(file);
         }

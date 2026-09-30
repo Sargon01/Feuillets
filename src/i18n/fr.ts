@@ -159,7 +159,7 @@ export const fr = {
   "binder.headingOutline.collapse": "Replier les sous-titres",
   "binder.headingOutline.promote": "Promouvoir",
   "binder.headingOutline.demote": "Rétrograder",
-  "binder.tree.truncated": "Affichage limité à {max} dossiers (projet très volumineux) — replie certains dossiers pour voir le reste.",
+  "binder.tree.truncated": "Affichage limité à {max} éléments (projet très volumineux) — replie certains dossiers pour voir le reste.",
   "binder.list.truncated": "Affichage limité à {max} feuillets (projet très volumineux) — choisis un dossier plus précis, ou désactive la liste récursive.",
   "binder.list.emptyRecursive": "Aucun feuillet dans ce dossier ni ses sous-dossiers.",
   "binder.list.emptyDirect": "Aucun feuillet directement dans ce dossier.",

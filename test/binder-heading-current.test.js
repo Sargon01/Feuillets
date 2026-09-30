@@ -33,6 +33,7 @@ function createFixture(collapsed = null) {
   const visibleRows = collapsed === "Sous" ? rows.slice(0, 2) : collapsed === "Grand" ? rows.slice(0, 1) : rows;
   const contentEl = {
     querySelectorAll: () => visibleRows,
+    findAll: () => visibleRows,
   };
   const app = {
     workspace: { rootSplit, getMostRecentLeaf: () => ({ getRoot: () => rootSplit, view: markdown }) },

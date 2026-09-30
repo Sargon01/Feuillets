@@ -258,7 +258,16 @@ function buildView(fixture, { settingsOverrides = {}, pluginOverrides = {} } = {
     },
   };
 
-  function emitMetadataChanged(file) {
+  function rebuildMetadataHeadings(text) {
+    const headings = [];
+    for (const match of text.matchAll(/^(#{1,6})[ \t]+(.*?)(?:[ \t]+#+[ \t]*)?\r?$/gm)) {
+      headings.push({ heading: match[2], level: match[1].length, position: { start: { offset: match.index }, end: { offset: match.index + match[0].length } } });
+    }
+    return headings;
+  }
+
+  function emitMetadataChanged(file, { sync = true } = {}) {
+    if (sync) headingsByPath.set(file.path, rebuildMetadataHeadings(filesText.get(file.path) ?? ""));
     for (const callback of [...changedListeners.values()]) callback(file, filesText.get(file.path) ?? "", { headings: headingsByPath.get(file.path) });
   }
 

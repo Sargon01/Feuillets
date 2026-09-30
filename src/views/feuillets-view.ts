@@ -1,6 +1,7 @@
 import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, BOARD_MODES } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
 import { headingOutlineForFile, headingOutlineInputsForFile } from "../services/heading-outline-cache.js";
+import { headingsMatchText } from "../services/heading-outline-text-validation.js";
 import { headingTrailAtOffset } from "../services/heading-position.js";
 import type { HeadingOutlineInput, HeadingOutlineNode } from "../services/heading-outline.js";
 import type { EditorCursorChange, EditorCursorListener } from "../services/editor-cursor-tracking.js";
@@ -527,6 +528,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     if (!(currentFile instanceof TFile)) return;
 
     let moveChanged = false;
+    let writtenText: string | null = null;
     let eventRef: EventRef | null = null;
     /* Installed BEFORE the write so the real "changed" event can never be
        missed — but it only resolves once THIS move has genuinely written a
@@ -535,7 +537,9 @@ export class FeuilletsView extends BaseFeuilletsView {
        the actually-moved text. */
     const metadataRefreshed = new Promise<void>((resolve) => {
       eventRef = this.app.metadataCache.on("changed", (changedFile) => {
-        if (moveChanged && changedFile.path === currentFile.path) resolve();
+        if (!moveChanged || changedFile.path !== currentFile.path || writtenText === null) return;
+        const headings = headingOutlineInputsForFile(this.app, currentFile);
+        if (headingsMatchText(writtenText, headings)) resolve();
       });
     });
 
@@ -544,6 +548,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       try {
         await this.app.vault.process(currentFile, (text) => {
           const headings = headingOutlineInputsForFile(this.app, currentFile);
+          if (!headingsMatchText(text, headings)) return text;
           const source = headings.find((heading) => heading.startOffset === sourceStartOffset);
           const target = headings.find((heading) => heading.startOffset === targetStartOffset);
           if (!source || !target) return text;
@@ -554,6 +559,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
           didChange = true;
           moveChanged = true;
+          writtenText = result.text;
           return result.text;
         });
       } catch {
@@ -636,10 +642,13 @@ export class FeuilletsView extends BaseFeuilletsView {
 
     const collapseSnapshot = this.collapsedHeadingSnapshot(currentFile);
     let shiftChanged = false;
+    let writtenText: string | null = null;
     let eventRef: EventRef | null = null;
     const metadataRefreshed = new Promise<void>((resolve) => {
       eventRef = this.app.metadataCache.on("changed", (changedFile) => {
-        if (shiftChanged && changedFile.path === currentFile.path) resolve();
+        if (!shiftChanged || changedFile.path !== currentFile.path || writtenText === null) return;
+        const headings = headingOutlineInputsForFile(this.app, currentFile);
+        if (headingsMatchText(writtenText, headings)) resolve();
       });
     });
 
@@ -648,6 +657,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       try {
         await this.app.vault.process(currentFile, (text) => {
           const headings = headingOutlineInputsForFile(this.app, currentFile);
+          if (!headingsMatchText(text, headings)) return text;
           const source = headings.find((heading) => heading.startOffset === sourceStartOffset);
           if (!source || source.level !== expectedLevel || source.text !== expectedText) return text;
 
@@ -656,6 +666,7 @@ export class FeuilletsView extends BaseFeuilletsView {
 
           didChange = true;
           shiftChanged = true;
+          writtenText = result.text;
           return result.text;
         });
       } catch {
@@ -1053,12 +1064,12 @@ export class FeuilletsView extends BaseFeuilletsView {
   private onEditorCursorChanged(change: EditorCursorChange): void {
     const view = this.centralMarkdownView();
     if (!view || view.file?.path !== change.filePath) return;
-    this.refreshCurrentHeadingHighlight(change.cursorOffset);
+    this.refreshCurrentHeadingHighlight();
   }
 
   private refreshCurrentHeadingHighlight(cursorOffset?: number): void {
-    if (typeof this.contentEl.querySelectorAll !== "function") return;
-    const rows = Array.from(this.contentEl.querySelectorAll<HTMLElement>(".feuillets-heading-outline-row"));
+    if (typeof this.contentEl.findAll !== "function") return;
+    const rows = this.contentEl.findAll(".feuillets-heading-outline-row");
     for (const row of rows) {
       row.removeClass("feuillets-heading-outline-current");
       row.removeClass("feuillets-heading-outline-current-ancestor");
@@ -2090,7 +2101,8 @@ export class FeuilletsView extends BaseFeuilletsView {
          résolue au rendu vers la grammaire actuelle — jamais migrée sur
          disque (voir resolveBinderPreviewField, utils/binder-preview.ts). */
       const effectiveField = resolveBinderPreviewField(S.listPanePreviewField, binderPreviewSemantic);
-      const headingOutlineVisible = this._visibleHeadingOutlinePaths.has(file.path);
+      const headingOutlineVisible = this._visibleHeadingOutlinePaths.has(file.path)
+        && headingOutlineForFile(this.app, file).length > 0;
       const previewTitleEmphasized =
         !effectivelyHidden
         && !effectiveBinderCompact

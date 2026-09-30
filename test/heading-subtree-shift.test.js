@@ -21,6 +21,51 @@ function source(headings, index) {
   return headings[index].startOffset;
 }
 
+function setextDoc(lines, eol = "\n") {
+  let text = "";
+  const headings = [];
+  for (const line of lines) {
+    const startOffset = text.length;
+    text += `${line.title}${eol}${line.level === 1 ? "=====" : "-----"}${eol}`;
+    headings.push({ text: line.title, level: line.level, startOffset, endOffset: text.length - eol.length });
+  }
+  return { text, headings };
+}
+
+test("Setext headings promote, demote, and convert to ATX when needed", () => {
+  const h2 = setextDoc([{ title: "Title", level: 2 }]);
+  assert.deepEqual(shiftHeadingSubtree(h2.text, h2.headings, source(h2.headings, 0), "promote"), { text: "Title\n=====\n", changed: true });
+  const h1 = setextDoc([{ title: "Title", level: 1 }]);
+  assert.deepEqual(shiftHeadingSubtree(h1.text, h1.headings, source(h1.headings, 0), "demote"), { text: "Title\n-----\n", changed: true });
+  assert.deepEqual(shiftHeadingSubtree(h2.text, h2.headings, source(h2.headings, 0), "demote"), { text: "### Title\n", changed: true });
+});
+
+test("Setext shifts preserve CRLF, duplicate offsets, and surrounding content", () => {
+  const text = "before\r\nFirst\r\n-----\r\nbody\r\nSecond\r\n-----\r\nafter\r\n";
+  const first = text.indexOf("First");
+  const second = text.indexOf("Second");
+  const headings = [{ text: "First", level: 2, startOffset: first, endOffset: first + 12 }, { text: "Second", level: 2, startOffset: second, endOffset: second + 13 }];
+  assert.deepEqual(shiftHeadingSubtree(text, headings, second, "promote"), { text: "before\r\nFirst\r\n-----\r\nbody\r\nSecond\r\n=====\r\nafter\r\n", changed: true });
+});
+
+test("a mixed Setext and ATX subtree shifts every descendant exactly one level", () => {
+  const text = "Root\n=====\nChild\n-----\n### Grandchild\nbody\n# Sibling\n";
+  const root = text.indexOf("Root");
+  const child = text.indexOf("Child");
+  const grandchild = text.indexOf("### Grandchild");
+  const sibling = text.indexOf("# Sibling");
+  const headings = [
+    { text: "Root", level: 1, startOffset: root, endOffset: root + 10 },
+    { text: "Child", level: 2, startOffset: child, endOffset: child + 11 },
+    { text: "Grandchild", level: 3, startOffset: grandchild, endOffset: grandchild + 14 },
+    { text: "Sibling", level: 1, startOffset: sibling, endOffset: sibling + 9 },
+  ];
+  assert.deepEqual(shiftHeadingSubtree(text, headings, root, "demote"), {
+    text: "Root\n-----\n### Child\n#### Grandchild\nbody\n# Sibling\n",
+    changed: true,
+  });
+});
+
 test("promote shifts a subtree and leaves its parent and sibling unchanged", () => {
   const { text, headings } = buildDoc([
     { level: 1, title: "Parent" },
