@@ -2,6 +2,26 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.3.0 — 2026-09-30
+
+### Structure Markdown du Binder
+
+- Chaque feuillet peut désormais afficher, à la demande, sa structure Markdown de H1 à H6 directement sous son nom dans le Binder.
+- Les titres permettent une navigation directe, le repli et le dépli de leurs branches, ainsi qu'un suivi discret de la section correspondant au curseur dans l'éditeur.
+- Le glisser-déposer vertical déplace une section complète entre des titres de même niveau ; les actions de promotion et de rétrogradation, y compris par glisser horizontal, appliquent le changement de niveau à toute la sous-arborescence.
+- Les titres ATX et Setext sont pris en charge.
+- Lorsque la structure est masquée, l'aperçu du feuillet conserve son comportement habituel selon le réglage d'aperçu.
+
+### Écriture
+
+- Les couleurs d’écriture personnalisées peuvent désormais être définies séparément pour les modes clair et sombre ; elles suivent automatiquement le thème Obsidian et conservent les réglages existants.
+
+### Fiabilité
+
+- Les restructurations valident désormais le cache des titres avant toute mutation et attendent sa synchronisation après écriture.
+- L'aperçu réapparaît correctement lorsqu'un feuillet dont la structure était affichée ne contient plus de titre.
+- Le suivi du titre courant reste correct lorsqu'un même feuillet est ouvert dans plusieurs éditeurs.
+
 ## 3.2.1 — 2026-09-29
 
 ### Citations et bibliographie
