@@ -395,12 +395,15 @@ export function validateCitationDocumentResult(
   }
 
   // bibliography
-  const bibliography = value["bibliography"];
-  if (bibliography !== null && bibliography !== undefined) {
-    if (!isRecord(bibliography)) {
-      errors.push("bibliography must be null or an object.");
-    } else {
-      checkForbiddenHtml(bibliography, "bibliography", errors);
+  if (!("bibliography" in value) || value["bibliography"] === undefined) {
+    errors.push("bibliography must be null or an object.");
+  } else {
+    const bibliography = value["bibliography"];
+    if (bibliography !== null) {
+      if (!isRecord(bibliography)) {
+        errors.push("bibliography must be null or an object.");
+      } else {
+        checkForbiddenHtml(bibliography, "bibliography", errors);
 
       // entries
       const entries = bibliography["entries"];
@@ -487,6 +490,7 @@ export function validateCitationDocumentResult(
       }
     }
   }
+}
 
   // diagnostics
   const diagnostics = value["diagnostics"];

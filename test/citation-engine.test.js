@@ -476,6 +476,18 @@ test("validateCitationDocumentResult: root structure errors detected", () => {
 
   // Invalid diagnostics array
   assert.equal(validateCitationDocumentResult(makeValidResult({ diagnostics: {} })).valid, false);
+
+  // Missing or undefined bibliography property (Lot 7A hardening)
+  const missingBib = makeValidResult();
+  delete missingBib.bibliography;
+  const valMissing = validateCitationDocumentResult(missingBib);
+  assert.equal(valMissing.valid, false);
+  assert.ok(valMissing.errors.some((e) => e.includes("bibliography must be null or an object.")));
+
+  const undefinedBib = makeValidResult({ bibliography: undefined });
+  const valUndefined = validateCitationDocumentResult(undefinedBib);
+  assert.equal(valUndefined.valid, false);
+  assert.ok(valUndefined.errors.some((e) => e.includes("bibliography must be null or an object.")));
 });
 
 test("validateCitationDocumentResult: rejects each invalid AST node type", () => {

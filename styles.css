@@ -11751,3 +11751,93 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="markdown"] .feu
 body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scrivenings"] .cm-content {
   color: var(--feuillets-writing-text);
 }
+
+/* ==========================================================================
+   Feuillets CSL Typography & AST classes (Lot 7A)
+   ========================================================================== */
+
+.feuillets-csl-font-normal {
+  font-style: normal;
+}
+
+.feuillets-csl-font-italic {
+  font-style: italic;
+}
+
+.feuillets-csl-font-oblique {
+  font-style: oblique;
+}
+
+.feuillets-csl-weight-normal {
+  font-weight: normal;
+}
+
+.feuillets-csl-weight-bold {
+  font-weight: bold;
+}
+
+.feuillets-csl-weight-light {
+  font-weight: 300;
+}
+
+.feuillets-csl-variant-normal {
+  font-variant: normal;
+}
+
+.feuillets-csl-variant-small-caps {
+  font-variant: small-caps;
+}
+
+.feuillets-csl-decoration-none {
+  text-decoration: none;
+}
+
+.feuillets-csl-decoration-underline {
+  text-decoration: underline;
+}
+
+.feuillets-csl-valign-baseline {
+  vertical-align: baseline;
+}
+
+.feuillets-csl-valign-sup {
+  vertical-align: super;
+  font-size: 0.8em;
+  line-height: 0;
+}
+
+.feuillets-csl-valign-sub {
+  vertical-align: sub;
+  font-size: 0.8em;
+  line-height: 0;
+}
+
+.feuillets-csl-block {
+  display: block;
+}
+
+.feuillets-csl-left-margin {
+  display: inline-block;
+  margin-right: 1em;
+}
+
+.feuillets-csl-right-inline {
+  display: inline;
+}
+
+.feuillets-csl-indent {
+  display: block;
+  padding-left: 2em;
+}
+
+.feuillets-csl-link {
+  color: var(--text-accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.feuillets-csl-link-disabled {
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+}
