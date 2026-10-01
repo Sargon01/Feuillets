@@ -49,7 +49,7 @@ function createMockProvider(overrides = {}) {
   };
 }
 
-function createMockProjectSetup() {
+function createMockProjectSetup(extraFiles = []) {
   const project = new TFolder("PROJECT");
   const projectResearch = new TFolder("PROJECT/Research");
   const bibFile = new TFile("PROJECT/Research/refs.bib");
@@ -63,9 +63,10 @@ function createMockProjectSetup() {
   cslFile.content = "<style><info><title>APA</title></info></style>";
 
   projectResearch.parent = project;
-  projectResearch.children = [bibFile, cslFile];
+  projectResearch.children = [bibFile, cslFile, ...extraFiles];
   bibFile.parent = projectResearch;
   cslFile.parent = projectResearch;
+  for (const ef of extraFiles) ef.parent = projectResearch;
   project.children = [projectResearch];
 
   const { vault } = createFakeVault([
@@ -73,6 +74,7 @@ function createMockProjectSetup() {
     projectResearch,
     bibFile,
     cslFile,
+    ...extraFiles,
   ]);
 
   const settings = {
@@ -671,6 +673,494 @@ test("getSettings: host uses fresh settings per render", async () => {
 
   const snap2 = await host.renderDocument("doc-s", "[@smith2024, p. 10]", projectRoot, null);
   assert.equal(snap2.status, "resources-unavailable");
+
+  host.dispose();
+});
+
+/* -------------------- 11. Prepared Document Rendering Tests -------------------- */
+
+test("renderPreparedDocument: A. single bibliography creates request with 1 bibliography", async () => {
+  const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  let capturedRequest = null;
+  registry.register(
+    createMockProvider({
+      renderDocument: async (req) => {
+        capturedRequest = req;
+        return {
+          documentId: req.documentId,
+          revision: req.revision,
+          citations: [
+            {
+              clusterId: req.clusters[0]?.id ?? "citation:0:10",
+              plainText: "(Smith, 2024)",
+              content: [{ type: "text", text: "(Smith, 2024)" }],
+            },
+          ],
+          bibliography: null,
+          diagnostics: [],
+        };
+      },
+    })
+  );
+
+  const host = new CslCitationHost({
+    app,
+    settings: { projectFolder: projectRoot.path },
+    citationRegistry: registry,
+  });
+
+  const preparedDoc = {
+    occurrences: [
+      {
+        clusterId: "citation:0:11",
+        from: 0,
+        to: 11,
+        raw: "[@smith2024]",
+        cluster: { id: "citation:0:11", items: [{ id: "smith2024" }] },
+        segmentPath: "segment.md",
+        segmentIndex: 0,
+        localFrom: 0,
+        localTo: 11,
+      },
+    ],
+    clusters: [{ id: "citation:0:11", items: [{ id: "smith2024" }] }],
+    segmentOccurrences: [],
+  };
+
+  const snap = await host.renderPreparedDocument(
+    "prep-doc-1",
+    preparedDoc,
+    cslFile,
+    [bibFile]
+  );
+
+  assert.equal(snap.status, "ready");
+  assert.ok(capturedRequest);
+  assert.equal(capturedRequest.bibliographies.length, 1);
+  assert.equal(capturedRequest.bibliographies[0].id, "PROJECT/Research/refs.bib");
+  assert.equal(capturedRequest.bibliographies[0].format, "bibtex");
+  assert.equal(capturedRequest.bibliographies[0].version, "12345:500");
+
+  host.dispose();
+});
+
+test("renderPreparedDocument: B. two bibliographies preserve strict input order", async () => {
+  const bibFile2 = new TFile("PROJECT/Research/extra.bib");
+  bibFile2.extension = "bib";
+  bibFile2.stat = { mtime: 54321, size: 250 };
+  bibFile2.content = "@article{doe2023, author={Doe}, year={2023}}";
+
+  const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup([bibFile2]);
+
+  const registry = new CitationEngineRegistry();
+  let capturedRequest = null;
+  registry.register(
+    createMockProvider({
+      renderDocument: async (req) => {
+        capturedRequest = req;
+        return {
+          documentId: req.documentId,
+          revision: req.revision,
+          citations: [
+            {
+              clusterId: req.clusters[0]?.id ?? "citation:0:10",
+              plainText: "(Smith, 2024)",
+              content: [{ type: "text", text: "(Smith, 2024)" }],
+            },
+          ],
+          bibliography: null,
+          diagnostics: [],
+        };
+      },
+    })
+  );
+
+  const host = new CslCitationHost({
+    app,
+    settings: { projectFolder: projectRoot.path },
+    citationRegistry: registry,
+  });
+
+  const preparedDoc = {
+    occurrences: [
+      {
+        clusterId: "citation:0:11",
+        from: 0,
+        to: 11,
+        raw: "[@smith2024]",
+        cluster: { id: "citation:0:11", items: [{ id: "smith2024" }] },
+        segmentPath: "segment.md",
+        segmentIndex: 0,
+        localFrom: 0,
+        localTo: 11,
+      },
+    ],
+    clusters: [{ id: "citation:0:11", items: [{ id: "smith2024" }] }],
+    segmentOccurrences: [],
+  };
+
+  const snap = await host.renderPreparedDocument(
+    "prep-doc-2",
+    preparedDoc,
+    cslFile,
+    [bibFile, bibFile2]
+  );
+
+  assert.equal(snap.status, "ready");
+  assert.equal(capturedRequest.bibliographies.length, 2);
+  assert.equal(capturedRequest.bibliographies[0].id, "PROJECT/Research/refs.bib");
+  assert.equal(capturedRequest.bibliographies[1].id, "PROJECT/Research/extra.bib");
+  assert.equal(capturedRequest.bibliographies[1].version, "54321:250");
+
+  host.dispose();
+});
+
+test("renderPreparedDocument: C. unique style passes correct id, version, and xml", async () => {
+  const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  let capturedRequest = null;
+  registry.register(
+    createMockProvider({
+      renderDocument: async (req) => {
+        capturedRequest = req;
+        return {
+          documentId: req.documentId,
+          revision: req.revision,
+          citations: [
+            {
+              clusterId: req.clusters[0]?.id ?? "citation:0:10",
+              plainText: "(Smith, 2024)",
+              content: [{ type: "text", text: "(Smith, 2024)" }],
+            },
+          ],
+          bibliography: null,
+          diagnostics: [],
+        };
+      },
+    })
+  );
+
+  const host = new CslCitationHost({
+    app,
+    settings: { projectFolder: projectRoot.path },
+    citationRegistry: registry,
+  });
+
+  const preparedDoc = {
+    occurrences: [
+      {
+        clusterId: "citation:0:11",
+        from: 0,
+        to: 11,
+        raw: "[@smith2024]",
+        cluster: { id: "citation:0:11", items: [{ id: "smith2024" }] },
+        segmentPath: "segment.md",
+        segmentIndex: 0,
+        localFrom: 0,
+        localTo: 11,
+      },
+    ],
+    clusters: [{ id: "citation:0:11", items: [{ id: "smith2024" }] }],
+    segmentOccurrences: [],
+  };
+
+  await host.renderPreparedDocument("prep-doc-3", preparedDoc, cslFile, [bibFile]);
+
+  assert.ok(capturedRequest);
+  assert.equal(capturedRequest.style.id, "PROJECT/Research/style.csl");
+  assert.equal(capturedRequest.style.version, "67890:300");
+  assert.equal(capturedRequest.style.xml, "<style><info><title>APA</title></info></style>");
+
+  host.dispose();
+});
+
+test("renderPreparedDocument: D & E. prepared clusters passed without Markdown parsing and returned on snapshot", async () => {
+  const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  let capturedRequest = null;
+  registry.register(
+    createMockProvider({
+      renderDocument: async (req) => {
+        capturedRequest = req;
+        return {
+          documentId: req.documentId,
+          revision: req.revision,
+          citations: [
+            {
+              clusterId: "citation:custom:42:99",
+              plainText: "[42]",
+              content: [{ type: "text", text: "[42]" }],
+            },
+          ],
+          bibliography: null,
+          diagnostics: [],
+        };
+      },
+    })
+  );
+
+  const host = new CslCitationHost({
+    app,
+    settings: { projectFolder: projectRoot.path },
+    citationRegistry: registry,
+  });
+
+  const customDoc = {
+    occurrences: [
+      {
+        clusterId: "citation:custom:42:99",
+        from: 42,
+        to: 99,
+        raw: "[@special]",
+        cluster: { id: "citation:custom:42:99", items: [{ id: "special" }] },
+        segmentPath: "part1.md",
+        segmentIndex: 0,
+        localFrom: 42,
+        localTo: 99,
+      },
+    ],
+    clusters: [{ id: "citation:custom:42:99", items: [{ id: "special" }] }],
+    segmentOccurrences: [],
+  };
+
+  const snap = await host.renderPreparedDocument("prep-doc-4", customDoc, cslFile, [bibFile]);
+
+  assert.equal(snap.status, "ready");
+  assert.equal(capturedRequest.clusters[0].id, "citation:custom:42:99");
+  assert.equal(snap.parsedDocument, customDoc);
+
+  host.dispose();
+});
+
+test("renderPreparedDocument: F, G, H. invalidation of any bibliography or style drops session", async () => {
+  const bibFile2 = new TFile("PROJECT/Research/second.bib");
+  bibFile2.extension = "bib";
+  bibFile2.stat = { mtime: 333, size: 200 };
+  bibFile2.content = "@article{doe2023, author={Doe}, year={2023}}";
+
+  const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup([bibFile2]);
+
+  const registry = new CitationEngineRegistry();
+  let renderCount = 0;
+  registry.register(
+    createMockProvider({
+      renderDocument: async (req) => {
+        renderCount++;
+        return {
+          documentId: req.documentId,
+          revision: req.revision,
+          citations: [
+            {
+              clusterId: req.clusters[0]?.id ?? "citation:0:10",
+              plainText: "(Smith, 2024)",
+              content: [{ type: "text", text: "(Smith, 2024)" }],
+            },
+          ],
+          bibliography: null,
+          diagnostics: [],
+        };
+      },
+    })
+  );
+
+  const host = new CslCitationHost({
+    app,
+    settings: { projectFolder: projectRoot.path },
+    citationRegistry: registry,
+  });
+
+  const preparedDoc = {
+    occurrences: [
+      {
+        clusterId: "citation:0:10",
+        from: 0,
+        to: 10,
+        raw: "[@smith2024]",
+        cluster: { id: "citation:0:10", items: [{ id: "smith2024" }] },
+        segmentPath: "segment.md",
+        segmentIndex: 0,
+        localFrom: 0,
+        localTo: 10,
+      },
+    ],
+    clusters: [{ id: "citation:0:10", items: [{ id: "smith2024" }] }],
+    segmentOccurrences: [],
+  };
+
+  // Render 1
+  await host.renderPreparedDocument("multi-res-doc", preparedDoc, cslFile, [bibFile, bibFile2]);
+  assert.equal(renderCount, 1);
+
+  // Cache hit
+  await host.renderPreparedDocument("multi-res-doc", preparedDoc, cslFile, [bibFile, bibFile2]);
+  assert.equal(renderCount, 1, "Cache hit should not trigger new provider call");
+
+  // Invalidate A.bib (F)
+  host.invalidateResource(bibFile.path);
+  assert.equal(host.getLatestSnapshot("multi-res-doc"), null, "Session should be dropped after bib1 invalidation");
+
+  // Re-render
+  await host.renderPreparedDocument("multi-res-doc", preparedDoc, cslFile, [bibFile, bibFile2]);
+  assert.equal(renderCount, 2);
+
+  // Invalidate B.bib (G)
+  host.invalidateResource(bibFile2.path);
+  assert.equal(host.getLatestSnapshot("multi-res-doc"), null, "Session should be dropped after bib2 invalidation");
+
+  // Re-render
+  await host.renderPreparedDocument("multi-res-doc", preparedDoc, cslFile, [bibFile, bibFile2]);
+  assert.equal(renderCount, 3);
+
+  // Invalidate style.csl (H)
+  host.invalidateResource(cslFile.path);
+  assert.equal(host.getLatestSnapshot("multi-res-doc"), null, "Session should be dropped after style invalidation");
+
+  host.dispose();
+});
+
+test("renderPreparedDocument: I. stale async result does not overwrite newer snapshot", async () => {
+  const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
+
+  let slowResolve = null;
+  const slowPromise = new Promise((resolve) => {
+    slowResolve = resolve;
+  });
+
+  const registry = new CitationEngineRegistry();
+  registry.register(
+    createMockProvider({
+      renderDocument: async (req) => {
+        if (req.revision === 1) {
+          await slowPromise;
+        }
+        return {
+          documentId: req.documentId,
+          revision: req.revision,
+          citations: [
+            {
+              clusterId: req.clusters[0]?.id ?? "citation:0:10",
+              plainText: `Rev ${req.revision}`,
+              content: [{ type: "text", text: `Rev ${req.revision}` }],
+            },
+          ],
+          bibliography: null,
+          diagnostics: [],
+        };
+      },
+    })
+  );
+
+  const host = new CslCitationHost({
+    app,
+    settings: { projectFolder: projectRoot.path },
+    citationRegistry: registry,
+  });
+
+  const doc1 = {
+    occurrences: [
+      {
+        clusterId: "c1",
+        from: 0,
+        to: 5,
+        raw: "[@a]",
+        cluster: { id: "c1", items: [{ id: "a" }] },
+        segmentPath: "s.md",
+        segmentIndex: 0,
+        localFrom: 0,
+        localTo: 5,
+      },
+    ],
+    clusters: [{ id: "c1", items: [{ id: "a" }] }],
+    segmentOccurrences: [],
+  };
+
+  const doc2 = {
+    occurrences: [
+      {
+        clusterId: "c2",
+        from: 0,
+        to: 5,
+        raw: "[@b]",
+        cluster: { id: "c2", items: [{ id: "b" }] },
+        segmentPath: "s.md",
+        segmentIndex: 0,
+        localFrom: 0,
+        localTo: 5,
+      },
+    ],
+    clusters: [{ id: "c2", items: [{ id: "b" }] }],
+    segmentOccurrences: [],
+  };
+
+  // Launch rev 1 (slow)
+  const p1 = host.renderPreparedDocument("race-doc", doc1, cslFile, [bibFile]);
+
+  // Launch rev 2 (fast)
+  const p2 = host.renderPreparedDocument("race-doc", doc2, cslFile, [bibFile]);
+  const snap2 = await p2;
+  assert.equal(snap2.status, "ready");
+  assert.equal(snap2.revision, 2);
+
+  // Now resolve rev 1
+  slowResolve();
+  const snap1 = await p1;
+
+  // Stale rev 1 should NOT overwrite rev 2
+  assert.equal(snap1.revision, 2, "Stale rev 1 should return rev 2 snapshot");
+  const latest = host.getLatestSnapshot("race-doc");
+  assert.equal(latest.revision, 2);
+
+  host.dispose();
+});
+
+test("renderPreparedDocument: J. disposeDocument calls provider.disposeDocument once", async () => {
+  const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
+  let disposedId = null;
+
+  const registry = new CitationEngineRegistry();
+  registry.register(
+    createMockProvider({
+      disposeDocument: (id) => {
+        disposedId = id;
+      },
+    })
+  );
+
+  const host = new CslCitationHost({
+    app,
+    settings: { projectFolder: projectRoot.path },
+    citationRegistry: registry,
+  });
+
+  const preparedDoc = {
+    occurrences: [
+      {
+        clusterId: "c1",
+        from: 0,
+        to: 5,
+        raw: "[@a]",
+        cluster: { id: "c1", items: [{ id: "a" }] },
+        segmentPath: "s.md",
+        segmentIndex: 0,
+        localFrom: 0,
+        localTo: 5,
+      },
+    ],
+    clusters: [{ id: "c1", items: [{ id: "a" }] }],
+    segmentOccurrences: [],
+  };
+
+  await host.renderPreparedDocument("doc-to-dispose", preparedDoc, cslFile, [bibFile]);
+  assert.equal(disposedId, null);
+
+  host.disposeDocument("doc-to-dispose");
+  assert.equal(disposedId, "doc-to-dispose");
+
+  // Subsequent dispose of already disposed document does nothing
+  disposedId = null;
+  host.disposeDocument("doc-to-dispose");
+  assert.equal(disposedId, null);
 
   host.dispose();
 });

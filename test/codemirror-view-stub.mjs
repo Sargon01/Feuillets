@@ -7,19 +7,130 @@ export const Decoration = {
   set: (decorations) => decorations,
 };
 
-export const EditorView = {
-  decorations: { from: (field) => field },
-  editable: { from: (field, get) => ({ facet: "editable", field, get }) },
-  domEventHandlers: (handlers) => handlers,
-  updateListener: { of: (fn) => ({ facet: "updateListener", fn }) },
-  lineWrapping: { facet: "lineWrapping" },
-  keymap: { of: (bindings) => ({ facet: "keymap", bindings }) },
-  /* LOT « clic Preview → Continu » (ScriveningsView.focusSourcePosition) —
-     stub minimal de l'API STATIQUE réelle : un vrai CodeMirror renvoie un
-     StateEffect ; ici, un simple objet inspectable suffit aux tests
-     (dispatchCalls[0].effects). */
-  scrollIntoView: (pos, options) => ({ effect: "scrollIntoView", pos, options }),
-};
+export function EditorView(config) {
+  this.state = config?.state;
+  this.dom = config?.parent;
+  this.visibleRanges = [{ from: 0, to: config?.state?.doc?.length ?? 0 }];
+  this.plugins = [];
+  this.destroy = () => {
+    for (const plugin of this.plugins) {
+      if (typeof plugin.destroy === "function") {
+        try {
+          plugin.destroy();
+        } catch {
+          // Ignore
+        }
+      }
+    }
+  };
+
+function makeDoc(text) {
+  const lines = text.split("\n");
+  const starts = [];
+  let p = 0;
+  for (const line of lines) {
+    starts.push(p);
+    p += line.length + 1;
+  }
+  return {
+    length: text.length,
+    lines: lines.length,
+    toString: () => text,
+    sliceString: (from, to) => text.slice(from, to === undefined ? text.length : to),
+    lineAt: (offset) => {
+      let idx = 0;
+      for (let i = 0; i < starts.length; i++) {
+        if (starts[i] <= offset) idx = i;
+        else break;
+      }
+      return {
+        number: idx + 1,
+        from: starts[idx],
+        to: starts[idx] + lines[idx].length,
+        text: lines[idx],
+      };
+    },
+  };
+}
+
+  this.dispatch = (tr) => {
+    if (!tr) return;
+    if (tr.changes && this.state?.doc) {
+      const changes = Array.isArray(tr.changes) ? tr.changes : [tr.changes];
+      let str = this.state.doc.toString();
+      const sorted = [...changes].sort((a, b) => b.from - a.from);
+      for (const ch of sorted) {
+        str = str.slice(0, ch.from) + (ch.insert || "") + str.slice(ch.to ?? ch.from);
+      }
+      this.state.doc = makeDoc(str);
+      this.visibleRanges = [{ from: 0, to: str.length }];
+    }
+    if (tr.selection && this.state) {
+      const anchor = tr.selection.anchor ?? tr.selection.ranges?.[0]?.from ?? 0;
+      this.state.selection = {
+        ranges: [{ from: anchor, to: anchor }],
+        main: { from: anchor, to: anchor },
+      };
+    }
+    const effects = Array.isArray(tr.effects) ? tr.effects : (tr.effects ? [tr.effects] : []);
+    if (this.state?._fields) {
+      for (const [field, val] of this.state._fields.entries()) {
+        if (typeof field.update === "function") {
+          try {
+            this.state._fields.set(field, field.update(val, {
+              effects,
+              docChanged: Boolean(tr.changes),
+              selectionSet: Boolean(tr.selection),
+              changes: { mapPos: (pos) => pos },
+              state: this.state,
+            }));
+          } catch {
+            // Ignore stub-only field update mismatches
+          }
+        }
+      }
+    }
+    for (const plugin of this.plugins) {
+      if (typeof plugin.update === "function") {
+        plugin.update({
+          view: this,
+          state: this.state,
+          docChanged: Boolean(tr.changes),
+          selectionSet: Boolean(tr.selection),
+          changes: tr.changes,
+          transactions: [tr],
+        });
+      }
+    }
+  };
+
+  const flatten = (exts) => {
+    const res = [];
+    if (!exts) return res;
+    for (const e of exts) {
+      if (Array.isArray(e)) res.push(...flatten(e));
+      else if (e) res.push(e);
+    }
+    return res;
+  };
+  for (const ext of flatten(config?.state?.extensions)) {
+    if (typeof ext === "function") {
+      try {
+        this.plugins.push(new ext(this));
+      } catch {
+        // Ignore non-constructors
+      }
+    }
+  }
+}
+
+EditorView.decorations = { from: (field) => field };
+EditorView.editable = { from: (field, get) => ({ facet: "editable", field, get }) };
+EditorView.domEventHandlers = (handlers) => handlers;
+EditorView.updateListener = { of: (fn) => ({ facet: "updateListener", fn }) };
+EditorView.lineWrapping = { facet: "lineWrapping" };
+EditorView.keymap = { of: (bindings) => ({ facet: "keymap", bindings }) };
+EditorView.scrollIntoView = (pos, options) => ({ effect: "scrollIntoView", pos, options });
 
 export const ViewPlugin = {
   /* Retourne TOUJOURS `cls` (rétrocompatible avec tous les tests

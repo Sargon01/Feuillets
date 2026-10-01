@@ -27,6 +27,7 @@ import {
   isCitationEngineProvider,
   validateCitationDocumentResult,
   validateCitationDocumentResultForRequest,
+  type CitationBibliographySource,
   type CitationDocumentRequest,
   type CitationDocumentResult,
   type CitationEngineDiagnostic,
@@ -37,7 +38,12 @@ import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
 import {
   parsePandocCitationDocument,
   type ParsedPandocCitationDocument,
+  type ParsedPandocCitationOccurrence,
 } from "./pandoc-citation-parser.js";
+import type {
+  ScriveningsCslDocument,
+  ScriveningsCslOccurrence,
+} from "./scrivenings-csl-document.js";
 import { getLocale } from "../i18n/index.js";
 
 export const DEFAULT_CSL_PROVIDER_ID = "feuillets-csl";
@@ -70,13 +76,16 @@ export type CslHostStatus =
   | "resources-unavailable"
   | "engine-error";
 
+export type CslOccurrenceLike = ParsedPandocCitationOccurrence | ScriveningsCslOccurrence;
+export type CslDocumentLike = ParsedPandocCitationDocument | ScriveningsCslDocument;
+
 export interface CslHostReadySnapshot {
   status: "ready";
   documentId: string;
   revision: number;
   result: CitationDocumentResult;
   citationByClusterId: Map<string, RenderedCitation>;
-  parsedDocument: ParsedPandocCitationDocument;
+  parsedDocument: CslDocumentLike;
 }
 
 export interface CslHostPendingSnapshot {
@@ -231,6 +240,159 @@ export class CslCitationHost {
     return session?.latestReadySnapshot?.citationByClusterId.get(clusterId) ?? null;
   }
 
+  private getOrCreateSession(
+    documentId: string,
+    provider: CitationEngineProvider,
+    resourcePaths: readonly string[]
+  ): HostDocumentSession {
+    let session = this.sessions.get(documentId);
+    if (session && session.provider !== provider) {
+      this.dropSession(documentId);
+      session = undefined;
+    }
+
+    if (!session) {
+      session = {
+        provider,
+        currentRevision: 0,
+        latestPendingRevision: 0,
+        latestReadySnapshot: null,
+        usedResourcePaths: new Set(resourcePaths),
+      };
+      this.sessions.set(documentId, session);
+    } else {
+      for (const p of resourcePaths) {
+        session.usedResourcePaths.add(p);
+      }
+    }
+    return session;
+  }
+
+  private async executeRenderPipeline(
+    documentId: string,
+    session: HostDocumentSession,
+    provider: CitationEngineProvider,
+    styleFile: TFile,
+    bibliographyFiles: readonly TFile[],
+    parsedDocument: CslDocumentLike,
+    options: RenderDocumentOptions,
+    cacheSignature: string
+  ): Promise<CslHostSnapshot> {
+    if (
+      session.lastInputSignature === cacheSignature &&
+      session.latestReadySnapshot !== null
+    ) {
+      return session.latestReadySnapshot;
+    }
+
+    const revision = ++session.currentRevision;
+    session.latestPendingRevision = revision;
+    session.lastInputSignature = cacheSignature;
+
+    let cslXml: string;
+    const bibSources: CitationBibliographySource[] = [];
+    try {
+      cslXml =
+        typeof this.app.vault.cachedRead === "function"
+          ? await this.app.vault.cachedRead(styleFile)
+          : await this.app.vault.read(styleFile);
+
+      for (const bibFile of bibliographyFiles) {
+        const bibContent =
+          typeof this.app.vault.cachedRead === "function"
+            ? await this.app.vault.cachedRead(bibFile)
+            : await this.app.vault.read(bibFile);
+        bibSources.push({
+          id: normalizePath(bibFile.path),
+          version: `${bibFile.stat?.mtime ?? 0}:${bibFile.stat?.size ?? 0}`,
+          format: "bibtex",
+          content: bibContent,
+        });
+      }
+    } catch (readError) {
+      return {
+        status: "resources-unavailable",
+        reason: `Failed to read citation files: ${readError instanceof Error ? readError.message : String(readError)}`,
+      };
+    }
+
+    const cslPath = normalizePath(styleFile.path);
+    const cslVersion = `${styleFile.stat?.mtime ?? 0}:${styleFile.stat?.size ?? 0}`;
+    const effectiveLocale = resolveCslLocale(options.locale ?? getLocale());
+    const includeBibliography = options.includeBibliography ?? false;
+
+    const request: CitationDocumentRequest = {
+      documentId,
+      revision,
+      style: {
+        id: cslPath,
+        version: cslVersion,
+        xml: cslXml,
+      },
+      bibliographies: bibSources,
+      ...(effectiveLocale ? { locale: effectiveLocale } : {}),
+      clusters: [...parsedDocument.clusters],
+      includeBibliography,
+    };
+
+    let result: CitationDocumentResult;
+    try {
+      result = await provider.renderDocument(request);
+    } catch (engineError) {
+      return {
+        status: "engine-error",
+        reason: `Citation engine threw an error: ${engineError instanceof Error ? engineError.message : String(engineError)}`,
+      };
+    }
+
+    const structuralVal = validateCitationDocumentResult(result);
+    if (!structuralVal.valid) {
+      return {
+        status: "engine-error",
+        reason: `Provider returned invalid result structure: ${structuralVal.errors.join("; ")}`,
+      };
+    }
+
+    const requestVal = validateCitationDocumentResultForRequest(request, result);
+    if (!requestVal.valid) {
+      return {
+        status: "engine-error",
+        reason: `Provider result does not match request: ${requestVal.errors.join("; ")}`,
+      };
+    }
+
+    if (
+      revision < session.latestPendingRevision ||
+      (session.latestReadySnapshot !== null &&
+        session.latestReadySnapshot.revision > revision)
+    ) {
+      return (
+        session.latestReadySnapshot ?? {
+          status: "pending",
+          documentId,
+          revision: session.latestPendingRevision,
+        }
+      );
+    }
+
+    const citationByClusterId = new Map<string, RenderedCitation>();
+    for (const citation of result.citations) {
+      citationByClusterId.set(citation.clusterId, citation);
+    }
+
+    const readySnapshot: CslHostReadySnapshot = {
+      status: "ready",
+      documentId,
+      revision,
+      result,
+      citationByClusterId,
+      parsedDocument,
+    };
+
+    session.latestReadySnapshot = readySnapshot;
+    return readySnapshot;
+  }
+
   /**
    * Renders citations for a logical document session.
    */
@@ -276,143 +438,90 @@ export class CslCitationHost {
     const bibVersion = `${bibFile.stat?.mtime ?? 0}:${bibFile.stat?.size ?? 0}`;
     const cslVersion = `${cslFile.stat?.mtime ?? 0}:${cslFile.stat?.size ?? 0}`;
 
-    let session = this.sessions.get(documentId);
-    if (session && session.provider !== provider) {
-      this.dropSession(documentId);
-      session = undefined;
+    const session = this.getOrCreateSession(documentId, provider, [bibPath, cslPath]);
+
+    const effectiveLocale = resolveCslLocale(options.locale ?? getLocale());
+    const includeBibliography = options.includeBibliography ?? false;
+    const cacheSignature = `${bibPath}@${bibVersion}|${cslPath}@${cslVersion}|${effectiveLocale ?? ""}|${includeBibliography ? "1" : "0"}|${markdown}`;
+
+    const parsedDocument = parsePandocCitationDocument(markdown);
+
+    return this.executeRenderPipeline(
+      documentId,
+      session,
+      provider,
+      cslFile,
+      [bibFile],
+      parsedDocument,
+      options,
+      cacheSignature
+    );
+  }
+
+  /**
+   * Renders citations for an already-prepared citation document (e.g. Scrivenings composite document)
+   * with explicitly resolved CSL style and bibliography files.
+   */
+  async renderPreparedDocument(
+    documentId: string,
+    parsedDocument: CslDocumentLike,
+    styleFile: TFile,
+    bibliographyFiles: readonly TFile[],
+    options: RenderDocumentOptions = {}
+  ): Promise<CslHostSnapshot> {
+    const provider = this.getProvider();
+    if (!provider) {
+      return {
+        status: "provider-unavailable",
+        reason: `Citation engine provider '${this.providerId}' is not registered or invalid.`,
+      };
     }
 
-    if (!session) {
-      session = {
-        provider,
-        currentRevision: 0,
-        latestPendingRevision: 0,
-        latestReadySnapshot: null,
-        usedResourcePaths: new Set([bibPath, cslPath]),
+    if (!styleFile || !(styleFile instanceof TFile)) {
+      return {
+        status: "resources-unavailable",
+        reason: "Valid CSL style file must be provided.",
       };
-      this.sessions.set(documentId, session);
-    } else {
-      session.usedResourcePaths.add(bibPath);
-      session.usedResourcePaths.add(cslPath);
     }
+
+    const cslPath = normalizePath(styleFile.path);
+    const cslVersion = `${styleFile.stat?.mtime ?? 0}:${styleFile.stat?.size ?? 0}`;
+
+    const bibPaths: string[] = [];
+    const bibDescriptors: string[] = [];
+    for (const bibFile of bibliographyFiles) {
+      if (!bibFile || !(bibFile instanceof TFile)) {
+        return {
+          status: "resources-unavailable",
+          reason: "All bibliography files must be valid TFile instances.",
+        };
+      }
+      const norm = normalizePath(bibFile.path);
+      bibPaths.push(norm);
+      bibDescriptors.push(`${norm}@${bibFile.stat?.mtime ?? 0}:${bibFile.stat?.size ?? 0}`);
+    }
+
+    const session = this.getOrCreateSession(documentId, provider, [cslPath, ...bibPaths]);
 
     const effectiveLocale = resolveCslLocale(options.locale ?? getLocale());
     const includeBibliography = options.includeBibliography ?? false;
 
-    // Fast-path cache check: if input is identical to the last computed ready snapshot, return it
-    const currentSignature = `${bibPath}@${bibVersion}|${cslPath}@${cslVersion}|${effectiveLocale ?? ""}|${includeBibliography ? "1" : "0"}|${markdown}`;
-    if (
-      session.lastInputSignature === currentSignature &&
-      session.latestReadySnapshot !== null
-    ) {
-      return session.latestReadySnapshot;
-    }
+    const occurrences: readonly CslOccurrenceLike[] = parsedDocument.occurrences;
+    const clustersSignature = occurrences
+      .map((o: CslOccurrenceLike) => `${o.clusterId}:${o.from}:${o.to}:${JSON.stringify(o.cluster)}`)
+      .join(";");
+    const cacheSignature = `prepared|${cslPath}@${cslVersion}|[${bibDescriptors.join(",")}]|${effectiveLocale ?? ""}|${includeBibliography ? "1" : "0"}|${clustersSignature}`;
 
-    // Advance monotonically increasing revision
-    const revision = ++session.currentRevision;
-    session.latestPendingRevision = revision;
-    session.lastInputSignature = currentSignature;
-
-    let bibContent: string;
-    let cslXml: string;
-    try {
-      bibContent =
-        typeof this.app.vault.cachedRead === "function"
-          ? await this.app.vault.cachedRead(bibFile)
-          : await this.app.vault.read(bibFile);
-      cslXml =
-        typeof this.app.vault.cachedRead === "function"
-          ? await this.app.vault.cachedRead(cslFile)
-          : await this.app.vault.read(cslFile);
-    } catch (readError) {
-      return {
-        status: "resources-unavailable",
-        reason: `Failed to read citation files: ${readError instanceof Error ? readError.message : String(readError)}`,
-      };
-    }
-
-    const parsedDocument = parsePandocCitationDocument(markdown);
-
-    const request: CitationDocumentRequest = {
+    return this.executeRenderPipeline(
       documentId,
-      revision,
-      style: {
-        id: cslPath,
-        version: cslVersion,
-        xml: cslXml,
-      },
-      bibliographies: [
-        {
-          id: bibPath,
-          version: bibVersion,
-          format: "bibtex",
-          content: bibContent,
-        },
-      ],
-      ...(effectiveLocale ? { locale: effectiveLocale } : {}),
-      clusters: parsedDocument.clusters,
-      includeBibliography,
-    };
-
-    let result: CitationDocumentResult;
-    try {
-      result = await provider.renderDocument(request);
-    } catch (engineError) {
-      return {
-        status: "engine-error",
-        reason: `Citation engine threw an error: ${engineError instanceof Error ? engineError.message : String(engineError)}`,
-      };
-    }
-
-    // Validation Order (§23): FIRST structural, THEN request matching
-    const structuralVal = validateCitationDocumentResult(result);
-    if (!structuralVal.valid) {
-      return {
-        status: "engine-error",
-        reason: `Provider returned invalid result structure: ${structuralVal.errors.join("; ")}`,
-      };
-    }
-
-    const requestVal = validateCitationDocumentResultForRequest(request, result);
-    if (!requestVal.valid) {
-      return {
-        status: "engine-error",
-        reason: `Provider result does not match request: ${requestVal.errors.join("; ")}`,
-      };
-    }
-
-    // Race condition guard (§19-20): reject stale async result if newer revision exists
-    if (
-      revision < session.latestPendingRevision ||
-      (session.latestReadySnapshot !== null &&
-        session.latestReadySnapshot.revision > revision)
-    ) {
-      return (
-        session.latestReadySnapshot ?? {
-          status: "pending",
-          documentId,
-          revision: session.latestPendingRevision,
-        }
-      );
-    }
-
-    // Build occurrence lookup map
-    const citationByClusterId = new Map<string, RenderedCitation>();
-    for (const citation of result.citations) {
-      citationByClusterId.set(citation.clusterId, citation);
-    }
-
-    const readySnapshot: CslHostReadySnapshot = {
-      status: "ready",
-      documentId,
-      revision,
-      result,
-      citationByClusterId,
+      session,
+      provider,
+      styleFile,
+      bibliographyFiles,
       parsedDocument,
-    };
-
-    session.latestReadySnapshot = readySnapshot;
-    return readySnapshot;
+      options,
+      cacheSignature
+    );
   }
 
   /**

@@ -27,6 +27,7 @@ import { buildScriveningsRangeClipboardText } from "../services/scrivenings-clip
 import { createScriveningsCopyExtension, createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsBoundariesField, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
 import type { ScriveningsImageResolver } from "../utils/cm-scrivenings-markdown.js";
 import { createScriveningsCitationExtension } from "../utils/cm-scrivenings-citations.js";
+import type { CslCitationHost } from "../services/csl-citation-host.js";
 import {
   getScriveningsScrollAnchor,
   scrollScriveningsToAnchor,
@@ -112,6 +113,7 @@ export function nextScrollAnchorAfterRecomposition(
 export type ScriveningsViewPlugin = {
   app: App;
   settings: FeuilletsSettings;
+  cslCitationHost?: CslCitationHost | null;
   /** Rafraîchit la status bar de l'écriture (main.ts) — appelé après une
    * modification du document Continu ou une recomposition du groupe (§8 du
    * lot 2B.2). Optionnel : les tests peuvent passer un plugin minimal sans
@@ -643,6 +645,14 @@ export class ScriveningsView extends ItemView {
       return null;
     };
 
+    let projectFolder: TFolder | null = null;
+    if (this._compileScope?.projectRoot) {
+      const root = this.plugin.app.vault.getAbstractFileByPath(normalizePath(this._compileScope.projectRoot));
+      if (root instanceof TFolder) {
+        projectFolder = root;
+      }
+    }
+
     const citationFiles = document.segments.map((segment) => segment.file);
 
     const extensions = [
@@ -652,7 +662,14 @@ export class ScriveningsView extends ItemView {
         scriveningsBoundariesField,
         this.plugin.app,
         () => this.plugin.settings,
-        citationFiles
+        citationFiles,
+        projectFolder
+          ? {
+              document,
+              projectRoot: projectFolder,
+              getHost: () => this.plugin.cslCitationHost ?? null,
+            }
+          : undefined
       ),
       scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
       createScriveningsCopyExtension((from, to) => this.clipboardTextForRange(from, to)),
