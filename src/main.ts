@@ -90,6 +90,9 @@ import {
   registerPandocCitationReadingMode,
   refreshPandocCitationReadingModeViews,
 } from "./services/pandoc-citation-reading-mode.js";
+import { Prec } from "@codemirror/state";
+type PrecStatic = { highest(extension: unknown): unknown };
+const PrecTyped = Prec as PrecStatic;
 
 import { FeuilletsView } from "./views/feuillets-view.js";
 import { BoardView, type BoardModeKey } from "./views/board-view.js";
@@ -858,11 +861,14 @@ class FeuilletsPlugin extends Plugin {
       getSettings: () => this.settings,
       citationRegistry: this.citationRegistry,
     });
+    const pandocCitationExtension = createPandocCitationLivePreviewExtension(
+      () => this.settings,
+      () => this.cslCitationHost
+    );
     this.registerEditorExtension(
-      createPandocCitationLivePreviewExtension(
-        () => this.settings,
-        () => this.cslCitationHost
-      )
+      typeof PrecTyped?.highest === "function"
+        ? PrecTyped.highest(pandocCitationExtension)
+        : pandocCitationExtension
     );
     this.registerEditorExtension(createEditorImageCaptionExtension(() => this.settings));
     this.registerEditorExtension(createEditorCursorTrackingExtension((change) => {
@@ -874,10 +880,11 @@ class FeuilletsPlugin extends Plugin {
       const ext = file.extension.toLowerCase();
       if (ext === "bib") {
         notifyPandocCitationBibliographyChanged(file);
-        refreshPandocCitationReadingModeViews(this, file);
         this.cslCitationHost?.invalidateResource(file.path);
+        refreshPandocCitationReadingModeViews(this, file);
       } else if (ext === "csl") {
         this.cslCitationHost?.invalidateResource(file.path);
+        refreshPandocCitationReadingModeViews(this, file);
       }
     }));
     this.registerEvent(this.app.vault.on("create", (file) => {

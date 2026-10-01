@@ -545,6 +545,81 @@ test("parseCitationDocument: citations inside markdown link text vs link destina
   assert.equal(plainDoc.occurrences.length, 0);
 });
 
+/* -------------------- Markdown Link Adjacency Regression -------------------- */
+
+test("parseCitationDocument: space-separated bracketed citations retain exact clusters and offsets", () => {
+  const input = "[@doe2023] [@doe2023; @smith2024]";
+  const doc = parsePandocCitationDocument(input);
+  assert.deepEqual(doc.occurrences.map(({ raw, from, to, clusterId }) => ({ raw, from, to, clusterId })), [
+    { raw: "[@doe2023]", from: 0, to: 10, clusterId: "citation:0:10" },
+    { raw: "[@doe2023; @smith2024]", from: 11, to: 33, clusterId: "citation:11:33" },
+  ]);
+  assert.deepEqual(doc.clusters.map((cluster) => cluster.items), [
+    [{ id: "doe2023" }], [{ id: "doe2023" }, { id: "smith2024" }],
+  ]);
+  assert.equal(doc.clusters[0].items[0].mode ?? "normal", "normal");
+  for (const occurrence of doc.occurrences) {
+    assert.equal(input.slice(occurrence.from, occurrence.to), occurrence.raw);
+    assert.equal(occurrence.cluster.noteIndex, undefined);
+  }
+});
+
+for (const [name, separator] of [["multiple spaces", "   "], ["newline", "\n"], ["tab", "\t"]]) {
+  test(`parseCitationDocument: bracketed citations separated by ${name} remain independent`, () => {
+    const input = `[@doe2023]${separator}[@smith2024]`;
+    const doc = parsePandocCitationDocument(input);
+    assert.deepEqual(doc.occurrences.map(({ raw, from, to }) => ({ raw, from, to })), [
+      { raw: "[@doe2023]", from: 0, to: 10 },
+      { raw: "[@smith2024]", from: 10 + separator.length, to: input.length },
+    ]);
+    assert.deepEqual(doc.clusters.map((cluster) => cluster.items[0].mode ?? "normal"), ["normal", "normal"]);
+  });
+}
+
+for (const [name, source] of [["full reference", "[foo][bar]"], ["collapsed reference", "[foo][]"], ["space-separated reference-like", "[foo] [bar]"], ["shortcut reference", "[foo]"]]) {
+  test(`parseCitationDocument: ordinary ${name} links contain no citation`, () => {
+    assert.deepEqual(parsePandocCitationDocument(source).occurrences, []);
+  });
+}
+
+for (const reference of ["[ref]", "[]"]) {
+  test(`parseCitationDocument: adjacent reference ${reference} leaves only the narrative label citation discoverable`, () => {
+    const input = `[see @doe2023]${reference}`;
+    const doc = parsePandocCitationDocument(input);
+    assert.equal(doc.occurrences.length, 1);
+    assert.equal(doc.occurrences[0].raw, "@doe2023");
+    assert.equal(doc.occurrences[0].from, 5);
+    assert.equal(doc.occurrences[0].to, 13);
+    assert.equal(doc.clusters[0].items[0].mode, "composite");
+    assert.equal(input.slice(doc.occurrences[0].to), `]${reference}`);
+  });
+}
+
+test("parseCitationDocument: spaced reference-like groups do not turn a bracketed citation into a link label", () => {
+  const input = "[see @doe2023] [ref]";
+  const doc = parsePandocCitationDocument(input);
+  assert.equal(doc.occurrences.length, 1);
+  assert.equal(doc.occurrences[0].raw, "[see @doe2023]");
+  assert.equal(doc.occurrences[0].from, 0);
+  assert.equal(doc.occurrences[0].to, 14);
+  assert.equal(doc.clusters[0].items[0].id, "doe2023");
+  assert.equal(doc.clusters[0].items[0].mode ?? "normal", "normal");
+  assert.equal(input.slice(doc.occurrences[0].to), " [ref]");
+});
+
+for (const [name, separator] of [["adjacent", ""], ["space-separated", " "], ["tab-separated", "\t"]]) {
+  test(`parseCitationDocument: ${name} inline links preserve narrative labels and protect destinations`, () => {
+    const input = `[see @doe2023]${separator}(https://example.com/@smith2024 "@garcia2020")`;
+    const doc = parsePandocCitationDocument(input);
+    assert.equal(doc.occurrences.length, 1);
+    assert.equal(doc.occurrences[0].raw, "@doe2023");
+    assert.equal(doc.occurrences[0].from, 5);
+    assert.equal(doc.occurrences[0].to, 13);
+    assert.equal(doc.clusters[0].items[0].mode, "composite");
+    assert.equal(parsePandocCitationDocument(`[label]${separator}(https://example.com/@doe2023)`).occurrences.length, 0);
+  });
+}
+
 /* -------------------- Inline Footnotes and Nested Brackets (Lot 7B) -------------------- */
 
 test("parseCitationDocument: inline footnote containing citation ^[Voir [@doe2023, p. 57] pour une discussion méthodologique.]", () => {

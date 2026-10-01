@@ -2,6 +2,8 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { TFile, TFolder, editorInfoField, editorLivePreviewField } from "obsidian";
 
 globalThis.window ??= {
@@ -12,6 +14,10 @@ import {
   createPandocCitationLivePreviewExtension,
   CslCitationWidget,
   CSL_LIVE_PREVIEW_DEBOUNCE_MS,
+  areCitationItemsSemanticallyEqual,
+  areCitationClustersSemanticallyEqual,
+  areCitationSequencesSemanticallyEqual,
+  selectionOverlaps,
 } from "../src/utils/cm-pandoc-citation-live-preview.js";
 import {
   CslCitationHost,
@@ -331,6 +337,33 @@ function getDecoCount(decorations) {
 // ---------------------------------------------------------------------------
 // 1. Whole-Document Correctness Test (Section 14)
 // ---------------------------------------------------------------------------
+
+test("CSL Live Preview: space-separated clusters both render parenthetically with exact source ranges", async (t) => {
+  const text = "[@doe2023] [@doe2023; @smith2024]";
+  const f = createCslFixture({ docContent: text, providerHandler: (req) => ({
+    documentId: req.documentId, revision: req.revision,
+    citations: req.clusters.map((cluster) => {
+      const names = cluster.items.map((item) => item.id === "doe2023" ? "Doe et Brown 2023" : "Smith 2024");
+      const output = cluster.items[0].mode === "composite" ? "Doe et Brown (2023)" : `(${names.join("; ")})`;
+      return { clusterId: cluster.id, plainText: output, content: [{ type: "text", text: output }] };
+    }),
+    bibliography: null, diagnostics: [],
+  }) });
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  t.after(() => { instance.destroy(); f.host.dispose(); });
+  await flush(10);
+  assert.equal(f.getProviderCallCount(), 1);
+  assert.deepEqual(f.recordedRequests[0].clusters.map(({ id, items }) => ({ id, items })), [
+    { id: "citation:0:10", items: [{ id: "doe2023" }] },
+    { id: "citation:11:33", items: [{ id: "doe2023" }, { id: "smith2024" }] },
+  ]);
+  assert.equal(f.recordedRequests[0].clusters[0].items[0].mode ?? "normal", "normal");
+  assert.deepEqual(instance.decorations.map(({ from, to }) => ({ from, to })), [{ from: 0, to: 10 }, { from: 11, to: 33 }]);
+  const output = instance.decorations.map(({ widget }) => widget.toDOM(view).textContent).join(" ");
+  assert.equal(output, "(Doe et Brown 2023) (Doe et Brown 2023; Smith 2024)");
+});
 
 test("CSL Live Preview: whole-document correctness with numeric ordering and viewport clipping", async () => {
   const text = `[@alpha]\n${"\n".repeat(80)}[@beta]`;
@@ -772,7 +805,7 @@ test("CSL Live Preview: resource modify and invalidateAllResources wake subscrib
 // 12. Quarantine Verification (Sections 42, 43, 44)
 // ---------------------------------------------------------------------------
 
-test("Quarantine: style === 'csl' keeps Reading Mode raw (does not run legacy author-date)", () => {
+test("CSL Reading Mode: unsupported owner/context stays raw without legacy fallback", async () => {
   const f = createCslFixture();
   const registeredProcessors = [];
   const fakePlugin = {
@@ -794,7 +827,7 @@ test("Quarantine: style === 'csl' keeps Reading Mode raw (does not run legacy au
     addChild: () => {},
   };
 
-  registeredProcessors[0](container, context);
+  await registeredProcessors[0](container, context);
 
   // Must remain raw markdown!
   assert.equal(p.textContent, "Text with [@smith2024].");
@@ -983,4 +1016,721 @@ test("CSL Live Preview: inline footnote with citation decorates only the citatio
   // 5. The surrounding note text is completely preserved in doc
   assert.equal(text.slice(0, decos[0].from), "^[Voir ");
   assert.equal(text.slice(decos[0].to), " pour une discussion méthodologique.]");
+});
+
+// ---------------------------------------------------------------------------
+// 14. Live Preview UX Stabilization Tests During Prose Writing
+// ---------------------------------------------------------------------------
+
+// Unit tests for semantic equivalence functions
+test("Semantic equality helpers: detect identical vs modified items, clusters, and sequences", () => {
+  const itemAlpha = { id: "alpha" };
+  const itemAlphaCopy = { id: "alpha" };
+  const itemAlphaPrefix = { id: "alpha", prefix: "see " };
+  const itemAlphaLocator = { id: "alpha", locator: "12", label: "page" };
+  const itemAlphaMode = { id: "alpha", mode: "suppress-author" };
+
+  assert.equal(areCitationItemsSemanticallyEqual(itemAlpha, itemAlphaCopy), true);
+  assert.equal(areCitationItemsSemanticallyEqual(itemAlpha, itemAlphaPrefix), false);
+  assert.equal(areCitationItemsSemanticallyEqual(itemAlpha, itemAlphaLocator), false);
+  assert.equal(areCitationItemsSemanticallyEqual(itemAlpha, itemAlphaMode), false);
+
+  const cluster1 = { id: "citation:0:8", items: [itemAlpha] };
+  const cluster1Shifted = { id: "citation:100:108", items: [itemAlphaCopy] };
+  const clusterWithNote = { id: "citation:0:8", items: [itemAlpha], noteIndex: 1 };
+  assert.equal(areCitationClustersSemanticallyEqual(cluster1, cluster1Shifted), true);
+  assert.equal(areCitationClustersSemanticallyEqual(cluster1, clusterWithNote), false);
+
+  const seqA = [cluster1];
+  const seqAShifted = [cluster1Shifted];
+  const seqB = [cluster1, { id: "citation:10:18", items: [{ id: "beta" }] }];
+  const seqReordered = [{ id: "citation:10:18", items: [{ id: "beta" }] }, cluster1];
+
+  assert.equal(areCitationSequencesSemanticallyEqual(seqA, seqAShifted), true);
+  assert.equal(areCitationSequencesSemanticallyEqual(seqA, seqB), false);
+  assert.equal(areCitationSequencesSemanticallyEqual(seqB, seqReordered), false);
+});
+
+// 1. PROSE AVANT CITATION
+test("CSL Live Preview UX: 1. prose before citation keeps widget rendered and updates offset immediately without flash", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "Text [@alpha].";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(f.getProviderCallCount(), 1);
+  assert.equal(getDecoCount(instance.decorations), 1);
+  assert.equal(instance.decorations[0].from, 5);
+  assert.equal(instance.decorations[0].to, 13);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+
+  // Edit prose before citation
+  text = "New Text [@alpha].";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  // Expected immediately after update: decoration stays rendered at new offset with same plainText, 0 flash
+  assert.equal(getDecoCount(instance.decorations), 1, "Decoration must stay rendered immediately");
+  assert.equal(instance.decorations[0].from, 9);
+  assert.equal(instance.decorations[0].to, 17);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+  assert.equal(instance.decorations[0].widget.clusterId, "citation:9:17");
+  assert.equal(f.getProviderCallCount(), 1, "Host/provider must not be called for pure prose change");
+});
+
+// 2. PROSE ENTRE DEUX CITATIONS
+test("CSL Live Preview UX: 2. prose between two citations preserves both widgets at exact new offsets immediately", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha] middle [@beta]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(f.getProviderCallCount(), 1);
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(instance.decorations[0].from, 0);
+  assert.equal(instance.decorations[0].to, 8);
+  assert.equal(instance.decorations[1].from, 16);
+  assert.equal(instance.decorations[1].to, 23);
+
+  // Edit prose between citations
+  text = "[@alpha] much longer middle [@beta]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  // Immediately: 2 decorations at exact new offsets, outputs preserved
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(instance.decorations[0].from, 0);
+  assert.equal(instance.decorations[0].to, 8);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+  const betaFrom = text.indexOf("[@beta]");
+  assert.equal(instance.decorations[1].from, betaFrom);
+  assert.equal(instance.decorations[1].to, betaFrom + 7);
+  assert.equal(instance.decorations[1].widget.citation.plainText, "[2]");
+  assert.equal(f.getProviderCallCount(), 1);
+});
+
+// 3. PROSE APRÈS CITATIONS
+test("CSL Live Preview UX: 3. prose after citations keeps widgets stable", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha] [@beta] suffix";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+
+  // Edit suffix only
+  text = "[@alpha] [@beta] much longer suffix with many more words";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+  assert.equal(instance.decorations[1].widget.citation.plainText, "[2]");
+  assert.equal(f.getProviderCallCount(), 1);
+});
+
+// 4. MULTILIGNE
+test("CSL Live Preview UX: 4. adding and removing lines before citations remaps offsets correctly", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "Line 1\nLine 2\n[@alpha]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  const initialFrom = text.indexOf("[@alpha]");
+  assert.equal(instance.decorations[0].from, initialFrom);
+
+  // Add multiple lines before
+  text = "Heading\n\nParagraph 1\n\nParagraph 2\n\nLine 1\nLine 2\n[@alpha]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  const newFrom = text.indexOf("[@alpha]");
+  assert.equal(getDecoCount(instance.decorations), 1);
+  assert.equal(instance.decorations[0].from, newFrom);
+  assert.equal(instance.decorations[0].to, newFrom + 8);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+
+  // Remove lines
+  text = "[@alpha]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  assert.equal(getDecoCount(instance.decorations), 1);
+  assert.equal(instance.decorations[0].from, 0);
+  assert.equal(instance.decorations[0].to, 8);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+});
+
+// 5. DOUBLONS
+test("CSL Live Preview UX: 5. duplicate citekeys remap by cluster order, never confused by citekey", async () => {
+  const f = createCslFixture({
+    providerHandler: (req) => ({
+      documentId: req.documentId,
+      revision: req.revision,
+      citations: req.clusters.map((c, idx) => ({
+        clusterId: c.id,
+        plainText: `Occurrence ${idx + 1}`,
+        content: [{ type: "text", text: `Occurrence ${idx + 1}` }],
+      })),
+      bibliography: null,
+      diagnostics: [],
+    }),
+  });
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha] prose [@alpha]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "Occurrence 1");
+  assert.equal(instance.decorations[1].widget.citation.plainText, "Occurrence 2");
+
+  // Modify prose between duplicate citekeys
+  text = "[@alpha] completely expanded and changed prose [@alpha]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(instance.decorations[0].from, 0);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "Occurrence 1");
+  const secondFrom = text.lastIndexOf("[@alpha]");
+  assert.equal(instance.decorations[1].from, secondFrom);
+  assert.equal(instance.decorations[1].widget.citation.plainText, "Occurrence 2");
+});
+
+// 6. STYLE NUMÉRIQUE SIMULÉ
+test("CSL Live Preview UX: 6. numeric style remains stable [1] and [2] immediately when modifying prose", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha]\nprose\n[@beta]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+  assert.equal(instance.decorations[1].widget.citation.plainText, "[2]");
+
+  // Modify prose
+  text = "[@alpha]\ncompletely rewritten prose text\n[@beta]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  // [1] and [2] must remain visible immediately without flash
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+  assert.equal(instance.decorations[1].widget.citation.plainText, "[2]");
+});
+
+// 7. CITEKEY MODIFIÉE
+test("CSL Live Preview UX: 7. citekey modification fails closed to raw markdown until new snapshot", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 1);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+
+  // Change citekey: @alpha -> @gamma
+  text = "[@gamma]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  // Expected immediately: fail closed (0 decorations)
+  assert.equal(getDecoCount(instance.decorations), 0, "Must fail closed when citekey changes");
+
+  // After debounce: new snapshot arrives
+  await flush(CSL_LIVE_PREVIEW_DEBOUNCE_MS + 20);
+  assert.equal(getDecoCount(instance.decorations), 1);
+  assert.equal(f.getProviderCallCount(), 2);
+});
+
+// 8. AJOUT DE CITATION
+test("CSL Live Preview UX: 8. adding a citation fails closed to raw markdown until new snapshot", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 1);
+
+  // Add citation: [@alpha] [@beta]
+  text = "[@alpha] [@beta]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  assert.equal(getDecoCount(instance.decorations), 0, "Must fail closed when citation is added");
+
+  await flush(CSL_LIVE_PREVIEW_DEBOUNCE_MS + 20);
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(f.getProviderCallCount(), 2);
+});
+
+// 9. SUPPRESSION DE CITATION
+test("CSL Live Preview UX: 9. removing a citation fails closed until new snapshot", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha] [@beta]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+
+  // Remove [@beta]
+  text = "[@alpha]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  assert.equal(getDecoCount(instance.decorations), 0, "Must fail closed when citation is deleted");
+
+  await flush(CSL_LIVE_PREVIEW_DEBOUNCE_MS + 20);
+  assert.equal(getDecoCount(instance.decorations), 1);
+  assert.equal(f.getProviderCallCount(), 2);
+});
+
+// 10. RÉORDONNANCEMENT
+test("CSL Live Preview UX: 10. reordering citations fails closed until new snapshot", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha] [@beta]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+
+  // Reorder: [@beta] [@alpha]
+  text = "[@beta] [@alpha]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  assert.equal(getDecoCount(instance.decorations), 0, "Must fail closed when citations are reordered");
+
+  await flush(CSL_LIVE_PREVIEW_DEBOUNCE_MS + 20);
+  assert.equal(getDecoCount(instance.decorations), 2);
+  assert.equal(f.getProviderCallCount(), 2);
+});
+
+// 11. LOCATOR
+test("CSL Live Preview UX: 11. changing locator fails closed until new snapshot", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha, p. 12]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 1);
+
+  // Change locator: p. 12 -> p. 13
+  text = "[@alpha, p. 13]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  assert.equal(getDecoCount(instance.decorations), 0, "Must fail closed when locator changes");
+
+  await flush(CSL_LIVE_PREVIEW_DEBOUNCE_MS + 20);
+  assert.equal(getDecoCount(instance.decorations), 1);
+  assert.equal(f.getProviderCallCount(), 2);
+});
+
+// 12. CLICK-TO-REVEAL
+test("CSL Live Preview UX: 12. click-to-reveal unfolds only the intersected citation", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  const text = "Avant [@alpha] milieu [@beta] après.";
+  const alphaPos = text.indexOf("[@alpha]");
+  const betaPos = text.indexOf("[@beta]");
+
+  // 1. Initial state: cursor outside citations
+  const view = makeFakeView({ text, file: f.docFile, app: f.app, selection: [{ from: 0, to: 0 }] });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2, "Both citations folded initially");
+
+  // 2. Cursor inside [@alpha]
+  view.state.selection = { ranges: [{ from: alphaPos + 2, to: alphaPos + 2 }] };
+  instance.update({ view, selectionSet: true });
+
+  assert.equal(getDecoCount(instance.decorations), 1, "Only beta folded when alpha intersected");
+  assert.equal(instance.decorations[0].from, betaPos);
+
+  // 3. Cursor outside citations
+  view.state.selection = { ranges: [{ from: 0, to: 0 }] };
+  instance.update({ view, selectionSet: true });
+
+  assert.equal(getDecoCount(instance.decorations), 2, "Both folded again");
+
+  // 4. Cursor inside [@beta]
+  view.state.selection = { ranges: [{ from: betaPos + 2, to: betaPos + 2 }] };
+  instance.update({ view, selectionSet: true });
+
+  assert.equal(getDecoCount(instance.decorations), 1, "Only alpha folded when beta intersected");
+  assert.equal(instance.decorations[0].from, alphaPos);
+});
+
+// 13. CURSEUR + ÉCRITURE DE PROSE
+test("CSL Live Preview UX: 13. typing prose elsewhere keeps all non-intersected citations rendered at every keystroke", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "Avant [@alpha] milieu [@beta] après.";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app, selection: [{ from: 5, to: 5 }] });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+
+  // Simulate typing multiple words keystroke by keystroke after 'Avant '
+  const wordsToType = [" un", " nouveau", " texte", " qui", " avance"];
+  let currentPrefix = "Avant";
+
+  for (const word of wordsToType) {
+    currentPrefix += word;
+    text = `${currentPrefix} [@alpha] milieu [@beta] après.`;
+    view.state.doc = makeFakeDoc(text);
+    view.state.selection = { ranges: [{ from: currentPrefix.length, to: currentPrefix.length }] };
+    view.visibleRanges = [{ from: 0, to: text.length }];
+    instance.update({ view, docChanged: true, selectionSet: true });
+
+    assert.equal(getDecoCount(instance.decorations), 2, "Both citations must stay rendered at every keystroke");
+    const alphaFrom = text.indexOf("[@alpha]");
+    const betaFrom = text.indexOf("[@beta]");
+    assert.equal(instance.decorations[0].from, alphaFrom);
+    assert.equal(instance.decorations[1].from, betaFrom);
+  }
+
+  assert.equal(f.getProviderCallCount(), 1, "Zero redundant provider calls while typing prose");
+});
+
+// 14. INVALIDATION CSL
+test("CSL Live Preview UX: 14. CSL style invalidation fails closed and never reuses old style", async () => {
+  const f = createCslFixture({
+    providerHandler: (req) => {
+      if (!req.style.xml.includes("<style>")) {
+        throw new Error("Invalid CSL XML: XML parse error");
+      }
+      return {
+        documentId: req.documentId,
+        revision: req.revision,
+        citations: req.clusters.map((c, idx) => ({
+          clusterId: c.id,
+          plainText: `[${idx + 1}]`,
+          content: [{ type: "text", text: `[${idx + 1}]` }],
+        })),
+        bibliography: null,
+        diagnostics: [],
+      };
+    },
+  });
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  const text = "Text [@alpha].";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 1);
+
+  // Invalidate CSL resource with corrupted content
+  f.cslFile.content = "INVALID NOT XML";
+  f.cslFile.stat.mtime = 2000;
+  f.host.invalidateAllResources();
+  await flush(20);
+
+  // Host should fail closed, decorations must be none
+  assert.equal(getDecoCount(instance.decorations), 0, "Must fail closed on invalid CSL");
+
+  // Also verify resource missing invalidation
+  f.settings.projectMeta[f.project.path].citekeyCslPath = "missing.csl";
+  f.host.invalidateAllResources();
+  await flush(20);
+  assert.equal(getDecoCount(instance.decorations), 0, "Must fail closed when CSL file is missing");
+});
+
+// 15. PROVIDER DISPARAÎT
+test("CSL Live Preview UX: 15. provider disappearance falls back to raw markdown immediately", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  const text = "Text [@alpha].";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 1);
+
+  // Provider unregisters
+  f.citationRegistry.unregister(f.provider.id);
+  await flush(20);
+
+  assert.equal(getDecoCount(instance.decorations), 0, "Must return to raw markdown when provider disappears");
+});
+
+// 16. ENGINE ERROR après un changement réel de citations
+test("CSL Live Preview UX: 16. engine error after actual citation change shows raw markdown, never stale snapshot", async () => {
+  let shouldThrow = false;
+  const f = createCslFixture({
+    providerHandler: (req) => {
+      if (shouldThrow) {
+        throw new Error("Simulated citeproc engine crash");
+      }
+      return {
+        documentId: req.documentId,
+        revision: req.revision,
+        citations: req.clusters.map((c, idx) => ({
+          clusterId: c.id,
+          plainText: `[${idx + 1}]`,
+          content: [{ type: "text", text: `[${idx + 1}]` }],
+        })),
+        bibliography: null,
+        diagnostics: [],
+      };
+    },
+  });
+
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "[@alpha]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 1);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+
+  // Provider will now throw on next render
+  shouldThrow = true;
+
+  // Change citation to [@gamma]
+  text = "[@gamma]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+
+  // Immediately fails closed
+  assert.equal(getDecoCount(instance.decorations), 0);
+
+  // Debounce elapses, engine throws
+  await flush(CSL_LIVE_PREVIEW_DEBOUNCE_MS + 20);
+
+  // Must remain raw markdown (0 decorations), never misleading stale [1]
+  assert.equal(getDecoCount(instance.decorations), 0, "Must show raw markdown after engine error");
+});
+
+// ---------------------------------------------------------------------------
+// 15. Click-to-Reveal Half-Open Boundary Tests ([from, to))
+// ---------------------------------------------------------------------------
+
+test("selectionOverlaps unit tests: half-open boundary and selection semantics", () => {
+  const from = 10;
+  const to = 20;
+
+  // 1. Curseur au début: 10 -> true
+  assert.equal(selectionOverlaps({ ranges: [{ from: 10, to: 10 }] }, from, to), true, "cursor at from is inside");
+
+  // 2. Curseur à l'intérieur: 15 -> true
+  assert.equal(selectionOverlaps({ ranges: [{ from: 15, to: 15 }] }, from, to), true, "cursor strictly inside is inside");
+
+  // 3. Curseur exactement à la fin: 20 -> false
+  assert.equal(selectionOverlaps({ ranges: [{ from: 20, to: 20 }] }, from, to), false, "cursor at to is outside");
+
+  // 4. Curseur juste avant: 9 -> false
+  assert.equal(selectionOverlaps({ ranges: [{ from: 9, to: 9 }] }, from, to), false, "cursor before from is outside");
+
+  // 5. Sélection réelle à l'intérieur: [12, 18) -> true
+  assert.equal(selectionOverlaps({ ranges: [{ from: 12, to: 18 }] }, from, to), true, "selection inside overlaps");
+
+  // 6. Sélection chevauchant le début: [5, 12) -> true
+  assert.equal(selectionOverlaps({ ranges: [{ from: 5, to: 12 }] }, from, to), true, "selection crossing from overlaps");
+
+  // 7. Sélection chevauchant la fin: [18, 25) -> true
+  assert.equal(selectionOverlaps({ ranges: [{ from: 18, to: 25 }] }, from, to), true, "selection crossing to overlaps");
+
+  // 8. Sélection adjacente à gauche: [5, 10) -> false
+  assert.equal(selectionOverlaps({ ranges: [{ from: 5, to: 10 }] }, from, to), false, "adjacent selection left does not overlap");
+
+  // 9. Sélection adjacente à droite: [20, 25) -> false
+  assert.equal(selectionOverlaps({ ranges: [{ from: 20, to: 25 }] }, from, to), false, "adjacent selection right does not overlap");
+});
+
+test("CSL Live Preview UX: two neighboring citations separated by exactly one space render simultaneously when cursor is between them", async () => {
+  const text = "[@doe2023] [@smith2024]";
+  const doeFrom = text.indexOf("[@doe2023]");
+  const doeTo = doeFrom + "[@doe2023]".length;
+  const spacePos = text.indexOf(" ");
+  const smithFrom = text.indexOf("[@smith2024]");
+  const smithTo = smithFrom + "[@smith2024]".length;
+  assert.equal(spacePos, doeTo, "space must immediately follow first citation");
+
+  const f = createCslFixture({
+    docContent: text,
+    providerHandler: (req) => ({
+      documentId: req.documentId,
+      revision: req.revision,
+      citations: req.clusters.map((cluster) => {
+        const output = cluster.items[0].id === "doe2023" ? "(Doe et Brown 2023)" : "(Smith 2024)";
+        return { clusterId: cluster.id, plainText: output, content: [{ type: "text", text: output }] };
+      }),
+      bibliography: null,
+      diagnostics: [],
+    }),
+  });
+
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+  const view = makeFakeView({ text, file: f.docFile, app: f.app, selection: [{ from: spacePos, to: spacePos }] });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  // Position B: Curseur exactement après la première citation (dans l'unique espace)
+  // Attendu : première citation rendue ET deuxième citation rendue simultanément !
+  assert.equal(getDecoCount(instance.decorations), 2, "Both citations must be rendered when cursor is in the single space");
+  assert.equal(instance.decorations[0].widget.citation.plainText, "(Doe et Brown 2023)");
+  assert.equal(instance.decorations[1].widget.citation.plainText, "(Smith 2024)");
+
+  // Position A: Curseur dans la première citation (pos 3)
+  view.state.selection = { ranges: [{ from: doeFrom + 3, to: doeFrom + 3 }] };
+  instance.update({ view, selectionSet: true });
+  assert.equal(getDecoCount(instance.decorations), 1, "Only smith is decorated when cursor is inside doe");
+  assert.equal(instance.decorations[0].from, smithFrom);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "(Smith 2024)");
+
+  // Position B bis: Retour du curseur dans l'espace
+  view.state.selection = { ranges: [{ from: spacePos, to: spacePos }] };
+  instance.update({ view, selectionSet: true });
+  assert.equal(getDecoCount(instance.decorations), 2, "Both rendered again when cursor in space");
+
+  // Position C: Curseur exactement au début de la deuxième citation
+  view.state.selection = { ranges: [{ from: smithFrom, to: smithFrom }] };
+  instance.update({ view, selectionSet: true });
+  assert.equal(getDecoCount(instance.decorations), 1, "Only doe is decorated when cursor is at start of smith");
+  assert.equal(instance.decorations[0].from, doeFrom);
+  assert.equal(instance.decorations[0].widget.citation.plainText, "(Doe et Brown 2023)");
+
+  // Position D: Curseur après la deuxième citation
+  view.state.selection = { ranges: [{ from: smithTo, to: smithTo }] };
+  instance.update({ view, selectionSet: true });
+  assert.equal(getDecoCount(instance.decorations), 2, "Both rendered when cursor is after second citation");
+});
+
+
+test("CSL Live Preview UX: two numeric citations [@alpha] [@beta] both render [1] [2] with cursor in single space", async () => {
+  const text = "[@alpha] [@beta]";
+  const f = createCslFixture({ docContent: text });
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  // Place cursor in the single space between [@alpha] (0..8) and [@beta] (9..16): pos = 8
+  const view = makeFakeView({ text, file: f.docFile, app: f.app, selection: [{ from: 8, to: 8 }] });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2, "Both [1] and [2] must be visible with cursor in space");
+  assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
+  assert.equal(instance.decorations[1].widget.citation.plainText, "[2]");
+});
+
+test("CSL Live Preview UX: typing in prose with two single-space citations preserves both renderings without extra space", async () => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+
+  let text = "Texte [@alpha] [@beta] suite.";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app, selection: [{ from: 3, to: 3 }] });
+  const instance = new PluginClass(view);
+  await flush(10);
+
+  assert.equal(getDecoCount(instance.decorations), 2);
+
+  // Type multiple characters in prose
+  const proseChars = [" plus", " de", " mots"];
+  let prefix = "Texte";
+  for (const chunk of proseChars) {
+    prefix += chunk;
+    text = `${prefix} [@alpha] [@beta] suite.`;
+    view.state.doc = makeFakeDoc(text);
+    view.state.selection = { ranges: [{ from: prefix.length, to: prefix.length }] };
+    view.visibleRanges = [{ from: 0, to: text.length }];
+    instance.update({ view, docChanged: true, selectionSet: true });
+
+    assert.equal(getDecoCount(instance.decorations), 2, "Both citations remain rendered while typing");
+    const alphaFrom = text.indexOf("[@alpha]");
+    const betaFrom = text.indexOf("[@beta]");
+    assert.equal(instance.decorations[0].from, alphaFrom);
+    assert.equal(instance.decorations[1].from, betaFrom);
+  }
+});
+
+test("CSL Live Preview UX: main.ts registers pandocCitationExtension with highest precedence (Prec.highest)", () => {
+  const mainSource = readFileSync(join(process.cwd(), "src/main.ts"), "utf8");
+  assert.match(
+    mainSource,
+    /const\s+pandocCitationExtension\s*=\s*createPandocCitationLivePreviewExtension/,
+    "main.ts must create pandocCitationExtension"
+  );
+  assert.match(
+    mainSource,
+    /registerEditorExtension\(\s*typeof\s+PrecTyped\?\.highest\s*===\s*"function"\s*\?\s*PrecTyped\.highest\(pandocCitationExtension\)\s*:\s*pandocCitationExtension\s*\)/,
+    "main.ts must register pandocCitationExtension with Prec.highest to prevent decoration loss during CodeMirror composition"
+  );
+});
+
+test("CSL Live Preview boundary: selectionOverlaps uses half-open interval [from, to)", () => {
+  const from = 10;
+  const to = 20;
+
+  // Cursor before citation (pos 9) -> no overlap
+  assert.equal(selectionOverlaps({ ranges: [{ from: 9, to: 9 }] }, from, to), false);
+
+  // Cursor at start of citation (pos 10) -> overlaps (reveal)
+  assert.equal(selectionOverlaps({ ranges: [{ from: 10, to: 10 }] }, from, to), true);
+
+  // Cursor inside citation (pos 15) -> overlaps (reveal)
+  assert.equal(selectionOverlaps({ ranges: [{ from: 15, to: 15 }] }, from, to), true);
+
+  // Cursor at end / in trailing single space (pos 20) -> MUST NOT overlap (folded!)
+  // If an inclusive interval (range.from <= to && range.to >= from) were used,
+  // pos 20 would return true, unfolding the citation and breaking simultaneous rendering.
+  assert.equal(selectionOverlaps({ ranges: [{ from: 20, to: 20 }] }, from, to), false);
+
+  // Cursor after citation (pos 21) -> no overlap
+  assert.equal(selectionOverlaps({ ranges: [{ from: 21, to: 21 }] }, from, to), false);
 });

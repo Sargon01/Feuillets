@@ -21,8 +21,16 @@ import type {
   CslHostReadySnapshot,
   CslHostSnapshot,
 } from "../services/csl-citation-host.js";
-import type { RenderedCitation } from "../api/citation-contract.js";
+import type {
+  CitationClusterInput,
+  CitationItemInput,
+  RenderedCitation,
+} from "../api/citation-contract.js";
 import { renderCitationNodes } from "../services/citation-render-nodes.js";
+import {
+  parsePandocCitationDocument,
+  type ParsedPandocCitationDocument,
+} from "../services/pandoc-citation-parser.js";
 
 /** Re-exported for existing callers (main.ts, tests): the synchronous cache
  * and view registry this module registers into now live in
@@ -115,6 +123,7 @@ interface WidgetTypeInstance {
   eq(other: unknown): boolean;
   toDOM(view: EditorViewInstance): HTMLElement;
   ignoreEvent(event?: Event): boolean;
+  destroy?(dom: HTMLElement): void;
 }
 interface WidgetTypeStatic {
   new (...args: unknown[]): WidgetTypeInstance;
@@ -257,10 +266,27 @@ function getDocumentSource(doc: EditorDocLike): string {
   return "";
 }
 
-/** Exported for reuse: true when selection overlaps `[from, to]`. */
+/**
+ * Exported for reuse: true when selection overlaps the half-open range `[from, to)`.
+ *
+ * For a collapsed cursor (range.from === range.to):
+ *   overlaps if position >= from && position < to.
+ *   (position === from is inside, position === to is outside).
+ *
+ * For a non-collapsed selection (range.from !== range.to):
+ *   overlaps if range.from < to && range.to > from.
+ *   (adjacent selections [selFrom, from) or [to, selTo) do not overlap).
+ */
 export function selectionOverlaps(selection: EditorSelectionLike, from: number, to: number): boolean {
+  if (!selection?.ranges || from >= to) return false;
   for (const range of selection.ranges) {
-    if (range.from <= to && range.to >= from) return true;
+    const selFrom = Math.min(range.from, range.to);
+    const selTo = Math.max(range.from, range.to);
+    if (selFrom === selTo) {
+      if (selFrom >= from && selFrom < to) return true;
+    } else {
+      if (selFrom < to && selTo > from) return true;
+    }
   }
   return false;
 }
@@ -327,6 +353,57 @@ function buildLegacyDecorations(view: EditorViewInstance, getSettings: () => Feu
   return { decorations: DecorationTyped.set(decos, true), bibliographyPath: normalizedPath };
 }
 
+/**
+ * Compares two CitationItemInputs for semantic equality (ignoring source positions).
+ */
+export function areCitationItemsSemanticallyEqual(
+  a: CitationItemInput,
+  b: CitationItemInput
+): boolean {
+  if (a.id !== b.id) return false;
+  if ((a.prefix ?? "") !== (b.prefix ?? "")) return false;
+  if ((a.suffix ?? "") !== (b.suffix ?? "")) return false;
+  if ((a.locator ?? "") !== (b.locator ?? "")) return false;
+  if ((a.label ?? "") !== (b.label ?? "")) return false;
+  const aMode = a.mode ?? "normal";
+  const bMode = b.mode ?? "normal";
+  if (aMode !== bMode) return false;
+  return true;
+}
+
+/**
+ * Compares two CitationClusterInputs for semantic equality (ignoring cluster IDs).
+ */
+export function areCitationClustersSemanticallyEqual(
+  a: CitationClusterInput,
+  b: CitationClusterInput
+): boolean {
+  if (a.noteIndex !== b.noteIndex) return false;
+  if (a.items.length !== b.items.length) return false;
+  for (let i = 0; i < a.items.length; i++) {
+    if (!areCitationItemsSemanticallyEqual(a.items[i], b.items[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Compares two sequences of CitationClusterInputs for semantic equality (same count, same order, same items).
+ */
+export function areCitationSequencesSemanticallyEqual(
+  a: readonly CitationClusterInput[],
+  b: readonly CitationClusterInput[]
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (!areCitationClustersSemanticallyEqual(a[i], b[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
 let nextLivePreviewViewSeq = 1;
 
 /**
@@ -351,6 +428,9 @@ export function createPandocCitationLivePreviewExtension(
       private currentFilePath: string | null = null;
       private readySnapshot: CslHostReadySnapshot | null = null;
       private readySource: string | null = null;
+      private lastDocSource: string | null = null;
+      private currentDocSource: string | null = null;
+      private currentParsed: ParsedPandocCitationDocument | null = null;
       private requestGeneration = 0;
       private debounceTimer: number | null = null;
       private unsubscribeHostInvalidation: (() => void) | null = null;
@@ -359,6 +439,7 @@ export function createPandocCitationLivePreviewExtension(
       constructor(view: EditorViewInstance) {
         this.view = view;
         this.decorations = DecorationTyped?.none ?? [];
+        this.lastDocSource = getDocumentSource(view.state?.doc);
         this.ensureHostSubscription();
         this.rebuild();
       }
@@ -380,9 +461,35 @@ export function createPandocCitationLivePreviewExtension(
           const currentDoc = getDocumentSource(this.view.state.doc);
           const docTextChanged =
             update.docChanged === true ||
-            (this.readySource !== null && currentDoc !== this.readySource);
+            (this.lastDocSource !== null && currentDoc !== this.lastDocSource);
+
           if (docTextChanged) {
-            this.scheduleCslRender(CSL_LIVE_PREVIEW_DEBOUNCE_MS);
+            this.lastDocSource = currentDoc;
+            if (this.currentDocSource !== currentDoc) {
+              this.currentDocSource = currentDoc;
+              this.currentParsed = parsePandocCitationDocument(currentDoc);
+            }
+
+            const canReuseSnapshot =
+              this.readySnapshot !== null &&
+              this.currentParsed !== null &&
+              areCitationSequencesSemanticallyEqual(
+                this.currentParsed.clusters,
+                this.readySnapshot.parsedDocument.clusters
+              );
+
+            if (canReuseSnapshot) {
+              // Pure prose change: clusters are semantically identical.
+              // Keep visual decorations stable at the new offsets immediately without calling Host.
+              if (this.debounceTimer !== null) {
+                window.clearTimeout(this.debounceTimer);
+                this.debounceTimer = null;
+              }
+            } else {
+              // Citation structure changed (or no ready snapshot yet):
+              // Debounce whole-document CSL render through Host.
+              this.scheduleCslRender(CSL_LIVE_PREVIEW_DEBOUNCE_MS);
+            }
           }
           this.rebuild();
         } else {
@@ -414,6 +521,9 @@ export function createPandocCitationLivePreviewExtension(
         this.currentFilePath = null;
         this.readySnapshot = null;
         this.readySource = null;
+        this.lastDocSource = null;
+        this.currentDocSource = null;
+        this.currentParsed = null;
       }
 
       private ensureHostSubscription(): CslCitationHost | null {
@@ -435,6 +545,9 @@ export function createPandocCitationLivePreviewExtension(
         ) {
           this.readySnapshot = null;
           this.readySource = null;
+          this.lastDocSource = null;
+          this.currentDocSource = null;
+          this.currentParsed = null;
           this.scheduleCslRender(0);
         }
       }
@@ -454,6 +567,9 @@ export function createPandocCitationLivePreviewExtension(
         this.currentFilePath = null;
         this.readySnapshot = null;
         this.readySource = null;
+        this.lastDocSource = null;
+        this.currentDocSource = null;
+        this.currentParsed = null;
       }
 
       private scheduleCslRender(delayMs: number): void {
@@ -471,6 +587,8 @@ export function createPandocCitationLivePreviewExtension(
           if (!host) {
             this.readySnapshot = null;
             this.readySource = null;
+            this.currentDocSource = null;
+            this.currentParsed = null;
             this.decorations = DecorationTyped.none;
             try {
               this.view.dispatch({});
@@ -488,6 +606,8 @@ export function createPandocCitationLivePreviewExtension(
           if (!projectRoot) {
             this.readySnapshot = null;
             this.readySource = null;
+            this.currentDocSource = null;
+            this.currentParsed = null;
             this.decorations = DecorationTyped.none;
             try {
               this.view.dispatch({});
@@ -514,6 +634,8 @@ export function createPandocCitationLivePreviewExtension(
             }
             this.readySnapshot = null;
             this.readySource = null;
+            this.currentDocSource = null;
+            this.currentParsed = null;
             this.decorations = DecorationTyped.none;
             try {
               this.view.dispatch({});
@@ -527,23 +649,37 @@ export function createPandocCitationLivePreviewExtension(
             return;
           }
 
-          const currentDoc = getDocumentSource(this.view.state.doc);
-          if (currentDoc !== source) {
-            return;
-          }
-
           if (snapshot.status === "ready") {
-            this.readySnapshot = snapshot;
-            this.readySource = source;
-            this.decorations = this.buildCslDecorations();
-            try {
-              this.view.dispatch({});
-            } catch {
-              // Ignore if view was closed
+            const currentDoc = getDocumentSource(this.view.state.doc);
+            if (this.currentDocSource !== currentDoc) {
+              this.currentDocSource = currentDoc;
+              this.currentParsed = parsePandocCitationDocument(currentDoc);
+            }
+            const currentParsed = this.currentParsed;
+
+            const matchesSource = currentDoc === source;
+            const matchesSemantics =
+              currentParsed !== null &&
+              areCitationSequencesSemanticallyEqual(
+                currentParsed.clusters,
+                snapshot.parsedDocument.clusters
+              );
+
+            if (matchesSource || matchesSemantics) {
+              this.readySnapshot = snapshot;
+              this.readySource = source;
+              this.decorations = this.buildCslDecorations();
+              try {
+                this.view.dispatch({});
+              } catch {
+                // Ignore if view was closed
+              }
             }
           } else {
             this.readySnapshot = null;
             this.readySource = null;
+            this.currentDocSource = null;
+            this.currentParsed = null;
             this.decorations = DecorationTyped.none;
             try {
               this.view.dispatch({});
@@ -567,18 +703,42 @@ export function createPandocCitationLivePreviewExtension(
           return DecorationTyped?.none ?? [];
         }
 
+        if (!this.readySnapshot) {
+          return DecorationTyped.none;
+        }
+
         const currentDoc = getDocumentSource(this.view.state.doc);
-        if (!this.readySnapshot || this.readySource !== currentDoc) {
+        if (this.currentDocSource !== currentDoc) {
+          this.currentDocSource = currentDoc;
+          this.currentParsed = parsePandocCitationDocument(currentDoc);
+        }
+
+        const parsed = this.currentParsed;
+        if (!parsed) {
+          return DecorationTyped.none;
+        }
+
+        const isExactSourceMatch = this.readySource !== null && this.readySource === currentDoc;
+        const isSemanticallyEqual =
+          isExactSourceMatch ||
+          areCitationSequencesSemanticallyEqual(
+            parsed.clusters,
+            this.readySnapshot.parsedDocument.clusters
+          );
+
+        if (!isSemanticallyEqual) {
           return DecorationTyped.none;
         }
 
         const decos: DecorationRange[] = [];
         const visibleRanges = this.view.visibleRanges;
         const selection = this.view.state.selection;
-        const occurrences = this.readySnapshot.parsedDocument.occurrences;
+        const occurrences = parsed.occurrences;
+        const oldOccurrences = this.readySnapshot.parsedDocument.occurrences;
         const citationByClusterId = this.readySnapshot.citationByClusterId;
 
-        for (const occ of occurrences) {
+        for (let i = 0; i < occurrences.length; i++) {
+          const occ = occurrences[i];
           if (occ.from >= occ.to) continue;
 
           let isVisible = false;
@@ -592,12 +752,20 @@ export function createPandocCitationLivePreviewExtension(
 
           if (selectionOverlaps(selection, occ.from, occ.to)) continue;
 
-          const citation = citationByClusterId.get(occ.clusterId);
-          if (!citation) continue;
+          // Retrieve rendered citation by corresponding cluster order
+          const oldClusterId = oldOccurrences[i]?.clusterId;
+          const oldCitation = oldClusterId ? citationByClusterId.get(oldClusterId) : undefined;
+          if (!oldCitation) continue;
+
+          // Project rendered citation to the current occurrence clusterId
+          const projectedCitation: RenderedCitation =
+            oldCitation.clusterId === occ.clusterId
+              ? oldCitation
+              : { ...oldCitation, clusterId: occ.clusterId };
 
           decos.push(
             DecorationTyped.replace({
-              widget: new CslCitationWidget(occ.clusterId, citation),
+              widget: new CslCitationWidget(occ.clusterId, projectedCitation),
               inclusive: false,
             }).range(occ.from, occ.to)
           );

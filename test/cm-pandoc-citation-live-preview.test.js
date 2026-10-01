@@ -824,3 +824,66 @@ test("source file: cm-pandoc-citation-live-preview.ts contains 0 NUL byte", () =
   const data = fs.readFileSync(filePath);
   assert.ok(!data.includes(0), "the source file must be plain UTF-8 text, never a literal NUL byte");
 });
+
+test("Live Preview author-date: two neighboring citations with single space both fold when cursor is in the space", async () => {
+  const f = createLivePreviewFixture();
+  f.bibA.content += "\n@article{doe2023, author = {Doe, Jane}, year = {2023}}";
+  f.bibA.stat = { mtime: 2000, size: f.bibA.content.length };
+
+  const text = "[@smith2024] [@doe2023]";
+  const smithFrom = text.indexOf("[@smith2024]");
+  const smithTo = smithFrom + "[@smith2024]".length;
+  const spacePos = text.indexOf(" ");
+  const doeFrom = text.indexOf("[@doe2023]");
+  const doeTo = doeFrom + "[@doe2023]".length;
+  assert.equal(spacePos, smithTo, "space must immediately follow first citation");
+
+  const PluginClass = buildPlugin(() => f.settings);
+
+  // 1. Cursor in the single space
+  const spaceView = makeFakeView({
+    text,
+    file: f.docA,
+    app: f.app,
+    selection: [{ from: spacePos, to: spacePos }],
+  });
+  const instance = new PluginClass(spaceView);
+  await flush();
+  instance.update({ view: spaceView });
+
+  assert.equal(instance.decorations.length, 2, "both citations fold when cursor is in the space");
+  assert.equal(instance.decorations[0].widget.text, "(Smith, 2024)");
+  assert.equal(instance.decorations[1].widget.text, "(Doe, 2023)");
+
+  // 2. Cursor inside first citation
+  const inside1View = makeFakeView({
+    text,
+    file: f.docA,
+    app: f.app,
+    selection: [{ from: smithFrom + 3, to: smithFrom + 3 }],
+  });
+  instance.update({ view: inside1View });
+  assert.equal(instance.decorations.length, 1, "only second citation folds when cursor is inside first");
+  assert.equal(instance.decorations[0].widget.text, "(Doe, 2023)");
+
+  // 3. Cursor at start of second citation
+  const inside2View = makeFakeView({
+    text,
+    file: f.docA,
+    app: f.app,
+    selection: [{ from: doeFrom, to: doeFrom }],
+  });
+  instance.update({ view: inside2View });
+  assert.equal(instance.decorations.length, 1, "only first citation folds when cursor is at start of second");
+  assert.equal(instance.decorations[0].widget.text, "(Smith, 2024)");
+
+  // 4. Cursor after second citation
+  const afterView = makeFakeView({
+    text,
+    file: f.docA,
+    app: f.app,
+    selection: [{ from: doeTo, to: doeTo }],
+  });
+  instance.update({ view: afterView });
+  assert.equal(instance.decorations.length, 2, "both fold when cursor is after second citation");
+});

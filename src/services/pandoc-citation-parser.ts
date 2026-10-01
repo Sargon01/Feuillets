@@ -406,7 +406,9 @@ export function parsePandocCitationDocument(
       // The outer brackets belong to the markdown link, not to a citation cluster.
       // Do not treat [text] as a citation cluster; advance pos into the link text
       // so citations located in the link text (e.g. [see @doe99](url)) are parsed normally.
-      let afterClose = closeIdx + 1;
+      const immediateNext = closeIdx + 1;
+      // Preserve whitespace-tolerant inline links, but require adjacent reference brackets.
+      let afterClose = immediateNext;
       while (
         afterClose < masked.length &&
         (masked[afterClose] === " " || masked[afterClose] === "\t")
@@ -416,7 +418,7 @@ export function parsePandocCitationDocument(
 
       if (
         afterClose < masked.length &&
-        (masked[afterClose] === "(" || masked[afterClose] === "[")
+        (masked[afterClose] === "(" || masked[immediateNext] === "[")
       ) {
         pos++;
         continue;

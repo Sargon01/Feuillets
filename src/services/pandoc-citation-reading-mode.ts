@@ -1,11 +1,8 @@
 /**
  * Reading Mode rendering of Pandoc citekeys, via registerMarkdownPostProcessor().
  *
- * Same recognition and formatting as Live Preview and the plain-text rewrite
- * (splitPandocCitationSegments(), pandoc-citation-preview.ts), same notice
- * markup (buildCitationNoticeElement()) — so all three surfaces show exactly
- * the same citation text and the same bibliographic notice, and can never
- * silently disagree with each other.
+ * Legacy author-date uses the shared catalog and tooltip renderer. Native CSL
+ * uses the same complete-document host, parser and safe AST as Live Preview.
  *
  * `ctx.sourcePath` resolves the file THIS post-processor call is rendering —
  * never a globally active file — so two Reading Mode panes open on different
@@ -14,8 +11,13 @@
  */
 
 import { MarkdownRenderChild, MarkdownView, normalizePath, TFile, type App, type MarkdownPostProcessorContext } from "obsidian";
+import { CslCitationHost, type CslHostInvalidation, type CslHostReadySnapshot } from "./csl-citation-host.js";
+import { renderCitationNodes } from "./citation-render-nodes.js";
+import { getProjectFolder } from "./folder-structure.js";
+import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
 import {
   buildPandocCitationElement,
+  createPandocCitationSpan,
   disposePandocCitationElement,
   loadPandocCitationCatalog,
   resolvePandocCitationPreviewForFile,
@@ -26,6 +28,8 @@ import {
 export type PandocCitationReadingModePlugin = {
   app: App;
   settings: FeuilletsSettings;
+  cslCitationHost?: CslCitationHost | null;
+  register?(cleanup: () => void): void;
   registerMarkdownPostProcessor(
     postProcessor: (el: HTMLElement, ctx: MarkdownPostProcessorContext) => Promise<void> | void,
     sortOrder?: number
@@ -141,11 +145,26 @@ class PandocCitationCleanupChild extends MarkdownRenderChild {
  * the raw Pandoc syntax, exactly like Live Preview's Source mode.
  */
 export function registerPandocCitationReadingMode(plugin: PandocCitationReadingModePlugin): void {
+  const coordinator = plugin.cslCitationHost ? new ReadingCslCoordinator(plugin, plugin.cslCitationHost) : null;
+  if (coordinator) {
+    readingCoordinators.set(plugin, coordinator);
+    plugin.register?.(() => coordinator.dispose());
+  }
   plugin.registerMarkdownPostProcessor(async (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
+    if (typeof ctx.sourcePath !== "string" || !ctx.sourcePath.trim()) return;
     const file = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
-    if (!(file instanceof TFile)) return;
+    if (!(file instanceof TFile)) {
+      coordinator?.disposeContext(ctx);
+      return;
+    }
 
     const { style, bibliographyPath } = resolvePandocCitationPreviewForFile(plugin.app, plugin.settings, file);
+    if (style === "csl") {
+      if (coordinator && !coordinator.acceptContext(el, ctx)) return;
+      await coordinator?.process(el, ctx, file);
+      return;
+    }
+    coordinator?.disposeContext(ctx);
     if (style !== "author-date") return;
     const catalog = await loadPandocCitationCatalog(plugin.app, style, bibliographyPath);
     if (!catalog) return;
@@ -156,21 +175,18 @@ export function registerPandocCitationReadingMode(plugin: PandocCitationReadingM
 }
 
 /**
- * Re-renders every currently open Reading Mode view whose resolved bibliography
- * is `bibFile` — never a view using a different one. Reading Mode has no
- * standing per-view subscription to unregister (unlike Live Preview's
- * ViewPlugin): each call freshly re-resolves every open markdown leaf's own
- * scope against `bibFile`'s path, so there is nothing to leak and nothing to
- * clean up on close.
- *
- * Call from a vault "modify" event (see main.ts), registered in the plugin's
- * own lifecycle so it is unregistered automatically on unload.
+ * One coalesced refresh path for resource events, host invalidations and
+ * settings transitions. A global refresh includes "off" views so transitions
+ * out of CSL remove previously rendered markup. Resource refreshes resolve
+ * each view's own scope; targeted host refreshes use its logical document ID.
  */
 export function refreshPandocCitationReadingModeViews(
   plugin: PandocCitationReadingModeRefreshPlugin,
-  bibFile: TFile
+  resourceFile?: TFile,
+  invalidation?: CslHostInvalidation
 ): void {
-  const normalizedBibPath = normalizePath(bibFile.path);
+  const coordinator = readingCoordinators.get(plugin);
+  const resourcePath = resourceFile ? normalizePath(resourceFile.path) : null;
   for (const leaf of plugin.app.workspace.getLeavesOfType("markdown")) {
     if (!(leaf.view instanceof MarkdownView)) continue;
     const file = leaf.view.file;
@@ -180,9 +196,281 @@ export function refreshPandocCitationReadingModeViews(
     if (typeof leaf.view.getMode === "function" && leaf.view.getMode() !== "preview") continue;
 
     const { style, bibliographyPath } = resolvePandocCitationPreviewForFile(plugin.app, plugin.settings, file);
-    if (style === "off" || !bibliographyPath) continue;
-    if (normalizePath(bibliographyPath) !== normalizedBibPath) continue;
+    if (resourcePath) {
+      if (style === "off") continue;
+      if (style === "author-date" && normalizePath(bibliographyPath) !== resourcePath) continue;
+      if (style === "csl") {
+        const project = getProjectFolder(plugin.app, plugin.settings);
+        if (!project) continue;
+        const resources = resolveWorkspaceCitationResources(plugin.app, plugin.settings, project, file);
+        const paths = [resources.bibliography, resources.csl].map((resource) =>
+          resource.file?.path ?? (resource.researchFolder && resource.relativePath
+            ? `${resource.researchFolder.path}/${resource.relativePath}` : "")
+        );
+        if (!paths.some((path) => normalizePath(path) === resourcePath)) continue;
+      }
+    }
+    if (invalidation?.documentIds && !coordinator?.isAffected(leaf.view, invalidation.documentIds)) continue;
+    coordinator?.invalidatePath(file.path);
+    queueReadingRerender(plugin, leaf.view);
+  }
+}
 
-    leaf.view.previewMode?.rerender(true);
+const readingCoordinators = new WeakMap<PandocCitationReadingModeRefreshPlugin, ReadingCslCoordinator>();
+const queuedReadingViews = new WeakMap<PandocCitationReadingModeRefreshPlugin, Set<MarkdownView>>();
+
+/** One refresh queue for legacy bibliography events, host events and settings. */
+function queueReadingRerender(plugin: PandocCitationReadingModeRefreshPlugin, view: MarkdownView): void {
+  let queued = queuedReadingViews.get(plugin);
+  if (!queued) {
+    queued = new Set();
+    queuedReadingViews.set(plugin, queued);
+  }
+  if (queued.has(view)) return;
+  queued.add(view);
+  queueMicrotask(() => {
+    if (!queued.delete(view)) return;
+    if (!plugin.app.workspace.getLeavesOfType("markdown").some((leaf) => leaf.view === view)) return;
+    if (view.getMode() === "preview") view.previewMode?.rerender(true);
+  });
+}
+
+interface ReadingCslRender {
+  expectedSource: string;
+  promise: Promise<{ source: string; snapshot: CslHostReadySnapshot } | null>;
+}
+
+interface ReadingCslSession {
+  contextId: string;
+  documentId: string;
+  path: string;
+  ownerDocument: Document;
+  sections: Map<HTMLElement, ReadingCslCleanupChild>;
+  render: ReadingCslRender | null;
+}
+
+class ReadingCslCleanupChild extends MarkdownRenderChild {
+  active = true;
+
+  constructor(container: HTMLElement, private readonly release: () => void) {
+    super(container);
+  }
+
+  onunload(): void {
+    if (!this.active) return;
+    this.active = false;
+    this.release();
+  }
+}
+
+/** Public renderer-context coordination; provider sessions remain Host-owned. */
+class ReadingCslCoordinator {
+  private readonly sessions = new Map<string, ReadingCslSession>();
+  private readonly unsubscribe: () => void;
+  private disposed = false;
+
+  constructor(private readonly plugin: PandocCitationReadingModePlugin, private readonly host: CslCitationHost) {
+    this.unsubscribe = host.onInvalidation((event) => {
+      for (const session of this.sessions.values()) {
+        if (event.documentIds === null || event.documentIds.has(session.documentId)) this.invalidateSession(session);
+      }
+      refreshPandocCitationReadingModeViews(plugin, undefined, event);
+    });
+  }
+
+  private drop(contextId: string): void {
+    const session = this.sessions.get(contextId);
+    if (!session) return;
+    session.render = null;
+    this.sessions.delete(contextId);
+    this.host.disposeDocument(session.documentId);
+  }
+
+  isAffected(view: MarkdownView, ids: ReadonlySet<string>): boolean {
+    const path = normalizePath(view.file?.path ?? "");
+    // File paths select views to refresh, never sessions to share. All panes
+    // of an affected saved file use the same resolved resources/settings.
+    return [...this.sessions.values()].some((session) => session.path === path && ids.has(session.documentId));
+  }
+
+  private invalidateSession(session: ReadingCslSession): void {
+    session.render = null;
+    this.host.disposeDocument(session.documentId);
+  }
+
+  invalidatePath(path: string): void {
+    const normalized = normalizePath(path);
+    for (const session of this.sessions.values()) {
+      if (session.path === normalized) this.invalidateSession(session);
+    }
+  }
+
+  acceptContext(el: HTMLElement, ctx: MarkdownPostProcessorContext): boolean {
+    if (this.disposed || typeof ctx.docId !== "string" || !ctx.docId.trim()
+      || typeof ctx.sourcePath !== "string" || !ctx.sourcePath.trim()) return false;
+    const session = this.sessions.get(ctx.docId);
+    if (!session) return true;
+    if (session.ownerDocument !== el.ownerDocument) return false;
+    if (session.path !== normalizePath(ctx.sourcePath)) this.drop(ctx.docId);
+    return true;
+  }
+
+  disposeContext(ctx: MarkdownPostProcessorContext): void {
+    this.drop(ctx.docId);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.unsubscribe();
+    queuedReadingViews.get(this.plugin)?.clear();
+    for (const contextId of this.sessions.keys()) this.drop(contextId);
+    readingCoordinators.delete(this.plugin);
+  }
+
+  async process(el: HTMLElement, ctx: MarkdownPostProcessorContext, file: TFile): Promise<void> {
+    if (this.disposed) return;
+    const info = ctx.getSectionInfo?.(el);
+    const project = getProjectFolder(this.plugin.app, this.plugin.settings);
+    if (!info || !project) return;
+
+    const contextId = ctx.docId;
+    const path = normalizePath(ctx.sourcePath);
+    let session = this.sessions.get(contextId);
+    if (!session) {
+      session = { contextId, documentId: `reading-mode:${contextId}:${path}`, path,
+        ownerDocument: el.ownerDocument, sections: new Map(), render: null };
+      this.sessions.set(contextId, session);
+    }
+    const currentSession = session;
+    let child = session.sections.get(el);
+    if (!child) {
+      child = new ReadingCslCleanupChild(el, () => {
+        currentSession.sections.delete(el);
+        if (currentSession.sections.size === 0 && this.sessions.get(contextId) === currentSession) this.drop(contextId);
+      });
+      session.sections.set(el, child);
+      ctx.addChild(child);
+    }
+
+    if (!session.render || session.render.expectedSource !== info.text) {
+      const render: ReadingCslRender = { expectedSource: info.text, promise: Promise.resolve(null) };
+      session.render = render;
+      render.promise = (async () => {
+        try {
+          const source = await this.plugin.app.vault.read(file);
+          if (source !== render.expectedSource || session.render !== render || this.disposed) return null;
+          const snapshot = await this.host.renderDocument(session.documentId, source, project, file, {
+            includeBibliography: false,
+          });
+          if (snapshot.status !== "ready" || snapshot.result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) return null;
+          const occurrences = snapshot.parsedDocument.occurrences;
+          if (snapshot.result.citations.length !== occurrences.length
+            || !occurrences.every((occurrence) => snapshot.citationByClusterId.has(occurrence.clusterId))) return null;
+          return { source, snapshot };
+        } catch {
+          return null;
+        }
+      })();
+    }
+    const render = session.render;
+    const result = await render.promise;
+    if (!result || !child.active || this.disposed || session.render !== render || this.sessions.get(contextId) !== session) return;
+    if (ctx.docId !== contextId || typeof ctx.sourcePath !== "string"
+      || normalizePath(ctx.sourcePath) !== path || file.path !== path) return;
+    // Re-read section metadata immediately before mapping; never trust ranges
+    // captured before an asynchronous Vault/provider operation.
+    const currentInfo = ctx.getSectionInfo(el);
+    if (!currentInfo || currentInfo.text !== result.source) return;
+    wrapCslReadingSection(el, result.source, currentInfo.lineStart, currentInfo.lineEnd, result.snapshot);
+  }
+}
+
+/**
+ * Match complete raw syntax in a verified source section, including literal
+ * copies in protected contexts. Equal counts and source/DOM order are required;
+ * missing, split or reordered text fails closed. No local cluster IDs are made.
+ */
+function wrapCslReadingSection(
+  root: HTMLElement, source: string, lineStart: number, lineEnd: number, snapshot: CslHostReadySnapshot
+): void {
+  if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd) || lineStart < 0 || lineEnd < lineStart) return;
+  const starts = [0];
+  for (let i = 0; i < source.length; i++) if (source[i] === "\n") starts.push(i + 1);
+  if (lineEnd >= starts.length) return;
+  const from = starts[lineStart];
+  const to = lineEnd + 1 < starts.length ? starts[lineEnd + 1] : source.length;
+  const section = source.slice(from, to);
+  // Native inline footnotes can move text outside its source section/order.
+  if (section.includes("^[") || /^\s*\[\^[^\]]+\]:/m.test(section)) return;
+  const occurrences = snapshot.parsedDocument.occurrences.filter((occ) => occ.from >= from && occ.to <= to);
+  const texts: { node: Text; protected: boolean }[] = [];
+  const isProtected = (element: Element): boolean => PROTECTED_TAGS.has(element.tagName)
+    || ["internal-embed", "feuillets-csl-citation", "footnotes", "callout"].some((name) => element.classList.contains(name));
+  for (let ancestor = root.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (isProtected(ancestor)) return;
+  }
+  const collect = (node: Node, protectedContext: boolean): void => {
+    if (node.nodeType === 3) {
+      texts.push({ node: node as Text, protected: protectedContext });
+    } else if (node.nodeType === 1) {
+      const element = node as Element;
+      const blocked = protectedContext || isProtected(element);
+      for (const child of Array.from(node.childNodes)) collect(child, blocked);
+    }
+  };
+  collect(root, false);
+  const replacements: { node: Text; index: number; from: number; raw: string; clusterId: string; order: number }[] = [];
+  for (const raw of new Set(occurrences.map((occ) => occ.raw))) {
+    const sourcePositions: number[] = [];
+    for (let index = section.indexOf(raw); index >= 0; index = section.indexOf(raw, index + raw.length)) {
+      sourcePositions.push(from + index);
+    }
+    const matches: { node: Text; index: number; protected: boolean; order: number }[] = [];
+    texts.forEach((text, order) => {
+      const value = text.node.nodeValue ?? "";
+      for (let index = value.indexOf(raw); index >= 0; index = value.indexOf(raw, index + raw.length)) {
+        matches.push({ ...text, index, order });
+      }
+    });
+    if (sourcePositions.length !== matches.length) continue;
+    for (const occ of occurrences.filter((occ) => occ.raw === raw)) {
+      const match = matches[sourcePositions.indexOf(occ.from)];
+      if (!match) return;
+      if (!match.protected) replacements.push({ ...match, raw, from: occ.from, clusterId: occ.clusterId });
+    }
+  }
+  replacements.sort((a, b) => a.from - b.from);
+  for (let i = 1; i < replacements.length; i++) {
+    const previous = replacements[i - 1];
+    const current = replacements[i];
+    if (previous.order > current.order || (previous.order === current.order && previous.index + previous.raw.length > current.index)) return;
+  }
+  // Build every AST before touching the section so failures cannot partially
+  // rewrite the fragment. The host has already validated the document result.
+  const built = replacements.map((replacement) => {
+    const citation = snapshot.citationByClusterId.get(replacement.clusterId);
+    if (!citation) return null;
+    const doc = replacement.node.ownerDocument;
+    const span = createPandocCitationSpan(doc, "feuillets-csl-citation");
+    span.setAttribute("data-cluster-id", replacement.clusterId);
+    renderCitationNodes(citation.content, span, doc);
+    return { ...replacement, span };
+  });
+  if (built.some((replacement) => replacement === null)) return;
+  for (const text of texts) {
+    const parts = built.filter((part): part is NonNullable<typeof part> => part !== null && part.node === text.node);
+    if (!parts.length) continue;
+    const parent = text.node.parentNode;
+    if (!parent) continue;
+    const doc = text.node.ownerDocument;
+    const value = text.node.nodeValue ?? "";
+    let offset = 0;
+    for (const part of parts) {
+      parent.insertBefore(doc.createTextNode(value.slice(offset, part.index)), text.node);
+      parent.insertBefore(part.span, text.node);
+      offset = part.index + part.raw.length;
+    }
+    parent.insertBefore(doc.createTextNode(value.slice(offset)), text.node);
+    parent.removeChild(text.node);
   }
 }

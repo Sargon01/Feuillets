@@ -580,7 +580,7 @@ function fakeReadingModeLeaf({ file, mode, rerenderCalls }) {
   return { view };
 }
 
-test("Reading Mode: refreshPandocCitationReadingModeViews re-renders only the Reading leaves using the modified .bib", () => {
+test("Reading Mode: refreshPandocCitationReadingModeViews re-renders only the Reading leaves using the modified .bib", async () => {
   const f = createReadingModeFixture();
 
   const rerenderA = [];
@@ -599,6 +599,7 @@ test("Reading Mode: refreshPandocCitationReadingModeViews re-renders only the Re
   const plugin = { app, settings: f.settings };
 
   refreshPandocCitationReadingModeViews(plugin, f.bibA);
+  await Promise.resolve();
 
   assert.deepEqual(rerenderA, [true], "Work-A's Reading Mode view, using the modified .bib, is refreshed");
   assert.deepEqual(rerenderAExtra, [], "Work-A-Extra's view, using a different .bib, is never refreshed");
