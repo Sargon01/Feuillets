@@ -566,9 +566,15 @@ let tooltipIdCounter = 0;
  * (`defaultView === null`, not a real rendering scenario) — the same
  * (main-window) behavior this whole mechanism had before this fix.
  */
-function createPandocCitationSpan(ownerDocument: Document, cls: string): HTMLElement {
+export function createPandocCitationSpan(ownerDocument: Document, cls: string): HTMLElement {
   const win = ownerDocument.defaultView;
-  return win ? win.createSpan({ cls }) : createSpan({ cls });
+  if (win) {
+    return win.createSpan({ cls });
+  }
+  const doc = ownerDocument as { createElement(tag: string): HTMLElement };
+  const span = doc.createElement("span");
+  if (cls) span.className = cls;
+  return span;
 }
 
 /**
@@ -1044,7 +1050,7 @@ export function loadPandocCitationCatalog(
   style: PandocCitationPreviewStyle,
   bibliographyPath: string
 ): Promise<PandocCitationCatalog | null> {
-  if (style === "off" || !bibliographyPath.trim()) {
+  if (style === "off" || style === "csl" || !bibliographyPath.trim()) {
     return Promise.resolve(null);
   }
 
@@ -1134,6 +1140,19 @@ function wakeCatalogViews(path: string): void {
   }
 }
 
+/** Dispatches an empty transaction to every registered view across all paths. */
+export function wakeAllPandocCitationCatalogViews(): void {
+  for (const views of viewsByPath.values()) {
+    for (const view of [...views]) {
+      try {
+        view.dispatch({});
+      } catch {
+        // Ignored: destroyed views may throw on dispatch
+      }
+    }
+  }
+}
+
 /**
  * Invalidates the synchronous snapshot for `bibFile` and wakes every view
  * currently registered for it — never views registered for a different
@@ -1161,6 +1180,10 @@ export function getSyncPandocCitationCatalog(
   style: PandocCitationPreviewStyle,
   bibliographyPath: string
 ): PandocCitationCatalog | null {
+  if (style === "off" || style === "csl" || !bibliographyPath.trim()) {
+    return null;
+  }
+
   const normalizedPath = normalizePath(bibliographyPath);
   const bibFile = app.vault.getAbstractFileByPath(normalizedPath);
   if (!(bibFile instanceof TFile)) {
@@ -1198,7 +1221,7 @@ export function getSyncPandocCitationCatalog(
  * (Aperçu) and the export pipeline — both want the plain author-date text, never
  * an interactive element.
  *
- * Returns immediately if style === "off" or bibliographyPath is empty.
+ * Returns immediately if style !== "author-date" or bibliographyPath is empty.
  * Returns silently on file not found or parse error (does not throw, does not modify DOM).
  */
 export async function applyPandocCitationPreview(
@@ -1207,6 +1230,7 @@ export async function applyPandocCitationPreview(
   style: PandocCitationPreviewStyle,
   bibliographyPath: string
 ): Promise<void> {
+  if (style === "off" || style === "csl" || !bibliographyPath.trim()) return;
   const catalog = await loadPandocCitationCatalog(app, style, bibliographyPath);
   if (!catalog) return;
 

@@ -710,6 +710,7 @@ export const fr = {
   "project.pandocCitationPreview.styleLabel": "Style d'aperçu",
   "project.pandocCitationPreview.styleOff": "Clés brutes",
   "project.pandocCitationPreview.styleAuthorDate": "Auteur-date",
+  "project.pandocCitationPreview.styleCsl": "CSL natif",
   "project.pandocCitationPreview.bibliographyLabel": "Bibliographie (.bib)",
   "project.pandocCitationPreview.cslLabel": "Style bibliographique (.csl)",
   "project.pandocCitationPreview.noFile": "Aucun fichier",

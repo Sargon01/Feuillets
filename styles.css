@@ -11841,3 +11841,7 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
   text-decoration: none;
   cursor: default;
 }
+
+.feuillets-csl-citation {
+  display: inline;
+}

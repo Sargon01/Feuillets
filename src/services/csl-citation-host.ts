@@ -110,12 +110,19 @@ export type CslHostSnapshot =
   | CslHostResourcesUnavailableSnapshot
   | CslHostEngineErrorSnapshot;
 
+export interface CslHostInvalidation {
+  documentIds: ReadonlySet<string> | null;
+}
+
+export type CslHostInvalidationListener = (event: CslHostInvalidation) => void;
+
 export interface RenderDocumentOptions {
   includeBibliography?: boolean;
   locale?: string;
 }
 
 interface HostDocumentSession {
+  provider: CitationEngineProvider;
   currentRevision: number;
   latestPendingRevision: number;
   latestReadySnapshot: CslHostReadySnapshot | null;
@@ -125,7 +132,8 @@ interface HostDocumentSession {
 
 export interface CslCitationHostOptions {
   app: App;
-  settings: FeuilletsSettings;
+  settings?: FeuilletsSettings;
+  getSettings?: () => FeuilletsSettings;
   citationRegistry: CitationEngineRegistry;
   providerId?: string;
 }
@@ -135,21 +143,65 @@ export interface CslCitationHostOptions {
  */
 export class CslCitationHost {
   private readonly app: App;
-  private readonly settings: FeuilletsSettings;
+  private readonly getSettings: () => FeuilletsSettings;
   private readonly registry: CitationEngineRegistry;
   private readonly providerId: string;
   private readonly sessions = new Map<string, HostDocumentSession>();
+  private readonly invalidationListeners = new Set<CslHostInvalidationListener>();
   private readonly unregisterRegistryListener: () => void;
 
   constructor(options: CslCitationHostOptions) {
     this.app = options.app;
-    this.settings = options.settings;
+    if (typeof options.getSettings === "function") {
+      this.getSettings = options.getSettings;
+    } else if (options.settings) {
+      const capturedSettings = options.settings;
+      this.getSettings = () => capturedSettings;
+    } else {
+      throw new Error("CslCitationHostOptions must provide getSettings or settings.");
+    }
     this.registry = options.citationRegistry;
     this.providerId = options.providerId ?? DEFAULT_CSL_PROVIDER_ID;
 
     this.unregisterRegistryListener = this.registry.onChange(() => {
       this.invalidateProvider();
     });
+  }
+
+  /**
+   * Subscribes to host invalidation events (provider or resource changes).
+   * Returns an unsubscribe function.
+   */
+  onInvalidation(listener: CslHostInvalidationListener): () => void {
+    this.invalidationListeners.add(listener);
+    return () => {
+      this.invalidationListeners.delete(listener);
+    };
+  }
+
+  private notifyInvalidation(event: CslHostInvalidation): void {
+    for (const listener of this.invalidationListeners) {
+      try {
+        listener(event);
+      } catch {
+        // Swallowed
+      }
+    }
+  }
+
+  /**
+   * Drops a session: retrieves the session, calls THAT session's provider.disposeDocument,
+   * swallows any errors, and removes the session from the host.
+   */
+  private dropSession(documentId: string): void {
+    const session = this.sessions.get(documentId);
+    if (!session) return;
+    this.sessions.delete(documentId);
+    try {
+      session.provider.disposeDocument(documentId);
+    } catch {
+      // Swallowed
+    }
   }
 
   /**
@@ -199,7 +251,7 @@ export class CslCitationHost {
 
     const resources = resolveWorkspaceCitationResources(
       this.app,
-      this.settings,
+      this.getSettings(),
       projectRoot,
       targetScope
     );
@@ -225,8 +277,14 @@ export class CslCitationHost {
     const cslVersion = `${cslFile.stat?.mtime ?? 0}:${cslFile.stat?.size ?? 0}`;
 
     let session = this.sessions.get(documentId);
+    if (session && session.provider !== provider) {
+      this.dropSession(documentId);
+      session = undefined;
+    }
+
     if (!session) {
       session = {
+        provider,
         currentRevision: 0,
         latestPendingRevision: 0,
         latestReadySnapshot: null,
@@ -359,9 +417,14 @@ export class CslCitationHost {
 
   /**
    * Invalidates provider cache across all sessions when citation provider changes.
+   * Disposes each tracked document through its owning provider and notifies subscribers.
    */
   invalidateProvider(): void {
-    this.sessions.clear();
+    const docIds = Array.from(this.sessions.keys());
+    for (const docId of docIds) {
+      this.dropSession(docId);
+    }
+    this.notifyInvalidation({ documentIds: null });
   }
 
   /**
@@ -369,40 +432,47 @@ export class CslCitationHost {
    */
   invalidateResource(normalizedPath: string): void {
     const norm = normalizePath(normalizedPath);
+    const affectedDocIds = new Set<string>();
     for (const [docId, session] of this.sessions) {
       if (session.usedResourcePaths.has(norm)) {
-        this.sessions.delete(docId);
+        affectedDocIds.add(docId);
       }
     }
+    for (const docId of affectedDocIds) {
+      this.dropSession(docId);
+    }
+    this.notifyInvalidation({ documentIds: affectedDocIds });
   }
 
   /**
    * Invalidates all resource caches across all sessions.
    */
   invalidateAllResources(): void {
-    this.sessions.clear();
+    const docIds = Array.from(this.sessions.keys());
+    for (const docId of docIds) {
+      this.dropSession(docId);
+    }
+    this.notifyInvalidation({ documentIds: null });
   }
 
   /**
    * Releases engine resources and cached state for a logical document session.
+   * Disposes only if the host actually tracks a session for documentId.
    */
   disposeDocument(documentId: string): void {
-    this.sessions.delete(documentId);
-    const provider = this.getProvider();
-    if (provider) {
-      try {
-        provider.disposeDocument(documentId);
-      } catch {
-        // Disposing must fail silently without disrupting caller
-      }
-    }
+    this.dropSession(documentId);
   }
 
   /**
-   * Disposes the host and unsubscribes all listeners.
+   * Disposes the host, unsubscribes all listeners, and disposes every tracked
+   * document session through its owning provider.
    */
   dispose(): void {
     this.unregisterRegistryListener();
-    this.sessions.clear();
+    const docIds = Array.from(this.sessions.keys());
+    for (const docId of docIds) {
+      this.dropSession(docId);
+    }
+    this.invalidationListeners.clear();
   }
 }

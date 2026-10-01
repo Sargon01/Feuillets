@@ -43,6 +43,7 @@ type ProjectModalsPlugin = {
   exportFeuilProject(path: string): Promise<boolean>;
   importFeuilProject(plan: FeuilProjectImportPlan, destinationRootPath: string): Promise<boolean>;
   flattenFiles(folder: TFolder): readonly (TFile | TFolder)[];
+  refreshCitationRendering?(): void;
 };
 
 /** Étiquette de version pour dupliquer un manuscrit (ex. "v1", "premier
@@ -734,10 +735,12 @@ export class ManageProjectsModal extends Modal {
       .addDropdown((d) => {
         d.addOption("off", t("project.pandocCitationPreview.styleOff"));
         d.addOption("author-date", t("project.pandocCitationPreview.styleAuthorDate"));
+        d.addOption("csl", t("project.pandocCitationPreview.styleCsl"));
         d.setValue(meta()?.pandocCitationPreviewStyle || "off");
         d.onChange((value) => {
           ensureMeta().pandocCitationPreviewStyle = value as PandocCitationPreviewStyle;
           void this.plugin.saveSettings();
+          this.plugin.refreshCitationRendering?.();
         });
       });
 
@@ -811,6 +814,7 @@ export class ManageProjectsModal extends Modal {
           m.citekeyBibliographyPath = value;
           delete m.pandocBibliographyPath;
           void this.plugin.saveSettings();
+          this.plugin.refreshCitationRendering?.();
         });
       });
 
@@ -840,6 +844,7 @@ export class ManageProjectsModal extends Modal {
           const m = ensureMeta();
           m.citekeyCslPath = value;
           void this.plugin.saveSettings();
+          this.plugin.refreshCitationRendering?.();
         });
       });
   }

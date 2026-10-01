@@ -204,7 +204,7 @@ declare type MappableFrontmatterField =
   | "date";
 
 /** Style de rendu des citations Pandoc/Zotero en Aperçu. */
-declare type PandocCitationPreviewStyle = "off" | "author-date";
+declare type PandocCitationPreviewStyle = "off" | "author-date" | "csl";
 
 /** Métadonnées par dossier projet : `settings.projectMeta[cheminDossier]`.
  * À la fois fiche d'identité (nom, icône, type, description) et réglages

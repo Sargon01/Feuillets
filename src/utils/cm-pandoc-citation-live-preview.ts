@@ -4,6 +4,7 @@ import { editorInfoField, editorLivePreviewField, normalizePath, TFile, type App
 import {
   buildCitationNoticeLines,
   buildPandocCitationElement,
+  createPandocCitationSpan,
   disposePandocCitationElement,
   getSyncPandocCitationCatalog,
   registerPandocCitationCatalogView,
@@ -13,6 +14,15 @@ import {
   type PandocCitationCatalog,
 } from "../services/pandoc-citation-preview.js";
 import type { BibtexCatalogEntry } from "../services/bibtex-catalog.js";
+import { getProjectFolder } from "../services/folder-structure.js";
+import type {
+  CslCitationHost,
+  CslHostInvalidation,
+  CslHostReadySnapshot,
+  CslHostSnapshot,
+} from "../services/csl-citation-host.js";
+import type { RenderedCitation } from "../api/citation-contract.js";
+import { renderCitationNodes } from "../services/citation-render-nodes.js";
 
 /** Re-exported for existing callers (main.ts, tests): the synchronous cache
  * and view registry this module registers into now live in
@@ -20,25 +30,27 @@ import type { BibtexCatalogEntry } from "../services/bibtex-catalog.js";
  * (cm-scrivenings-citations.ts) — see that module's doc comment. */
 export { notifyPandocCitationBibliographyChanged } from "../services/pandoc-citation-preview.js";
 
+/** Debounce time for whole-document CSL rendering on typing (Lot 7B). */
+export const CSL_LIVE_PREVIEW_DEBOUNCE_MS = 150;
+
 /**
- * Live Preview folding of Pandoc citekeys: [@smith2024] → (Smith, 2024), as an
- * editable widget rather than a rewritten string — the Markdown source is never
- * touched (see PandocCitationWidget.toDOM(), buildCitationNoticeElement()).
+ * Live Preview folding of Pandoc citekeys:
+ * - Legacy author-date: [@smith2024] → (Smith, 2024) via PandocCitationWidget
+ * - Native CSL: whole-document citation processing through CslCitationHost,
+ *   decorating visible citations via CslCitationWidget without touching Markdown source on disk.
  *
  * File and scope resolution never assume a single globally active file: the
  * editor this ViewPlugin instance belongs to is read from `editorInfoField`
  * (Obsidian's own per-editor StateField), and that file — not any other pane's
- * file — is what resolvePandocCitationPreviewForFile() resolves a bibliography
- * for. Two panes open on siblings such as Work-A and Work-A-Extra therefore
- * always resolve independently.
+ * file — is what resolves citations. Two panes open on siblings or the same file
+ * maintain independent session state.
  *
  * Source mode (editorLivePreviewField === false) never folds anything: raw
  * citekeys stay visible there, exactly like the Markdown source on disk.
  *
  * Cursor-reveal: a citation whose source range overlaps any selection range is
- * left undecorated for that redraw, so the raw `[@...]` syntax becomes visible
- * and editable the moment the cursor enters it, and refolds the moment every
- * selection range leaves it again.
+ * left undecorated for that redraw, so the raw syntax becomes visible and editable
+ * the moment the cursor enters it, and refolds when the cursor leaves.
  */
 
 type DecorationRange = { from: number; to: number };
@@ -55,13 +67,6 @@ interface DecorationStatic {
 
 const DecorationTyped = Decoration as DecorationStatic;
 
-/** Same minimal syntax-tree surface, and the SAME "name contains 'code'"
- * detection convention, as cm-paragraph-indent.ts's isNonParagraphLine() —
- * that file already established this pattern for a different exclusion set
- * (headers/lists/quotes/code); citations need only the "code" part of it
- * (a citation is perfectly legitimate inside a blockquote or a list item),
- * so it is reimplemented narrowly here rather than importing a broader check
- * that would need its own unrelated cases threaded through. */
 interface SyntaxTreeIteratableNode {
   name: string;
 }
@@ -75,15 +80,7 @@ interface IteratableSyntaxTree {
 }
 const syntaxTreeTyped = syntaxTree as unknown as (state: unknown) => IteratableSyntaxTree | null;
 
-/** True when `[from, to)` overlaps a node whose name contains "code" —
- * Obsidian's own CM6 markdown language tags both fenced/indented code blocks
- * and inline code spans this way (e.g. "HyperMD-codeblock", "inline-code").
- * Returns false (never excludes anything) when no language is installed on
- * this state — Continu's own composite EditorState has none (it renders
- * Markdown itself, see cm-scrivenings-markdown.ts), which is why Continu's
- * citation extension (cm-scrivenings-citations.ts) passes its OWN
- * `isProtected` built from the per-segment Lezer parse it already runs,
- * instead of relying on this function. */
+/** True when `[from, to)` overlaps a node whose name contains "code". */
 function isRangeInsideCode(state: unknown, from: number, to: number): boolean {
   const tree = typeof syntaxTreeTyped === "function" ? syntaxTreeTyped(state) : null;
   if (!tree) return false;
@@ -138,6 +135,8 @@ interface EditorLineLike {
 }
 interface EditorDocLike {
   lineAt(pos: number): EditorLineLike;
+  toString?(): string;
+  length?: number;
 }
 interface EditorStateLike {
   doc: EditorDocLike;
@@ -152,15 +151,13 @@ interface EditorViewInstance {
   state: EditorStateLike;
   visibleRanges?: ReadonlyArray<{ from: number; to: number }>;
   dispatch(spec: Record<string, unknown>): void;
-  /** The editor's own root DOM element — real CodeMirror's `EditorView.dom`.
-   * `dom.ownerDocument` is what PandocCitationWidget.toDOM(view) below uses
-   * to build the citation in the SAME document as this editor, never the
-   * global `document` (wrong for an Obsidian pane popped out into its own
-   * window — see buildPandocCitationElement()'s doc comment). */
   dom: HTMLElement;
 }
 interface ViewUpdateLike {
   view: EditorViewInstance;
+  docChanged?: boolean;
+  selectionSet?: boolean;
+  viewportChanged?: boolean;
 }
 interface ViewPluginStatic {
   fromClass<T>(
@@ -170,8 +167,6 @@ interface ViewPluginStatic {
 }
 const ViewPluginTyped = ViewPlugin as ViewPluginStatic;
 
-/** Every notice line for one citekey, joined into a single string — used only to
- * detect whether a record's content changed, never rendered as-is. */
 function noticeSignatureFor(
   citekeys: readonly string[],
   records: ReadonlyMap<string, BibtexCatalogEntry>
@@ -184,8 +179,7 @@ function noticeSignatureFor(
     .join("\n\u0000\n");
 }
 
-/** Widget carrying a fully built citation element (label + notice), the exact
- * same DOM shape as Reading Mode's (see buildCitationNoticeElement()). */
+/** Legacy author-date preview widget carrying a fully built citation element (label + notice). */
 export class PandocCitationWidget extends WidgetTypeTyped {
   private readonly noticeSignature: string;
 
@@ -198,12 +192,6 @@ export class PandocCitationWidget extends WidgetTypeTyped {
     this.noticeSignature = noticeSignatureFor(citekeys, records);
   }
 
-  /** Compares the visible text AND a signature built from every notice field
-   * (title, journal, volume, pages, publisher, DOI/URL — see
-   * buildCitationNoticeLines()): a record edit that leaves the author, year and
-   * visible text unchanged (e.g. only the title or the DOI changes) must still
-   * be treated as a different widget, so CodeMirror rebuilds its DOM and the
-   * tooltip never goes stale. */
   eq(other: PandocCitationWidget): boolean {
     return (
       other instanceof PandocCitationWidget &&
@@ -217,29 +205,59 @@ export class PandocCitationWidget extends WidgetTypeTyped {
     return buildPandocCitationElement(this.text, this.citekeys, this.records, view.dom.ownerDocument);
   }
 
-  /** Never ignored: a click must be allowed to reach CodeMirror's own
-   * position-mapping, which places the cursor at the folded range — the
-   * mechanism that reveals the raw syntax (see the selection-overlap check
-   * in buildDecorations()) so the citation stays editable by clicking it. */
   ignoreEvent(): boolean {
     return false;
   }
 
-  /** CodeMirror's own WidgetType lifecycle hook, called with the exact DOM
-   * node toDOM() returned once CodeMirror discards it (decoration replaced,
-   * eq() returned false on a record edit, or the view itself is destroyed).
-   * Without this, a tooltip left open at that exact moment would leak its
-   * temporary window-level scroll/resize listeners (see
-   * disposePandocCitationElement(), pandoc-citation-preview.ts) forever. */
   destroy(dom: HTMLElement): void {
     disposePandocCitationElement(dom);
   }
 }
 
-/** Exported for reuse by Continu's own citation extension
- * (cm-scrivenings-citations.ts), which needs the exact same
- * selection-overlap rule for its own (differently-sourced) selections —
- * never a re-derived copy of this rule. */
+/** CSL Live Preview widget rendering CitationRenderNode AST. */
+export class CslCitationWidget extends WidgetTypeTyped {
+  private readonly signature: string;
+
+  constructor(
+    readonly clusterId: string,
+    readonly citation: RenderedCitation
+  ) {
+    super();
+    this.signature = `${citation.plainText}\u0000${JSON.stringify(citation.content)}`;
+  }
+
+  eq(other: unknown): boolean {
+    return (
+      other instanceof CslCitationWidget &&
+      this.clusterId === other.clusterId &&
+      this.signature === other.signature
+    );
+  }
+
+  toDOM(view: EditorViewInstance): HTMLElement {
+    const ownerDoc = view.dom.ownerDocument;
+    const span = createPandocCitationSpan(ownerDoc, "feuillets-csl-citation");
+    renderCitationNodes(this.citation.content, span, ownerDoc);
+    return span;
+  }
+
+  ignoreEvent(): boolean {
+    return false;
+  }
+}
+
+/** Safely extracts text source from EditorDocLike. */
+function getDocumentSource(doc: EditorDocLike): string {
+  if (typeof doc?.toString === "function") {
+    const str = doc.toString();
+    if (str !== "[object Object]") {
+      return str;
+    }
+  }
+  return "";
+}
+
+/** Exported for reuse: true when selection overlaps `[from, to]`. */
 export function selectionOverlaps(selection: EditorSelectionLike, from: number, to: number): boolean {
   for (const range of selection.ranges) {
     if (range.from <= to && range.to >= from) return true;
@@ -247,29 +265,7 @@ export function selectionOverlaps(selection: EditorSelectionLike, from: number, 
   return false;
 }
 
-/**
- * Recognizes and decorates every citation on one CodeMirror line, appending
- * to `decos`. Exported for reuse by Continu's citation extension
- * (cm-scrivenings-citations.ts): the SAME per-line recognition, widget and
- * cursor-reveal logic, called once per (segment, catalog) pair there instead
- * of once for the whole editor — never a second implementation of this
- * scan.
- *
- * `{ narrative: true }`: both bracketed (`[@key]`) AND bracket-less
- * (`@key`) citations are recognized here — see splitPandocCitationSegments()'s
- * own doc comment for why this is safe to turn on unconditionally for every
- * interactive surface while formatPandocCitationText() (Aperçu, exports)
- * keeps the flag off and stays bracket-only.
- *
- * `isProtected`, when given, is asked about EVERY recognized citation's
- * `[absFrom, absTo)` range before it is decorated — a citation-shaped match
- * inside a fenced/inline code span must never fold, on any surface: `@word`
- * decorators/annotations are common in source code, so a real citekey
- * matching one by pure coincidence would otherwise fold in the middle of a
- * code sample. Absent (Reading Mode never passes it): that surface already
- * excludes CODE/PRE/SCRIPT/STYLE/A at the DOM level, upstream of ever
- * reaching splitPandocCitationSegments().
- */
+/** Recognizes and decorates citations on one line for legacy author-date preview. */
 export function appendLineDecorations(
   line: EditorLineLike,
   state: EditorStateLike,
@@ -296,28 +292,21 @@ export function appendLineDecorations(
 
 type BuildResult = { decorations: DecorationSet; bibliographyPath: string | null };
 
-/** `bibliographyPath` in the result is the normalized path this editor now
- * depends on (or null when it depends on none — Source mode, no file, style
- * "off", nothing configured), independently of whether a catalog was actually
- * available for it on THIS pass: the caller registers the view under that path
- * either way, so a load still in flight — or a later file change — still wakes
- * it. */
-function buildDecorations(view: EditorViewInstance, getSettings: () => FeuilletsSettings): BuildResult {
+/** Legacy author-date decoration builder. */
+function buildLegacyDecorations(view: EditorViewInstance, getSettings: () => FeuilletsSettings): BuildResult {
   if (typeof DecorationTyped?.set !== "function" || !view.visibleRanges || !view.state?.doc) {
     return { decorations: DecorationTyped?.none ?? [], bibliographyPath: null };
   }
 
-  // Source mode: raw citekeys stay visible, exactly like the file on disk.
   const livePreview = view.state.field<boolean>(editorLivePreviewField, false);
   if (livePreview === false) return { decorations: DecorationTyped.none, bibliographyPath: null };
 
-  // THIS editor's own file, never a globally active one — see module doc comment.
   const info = view.state.field<EditorInfoLike>(editorInfoField, false);
   const file = info?.file ?? null;
   if (!info || !file) return { decorations: DecorationTyped.none, bibliographyPath: null };
 
   const { style, bibliographyPath } = resolvePandocCitationPreviewForFile(info.app, getSettings(), file);
-  if (style === "off" || !bibliographyPath) return { decorations: DecorationTyped.none, bibliographyPath: null };
+  if (style !== "author-date" || !bibliographyPath) return { decorations: DecorationTyped.none, bibliographyPath: null };
   const normalizedPath = normalizePath(bibliographyPath);
 
   const catalog = getSyncPandocCitationCatalog(info.app, style, bibliographyPath);
@@ -338,56 +327,347 @@ function buildDecorations(view: EditorViewInstance, getSettings: () => Feuillets
   return { decorations: DecorationTyped.set(decos, true), bibliographyPath: normalizedPath };
 }
 
+let nextLivePreviewViewSeq = 1;
+
 /**
- * Builds the Live Preview extension. `getSettings` is called fresh on every
- * redraw (never captured once), so it always reflects the CURRENT plugin
- * settings — matching the existing createCitekeyTriggerExtension() convention
- * of taking a closure rather than a static settings snapshot.
+ * Builds the Live Preview extension.
+ * Supports legacy author-date preview and native CSL preview through CslCitationHost.
  */
-export function createPandocCitationLivePreviewExtension(getSettings: () => FeuilletsSettings): unknown {
+export function createPandocCitationLivePreviewExtension(
+  getSettings: () => FeuilletsSettings,
+  getCslHost?: () => CslCitationHost | null
+): unknown {
   if (typeof ViewPluginTyped?.fromClass !== "function") return [];
 
   return ViewPluginTyped.fromClass(
     class {
       decorations: DecorationSet;
       private view: EditorViewInstance;
-      /** The path this editor is currently registered under in the shared
-       * cache's view registry (pandoc-citation-preview.ts), or null when it
-       * depends on none. Tracked so a rebuild that resolves to a DIFFERENT
-       * (or no) path re-registers instead of leaking the old one. */
       private registeredPath: string | null = null;
+
+      // Per-view CSL state
+      private readonly viewSeq = nextLivePreviewViewSeq++;
+      private currentDocumentId: string | null = null;
+      private currentFilePath: string | null = null;
+      private readySnapshot: CslHostReadySnapshot | null = null;
+      private readySource: string | null = null;
+      private requestGeneration = 0;
+      private debounceTimer: number | null = null;
+      private unsubscribeHostInvalidation: (() => void) | null = null;
+      private destroyed = false;
 
       constructor(view: EditorViewInstance) {
         this.view = view;
         this.decorations = DecorationTyped?.none ?? [];
+        this.ensureHostSubscription();
         this.rebuild();
       }
 
       update(update: ViewUpdateLike): void {
-        // Rebuilt on every CM6 update, deliberately unconditional: the async
-        // catalog load (getSyncPandocCitationCatalog()) and a later
-        // bibliography edit (notifyPandocCitationBibliographyChanged()) both
-        // wake the view with an empty transaction, which carries none of
-        // docChanged / selectionSet / viewportChanged — only an
-        // unconditional rebuild here picks that redraw up. The rebuild
-        // itself stays cheap: it only scans visible lines, and reads the
-        // resolved catalog from an in-memory map.
         this.view = update.view;
-        this.rebuild();
+        const livePreview = this.view.state.field<boolean>(editorLivePreviewField, false);
+        const info = this.view.state.field<EditorInfoLike>(editorInfoField, false);
+        const file = info?.file ?? null;
+
+        if (livePreview === false || !info || !file) {
+          this.rebuild();
+          return;
+        }
+
+        const settings = getSettings();
+        const { style } = resolvePandocCitationPreviewForFile(info.app, settings, file);
+        if (style === "csl") {
+          const currentDoc = getDocumentSource(this.view.state.doc);
+          const docTextChanged =
+            update.docChanged === true ||
+            (this.readySource !== null && currentDoc !== this.readySource);
+          if (docTextChanged) {
+            this.scheduleCslRender(CSL_LIVE_PREVIEW_DEBOUNCE_MS);
+          }
+          this.rebuild();
+        } else {
+          this.rebuild();
+        }
       }
 
-      /** CodeMirror's own ViewPlugin lifecycle hook, called when this plugin
-       * instance is torn down (editor closed, extension reconfigured). Without
-       * this, a closed editor would stay registered under its last
-       * bibliography path forever — a residual subscription that would still
-       * receive (harmlessly try/caught, but pointless) wake-up dispatches. */
       destroy(): void {
-        unregisterPandocCitationCatalogView(this.registeredPath, this.view);
-        this.registeredPath = null;
+        this.destroyed = true;
+        if (this.debounceTimer !== null) {
+          window.clearTimeout(this.debounceTimer);
+          this.debounceTimer = null;
+        }
+        if (this.unsubscribeHostInvalidation) {
+          this.unsubscribeHostInvalidation();
+          this.unsubscribeHostInvalidation = null;
+        }
+        if (this.registeredPath) {
+          unregisterPandocCitationCatalogView(this.registeredPath, this.view);
+          this.registeredPath = null;
+        }
+        if (this.currentDocumentId) {
+          const host = getCslHost?.();
+          if (host) {
+            host.disposeDocument(this.currentDocumentId);
+          }
+          this.currentDocumentId = null;
+        }
+        this.currentFilePath = null;
+        this.readySnapshot = null;
+        this.readySource = null;
+      }
+
+      private ensureHostSubscription(): CslCitationHost | null {
+        const host = getCslHost?.() ?? null;
+        if (host && !this.unsubscribeHostInvalidation) {
+          this.unsubscribeHostInvalidation = host.onInvalidation((invalidation) => {
+            this.handleHostInvalidation(invalidation);
+          });
+        }
+        return host;
+      }
+
+      private handleHostInvalidation(invalidation: CslHostInvalidation): void {
+        if (this.destroyed) return;
+        if (
+          invalidation.documentIds === null ||
+          (this.currentDocumentId && invalidation.documentIds.has(this.currentDocumentId)) ||
+          this.readySnapshot === null
+        ) {
+          this.readySnapshot = null;
+          this.readySource = null;
+          this.scheduleCslRender(0);
+        }
+      }
+
+      private cleanupCslSession(): void {
+        if (this.debounceTimer !== null) {
+          window.clearTimeout(this.debounceTimer);
+          this.debounceTimer = null;
+        }
+        if (this.currentDocumentId) {
+          const host = getCslHost?.();
+          if (host) {
+            host.disposeDocument(this.currentDocumentId);
+          }
+          this.currentDocumentId = null;
+        }
+        this.currentFilePath = null;
+        this.readySnapshot = null;
+        this.readySource = null;
+      }
+
+      private scheduleCslRender(delayMs: number): void {
+        if (this.destroyed) return;
+        if (this.debounceTimer !== null) {
+          window.clearTimeout(this.debounceTimer);
+          this.debounceTimer = null;
+        }
+
+        const run = async (): Promise<void> => {
+          this.debounceTimer = null;
+          if (this.destroyed) return;
+
+          const host = this.ensureHostSubscription();
+          if (!host) {
+            this.readySnapshot = null;
+            this.readySource = null;
+            this.decorations = DecorationTyped.none;
+            try {
+              this.view.dispatch({});
+            } catch {
+              // Ignore if view was closed
+            }
+            return;
+          }
+
+          const info = this.view.state.field<EditorInfoLike>(editorInfoField, false);
+          const file = info?.file ?? null;
+          if (!info || !file) return;
+
+          const projectRoot = getProjectFolder(info.app, getSettings());
+          if (!projectRoot) {
+            this.readySnapshot = null;
+            this.readySource = null;
+            this.decorations = DecorationTyped.none;
+            try {
+              this.view.dispatch({});
+            } catch {
+              // Ignore if view was closed
+            }
+            return;
+          }
+
+          const documentId = this.currentDocumentId;
+          if (!documentId) return;
+
+          const source = getDocumentSource(this.view.state.doc);
+          const generation = ++this.requestGeneration;
+
+          let snapshot: CslHostSnapshot;
+          try {
+            snapshot = await host.renderDocument(documentId, source, projectRoot, file, {
+              includeBibliography: false,
+            });
+          } catch {
+            if (this.destroyed || generation !== this.requestGeneration || this.currentDocumentId !== documentId) {
+              return;
+            }
+            this.readySnapshot = null;
+            this.readySource = null;
+            this.decorations = DecorationTyped.none;
+            try {
+              this.view.dispatch({});
+            } catch {
+              // Ignore if view was closed
+            }
+            return;
+          }
+
+          if (this.destroyed || generation !== this.requestGeneration || this.currentDocumentId !== documentId) {
+            return;
+          }
+
+          const currentDoc = getDocumentSource(this.view.state.doc);
+          if (currentDoc !== source) {
+            return;
+          }
+
+          if (snapshot.status === "ready") {
+            this.readySnapshot = snapshot;
+            this.readySource = source;
+            this.decorations = this.buildCslDecorations();
+            try {
+              this.view.dispatch({});
+            } catch {
+              // Ignore if view was closed
+            }
+          } else {
+            this.readySnapshot = null;
+            this.readySource = null;
+            this.decorations = DecorationTyped.none;
+            try {
+              this.view.dispatch({});
+            } catch {
+              // Ignore if view was closed
+            }
+          }
+        };
+
+        if (delayMs <= 0) {
+          void run();
+        } else {
+          this.debounceTimer = window.setTimeout(() => {
+            void run();
+          }, delayMs);
+        }
+      }
+
+      private buildCslDecorations(): DecorationSet {
+        if (typeof DecorationTyped?.set !== "function" || !this.view.visibleRanges || !this.view.state?.doc) {
+          return DecorationTyped?.none ?? [];
+        }
+
+        const currentDoc = getDocumentSource(this.view.state.doc);
+        if (!this.readySnapshot || this.readySource !== currentDoc) {
+          return DecorationTyped.none;
+        }
+
+        const decos: DecorationRange[] = [];
+        const visibleRanges = this.view.visibleRanges;
+        const selection = this.view.state.selection;
+        const occurrences = this.readySnapshot.parsedDocument.occurrences;
+        const citationByClusterId = this.readySnapshot.citationByClusterId;
+
+        for (const occ of occurrences) {
+          if (occ.from >= occ.to) continue;
+
+          let isVisible = false;
+          for (const range of visibleRanges) {
+            if (occ.from <= range.to && occ.to >= range.from) {
+              isVisible = true;
+              break;
+            }
+          }
+          if (!isVisible) continue;
+
+          if (selectionOverlaps(selection, occ.from, occ.to)) continue;
+
+          const citation = citationByClusterId.get(occ.clusterId);
+          if (!citation) continue;
+
+          decos.push(
+            DecorationTyped.replace({
+              widget: new CslCitationWidget(occ.clusterId, citation),
+              inclusive: false,
+            }).range(occ.from, occ.to)
+          );
+        }
+
+        return DecorationTyped.set(decos, true);
       }
 
       private rebuild(): void {
-        const result = buildDecorations(this.view, getSettings);
+        if (this.destroyed) return;
+        if (typeof DecorationTyped?.set !== "function" || !this.view.visibleRanges || !this.view.state?.doc) {
+          this.decorations = DecorationTyped?.none ?? [];
+          return;
+        }
+
+        const livePreview = this.view.state.field<boolean>(editorLivePreviewField, false);
+        const info = this.view.state.field<EditorInfoLike>(editorInfoField, false);
+        const file = info?.file ?? null;
+
+        if (livePreview === false || !info || !file) {
+          this.cleanupCslSession();
+          if (this.registeredPath) {
+            unregisterPandocCitationCatalogView(this.registeredPath, this.view);
+            this.registeredPath = null;
+          }
+          this.decorations = DecorationTyped.none;
+          return;
+        }
+
+        const settings = getSettings();
+        const { style } = resolvePandocCitationPreviewForFile(info.app, settings, file);
+
+        if (style === "off") {
+          this.cleanupCslSession();
+          if (this.registeredPath) {
+            unregisterPandocCitationCatalogView(this.registeredPath, this.view);
+            this.registeredPath = null;
+          }
+          this.decorations = DecorationTyped.none;
+          return;
+        }
+
+        if (style === "csl") {
+          if (this.registeredPath) {
+            unregisterPandocCitationCatalogView(this.registeredPath, this.view);
+            this.registeredPath = null;
+          }
+
+          this.ensureHostSubscription();
+
+          const normalizedFilePath = normalizePath(file.path);
+          if (this.currentFilePath !== normalizedFilePath) {
+            this.cleanupCslSession();
+            this.currentFilePath = normalizedFilePath;
+            this.currentDocumentId = `live-preview:${this.viewSeq}:${normalizedFilePath}`;
+            this.scheduleCslRender(0);
+          } else if (!this.currentDocumentId) {
+            this.currentFilePath = normalizedFilePath;
+            this.currentDocumentId = `live-preview:${this.viewSeq}:${normalizedFilePath}`;
+            this.scheduleCslRender(0);
+          }
+
+          this.decorations = this.buildCslDecorations();
+          return;
+        }
+
+        // style === "author-date" (Legacy path)
+        this.cleanupCslSession();
+
+        const result = buildLegacyDecorations(this.view, getSettings);
         this.decorations = result.decorations;
         if (result.bibliographyPath !== this.registeredPath) {
           unregisterPandocCitationCatalogView(this.registeredPath, this.view);

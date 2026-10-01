@@ -711,6 +711,7 @@ export const en = {
   "project.pandocCitationPreview.styleLabel": "Preview style",
   "project.pandocCitationPreview.styleOff": "Raw citekeys",
   "project.pandocCitationPreview.styleAuthorDate": "Author-date",
+  "project.pandocCitationPreview.styleCsl": "Native CSL",
   "project.pandocCitationPreview.bibliographyLabel": "Bibliography (.bib)",
   "project.pandocCitationPreview.cslLabel": "Citation style (.csl)",
   "project.pandocCitationPreview.noFile": "No file",

@@ -151,7 +151,7 @@ function buildScriveningsCitationDecorations(
 
   for (const { range, file } of visibleSegments) {
     const { style, bibliographyPath } = resolvePandocCitationPreviewForFile(app, settings, file);
-    if (style === "off" || !bibliographyPath) continue;
+    if (style !== "author-date" || !bibliographyPath) continue;
     bibliographyPaths.add(normalizePath(bibliographyPath));
 
     const catalog = getSyncPandocCitationCatalog(app, style, bibliographyPath);

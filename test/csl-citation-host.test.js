@@ -436,3 +436,241 @@ test("disposeDocument: releases session and calls provider.disposeDocument", asy
 
   host.dispose();
 });
+
+/* -------------------- 9. Host Session Ownership & Invalidation Regression (Lot 7B) -------------------- */
+
+test("Regression A: invalidateResource disposes provider session before reuse and restarts revisions cleanly", async () => {
+  const { app, settings, projectRoot, bibFile } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+
+  const disposedDocs = [];
+  const requestedRevisions = [];
+
+  registry.register(
+    createMockProvider({
+      renderDocument: async (req) => {
+        requestedRevisions.push(req.revision);
+        return {
+          documentId: req.documentId,
+          revision: req.revision,
+          citations: [
+            {
+              clusterId: req.clusters[0]?.id ?? "c1",
+              plainText: `Rev ${req.revision}`,
+              content: [{ type: "text", text: `Rev ${req.revision}` }],
+            },
+          ],
+          bibliography: null,
+          diagnostics: [],
+        };
+      },
+      disposeDocument: (id) => {
+        disposedDocs.push(id);
+      },
+    })
+  );
+
+  const host = new CslCitationHost({ app, getSettings: () => settings, citationRegistry: registry });
+
+  // Render doc rev 1
+  await host.renderDocument("doc-a", "[@smith2024]", projectRoot, null);
+  assert.deepEqual(requestedRevisions, [1]);
+
+  // Render doc rev 2
+  await host.renderDocument("doc-a", "[@smith2024, p. 2]", projectRoot, null);
+  assert.deepEqual(requestedRevisions, [1, 2]);
+
+  // Invalidate resource
+  host.invalidateResource(bibFile.path);
+  assert.deepEqual(disposedDocs, ["doc-a"], "Provider disposeDocument must be called before reuse");
+
+  // Render same documentId again -> fresh session starts at revision 1, no revision conflict
+  const freshSnap = await host.renderDocument("doc-a", "[@smith2024, p. 3]", projectRoot, null);
+  assert.equal(freshSnap.status, "ready");
+  assert.equal(freshSnap.revision, 1);
+  assert.deepEqual(requestedRevisions, [1, 2, 1], "New session starts cleanly from revision 1");
+
+  host.dispose();
+});
+
+test("Regression B: provider replacement disposes session on old provider and new provider starts fresh", async () => {
+  const { app, settings, projectRoot } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+
+  const disposedA = [];
+  const providerA = createMockProvider({
+    id: "feuillets-csl",
+    name: "Provider A",
+    disposeDocument: (id) => {
+      disposedA.push(id);
+    },
+  });
+
+  registry.register(providerA);
+
+  const host = new CslCitationHost({ app, getSettings: () => settings, citationRegistry: registry });
+  await host.renderDocument("doc-b", "[@smith2024]", projectRoot, null);
+
+  // Replace provider A with provider B in registry (triggers registry.onChange -> invalidateProvider)
+  const disposedB = [];
+  const providerBRevisions = [];
+  const providerB = createMockProvider({
+    id: "feuillets-csl",
+    name: "Provider B",
+    renderDocument: async (req) => {
+      providerBRevisions.push(req.revision);
+      return {
+        documentId: req.documentId,
+        revision: req.revision,
+        citations: [
+          {
+            clusterId: req.clusters[0]?.id ?? "c1",
+            plainText: "From B",
+            content: [{ type: "text", text: "From B" }],
+          },
+        ],
+        bibliography: null,
+        diagnostics: [],
+      };
+    },
+    disposeDocument: (id) => {
+      disposedB.push(id);
+    },
+  });
+
+  registry.register(providerB);
+
+  // Provider A must have had its session disposed
+  assert.deepEqual(disposedA, ["doc-b"], "Provider A session must be disposed");
+
+  // Rendering doc-b now sends fresh session to provider B starting at revision 1
+  const bSnap = await host.renderDocument("doc-b", "[@smith2024]", projectRoot, null);
+  assert.equal(bSnap.status, "ready");
+  assert.equal(bSnap.revision, 1);
+  assert.deepEqual(providerBRevisions, [1]);
+
+  host.dispose();
+  assert.deepEqual(disposedB, ["doc-b"], "Provider B session must be disposed on host.dispose");
+});
+
+test("Regression C: host.dispose() disposes every tracked document exactly once", async () => {
+  const { app, settings, projectRoot } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+
+  const disposed = [];
+  registry.register(
+    createMockProvider({
+      disposeDocument: (id) => {
+        disposed.push(id);
+      },
+    })
+  );
+
+  const host = new CslCitationHost({ app, getSettings: () => settings, citationRegistry: registry });
+  await host.renderDocument("doc-c1", "[@smith2024]", projectRoot, null);
+  await host.renderDocument("doc-c2", "[@smith2024]", projectRoot, null);
+
+  host.dispose();
+  assert.deepEqual(disposed.sort(), ["doc-c1", "doc-c2"]);
+
+  // Calling dispose again is a no-op
+  host.dispose();
+  assert.equal(disposed.length, 2);
+});
+
+test("Regression D: disposing unknown documentId does not call provider", async () => {
+  const { app, settings, projectRoot } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+
+  let providerDisposed = false;
+  registry.register(
+    createMockProvider({
+      disposeDocument: () => {
+        providerDisposed = true;
+      },
+    })
+  );
+
+  const host = new CslCitationHost({ app, getSettings: () => settings, citationRegistry: registry });
+  await host.renderDocument("doc-real", "[@smith2024]", projectRoot, null);
+
+  // Dispose an unknown documentId
+  host.disposeDocument("doc-unknown-999");
+  assert.equal(providerDisposed, false, "Disposing unknown documentId must not call provider");
+
+  host.dispose();
+});
+
+test("onInvalidation: subscribers receive targeted or global invalidation events", async () => {
+  const { app, settings, projectRoot, bibFile } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  registry.register(createMockProvider());
+
+  const host = new CslCitationHost({ app, getSettings: () => settings, citationRegistry: registry });
+  await host.renderDocument("doc-inv-1", "[@smith2024]", projectRoot, null);
+
+  const events = [];
+  const unsubscribe = host.onInvalidation((ev) => {
+    events.push(ev);
+  });
+
+  // Targeted resource invalidation
+  host.invalidateResource(bibFile.path);
+  assert.equal(events.length, 1);
+  assert.deepEqual(Array.from(events[0].documentIds || []), ["doc-inv-1"]);
+
+  // Global invalidation
+  host.invalidateAllResources();
+  assert.equal(events.length, 2);
+  assert.equal(events[1].documentIds, null);
+
+  // Unsubscribe
+  unsubscribe();
+  host.invalidateAllResources();
+  assert.equal(events.length, 2, "Unsubscribed listener should not receive more events");
+
+  host.dispose();
+});
+
+test("getSettings: host uses fresh settings per render", async () => {
+  const { app, projectRoot } = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  registry.register(createMockProvider());
+
+  let currentSettings = {
+    projectFolder: projectRoot.path,
+    projectMeta: {
+      [projectRoot.path]: {
+        researchFolderLinks: { [projectRoot.path]: "PROJECT/Research" },
+        citekeyBibliographyPath: "refs.bib",
+        citekeyCslPath: "style.csl",
+      },
+    },
+  };
+
+  const host = new CslCitationHost({
+    app,
+    getSettings: () => currentSettings,
+    citationRegistry: registry,
+  });
+
+  const snap1 = await host.renderDocument("doc-s", "[@smith2024]", projectRoot, null);
+  assert.equal(snap1.status, "ready");
+
+  // Mutate or replace settings to point to missing CSL
+  currentSettings = {
+    projectFolder: projectRoot.path,
+    projectMeta: {
+      [projectRoot.path]: {
+        researchFolderLinks: { [projectRoot.path]: "PROJECT/Research" },
+        citekeyBibliographyPath: "refs.bib",
+        citekeyCslPath: "nonexistent.csl",
+      },
+    },
+  };
+
+  const snap2 = await host.renderDocument("doc-s", "[@smith2024, p. 10]", projectRoot, null);
+  assert.equal(snap2.status, "resources-unavailable");
+
+  host.dispose();
+});

@@ -272,6 +272,9 @@ export function extractPandocCitekey(
  * - `@smith2024, some notes` (suffix)
  */
 export function parseCitationItem(chunk: string): CitationItemInput | null {
+  if (/(?<!\\)[\][]/.test(chunk)) {
+    return null;
+  }
   const atIdx = chunk.indexOf("@");
   if (atIdx === -1) return null;
 
@@ -375,6 +378,12 @@ export function parsePandocCitationDocument(
         continue;
       }
 
+      // Skip inline footnotes: ^[...]
+      if (pos > 0 && masked[pos - 1] === "^") {
+        pos++;
+        continue;
+      }
+
       // Find matching closing bracket with balanced depth
       let closeIdx = pos + 1;
       let depth = 1;
@@ -417,6 +426,15 @@ export function parsePandocCitationDocument(
       // Skip footnote labels like [^1]
       if (groupContent.startsWith("^")) {
         pos = closeIdx + 1;
+        continue;
+      }
+
+      // If the bracket group contains unescaped brackets, it encloses nested
+      // constructs (e.g. [Voir [@doe2023]...]) and cannot be an atomic citation cluster.
+      // Advance pos into the group so nested citations are discovered.
+      const maskedGroupContent = masked.slice(pos + 1, closeIdx);
+      if (maskedGroupContent.includes("[") || maskedGroupContent.includes("]")) {
+        pos++;
         continue;
       }
 

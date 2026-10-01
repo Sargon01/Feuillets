@@ -146,6 +146,7 @@ export function registerPandocCitationReadingMode(plugin: PandocCitationReadingM
     if (!(file instanceof TFile)) return;
 
     const { style, bibliographyPath } = resolvePandocCitationPreviewForFile(plugin.app, plugin.settings, file);
+    if (style !== "author-date") return;
     const catalog = await loadPandocCitationCatalog(plugin.app, style, bibliographyPath);
     if (!catalog) return;
 

@@ -83,6 +83,7 @@ import {
   createPandocCitationLivePreviewExtension,
   notifyPandocCitationBibliographyChanged,
 } from "./utils/cm-pandoc-citation-live-preview.js";
+import { wakeAllPandocCitationCatalogViews } from "./services/pandoc-citation-preview.js";
 import { createEditorImageCaptionExtension } from "./utils/cm-editor-image-caption.js";
 import { createEditorCursorTrackingExtension, type EditorCursorListener } from "./services/editor-cursor-tracking.js";
 import {
@@ -242,6 +243,7 @@ import {
   type TextAnalysisProvider,
 } from "./api/text-analysis.js";
 import { CitationEngineRegistry } from "./api/citation-engine.js";
+import { CslCitationHost } from "./services/csl-citation-host.js";
 import { runAnalysis, type AnalysisRun } from "./services/text-analysis.js";
 
 import {
@@ -603,6 +605,7 @@ class FeuilletsPlugin extends Plugin {
      qu'il manque un module. */
   analysisRegistry = new TextAnalysisRegistry();
   citationRegistry = new CitationEngineRegistry();
+  cslCitationHost: CslCitationHost | null = null;
   /** Surface publique lue par les greffons compagnons. Nommée `api` par
    *  convention Obsidian (`app.plugins.plugins["feuillets"].api`). */
   api: FeuilletsPublicApi = createPublicApi(this.analysisRegistry, this.citationRegistry);
@@ -850,16 +853,54 @@ class FeuilletsPlugin extends Plugin {
         void this.openCitekeyPicker(view, range, file, undefined, triggerType);
       })
     );
-    this.registerEditorExtension(createPandocCitationLivePreviewExtension(() => this.settings));
+    this.cslCitationHost = new CslCitationHost({
+      app: this.app,
+      getSettings: () => this.settings,
+      citationRegistry: this.citationRegistry,
+    });
+    this.registerEditorExtension(
+      createPandocCitationLivePreviewExtension(
+        () => this.settings,
+        () => this.cslCitationHost
+      )
+    );
     this.registerEditorExtension(createEditorImageCaptionExtension(() => this.settings));
     this.registerEditorExtension(createEditorCursorTrackingExtension((change) => {
       for (const listener of this._editorCursorListeners) listener(change);
     }));
     registerPandocCitationReadingMode(this);
     this.registerEvent(this.app.vault.on("modify", (file) => {
-      if (!(file instanceof TFile) || file.extension.toLowerCase() !== "bib") return;
-      notifyPandocCitationBibliographyChanged(file);
-      refreshPandocCitationReadingModeViews(this, file);
+      if (!(file instanceof TFile)) return;
+      const ext = file.extension.toLowerCase();
+      if (ext === "bib") {
+        notifyPandocCitationBibliographyChanged(file);
+        refreshPandocCitationReadingModeViews(this, file);
+        this.cslCitationHost?.invalidateResource(file.path);
+      } else if (ext === "csl") {
+        this.cslCitationHost?.invalidateResource(file.path);
+      }
+    }));
+    this.registerEvent(this.app.vault.on("create", (file) => {
+      if (!(file instanceof TFile)) return;
+      const ext = file.extension.toLowerCase();
+      if (ext === "bib" || ext === "csl") {
+        this.refreshCitationRendering();
+      }
+    }));
+    this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (!(file instanceof TFile)) return;
+      const ext = file.extension.toLowerCase();
+      if (ext === "bib" || ext === "csl") {
+        this.refreshCitationRendering();
+      }
+    }));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      if (!(file instanceof TFile)) return;
+      const ext = file.extension.toLowerCase();
+      const oldExt = oldPath.split(".").pop()?.toLowerCase();
+      if (ext === "bib" || ext === "csl" || oldExt === "bib" || oldExt === "csl") {
+        this.refreshCitationRendering();
+      }
     }));
     this.registerMarkdownCodeBlockProcessor("genealogy", (source, el) => {
       renderGenealogyMarkdown(source, el);
@@ -1786,7 +1827,10 @@ class FeuilletsPlugin extends Plugin {
         const remapped = remapFeuilletsPathReferences(this.settings, oldPath, file.path);
         if (remapped.changed) settingsChanged = true;
         const citationsChanged = remapWorkspaceCitationResourcePaths(this.app, this.settings, oldPath, file.path);
-        if (citationsChanged) settingsChanged = true;
+        if (citationsChanged) {
+          settingsChanged = true;
+          this.refreshCitationRendering();
+        }
         if (settingsChanged) void this.saveSettings();
         void remapAnnotationsAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
         void remapWorkNotesAfterRename(this.app, this.settings, oldPath, file.path).catch(() => undefined);
@@ -2902,7 +2946,16 @@ class FeuilletsPlugin extends Plugin {
          notre patch est encore appelable via la chaîne du plugin qui nous
          enveloppe, et il s'en sert comme repli. */
     }
+    if (this.cslCitationHost) {
+      this.cslCitationHost.dispose();
+      this.cslCitationHost = null;
+    }
     this.refreshAllTabHeaders();
+  }
+
+  refreshCitationRendering(): void {
+    this.cslCitationHost?.invalidateAllResources();
+    wakeAllPandocCitationCatalogViews();
   }
 
   patchTabTitles() {

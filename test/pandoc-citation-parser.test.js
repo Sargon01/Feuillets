@@ -545,3 +545,101 @@ test("parseCitationDocument: citations inside markdown link text vs link destina
   assert.equal(plainDoc.occurrences.length, 0);
 });
 
+/* -------------------- Inline Footnotes and Nested Brackets (Lot 7B) -------------------- */
+
+test("parseCitationDocument: inline footnote containing citation ^[Voir [@doe2023, p. 57] pour une discussion méthodologique.]", () => {
+  const input = "^[Voir [@doe2023, p. 57] pour une discussion méthodologique.]";
+  const doc = parsePandocCitationDocument(input);
+
+  // Exactly 1 occurrence
+  assert.equal(doc.occurrences.length, 1);
+  const occ = doc.occurrences[0];
+
+  // Exact raw substring and offsets
+  assert.equal(occ.raw, "[@doe2023, p. 57]");
+  assert.equal(occ.from, 7);
+  assert.equal(occ.to, 24);
+  assert.equal(input.slice(occ.from, occ.to), "[@doe2023, p. 57]");
+  assert.equal(occ.clusterId, "citation:7:24");
+
+  // Cluster properties
+  assert.equal(occ.cluster.items.length, 1);
+  assert.equal(occ.cluster.items[0].id, "doe2023");
+  assert.equal(occ.cluster.items[0].locator, "57");
+  assert.equal(occ.cluster.items[0].label, "page");
+
+  // noteIndex must remain undefined (no premature Lot 7F note semantics)
+  assert.equal(occ.cluster.noteIndex, undefined);
+});
+
+test("parseCitationDocument: ordinary outer brackets containing nested citation [Voir [@doe2023, p. 57] pour une discussion.]", () => {
+  const input = "[Voir [@doe2023, p. 57] pour une discussion.]";
+  const doc = parsePandocCitationDocument(input);
+
+  // Exactly 1 occurrence (the inner citation, never the outer bracket)
+  assert.equal(doc.occurrences.length, 1);
+  const occ = doc.occurrences[0];
+
+  assert.equal(occ.raw, "[@doe2023, p. 57]");
+  assert.equal(occ.from, 6);
+  assert.equal(occ.to, 23);
+  assert.equal(input.slice(occ.from, occ.to), "[@doe2023, p. 57]");
+  assert.equal(occ.cluster.items[0].id, "doe2023");
+  assert.equal(occ.cluster.noteIndex, undefined);
+});
+
+test("parseCitationDocument: inline footnote with multiple citations ^[Voir [@doe2023, p. 57] et [@smith2024].]", () => {
+  const input = "^[Voir [@doe2023, p. 57] et [@smith2024].]";
+  const doc = parsePandocCitationDocument(input);
+
+  // Exactly 2 independent occurrences
+  assert.equal(doc.occurrences.length, 2);
+
+  const occ1 = doc.occurrences[0];
+  assert.equal(occ1.raw, "[@doe2023, p. 57]");
+  assert.equal(occ1.from, 7);
+  assert.equal(occ1.to, 24);
+  assert.equal(input.slice(occ1.from, occ1.to), "[@doe2023, p. 57]");
+  assert.equal(occ1.cluster.items[0].id, "doe2023");
+  assert.equal(occ1.cluster.noteIndex, undefined);
+
+  const occ2 = doc.occurrences[1];
+  assert.equal(occ2.raw, "[@smith2024]");
+  assert.equal(occ2.from, 28);
+  assert.equal(occ2.to, 40);
+  assert.equal(input.slice(occ2.from, occ2.to), "[@smith2024]");
+  assert.equal(occ2.cluster.items[0].id, "smith2024");
+  assert.equal(occ2.cluster.noteIndex, undefined);
+});
+
+test("parseCitationDocument: ordinary outer brackets with multiple citations [Voir [@doe2023, p. 57] et [@smith2024] pour une discussion.]", () => {
+  const input = "[Voir [@doe2023, p. 57] et [@smith2024] pour une discussion.]";
+  const doc = parsePandocCitationDocument(input);
+
+  assert.equal(doc.occurrences.length, 2);
+  assert.equal(doc.occurrences[0].raw, "[@doe2023, p. 57]");
+  assert.equal(doc.occurrences[0].cluster.items[0].id, "doe2023");
+  assert.equal(doc.occurrences[1].raw, "[@smith2024]");
+  assert.equal(doc.occurrences[1].cluster.items[0].id, "smith2024");
+});
+
+test("parseCitationDocument: narrative citation inside inline footnote ^[Voir @doe2023 pour une discussion.]", () => {
+  const input = "^[Voir @doe2023 pour une discussion.]";
+  const doc = parsePandocCitationDocument(input);
+
+  assert.equal(doc.occurrences.length, 1);
+  const occ = doc.occurrences[0];
+  assert.equal(occ.raw, "@doe2023");
+  assert.equal(occ.from, 7);
+  assert.equal(occ.to, 15);
+  assert.equal(input.slice(occ.from, occ.to), "@doe2023");
+  assert.equal(occ.cluster.items[0].id, "doe2023");
+  assert.equal(occ.cluster.items[0].mode, "composite");
+});
+
+test("parseCitationItem: chunks with unescaped square brackets are rejected", () => {
+  assert.equal(parseCitationItem("Voir [@doe2023, p. 57] pour une discussion."), null);
+  assert.equal(parseCitationItem("[@doe2023]"), null);
+  assert.equal(parseCitationItem("see @doe2023]"), null);
+  assert.equal(parseCitationItem("[see @doe2023"), null);
+});
