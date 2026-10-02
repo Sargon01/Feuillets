@@ -10,6 +10,7 @@ import type { ContentVariant } from "./content-variants.js";
 import { joinCompiledSegments } from "./compile-segments.js";
 import { flattenPandocCitationElementsForStaticRender } from "./pandoc-citation-preview.js";
 import { STATIC_RENDER_ATTR, STATIC_RENDER_ATTR_VALUE } from "./pandoc-citation-static-csl.js";
+import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
 
 type RenderedFootnote = {
   id: string;
@@ -667,7 +668,7 @@ function stripObsidianCruft(container: HTMLElement): void {
     .forEach((el) => el.remove());
   container.querySelectorAll("*").forEach((el) => {
     for (const attr of Array.from(el.attributes)) {
-      if (attr.name.startsWith("data-") && attr.name !== "data-footnote-id") {
+      if (attr.name.startsWith("data-") && attr.name !== "data-footnote-id" && attr.name !== CSL_BIBLIOGRAPHY_ANCHOR_ATTR) {
         el.removeAttribute(attr.name);
       }
     }

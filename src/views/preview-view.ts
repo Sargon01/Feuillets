@@ -24,6 +24,7 @@ import {
   type StaticCslSource,
 } from "../services/pandoc-citation-static-csl.js";
 import { resolveWorkspaceCitationResources } from "../services/workspace-citations.js";
+import { resolveDocumentCitationStyle } from "../services/document-citation-style.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, joinCompiledSegments, resolvedFileTitleMarkdown } from "../services/compile-export.js";
 import { selectedContentVariant } from "../services/content-variants.js";
@@ -1155,7 +1156,10 @@ export class PreviewView extends ItemView {
          réassemblé à la main ici avait ce défaut. */
       let result: PreviewCompileResult | null = null;
       result = await this.compileForPreview(() =>
-        compile(this.app, settings, null, activeScope, undefined, { writeOutput: false })
+        compile(this.app, settings, null, activeScope, undefined, {
+          writeOutput: false,
+          ...(resolveDocumentCitationStyle(settings, activeScope.projectRoot) === "csl" ? { bibliographyMode: "csl" } : {}),
+        })
       );
       if (generation !== this.refreshGeneration) return null;
       if (!result) {
@@ -1196,7 +1200,10 @@ export class PreviewView extends ItemView {
          en mémoire ({ writeOutput: false }) — le moteur est le même que
          l'export, seuls les effets de bord diffèrent. */
       result = await this.compileForPreview(() =>
-        compile(this.app, settings, null, null, undefined, { writeOutput: false })
+        compile(this.app, settings, null, null, undefined, {
+          writeOutput: false,
+          ...(resolveDocumentCitationStyle(settings, root.path) === "csl" ? { bibliographyMode: "csl" } : {}),
+        })
       );
       if (generation !== this.refreshGeneration) return null;
       if (!result) {
@@ -1732,17 +1739,14 @@ export class PreviewView extends ItemView {
       : null;
     const projectRoot = projectRootCandidate instanceof TFolder
       ? projectRootCandidate
-      : this.plugin?.getProjectFolder();
+      : source.projectRootPath ? null : this.plugin?.getProjectFolder();
     let projectPath: string | null = null;
     if (projectRoot) {
       projectPath = projectRoot.path;
     } else if (source.projectRootPath) {
       projectPath = source.projectRootPath;
     }
-    const projectMeta = projectPath ? settings.projectMeta?.[projectPath] : null;
-    const globalRoot = this.plugin?.getProjectFolder();
-    const globalMeta = globalRoot ? settings.projectMeta?.[globalRoot.path] : null;
-    const pandocPreviewStyle = ((projectMeta?.pandocCitationPreviewStyle ?? globalMeta?.pandocCitationPreviewStyle) as PandocCitationPreviewStyle) || "off";
+    const pandocPreviewStyle = projectPath ? resolveDocumentCitationStyle(settings, projectPath) : "off";
     let pandocBibliographyPath = "";
     if (projectRoot) {
       let workspaceFolder: TFolder | null = null;

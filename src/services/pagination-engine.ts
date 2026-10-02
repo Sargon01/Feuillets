@@ -416,6 +416,10 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
     while (pending.length) {
       const original = pending.shift();
       if (!original) break;
+      if (original.classList.contains("feuillets-csl-bibliography")) {
+        pending.unshift(...Array.from(original.children));
+        continue;
+      }
       const source = original.cloneNode(true) as Element;
       if (isManualPageBreak(source) && page.nodes.length) nextPage();
       const front = isFrontPage(source);

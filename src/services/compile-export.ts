@@ -33,6 +33,8 @@ import { exportOdt } from "./export-odt.js";
 import { type CompileScope, resolveCompileScopeFiles, createProjectScope } from "./compile-scope.js";
 import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
 import type { CslCitationHost } from "./csl-citation-host.js";
+import { CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN } from "./csl-bibliography-anchor.js";
+import { resolveDocumentCitationStyle } from "./document-citation-style.js";
 import type { ExportCitationSettings } from "./pandoc-citation-preview.js";
 import { generateSummary, generateTableOfContents } from "./contents-generator.js";
 import type { GeneratedContentsKind } from "./generated-contents.js";
@@ -419,7 +421,7 @@ export type CompileOptions = {
   writeOutput?: boolean;
   contentExtraction?: ContentExtraction | null;
   contentCollection?: ContentCollection | null;
-  bibliographyMode?: "default" | "pandoc";
+  bibliographyMode?: "default" | "pandoc" | "csl";
 };
 
 /**
@@ -926,7 +928,7 @@ export async function compile(
      `parts` et `segments` reçoivent exactement les mêmes inserts, aux mêmes
      index, pour rester synchronisés (voir le commentaire juste en dessous
      sur cette contrainte). */
-  if (compilationScope.type === "project" || options?.bibliographyMode === "pandoc") {
+  if (compilationScope.type === "project" || options?.bibliographyMode === "pandoc" || options?.bibliographyMode === "csl") {
     const wantSummary = compilationScope.type === "project" ? composition.summary : false;
     const wantTables = compilationScope.type === "project" ? composition.tables : false;
     const wantToc = compilationScope.type === "project" ? composition.toc : false;
@@ -960,12 +962,21 @@ export async function compile(
       }
     }
 
+    if (wantToc) {
+      const text = generateTableOfContents(tocSourceSegments, opLocale);
+      parts.push(text);
+      segments.push({ path: null, text, frontType: null, generatedType: "toc" });
+    }
+
     if (wantBibliography) {
       if (options?.bibliographyMode === "pandoc") {
         const heading = t("export.pandoc.bibliographyHeading");
         const bibliographyText = `# ${heading}\n\n::: {#refs}\n:::\n`;
         parts.push(bibliographyText);
         segments.push({ path: null, text: bibliographyText, frontType: null });
+      } else if (options?.bibliographyMode === "csl") {
+        parts.push(CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN);
+        segments.push({ path: null, text: CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN, frontType: null });
       } else if (compilationScope.type === "project") {
         const contextualCitations = await resolveCitedSourceFilesForCompileFiles(app, settings, filesToCompile);
         const bibliographyEntriesForCompilation = contextualCitations.hasIndexedOccurrences
@@ -1026,13 +1037,6 @@ export async function compile(
       parts.push(...annexParts);
       segments.push(...annexSegments);
     }
-
-    // Insérer Table des matières APRÈS le manuscrit, avant bibliographie
-    if (wantToc) {
-      const text = generateTableOfContents(tocSourceSegments, opLocale);
-      parts.push(text);
-      segments.push({ path: null, text, frontType: null, generatedType: "toc" });
-    }
   }
 
   /* Chaque feuillet source numérote ses propres notes à partir de 1, sans
@@ -1061,7 +1065,7 @@ export async function compile(
     parts.push(...renumberedParts);
   }
   const manuscript = joinCompiledSegments(segments, composition.separator);
-  if (options?.writeOutput === false) {
+  if (options?.writeOutput === false || options?.bibliographyMode === "csl") {
     return { outPath: "", manuscript, segments, compiledFilePaths: Object.freeze([...compiledFilePaths]) };
   }
   const fileName = resolveOutputBaseName(outputFileName, composition.fileName, defaultManuscriptName);
@@ -1707,7 +1711,12 @@ async function exportViaNative(
      tout. */
   try {
     /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
-    const compileOptions: CompileOptions = { writeOutput: false };
+    const editorialRootForExport = resolveEditorialRootFor(app, folder, scopePath, scope);
+    const citationStyle = resolveDocumentCitationStyle(settings, editorialRootForExport.path);
+    const compileOptions: CompileOptions = {
+      writeOutput: false,
+      ...(citationStyle === "csl" ? { bibliographyMode: "csl" } : {}),
+    };
     if (contentExtraction || contentCollection) {
       compileOptions.contentExtraction = contentExtraction;
       compileOptions.contentCollection = contentCollection;
@@ -1728,7 +1737,6 @@ async function exportViaNative(
        peut donc jamais diverger de celle déjà appliquée par compile() —
        Markdown, PDF, DOCX, EPUB et ODT partagent ainsi toujours strictement
        la même composition. */
-    const editorialRootForExport = resolveEditorialRootFor(app, folder, scopePath, scope);
     const composition = effectiveComposition(settings, folder, editorialRootForExport);
 
     const { title, author } = resolveExportIdentity(app, settings, folder, result.segments);
@@ -1761,8 +1769,6 @@ async function exportViaNative(
     const { folder: citationTargetFolder, failClosed: citationFailClosed } =
       resolveExportCitationTargetFolder(app, scopePath, scope);
 
-    const projectMeta = settings.projectMeta?.[folder.path];
-    const citationStyle = (projectMeta?.pandocCitationPreviewStyle as PandocCitationPreviewStyle) || "off";
     let citationBibliographyPath = "";
 
     if (!citationFailClosed) {
@@ -1777,14 +1783,6 @@ async function exportViaNative(
       bibliographyPath: citationBibliographyPath,
     };
 
-    let effectiveProjectRoot = editorialRootForExport;
-    if (scope?.projectRoot) {
-      const candidateRoot = app.vault.getAbstractFileByPath(normalizePath(scope.projectRoot));
-      if (candidateRoot instanceof TFolder) {
-        effectiveProjectRoot = candidateRoot;
-      }
-    }
-
     const ctx: NativeExportContext = {
       markdown: result.manuscript,
       title,
@@ -1795,7 +1793,7 @@ async function exportViaNative(
       separator: composition.separator,
       citationSettings,
       cslHost,
-      projectRoot: effectiveProjectRoot,
+      projectRoot: editorialRootForExport,
     };
 
     if (format === "epub") {

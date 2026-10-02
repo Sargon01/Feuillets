@@ -29,6 +29,9 @@ import {
 } from "./composite-csl-resources.js";
 import { renderCitationNodes } from "./citation-render-nodes.js";
 import { createPandocCitationSpan } from "./pandoc-citation-preview.js";
+import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
+import { applyCslBibliographyLayout, createCslBibliographyElement } from "./csl-bibliography-layout.js";
+import { t } from "../i18n/index.js";
 
 export const STATIC_RENDER_ATTR = "data-feuillets-static-render";
 export const STATIC_RENDER_ATTR_VALUE = "true";
@@ -103,6 +106,33 @@ export const CITATION_RENDER_CSS = `
 .feuillets-csl-citation {
   display: inline;
 }
+[${CSL_BIBLIOGRAPHY_ANCHOR_ATTR}] { display: none; }
+.feuillets-csl-bibliography-entry {
+  line-height: var(--csl-line-spacing, 1);
+  margin-bottom: var(--csl-entry-spacing, 0em);
+  break-inside: avoid;
+}
+.feuillets-csl-bibliography-entry[data-csl-hanging-indent="true"] {
+  padding-left: 2em;
+  text-indent: -2em;
+}
+.feuillets-csl-bibliography-entry[data-csl-second-field-align] {
+  display: grid;
+  grid-template-columns: var(--csl-label-width, 3ch) minmax(0, 1fr);
+  column-gap: 1em;
+  padding-left: 0;
+  text-indent: 0;
+}
+.feuillets-csl-bibliography-entry > .feuillets-csl-left-margin {
+  grid-column: 1;
+  margin-right: 0;
+}
+.feuillets-csl-bibliography-entry[data-csl-second-field-align="margin"] {
+  margin-left: calc(-1 * (var(--csl-label-width, 3ch) + 1em));
+}
+.feuillets-csl-bibliography-entry > .feuillets-csl-right-inline {
+  grid-column: 2;
+}
 `;
 
 let staticSessionCounter = 0;
@@ -136,6 +166,7 @@ const PROTECTED_TAGS = new Set(["CODE", "PRE", "SCRIPT", "STYLE", "A"]);
 function isProtectedElement(element: Element): boolean {
   if (PROTECTED_TAGS.has(element.tagName)) return true;
   if (element.classList && element.classList.contains("feuillets-csl-citation")) return true;
+  if (element.classList && element.classList.contains("feuillets-csl-bibliography")) return true;
   if (element.classList && element.classList.contains("footnotes")) return true;
   if (element.tagName === "SECTION" && element.classList && element.classList.contains("footnotes")) return true;
   return false;
@@ -170,11 +201,9 @@ type DomOccurrenceMapping = {
 
 type PreparedDomReplacement = {
   readonly textNode: Text;
-  readonly items: {
-    readonly localFrom: number;
-    readonly localTo: number;
-    readonly span: HTMLElement;
-  }[];
+  readonly parent: Node;
+  readonly originalValue: string;
+  readonly nodes: Node[];
 };
 
 /**
@@ -188,6 +217,9 @@ export async function applyNativeCslToStaticRender(
   options: StaticCslRenderOptions
 ): Promise<boolean> {
   const { app, settings, host, projectRoot, container, sources, documentId } = options;
+  const anchors = Array.from(container.querySelectorAll<HTMLElement>(`[${CSL_BIBLIOGRAPHY_ANCHOR_ATTR}]`));
+  if (anchors.length > 1) return false;
+  const anchor = anchors[0];
 
   if (!host) {
     return false;
@@ -300,7 +332,7 @@ export async function applyNativeCslToStaticRender(
       preparedDoc,
       resourcesResolution.styleFile,
       resourcesResolution.bibliographyFiles,
-      { includeBibliography: false }
+      { includeBibliography: Boolean(anchor) }
     );
 
     if (snapshot.status !== "ready") {
@@ -322,6 +354,29 @@ export async function applyNativeCslToStaticRender(
       return false;
     }
 
+    let bibliographyElement: HTMLElement | null = null;
+    if (anchor) {
+      const bibliography = snapshot.result.bibliography;
+      if (!bibliography || !anchor.parentNode || anchor.ownerDocument !== container.ownerDocument) return false;
+      const ownerDocument = anchor.ownerDocument;
+      const section = createCslBibliographyElement(ownerDocument, "section");
+      section.className = "feuillets-csl-bibliography";
+      applyCslBibliographyLayout(section, bibliography.layout);
+      if (bibliography.entries.length) {
+        bibliographyElement = section;
+        const heading = createCslBibliographyElement(ownerDocument, "h1");
+        heading.textContent = t("bibliography.sectionTitle");
+        bibliographyElement.appendChild(heading);
+        for (const entry of bibliography.entries) {
+          const entryElement = createCslBibliographyElement(ownerDocument, "div");
+          entryElement.className = "feuillets-csl-bibliography-entry";
+          applyCslBibliographyLayout(entryElement, bibliography.layout);
+          renderCitationNodes(entry.content, entryElement, ownerDocument);
+          bibliographyElement.appendChild(entryElement);
+        }
+      }
+    }
+
     // Build replacement spans in memory before any DOM mutation
     const occurrencesByNode = new Map<Text, DomOccurrenceMapping[]>();
     for (const mapping of domMappings) {
@@ -337,7 +392,7 @@ export async function applyNativeCslToStaticRender(
 
     for (const [textNode, mappings] of occurrencesByNode) {
       const ownerDocument = textNode.ownerDocument;
-      if (!ownerDocument) return false;
+      if (!ownerDocument || !textNode.parentNode) return false;
 
       mappings.sort((a, b) => a.localFrom - b.localFrom);
 
@@ -359,37 +414,36 @@ export async function applyNativeCslToStaticRender(
         });
       }
 
-      preparedReplacements.push({ textNode, items });
+      const originalValue = textNode.nodeValue || "";
+      if (mappings.some((mapping) => originalValue.slice(mapping.localFrom, mapping.localTo) !== mapping.raw)) return false;
+      const nodes: Node[] = [];
+      let cursor = 0;
+      for (const item of items) {
+        if (item.localFrom > cursor) nodes.push(ownerDocument.createTextNode(originalValue.slice(cursor, item.localFrom)));
+        nodes.push(item.span);
+        cursor = item.localTo;
+      }
+      if (cursor < originalValue.length) nodes.push(ownerDocument.createTextNode(originalValue.slice(cursor)));
+      preparedReplacements.push({ textNode, parent: textNode.parentNode, originalValue, nodes });
     }
+
+    if (preparedReplacements.some(({ textNode, parent, originalValue }) => textNode.parentNode !== parent || textNode.nodeValue !== originalValue)) return false;
 
     // All pre-checks and element constructions succeeded; perform atomic replacement
     for (const replacement of preparedReplacements) {
-      const textNode = replacement.textNode;
-      const parent = textNode.parentNode;
-      if (!parent) continue;
-
-      const ownerDocument = textNode.ownerDocument;
-      const fullValue = textNode.nodeValue || "";
-      let cursor = 0;
-
-      for (const item of replacement.items) {
-        if (item.localFrom > cursor) {
-          const slice = fullValue.slice(cursor, item.localFrom);
-          parent.insertBefore(ownerDocument.createTextNode(slice), textNode);
-        }
-        parent.insertBefore(item.span, textNode);
-        cursor = item.localTo;
-      }
-
-      if (cursor < fullValue.length) {
-        const tail = fullValue.slice(cursor);
-        parent.insertBefore(ownerDocument.createTextNode(tail), textNode);
-      }
-
+      const { textNode, parent, nodes } = replacement;
+      for (const node of nodes) parent.insertBefore(node, textNode);
       parent.removeChild(textNode);
     }
 
+    if (anchor?.parentNode) {
+      if (bibliographyElement) anchor.parentNode.insertBefore(bibliographyElement, anchor);
+      anchor.parentNode.removeChild(anchor);
+    }
+
     return true;
+  } catch {
+    return false;
   } finally {
     host.disposeDocument(documentId);
   }

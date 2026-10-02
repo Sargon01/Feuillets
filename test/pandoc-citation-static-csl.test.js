@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { TFile, TFolder } from "obsidian";
+import { TFile, TFolder, MarkdownRenderer } from "obsidian";
+import { Document, Packer } from "docx";
+import JSZip from "jszip";
+import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR, CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN } from "../src/services/csl-bibliography-anchor.js";
+import { applyContentVariant } from "../src/services/content-variant-render.js";
 import { CitationEngineRegistry } from "../src/api/citation-engine.js";
 import { CslCitationHost } from "../src/services/csl-citation-host.js";
 import {
@@ -11,9 +15,16 @@ import {
   STATIC_RENDER_ATTR_VALUE,
 } from "../src/services/pandoc-citation-static-csl.js";
 import { registerPandocCitationReadingMode } from "../src/services/pandoc-citation-reading-mode.js";
-import { inlineChildren } from "../src/services/docx-blocks.js";
+import { inlineChildren, blockToParagraphs } from "../src/services/docx-blocks.js";
 import { domToOdtContent } from "../src/services/export-odt.js";
-import { previewTemplateCss } from "../src/views/preview-view.js";
+import { previewTemplateCss, PreviewView } from "../src/views/preview-view.js";
+import { compile, exportWithScope } from "../src/services/compile-export.js";
+import { writeGeneratedIncluded } from "../src/services/book-composition.js";
+import { exportEpub } from "../src/services/export-epub.js";
+import { exportDocx } from "../src/services/export-docx.js";
+import { exportOdt, cslBibliographyStyleXml } from "../src/services/export-odt.js";
+import { renderManuscriptHtml } from "../src/services/export-render.js";
+import { resolveDocumentCitationStyle } from "../src/services/document-citation-style.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
 class TestDomNode {
@@ -25,6 +36,9 @@ class TestDomNode {
     this.childNodes = [];
     this.parentNode = null;
     this.attrs = new Map();
+    this.style = { setProperty: (name, value) => {
+      this.attrs.set("style", `${this.attrs.get("style") ?? ""}${name}:${value};`);
+    } };
     const classSet = new Set();
     this.classList = classSet;
     classSet.contains = (val) => classSet.has(val);
@@ -32,6 +46,26 @@ class TestDomNode {
 
   get parentElement() {
     return this.parentNode;
+  }
+
+  get children() { return this.childNodes.filter((node) => node.nodeType === 1); }
+  get attributes() { return [...this.attrs].map(([name, value]) => ({ name, value })); }
+  get firstChild() { return this.childNodes[0] ?? null; }
+  get innerHTML() { return this.childNodes.map((node) => node.outerHTML).join(""); }
+  get outerHTML() {
+    if (this.nodeType === 3) return this.nodeValue.replaceAll("&", "&amp;").replaceAll("<", "&lt;");
+    const attrs = [...this.attrs, ...(this.className ? [["class", this.className]] : [])].map(([name, value]) => ` ${name}="${value}"`).join("");
+    return `<${this.tagName.toLowerCase()}${attrs}>${this.innerHTML}</${this.tagName.toLowerCase()}>`;
+  }
+  querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+  remove() { this.parentNode?.removeChild(this); }
+  removeAttribute(name) { this.attrs.delete(name); }
+  cloneNode(deep) {
+    const clone = new TestDomNode(this.ownerDocument, this.tagName, this.nodeValue);
+    clone.className = this.className;
+    for (const [name, value] of this.attrs) clone.setAttribute(name, value);
+    if (deep) this.childNodes.forEach((child) => clone.appendChild(child.cloneNode(true)));
+    return clone;
   }
 
   get className() {
@@ -106,8 +140,9 @@ class TestDomNode {
   }
 
   matches(selector) {
+    if (selector === "*") return true;
     if (selector.startsWith(".")) {
-      return this.classList.has(selector.slice(1));
+      return selector.slice(1).split(".").every((name) => this.classList.has(name));
     }
     if (selector.startsWith("[")) {
       const match = selector.match(/\[([a-zA-Z0-9_-]+)(?:='([^']*)'|="([^"]*)")?\]/);
@@ -122,6 +157,7 @@ class TestDomNode {
   }
 
   querySelectorAll(selector) {
+    if (selector.includes(",")) return [...new Set(selector.split(",").flatMap((part) => this.querySelectorAll(part.trim())))];
     const matches = [];
     for (const node of this.childNodes) {
       if (node.nodeType === 1) {
@@ -134,6 +170,13 @@ class TestDomNode {
 }
 
 class TestDomDocument {
+  createTreeWalker(root) {
+    const nodes = [];
+    const visit = (node) => { if (node.nodeType === 3) nodes.push(node); else node.childNodes.forEach(visit); };
+    visit(root);
+    let index = 0;
+    return { nextNode: () => nodes[index++] ?? null };
+  }
   createElement(tag) {
     return new TestDomNode(this, tag);
   }
@@ -284,6 +327,391 @@ function createStaticCslFixture({
 // =========================================================================
 // SECTION 25: SPECIFICATION TESTS (A through O)
 // =========================================================================
+
+function bibliographyResult(request, { layout = {}, entries, ...overrides } = {}) {
+  const ids = [...new Set(request.clusters.flatMap((cluster) => cluster.items.map((item) => item.id)))].reverse();
+  return {
+    documentId: request.documentId, revision: request.revision,
+    citations: request.clusters.map((cluster) => ({ clusterId: cluster.id, plainText: "Rendered citation", content: [{ type: "text", text: "Rendered citation" }] })),
+    bibliography: {
+      layout: { hangingIndent: true, entrySpacing: 2, lineSpacing: 1.5, ...layout },
+      entries: entries ?? ids.map((id) => ({ itemIds: [id], plainText: `Plain ${id}`, content: [{ type: "span", style: { fontStyle: "italic", fontWeight: "bold", fontVariant: "small-caps", textDecoration: "underline" }, children: [{ type: "text", text: `Rich ${id}` }] }] })),
+    },
+    diagnostics: [], ...overrides,
+  };
+}
+
+function bibliographyFixture(t, { source = "[@doe2023] [@smith2024] [@doe2023]", anchor = true, provider = true, handler = bibliographyResult } = {}) {
+  const f = createStaticCslFixture({ docContent: source, provider, customEngineHandler: handler });
+  t.after(() => f.host.dispose());
+  const container = f.doc.createElement("div");
+  const p = f.doc.createElement("p");
+  p.textContent = source;
+  container.appendChild(p);
+  const anchorEl = f.doc.createElement("div");
+  anchorEl.setAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR, "true");
+  anchorEl.setAttribute("hidden", "hidden");
+  if (anchor) container.appendChild(anchorEl);
+  const run = () => applyNativeCslToStaticRender({ app: f.app, settings: f.settings, host: f.host, projectRoot: f.projectRoot, container, sources: [{ path: f.fileA.path, text: source }], documentId: createStaticDocumentId("bibliography-test", f.projectRoot.path) });
+  return { ...f, container, p, anchorEl, run };
+}
+
+test("Static bibliography: absent anchor does not request or insert bibliography", async (t) => {
+  const f = bibliographyFixture(t, { anchor: false });
+  assert.equal(await f.run(), true);
+  assert.equal(f.requests[0].includeBibliography, false);
+  assert.equal(f.container.querySelectorAll(".feuillets-csl-bibliography").length, 0);
+});
+
+test("Static bibliography: one request preserves provider order, deduplication and rich AST", async (t) => {
+  const f = bibliographyFixture(t);
+  assert.equal(await f.run(), true);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].includeBibliography, true);
+  assert.equal(f.requests[0].clusters.length, 3);
+  const entries = f.container.querySelectorAll(".feuillets-csl-bibliography-entry");
+  assert.deepEqual(entries.map((entry) => entry.textContent), ["Rich smith2024", "Rich doe2023"]);
+  assert.equal(f.container.querySelectorAll(".feuillets-csl-font-italic").length, 2);
+  assert.equal(f.container.querySelectorAll(".feuillets-csl-variant-small-caps").length, 2);
+  assert.equal(f.container.querySelectorAll(`[${CSL_BIBLIOGRAPHY_ANCHOR_ATTR}]`).length, 0);
+  assert.equal(f.container.textContent.includes("Plain"), false);
+});
+
+test("Static bibliography: core never sorts or deduplicates provider entries", async (t) => {
+  const entries = ["Z first", "A second", "Z again"].map((text, index) => ({ itemIds: [index === 1 ? "doe2023" : "smith2024"], plainText: "Unused", content: [{ type: "text", text }] }));
+  const f = bibliographyFixture(t, { handler: (req) => bibliographyResult(req, { entries }) });
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.container.querySelectorAll(".feuillets-csl-bibliography-entry").map((entry) => entry.textContent), ["Z first", "A second", "Z again"]);
+});
+
+test("Document citation style: explicit nested modes take precedence over inherited global settings", () => {
+  const settings = { projectFolder: "Book", projectMeta: { Book: { pandocCitationPreviewStyle: "csl" }, "Book/Nested": { pandocCitationPreviewStyle: "off" } } };
+  assert.equal(resolveDocumentCitationStyle(settings, "Book/Nested"), "off");
+  settings.projectMeta["Book/Nested"].pandocCitationPreviewStyle = "author-date";
+  assert.equal(resolveDocumentCitationStyle(settings, "Book//Nested"), "author-date");
+  settings.projectMeta.Book.pandocCitationPreviewStyle = "off";
+  settings.projectMeta["Book/Nested"].pandocCitationPreviewStyle = "csl";
+  assert.equal(resolveDocumentCitationStyle(settings, "Book/Nested"), "csl");
+  delete settings.projectMeta["Book/Nested"].pandocCitationPreviewStyle;
+  settings.projectMeta.Book.pandocCitationPreviewStyle = "author-date";
+  assert.equal(resolveDocumentCitationStyle(settings, "Book/Nested"), "author-date");
+});
+
+test("Static bibliography: all AST nodes belong to the container ownerDocument", async (t) => {
+  const f = bibliographyFixture(t);
+  assert.equal(await f.run(), true);
+  const verify = (node) => { assert.equal(node.ownerDocument, f.doc); node.childNodes.forEach(verify); };
+  verify(f.container);
+});
+
+for (const [attribute, value] of [["hanging-indent", "true"], ["entry-spacing", "2"], ["line-spacing", "1.5"], ["second-field-align", "flush"], ["max-offset", "5"]]) {
+  test(`Static bibliography: provider ${attribute} is preserved semantically and styled`, async (t) => {
+    const f = bibliographyFixture(t, { handler: (req) => bibliographyResult(req, { layout: { secondFieldAlign: "flush", maxOffset: 5 } }) });
+    assert.equal(await f.run(), true);
+    const bibliography = f.container.querySelector(".feuillets-csl-bibliography");
+    assert.equal(bibliography.getAttribute(`data-csl-${attribute}`), value);
+    for (const entry of bibliography.children.slice(1)) assert.equal(entry.getAttribute(`data-csl-${attribute}`), value);
+    assert.match(CITATION_RENDER_CSS, /--csl-entry-spacing|--csl-line-spacing|--csl-label-width/);
+  });
+}
+
+test("Static bibliography: numeric left-margin and right-inline retain their distinct roles", async (t) => {
+  const entries = [1, 2].map((n) => ({ itemIds: [`key${n}`], plainText: `Plain ${n}`, content: [
+    { type: "block", display: "left-margin", children: [{ type: "text", text: `[${n}]` }] },
+    { type: "block", display: "right-inline", children: [{ type: "span", style: { fontStyle: "italic" }, children: [{ type: "text", text: `Reference ${n}` }] }] },
+  ] }));
+  const f = bibliographyFixture(t, { handler: (req) => bibliographyResult(req, { entries, layout: { secondFieldAlign: "flush", maxOffset: 4 } }) });
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.container.querySelectorAll(".feuillets-csl-left-margin").map((el) => el.textContent), ["[1]", "[2]"]);
+  assert.deepEqual(f.container.querySelectorAll(".feuillets-csl-right-inline").map((el) => el.textContent), ["Reference 1", "Reference 2"]);
+  assert.match(CITATION_RENDER_CSS, /grid-template-columns: var\(--csl-label-width/);
+});
+
+for (const [name, handler] of [
+  ["diagnostic error", (req) => bibliographyResult(req, { diagnostics: [{ severity: "error", code: "UNKNOWN_CITEKEY", message: "Unknown key" }] })],
+  ["null bibliography", (req) => ({ ...bibliographyResult(req), bibliography: null })],
+  ["partial citations", (req) => bibliographyResult(req, { citations: bibliographyResult(req).citations.slice(1) })],
+  ["engine error", () => { throw new Error("Engine failure"); }],
+  ["invalid layout", (req) => bibliographyResult(req, { layout: { entrySpacing: "invalid" } })],
+  ["non-finite layout", (req) => bibliographyResult(req, { layout: { entrySpacing: Infinity } })],
+  ["empty bibliography with non-finite layout", (req) => bibliographyResult(req, { layout: { entrySpacing: Infinity }, entries: [] })],
+]) {
+  test(`Static bibliography: ${name} fails closed for both citations and bibliography`, async (t) => {
+    const f = bibliographyFixture(t, { handler });
+    const original = f.container.outerHTML;
+    assert.equal(await f.run(), false);
+    assert.equal(f.container.outerHTML, original);
+    assert.equal(f.anchorEl.getAttribute("hidden"), "hidden");
+    assert.equal(f.anchorEl.textContent, "");
+    assert.equal(f.container.querySelectorAll(".feuillets-csl-citation").length, 0);
+    assert.equal(f.container.querySelectorAll(".feuillets-csl-bibliography").length, 0);
+  });
+}
+
+test("Static bibliography: absent provider leaves a hidden empty anchor and raw citations", async (t) => {
+  const f = bibliographyFixture(t, { provider: false });
+  const original = f.container.outerHTML;
+  assert.equal(await f.run(), false);
+  assert.equal(f.container.outerHTML, original);
+  assert.match(CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN, /hidden="hidden"/);
+  assert.match(CITATION_RENDER_CSS, /\[data-feuillets-csl-bibliography-anchor\] \{ display: none; \}/);
+  assert.equal(blockToParagraphs(f.anchorEl, new Map(), {}).length, 0);
+  assert.equal(domToOdtContent(f.anchorEl), "");
+});
+
+test("Static bibliography: no final citation makes no Host request and no empty heading", async (t) => {
+  const f = bibliographyFixture(t, { source: "No citation remains." });
+  assert.equal(await f.run(), false);
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.container.querySelectorAll("h1").length, 0);
+  assert.equal(f.container.textContent, "No citation remains.");
+});
+
+test("Static bibliography: a valid empty bibliography removes only the anchor and has no heading", async (t) => {
+  const f = bibliographyFixture(t, { handler: (req) => bibliographyResult(req, { entries: [] }) });
+  assert.equal(await f.run(), true);
+  assert.equal(f.container.querySelectorAll("h1").length, 0);
+  assert.equal(f.container.querySelectorAll(`[${CSL_BIBLIOGRAPHY_ANCHOR_ATTR}]`).length, 0);
+  assert.equal(f.container.querySelectorAll(".feuillets-csl-citation").length, 3);
+});
+
+test("Static bibliography: ContentVariant excludes source-only citations from the bibliography request", async (t) => {
+  const f = bibliographyFixture(t);
+  f.p.textContent = "[@doe2023]";
+  const excluded = f.doc.createElement("div");
+  excluded.className = "feuillets-semantic-role feuillets-role-solution";
+  excluded.textContent = "[@smith2024]";
+  f.container.insertBefore(excluded, f.p);
+  applyContentVariant(f.container, { excludedRoles: ["solution"], questionAnswerSpace: "keep" });
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.requests[0].clusters.flatMap((cluster) => cluster.items.map((item) => item.id)), ["doe2023"]);
+  assert.deepEqual(f.container.querySelectorAll(".feuillets-csl-bibliography-entry").map((entry) => entry.textContent), ["Rich doe2023"]);
+});
+
+test("Static bibliography: failing AST construction makes zero mutations", async (t) => {
+  const f = bibliographyFixture(t);
+  const original = f.container.outerHTML;
+  const createElement = f.doc.createElement.bind(f.doc);
+  f.doc.createElement = (tag) => { if (tag === "span") throw new Error("DOM creation failure"); return createElement(tag); };
+  assert.equal(await f.run(), false);
+  assert.equal(f.container.outerHTML, original);
+});
+
+test("Static bibliography: failure while constructing the second citation leaves the prepared bibliography detached", async (t) => {
+  const f = bibliographyFixture(t);
+  const original = f.container.outerHTML;
+  const createTextNode = f.doc.createTextNode.bind(f.doc);
+  let citationTexts = 0;
+  f.doc.createTextNode = (value) => {
+    if (value === "Rendered citation" && ++citationTexts === 2) throw new Error("Second citation creation failure");
+    return createTextNode(value);
+  };
+  assert.equal(await f.run(), false);
+  assert.equal(f.container.outerHTML, original);
+});
+
+function installBibliographyRender(t, doc) {
+  const names = ["createDiv", "createEl", "document", "Node", "XMLSerializer"];
+  const previous = new Map(names.map((name) => [name, globalThis[name]]));
+  const render = MarkdownRenderer.render;
+  const element = (tag, options = {}) => {
+    const el = doc.createElement(tag);
+    if (options.text) el.textContent = options.text;
+    if (options.cls) el.className = options.cls;
+    return el;
+  };
+  globalThis.createEl = element;
+  globalThis.createDiv = (options) => element("div", options);
+  globalThis.document = doc;
+  globalThis.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+  globalThis.XMLSerializer = class { serializeToString(node) { return node.outerHTML; } };
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    for (const block of markdown.split(/\n\n+/).filter(Boolean)) {
+      if (block.includes(CSL_BIBLIOGRAPHY_ANCHOR_ATTR)) {
+        const anchor = element("div");
+        anchor.setAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR, "true");
+        anchor.setAttribute("hidden", "hidden");
+        container.appendChild(anchor);
+      } else {
+        const heading = block.match(/^(#{1,6})\s+(.+)$/);
+        container.appendChild(element(heading ? `h${heading[1].length}` : "p", { text: heading ? heading[2] : block }));
+      }
+    }
+  };
+  t.after(() => {
+    for (const [name, value] of previous) globalThis[name] = value;
+    MarkdownRenderer.render = render;
+  });
+}
+
+test("Static bibliography: render pipeline preserves an empty hidden anchor supplied by the simulated MarkdownRenderer", async (t) => {
+  const f = bibliographyFixture(t);
+  installBibliographyRender(t, f.doc);
+  const result = await renderManuscriptHtml(f.app, CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN, f.fileA.path);
+  const anchor = result.containerEl.querySelector(`[${CSL_BIBLIOGRAPHY_ANCHOR_ATTR}]`);
+  assert.ok(anchor);
+  assert.equal(anchor.getAttribute("hidden"), "hidden");
+  assert.equal(result.containerEl.textContent, "");
+});
+
+for (const style of ["off", "author-date"]) {
+  test(`Native EPUB: ${style} preserves historical bibliography without calling the CSL Host`, async (t) => {
+    const f = bibliographyFixture(t);
+    installBibliographyRender(t, f.doc);
+    f.settings.exportTemplate = "documentSimple";
+    f.settings.projectMeta[f.projectRoot.path].pandocCitationPreviewStyle = style;
+    writeGeneratedIncluded(f.settings.projectMeta[f.projectRoot.path], "bibliography", true);
+    const result = await compile(f.app, f.settings, null, null, undefined, { writeOutput: false });
+    assert.match(result.manuscript, /John Doe|Doe, John/);
+    assert.doesNotMatch(result.manuscript, /data-feuillets-csl-bibliography-anchor/);
+    const zip = await JSZip.loadAsync(await exportEpub(f.app, f.settings, {
+      markdown: result.manuscript, segments: result.segments, sourcePath: f.fileA.path,
+      title: "Historical book", author: "Author", projectRoot: f.projectRoot, cslHost: f.host,
+      citationSettings: { style, bibliographyPath: `${f.projectRoot.path}/Research/refs.bib` },
+    }));
+    const xml = await zip.file("OEBPS/chapitres.xhtml").async("string");
+    assert.equal(f.requests.length, 0);
+    assert.doesNotMatch(xml, /class="feuillets-csl-bibliography/);
+    assert.match(xml, /John Doe|Doe, John/);
+    if (style === "off") assert.match(xml, /\[@doe2023\]/);
+    else {
+      assert.doesNotMatch(xml, /\[@doe2023\]/);
+      assert.match(xml, /Doe, 2023/);
+    }
+  });
+}
+
+test("Native EPUB: disabled bibliography still renders CSL citations without requesting entries", async (t) => {
+  const f = bibliographyFixture(t);
+  installBibliographyRender(t, f.doc);
+  f.settings.exportTemplate = "documentSimple";
+  writeGeneratedIncluded(f.settings.projectMeta[f.projectRoot.path], "bibliography", false);
+  const result = await compile(f.app, f.settings, null, null, undefined, { writeOutput: false, bibliographyMode: "csl" });
+  const zip = await JSZip.loadAsync(await exportEpub(f.app, f.settings, {
+    markdown: result.manuscript, segments: result.segments, sourcePath: f.fileA.path,
+    title: "Book without bibliography", author: "Author", projectRoot: f.projectRoot, cslHost: f.host,
+    citationSettings: { style: "csl", bibliographyPath: "" },
+  }));
+  const xml = await zip.file("OEBPS/chapitres.xhtml").async("string");
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].includeBibliography, false);
+  assert.match(xml, /Rendered citation/);
+  assert.doesNotMatch(xml, /class="feuillets-csl-bibliography|Rich doe2023|Rich smith2024/);
+});
+
+for (const format of ["epub", "docx", "odt"]) {
+  test(`Native ${format}: compiled CSL bibliography is a real structured export entry`, async (t) => {
+    const f = bibliographyFixture(t);
+    installBibliographyRender(t, f.doc);
+    f.settings.exportTemplate = "documentSimple";
+    writeGeneratedIncluded(f.settings.projectMeta[f.projectRoot.path], "bibliography", true);
+    if (format === "docx") writeGeneratedIncluded(f.settings.projectMeta[f.projectRoot.path], "toc", true);
+    const result = await compile(f.app, f.settings, null, null, undefined, { writeOutput: false, bibliographyMode: "csl" });
+    const input = { markdown: result.manuscript, segments: result.segments, sourcePath: f.fileA.path, title: "Test book", author: "Test author", projectRoot: f.projectRoot, cslHost: f.host, citationSettings: { style: "csl", bibliographyPath: "" } };
+    const exporter = { epub: exportEpub, docx: exportDocx, odt: exportOdt }[format];
+    const zip = await JSZip.loadAsync(await exporter(f.app, f.settings, input));
+    const xml = await zip.file({ epub: "OEBPS/chapitres.xhtml", docx: "word/document.xml", odt: "content.xml" }[format]).async("string");
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.requests[0].includeBibliography, true);
+    assert.match(xml, /Rich smith2024/);
+    assert.match(xml, /Rich doe2023/);
+    assert.doesNotMatch(xml, /Plain smith2024|Plain doe2023|data-feuillets-csl-bibliography-anchor="true"/);
+    if (format === "epub") {
+      assert.match(xml, /<section[^>]*class="feuillets-csl-bibliography"/);
+      assert.match(xml, /<div[^>]*class="feuillets-csl-bibliography-entry"/);
+      assert.match(xml, /data-csl-hanging-indent="true"/);
+      assert.match(xml, /--csl-line-spacing/);
+    } else if (format === "docx") {
+      assert.ok(xml.indexOf("TOC") >= 0 && xml.indexOf("TOC") < xml.indexOf("Rich smith2024"));
+      assert.match(xml, /<w:ind[^>]*w:hanging=/);
+      assert.match(xml, /w:line="360"/);
+      assert.match(xml, /<w:i/);
+      assert.match(xml, /<w:smallCaps/);
+    } else {
+      assert.match(xml, /<text:p text:style-name="CSLBibliography1"/);
+      assert.match(xml, /fo:text-indent="-28pt"/);
+      assert.match(xml, /fo:line-height="150%"/);
+      assert.match(xml, /text:style-name="Italic"/);
+    }
+  });
+}
+
+test("DOCX bibliography: numeric paragraphs preserve tabs, indentation, spacing and all inline typography", async (t) => {
+  const f = bibliographyFixture(t, { handler: (req) => bibliographyResult(req, { layout: { secondFieldAlign: "margin", maxOffset: 5 }, entries: [{ itemIds: ["doe2023"], plainText: "Unused plain text", content: [
+    { type: "block", display: "left-margin", children: [{ type: "text", text: "[1]" }] },
+    { type: "block", display: "right-inline", children: [
+      { type: "span", style: { fontStyle: "italic", fontWeight: "bold", fontVariant: "small-caps", textDecoration: "underline", verticalAlign: "superscript" }, children: [{ type: "text", text: "Numeric reference" }] },
+      { type: "span", style: { verticalAlign: "subscript" }, children: [{ type: "text", text: "Subscript" }] },
+    ] },
+  ] }] }) });
+  assert.equal(await f.run(), true);
+  const paragraphs = blockToParagraphs(f.container.querySelector(".feuillets-csl-bibliography-entry"), new Map(), { fontSizePt: 12 });
+  assert.equal(paragraphs.length, 1);
+  const document = new Document({ sections: [{ children: paragraphs }] });
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(document));
+  const xml = await zip.file("word/document.xml").async("string");
+  assert.match(xml, /w:hanging="840"/);
+  assert.match(xml, /w:left="0"/);
+  assert.match(xml, /w:after="720"/);
+  assert.match(xml, /w:line="360"/);
+  assert.match(xml, /<w:tab[^>]*w:pos="0"/);
+  assert.match(xml, /<w:tab\/>/);
+  for (const property of ["w:i", "w:b", "w:smallCaps", "w:u", "superscript", "subscript"]) assert.ok(xml.includes(property), property);
+  assert.ok(xml.indexOf("[1]") < xml.indexOf("Numeric reference"));
+});
+
+test("ODT bibliography: numeric alignment emits paragraph styles and structured tab stops", async (t) => {
+  const f = bibliographyFixture(t, { handler: (req) => bibliographyResult(req, { layout: { secondFieldAlign: "flush", maxOffset: 5 }, entries: [{ itemIds: ["doe2023"], plainText: "Unused", content: [
+    { type: "block", display: "left-margin", children: [{ type: "text", text: "[1]" }] },
+    { type: "block", display: "right-inline", children: [{ type: "span", style: { fontStyle: "italic" }, children: [{ type: "text", text: "Numeric entry" }] }] },
+  ] }] }) });
+  await f.run();
+  const styles = new Map();
+  const content = domToOdtContent(f.container, { bibliographyStyles: styles });
+  const xml = [...styles].map(([name, layout]) => cslBibliographyStyleXml(name, layout)).join("") + content;
+  assert.match(xml, /style:position="42pt"/);
+  assert.match(xml, /fo:text-indent="-42pt"/);
+  assert.match(xml, /fo:margin-bottom="36pt"/);
+  assert.match(xml, /fo:line-height="150%"/);
+  assert.match(xml, /\[1\]<text:tab\/><text:span text:style-name="Italic">Numeric entry/);
+  assert.match(xml, /<text:p text:style-name="CSLBibliography1"/);
+});
+
+test("Native export: explicit nested root selects CSL before compilation even when global style is off", async (t) => {
+  const f = bibliographyFixture(t);
+  installBibliographyRender(t, f.doc);
+  const nested = f.fileA.parent;
+  const globalMeta = f.settings.projectMeta[f.projectRoot.path];
+  f.settings.projectMeta[nested.path] = { ...globalMeta, pandocCitationPreviewStyle: "csl", citekeyBibliographyPath: "refs.bib", citekeyCslPath: "style.csl" };
+  globalMeta.pandocCitationPreviewStyle = "off";
+  writeGeneratedIncluded(globalMeta, "bibliography", true);
+  const recorded = [];
+  const compileFn = (...args) => { recorded.push(args[5]); return compile(...args); };
+  const output = await exportWithScope(f.app, f.settings, { type: "project", projectRoot: nested.path }, "epub", "nested", null, null, compileFn, f.host);
+  assert.ok(output);
+  assert.equal(recorded[0].bibliographyMode, "csl");
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].includeBibliography, true);
+});
+
+for (const enabled of [true, false]) {
+  test(`Preview: nested CSL compilation ${enabled ? "includes" : "omits"} bibliography before rendering`, async (t) => {
+    const f = bibliographyFixture(t);
+    const nested = f.fileA.parent;
+    f.settings.projectMeta[nested.path] = { pandocCitationPreviewStyle: "csl" };
+    f.settings.projectMeta[f.projectRoot.path].pandocCitationPreviewStyle = "off";
+    writeGeneratedIncluded(f.settings.projectMeta[f.projectRoot.path], "bibliography", enabled);
+    const view = Object.create(PreviewView.prototype);
+    view.plugin = { settings: f.settings, getProjectFolder: () => f.projectRoot };
+    view.app = f.app;
+    view.refreshGeneration = 1;
+    const source = await view.collectSource(1, { type: "project", projectRoot: nested.path });
+    assert.ok(source);
+    assert.equal(source.projectRootPath, nested.path);
+    assert.equal(source.markdown.includes(CSL_BIBLIOGRAPHY_ANCHOR_ATTR), enabled);
+    assert.doesNotMatch(source.markdown, /# Bibliographie|# Bibliography/);
+  });
+}
 
 test("Static CSL — Case A: simple citation [@doe2023] produces structured AST span", async () => {
   const f = createStaticCslFixture();

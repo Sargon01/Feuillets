@@ -5,6 +5,7 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import { compile, activePresetConfig, effectiveComposition, getOutputFolder, joinCompiledSegments, listCompiledFilePaths, projectMetaFor, exportWithScope } from "../src/services/compile-export.js";
 import { writeGeneratedIncluded } from "../src/services/book-composition.js";
 import { updateOuvrageComposition, clearOuvrageComposition } from "../src/services/ouvrage-composition.js";
+import { CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN, CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "../src/services/csl-bibliography-anchor.js";
 
 test("compile : respecte l'ordre, les pages Front et compile: false", async () => {
   const volume = new TFolder("Projet");
@@ -812,6 +813,65 @@ function buildBibliographyFixture(refCount = 1) {
   };
   return { app, settings, manuscript, first, second };
 }
+
+for (const bibliographyMode of [undefined, "default", "pandoc", "csl"]) {
+  test(`compile: bibliography mode ${bibliographyMode ?? "implicit default"} preserves its dedicated output`, async () => {
+    const { app, settings, manuscript } = buildBibliographyFixture(2);
+    writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "bibliography", true);
+    const result = await compile(app, settings, null, null, undefined, { writeOutput: false, bibliographyMode });
+    assert.ok(result);
+    if (bibliographyMode === "csl") {
+      assert.equal(result.segments.at(-1).text, CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN);
+      assert.doesNotMatch(result.manuscript, /Auteur 0|Auteur 1|# Bibliographie|# Bibliography|#refs/);
+    } else if (bibliographyMode === "pandoc") {
+      assert.match(result.manuscript, /# Bibliographie\n\n::: \{#refs\}\n:::/);
+      assert.doesNotMatch(result.manuscript, /Auteur 0|Auteur 1|data-feuillets-csl/);
+    } else {
+      assert.match(result.manuscript, /# Bibliographie[\s\S]*Auteur 0[\s\S]*Auteur 1/);
+      assert.doesNotMatch(result.manuscript, /data-feuillets-csl/);
+    }
+  });
+}
+
+for (const type of ["project", "folder", "selection"]) {
+  test(`compile: explicit CSL ${type} scope receives only a hidden bibliography anchor`, async () => {
+    const { app, settings, manuscript, first } = buildBibliographyFixture(2);
+    writeGeneratedIncluded(settings.projectMeta[manuscript.path] = {}, "bibliography", true);
+    const scope = type === "project" ? { type, projectRoot: manuscript.path }
+      : type === "folder" ? { type, projectRoot: manuscript.path, path: first.parent.path }
+      : { type, projectRoot: manuscript.path, paths: [first.path] };
+    const result = await compile(app, settings, null, scope, undefined, { bibliographyMode: "csl" });
+    assert.equal(result.outPath, "");
+    assert.match(result.manuscript, /data-feuillets-csl-bibliography-anchor="true" hidden="hidden"/);
+    assert.doesNotMatch(result.manuscript, /Auteur 0|Auteur 1/);
+  });
+}
+
+test("compile: disabled bibliography has no CSL anchor", async () => {
+  const { app, settings } = buildBibliographyFixture(2);
+  const result = await compile(app, settings, null, null, undefined, { writeOutput: false, bibliographyMode: "csl" });
+  assert.ok(result);
+  assert.equal(result.manuscript.includes(CSL_BIBLIOGRAPHY_ANCHOR_ATTR), false);
+  assert.doesNotMatch(result.manuscript, /Auteur 0|Auteur 1/);
+});
+
+test("compile: front, summary, tables, manuscript, TOC, bibliography and annexes keep composition order", async () => {
+  const { app, settings, manuscript, scene } = buildAnnexesFixture();
+  const meta = settings.projectMeta[manuscript.path] = {};
+  for (const kind of ["summary", "tables", "toc", "bibliography", "annexes"]) writeGeneratedIncluded(meta, kind, true);
+  const result = await compile(app, settings, null, null, undefined, { writeOutput: false, bibliographyMode: "csl" });
+  const positions = [
+    result.segments.findIndex((s) => s.frontType),
+    result.segments.findIndex((s) => s.generatedType === "summary"),
+    result.segments.findIndex((s) => /^# Table des illustrations/.test(s.text)),
+    result.segments.findIndex((s) => s.path === scene.path),
+    result.segments.findIndex((s) => s.generatedType === "toc"),
+    result.segments.findIndex((s) => s.text === CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN),
+    result.segments.findIndex((s) => /^# Annexes/.test(s.text)),
+  ];
+  assert.ok(positions.every((position) => position >= 0), JSON.stringify(result.segments));
+  assert.deepEqual(positions, [...positions].sort((a, b) => a - b));
+});
 
 test("compile portée project : bibliographie incluse -> insérée après Tables", async () => {
   const { app, settings, manuscript } = buildBibliographyFixture(2);

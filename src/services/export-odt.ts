@@ -12,6 +12,9 @@ import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import { escapeXml } from "../utils/xml.js";
 import type { ContentVariant } from "./content-variants.js";
+import type { BibliographyLayout } from "../api/citation-contract.js";
+import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
+import { readCslBibliographyLayout, cslBibliographyTabPositionPt } from "./csl-bibliography-layout.js";
 
 /** Premier nom de la liste `fontFamily` CSS du modèle (ex. "'Times New
  * Roman', Times, serif" -> "Times New Roman") : ODF ne connaît pas les
@@ -72,7 +75,17 @@ type ExportInput = {
 type OdtOptions = {
   frontStyle?: string;
   sceneDivider?: string;
+  bibliographyStyles?: Map<string, BibliographyLayout>;
+  bibliographyAlignment?: boolean;
 };
+
+export function cslBibliographyStyleXml(name: string, layout: BibliographyLayout, fontSizePt = 12): string {
+  const indentPt = layout.secondFieldAlign ? cslBibliographyTabPositionPt(layout, fontSizePt) : layout.hangingIndent ? 2 * fontSizePt : 0;
+  const leftPt = layout.secondFieldAlign === "margin" ? 0 : indentPt;
+  const tabs = layout.secondFieldAlign
+    ? `<style:tab-stops><style:tab-stop style:type="left" style:position="${leftPt}pt"/></style:tab-stops>` : "";
+  return `<style:style style:name="${escapeXml(name)}" style:family="paragraph"><style:paragraph-properties fo:text-align="left" fo:margin-left="${leftPt}pt" fo:text-indent="${-indentPt}pt" fo:margin-top="0pt" fo:margin-bottom="${layout.entrySpacing * layout.lineSpacing * fontSizePt}pt" fo:line-height="${layout.lineSpacing * 100}%">${tabs}</style:paragraph-properties></style:style>`;
+}
 
 type RenderedFootnote = {
   id: string;
@@ -97,10 +110,24 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
 
   const element = node as Element;
   const tag = element.tagName.toLowerCase();
+  if (element.getAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR) !== null) return "";
+
+  if (element.classList?.contains("feuillets-csl-bibliography-entry")) {
+    const layout = readCslBibliographyLayout(element);
+    const styles = opts.bibliographyStyles;
+    let name = "CSLBibliography";
+    if (styles) {
+      const existing = [...styles].find(([, value]) => JSON.stringify(value) === JSON.stringify(layout));
+      name = existing?.[0] ?? `CSLBibliography${styles.size + 1}`;
+      if (!existing) styles.set(name, layout);
+    }
+    const content = Array.from(element.childNodes).map((child) => domToOdtContent(child, { ...opts, bibliographyAlignment: Boolean(layout.secondFieldAlign) })).join("");
+    return `<text:p text:style-name="${name}">${content}</text:p>`;
+  }
 
   if (tag === "div" && element.classList && element.classList.contains("feuillets-frontpage")) {
     return Array.from(element.children)
-      .map((child, i) => domToOdtContent(child, { frontStyle: i === 0 ? "FrontPageFirst" : "FrontPage", sceneDivider: opts.sceneDivider }))
+      .map((child, i) => domToOdtContent(child, { ...opts, frontStyle: i === 0 ? "FrontPageFirst" : "FrontPage" }))
       .join("\n");
   }
 
@@ -165,7 +192,7 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
     return `<text:p text:style-name="Horizontal_20_Line">${escapeXml(opts.sceneDivider || "* * *")}</text:p>`;
   }
 
-  return styledChildren;
+  return styledChildren + (opts.bibliographyAlignment && element.classList?.contains("feuillets-csl-left-margin") ? "<text:tab/>" : "");
 }
 
 /** Notes de bas de page en ODT : ce générateur XML minimal ne construit pas
@@ -247,7 +274,8 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
     quote.fontSizePt != null ? `fo:font-size="${quote.fontSizePt}pt"` : "",
   ].filter(Boolean).join(" ");
 
-  const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider };
+  const bibliographyStyles = new Map<string, BibliographyLayout>();
+  const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider, bibliographyStyles };
   const bodyXml =
     Array.from(containerEl.childNodes).map((node) => domToOdtContent(node, sceneDividerOpts)).join("\n") +
     footnotesEndSectionXml(footnotes);
@@ -317,6 +345,7 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
     <style:font-face style:name="${fontName}" svg:font-family="'${fontName}'"/>
   </office:font-face-decls>
   <office:automatic-styles>
+    ${[...bibliographyStyles].map(([name, layout]) => cslBibliographyStyleXml(name, layout, body.fontSizePt)).join("\n")}
     <style:style style:name="Bold" style:family="text">
       <style:text-properties fo:font-weight="bold"/>
     </style:style>

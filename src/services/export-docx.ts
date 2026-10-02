@@ -24,6 +24,7 @@ import type { IParagraphStyleOptions, ISectionOptions, IStylesOptions } from "do
 import { renderManuscriptHtml } from "./export-render.js";
 import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
 import type { CslCitationHost } from "./csl-citation-host.js";
+import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
 import {
   applyNativeCslToStaticRender,
   createStaticDocumentId,
@@ -262,6 +263,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     genericTitleParagraphs.push(new Paragraph({ pageBreakBefore: true, children: [] }));
   }
   const bodyParagraphs: Paragraph[] = [];
+  let bibliographyParagraphIndex: number | null = null;
 
   /* Chaque page Front (titre/dédicace/épigraphe) devient sa PROPRE section
      Word, centrée verticalement sur la page (voir frontSections plus bas) —
@@ -323,6 +325,9 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
      libres). */
   let currentRole: string | null = null;
   for (const child of Array.from(containerEl.children)) {
+    if (bibliographyParagraphIndex === null && (child.classList.contains("feuillets-csl-bibliography") || child.getAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR) !== null)) {
+      bibliographyParagraphIndex = bodyParagraphs.length;
+    }
     const markerInfo = bookmarkMarkerInfoOf(child);
     if (markerInfo != null) {
       if (openBookmarkLinkId != null) {
@@ -557,7 +562,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
           ...(allSegments.some((segment) => segment.generatedType === "summary") && bodyParagraphs.length
             ? [new Paragraph({ pageBreakBefore: true, children: [] })]
             : []),
-          ...bodyParagraphs,
+          ...bodyParagraphs.slice(0, bibliographyParagraphIndex ?? bodyParagraphs.length),
           ...allSegments.filter((segment) => segment.generatedType === "toc").flatMap((segment) => {
             const descriptor = generatedContentsDescriptor(segment.generatedType as GeneratedContentsKind);
             return [
@@ -565,6 +570,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
               new TableOfContents("", { hyperlink: true, headingStyleRange: "1-6" }),
             ];
           }),
+          ...bodyParagraphs.slice(bibliographyParagraphIndex ?? bodyParagraphs.length),
         ],
       },
     ],

@@ -28,7 +28,12 @@ import {
   AlignmentType,
   FootnoteReferenceRun,
   BorderStyle,
+  TabStopType,
+  LineRuleType,
+  Tab,
 } from "docx";
+import { readCslBibliographyLayout, cslBibliographyTabPositionPt } from "./csl-bibliography-layout.js";
+import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
 import {
   FRONT_PAGE_LINE_SPACING,
   alignmentFor,
@@ -158,6 +163,8 @@ export function captionParagraphFor(el: ExportDomElement, images: ExportImages =
 export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<string, number>, images: ExportImages = new Map(), defaultMarks: InlineMarks = {}, normalizeAfterBreak = false) {
   const runs: Array<TextRun | ImageRun | FootnoteReferenceRun> = [];
   let afterBreak = false;
+  const bibliographyAlignment = el.classList.contains("feuillets-csl-bibliography-entry")
+    && Boolean(readCslBibliographyLayout(el).secondFieldAlign);
 
   /**
    * @param {any} node
@@ -299,6 +306,9 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
     for (let index = 0; index < node.childNodes.length; index++) {
       walk(node.childNodes[index], nextMarks);
     }
+    if (bibliographyAlignment && node.classList.contains("feuillets-csl-left-margin")) {
+      runs.push(new TextRun({ children: [new Tab()] }));
+    }
   }
 
   for (let index = 0; index < el.childNodes.length; index++) {
@@ -336,7 +346,23 @@ export function blockToParagraphs(
   frontOverride: { style?: TitlePageStyle | null; isTitleLine?: boolean; manualPageBreak?: boolean } | null = null,
 ): Paragraph[] {
   if (!el || el.nodeType !== ELEMENT_NODE) return [];
+  if (el.getAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR) !== null) return [];
   const tag = el.tagName;
+
+  if (el.classList.contains("feuillets-csl-bibliography-entry")) {
+    const layout = readCslBibliographyLayout(el);
+    const fontSizePt = typeof tpl.fontSizePt === "number" ? tpl.fontSizePt : 12;
+    const tab = cslBibliographyTabPositionPt(layout, fontSizePt) * 20;
+    const indent = layout.secondFieldAlign ? tab : layout.hangingIndent ? 2 * fontSizePt * 20 : 0;
+    const left = layout.secondFieldAlign === "margin" ? 0 : indent;
+    return [new Paragraph({
+      alignment: AlignmentType.LEFT,
+      indent: { left, hanging: indent },
+      spacing: { before: 0, after: layout.entrySpacing * layout.lineSpacing * fontSizePt * 20, line: layout.lineSpacing * 240, lineRule: LineRuleType.AUTO },
+      ...(layout.secondFieldAlign ? { tabStops: [{ type: TabStopType.LEFT, position: left }] } : {}),
+      children: inlineChildren(el, footnoteIdByHref, images),
+    })];
+  }
 
   if (["H1", "H2", "H3", "H4", "H5", "H6"].includes(tag)) {
     const pageBreak = headingPageBreakBefore(tag, headings);
