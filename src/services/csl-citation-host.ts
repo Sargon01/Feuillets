@@ -1,24 +1,6 @@
 /**
- * CSL Citation Host / Document Coordinator for Feuillets (Lot 7A).
- *
- * Coordinates CSL citation rendering between Feuillets and registered
- * citation providers (e.g. Feuillets CSL).
- *
- * Responsibilities:
- * 1. Obtains the registered CSL provider via CitationEngineRegistry.
- * 2. Resolves citation resources (.bib and .csl) hierarchically via workspace-citations.ts.
- * 3. Reads resource file contents once per request and extracts version tokens (mtime:size).
- * 4. Parses Pandoc citation occurrences structurally via pandoc-citation-parser.ts.
- * 5. Builds CitationDocumentRequest and invokes provider.renderDocument().
- * 6. Hardens result validation: validates structural integrity before request matching.
- * 7. Manages monotonically increasing per-document revisions and rejects stale async results.
- * 8. Caches the latest valid snapshot per logical document session and indexes citations by clusterId.
- * 9. Exposes clean provider and resource invalidation primitives.
- *
- * Invariants:
- * - Pure coordinator: never formats CSL itself; does not duplicate citeproc state.
- * - Fails safely: returns typed status snapshots, never throws into rendering paths.
- * - No user-visible notices in this lot.
+ * Coordinates resource resolution and citation rendering through registered CSL providers.
+ * Caches accepted results within document sessions and rejects obsolete asynchronous work.
  */
 
 import { normalizePath, TFile, TFolder, type App } from "obsidian";
@@ -133,9 +115,10 @@ export interface RenderDocumentOptions {
 interface HostDocumentSession {
   provider: CitationEngineProvider;
   currentRevision: number;
+  currentInvocationGeneration: number;
   latestPendingRevision: number;
   latestReadySnapshot: CslHostReadySnapshot | null;
-  lastInputSignature?: string;
+  readyInputSignature?: string;
   usedResourcePaths: Set<string>;
 }
 
@@ -158,6 +141,7 @@ export class CslCitationHost {
   private readonly sessions = new Map<string, HostDocumentSession>();
   private readonly invalidationListeners = new Set<CslHostInvalidationListener>();
   private readonly unregisterRegistryListener: () => void;
+  private disposed = false;
 
   constructor(options: CslCitationHostOptions) {
     this.app = options.app;
@@ -182,6 +166,7 @@ export class CslCitationHost {
    * Returns an unsubscribe function.
    */
   onInvalidation(listener: CslHostInvalidationListener): () => void {
+    if (this.disposed) return () => {};
     this.invalidationListeners.add(listener);
     return () => {
       this.invalidationListeners.delete(listener);
@@ -190,18 +175,15 @@ export class CslCitationHost {
 
   private notifyInvalidation(event: CslHostInvalidation): void {
     for (const listener of this.invalidationListeners) {
+      if (this.disposed) return;
       try {
         listener(event);
       } catch {
-        // Swallowed
+        // One failed subscriber must not prevent other views from invalidating.
       }
     }
   }
 
-  /**
-   * Drops a session: retrieves the session, calls THAT session's provider.disposeDocument,
-   * swallows any errors, and removes the session from the host.
-   */
   private dropSession(documentId: string): void {
     const session = this.sessions.get(documentId);
     if (!session) return;
@@ -209,7 +191,7 @@ export class CslCitationHost {
     try {
       session.provider.disposeDocument(documentId);
     } catch {
-      // Swallowed
+      // Provider cleanup failure must not keep the session active.
     }
   }
 
@@ -217,6 +199,7 @@ export class CslCitationHost {
    * Retrieves the current registered citation engine provider.
    */
   getProvider(): CitationEngineProvider | null {
+    if (this.disposed) return null;
     const provider = this.registry.get(this.providerId);
     if (!provider || !isCitationEngineProvider(provider)) {
       return null;
@@ -244,17 +227,20 @@ export class CslCitationHost {
     documentId: string,
     provider: CitationEngineProvider,
     resourcePaths: readonly string[]
-  ): HostDocumentSession {
+  ): HostDocumentSession | null {
+    if (this.disposed) return null;
     let session = this.sessions.get(documentId);
     if (session && session.provider !== provider) {
       this.dropSession(documentId);
       session = undefined;
     }
 
+    if (this.disposed) return null;
     if (!session) {
       session = {
         provider,
         currentRevision: 0,
+        currentInvocationGeneration: 0,
         latestPendingRevision: 0,
         latestReadySnapshot: null,
         usedResourcePaths: new Set(resourcePaths),
@@ -268,6 +254,30 @@ export class CslCitationHost {
     return session;
   }
 
+  private isCurrentSession(documentId: string, session: HostDocumentSession): boolean {
+    return !this.disposed && this.sessions.get(documentId) === session;
+  }
+
+  private inactiveSessionSnapshot(): CslHostEngineErrorSnapshot {
+    return { status: "engine-error", reason: "Citation document session is no longer active." };
+  }
+
+  private getStaleInvocationSnapshot(
+    documentId: string,
+    session: HostDocumentSession,
+    generation: number
+  ): CslHostSnapshot | null {
+    if (!this.isCurrentSession(documentId, session)) return this.inactiveSessionSnapshot();
+    if (generation !== session.currentInvocationGeneration) {
+      return session.latestReadySnapshot ?? {
+        status: "pending",
+        documentId,
+        revision: session.latestPendingRevision,
+      };
+    }
+    return null;
+  }
+
   private async executeRenderPipeline(
     documentId: string,
     session: HostDocumentSession,
@@ -278,8 +288,11 @@ export class CslCitationHost {
     options: RenderDocumentOptions,
     cacheSignature: string
   ): Promise<CslHostSnapshot> {
+    if (!this.isCurrentSession(documentId, session)) return this.inactiveSessionSnapshot();
+    // Cache hits supersede pending work without consuming provider revisions.
+    const generation = ++session.currentInvocationGeneration;
     if (
-      session.lastInputSignature === cacheSignature &&
+      session.readyInputSignature === cacheSignature &&
       session.latestReadySnapshot !== null
     ) {
       return session.latestReadySnapshot;
@@ -287,21 +300,25 @@ export class CslCitationHost {
 
     const revision = ++session.currentRevision;
     session.latestPendingRevision = revision;
-    session.lastInputSignature = cacheSignature;
 
     let cslXml: string;
+    let staleSnapshot: CslHostSnapshot | null;
     const bibSources: CitationBibliographySource[] = [];
     try {
       cslXml =
         typeof this.app.vault.cachedRead === "function"
           ? await this.app.vault.cachedRead(styleFile)
           : await this.app.vault.read(styleFile);
+      staleSnapshot = this.getStaleInvocationSnapshot(documentId, session, generation);
+      if (staleSnapshot) return staleSnapshot;
 
       for (const bibFile of bibliographyFiles) {
         const bibContent =
           typeof this.app.vault.cachedRead === "function"
             ? await this.app.vault.cachedRead(bibFile)
             : await this.app.vault.read(bibFile);
+        staleSnapshot = this.getStaleInvocationSnapshot(documentId, session, generation);
+        if (staleSnapshot) return staleSnapshot;
         bibSources.push({
           id: normalizePath(bibFile.path),
           version: `${bibFile.stat?.mtime ?? 0}:${bibFile.stat?.size ?? 0}`,
@@ -310,6 +327,8 @@ export class CslCitationHost {
         });
       }
     } catch (readError) {
+      staleSnapshot = this.getStaleInvocationSnapshot(documentId, session, generation);
+      if (staleSnapshot) return staleSnapshot;
       return {
         status: "resources-unavailable",
         reason: `Failed to read citation files: ${readError instanceof Error ? readError.message : String(readError)}`,
@@ -339,12 +358,16 @@ export class CslCitationHost {
     try {
       result = await provider.renderDocument(request);
     } catch (engineError) {
+      staleSnapshot = this.getStaleInvocationSnapshot(documentId, session, generation);
+      if (staleSnapshot) return staleSnapshot;
       return {
         status: "engine-error",
         reason: `Citation engine threw an error: ${engineError instanceof Error ? engineError.message : String(engineError)}`,
       };
     }
 
+    staleSnapshot = this.getStaleInvocationSnapshot(documentId, session, generation);
+    if (staleSnapshot) return staleSnapshot;
     const structuralVal = validateCitationDocumentResult(result);
     if (!structuralVal.valid) {
       return {
@@ -362,6 +385,7 @@ export class CslCitationHost {
     }
 
     if (
+      generation !== session.currentInvocationGeneration ||
       revision < session.latestPendingRevision ||
       (session.latestReadySnapshot !== null &&
         session.latestReadySnapshot.revision > revision)
@@ -373,6 +397,14 @@ export class CslCitationHost {
           revision: session.latestPendingRevision,
         }
       );
+    }
+
+    if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+      return {
+        status: "engine-error",
+        reason: "Citation engine reported an error.",
+        diagnostics: result.diagnostics,
+      };
     }
 
     const citationByClusterId = new Map<string, RenderedCitation>();
@@ -389,7 +421,10 @@ export class CslCitationHost {
       parsedDocument,
     };
 
+    staleSnapshot = this.getStaleInvocationSnapshot(documentId, session, generation);
+    if (staleSnapshot) return staleSnapshot;
     session.latestReadySnapshot = readySnapshot;
+    session.readyInputSignature = cacheSignature;
     return readySnapshot;
   }
 
@@ -439,6 +474,7 @@ export class CslCitationHost {
     const cslVersion = `${cslFile.stat?.mtime ?? 0}:${cslFile.stat?.size ?? 0}`;
 
     const session = this.getOrCreateSession(documentId, provider, [bibPath, cslPath]);
+    if (!session) return this.inactiveSessionSnapshot();
 
     const effectiveLocale = resolveCslLocale(options.locale ?? getLocale());
     const includeBibliography = options.includeBibliography ?? false;
@@ -502,6 +538,7 @@ export class CslCitationHost {
     }
 
     const session = this.getOrCreateSession(documentId, provider, [cslPath, ...bibPaths]);
+    if (!session) return this.inactiveSessionSnapshot();
 
     const effectiveLocale = resolveCslLocale(options.locale ?? getLocale());
     const includeBibliography = options.includeBibliography ?? false;
@@ -529,6 +566,7 @@ export class CslCitationHost {
    * Disposes each tracked document through its owning provider and notifies subscribers.
    */
   invalidateProvider(): void {
+    if (this.disposed) return;
     const docIds = Array.from(this.sessions.keys());
     for (const docId of docIds) {
       this.dropSession(docId);
@@ -540,6 +578,7 @@ export class CslCitationHost {
    * Invalidates cached sessions associated with a modified .bib or .csl resource.
    */
   invalidateResource(normalizedPath: string): void {
+    if (this.disposed) return;
     const norm = normalizePath(normalizedPath);
     const affectedDocIds = new Set<string>();
     for (const [docId, session] of this.sessions) {
@@ -557,6 +596,7 @@ export class CslCitationHost {
    * Invalidates all resource caches across all sessions.
    */
   invalidateAllResources(): void {
+    if (this.disposed) return;
     const docIds = Array.from(this.sessions.keys());
     for (const docId of docIds) {
       this.dropSession(docId);
@@ -577,6 +617,8 @@ export class CslCitationHost {
    * document session through its owning provider.
    */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.unregisterRegistryListener();
     const docIds = Array.from(this.sessions.keys());
     for (const docId of docIds) {

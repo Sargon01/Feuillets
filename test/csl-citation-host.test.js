@@ -1,5 +1,3 @@
-/* CSL Citation Host Coordinator Tests (Lot 7A) */
-
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -19,6 +17,27 @@ const {
 
 const { TFile, TFolder } = await import("obsidian");
 const { createFakeVault } = await import(modulePath("test/helpers/fake-vault.js"));
+const { parsePandocCitationDocument } = await import(modulePath("src/services/pandoc-citation-parser.js"));
+
+function deferred() {
+  let resolve;
+  const promise = new Promise((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
+function resultForRequest(request, diagnostics = []) {
+  return {
+    documentId: request.documentId,
+    revision: request.revision,
+    citations: request.clusters.map((cluster) => ({
+      clusterId: cluster.id,
+      plainText: cluster.items[0].id,
+      content: [{ type: "text", text: cluster.items[0].id }],
+    })),
+    bibliography: null,
+    diagnostics,
+  };
+}
 
 function createMockProvider(overrides = {}) {
   return {
@@ -94,8 +113,6 @@ function createMockProjectSetup(extraFiles = []) {
   return { app, settings, projectRoot: project, bibFile, cslFile };
 }
 
-/* -------------------- 1. Locale Mapping Tests -------------------- */
-
 test("resolveCslLocale: closed mapping for fr, fr-FR, en, and en-US", () => {
   assert.equal(resolveCslLocale("fr"), "fr-FR");
   assert.equal(resolveCslLocale("fr-FR"), "fr-FR");
@@ -111,8 +128,6 @@ test("resolveCslLocale: closed mapping for fr, fr-FR, en, and en-US", () => {
   assert.equal(resolveCslLocale(null), undefined);
   assert.equal(resolveCslLocale(undefined), undefined);
 });
-
-/* -------------------- 2. Provider Resolution Tests -------------------- */
 
 test("renderDocument: returns provider-unavailable when provider is not registered", async () => {
   assert.equal(DEFAULT_CSL_PROVIDER_ID, "feuillets-csl");
@@ -144,8 +159,6 @@ test("renderDocument: resolves registered provider successfully", async () => {
   host.dispose();
 });
 
-/* -------------------- 3. Resource Resolution Tests -------------------- */
-
 test("renderDocument: returns resources-unavailable when bibliography is missing", async () => {
   const { app, settings, projectRoot } = createMockProjectSetup();
   // Clear bibliography path
@@ -176,8 +189,6 @@ test("renderDocument: returns resources-unavailable when CSL style is missing", 
 
   host.dispose();
 });
-
-/* -------------------- 4. Resource IDs and Version Tokens -------------------- */
 
 test("renderDocument: sends normalized paths and mtime:size version tokens", async () => {
   const { app, settings, projectRoot, bibFile, cslFile } = createMockProjectSetup();
@@ -216,11 +227,10 @@ test("renderDocument: sends normalized paths and mtime:size version tokens", asy
   host.dispose();
 });
 
-/* -------------------- 5. Asynchronous Race Test (§20) -------------------- */
-
 test("asynchronous race condition: older revision resolving later cannot overwrite newer snapshot", async () => {
   const { app, settings, projectRoot } = createMockProjectSetup();
   const registry = new CitationEngineRegistry();
+  const startedRev1 = deferred();
 
   let resolveRev1 = null;
   const promiseRev1 = new Promise((resolve) => {
@@ -231,6 +241,7 @@ test("asynchronous race condition: older revision resolving later cannot overwri
     createMockProvider({
       renderDocument: async (req) => {
         if (req.revision === 1) {
+          startedRev1.resolve();
           // Delay revision 1 until manually resolved
           await promiseRev1;
           return {
@@ -258,6 +269,7 @@ test("asynchronous race condition: older revision resolving later cannot overwri
 
   // 1. Request Rev 1 starts
   const req1Promise = host.renderDocument("doc-race", "[@rev1_key]", projectRoot, null);
+  await startedRev1.promise;
 
   // 2. Request Rev 2 starts
   const req2Promise = host.renderDocument("doc-race", "[@rev2_key]", projectRoot, null);
@@ -287,8 +299,6 @@ test("asynchronous race condition: older revision resolving later cannot overwri
 
   host.dispose();
 });
-
-/* -------------------- 6. Provider Error Handling Tests -------------------- */
 
 test("renderDocument: handles provider throw safely without throwing to caller", async () => {
   const { app, settings, projectRoot } = createMockProjectSetup();
@@ -357,8 +367,6 @@ test("renderDocument: rejects result with revision mismatch", async () => {
 
   host.dispose();
 });
-
-/* -------------------- 7. Occurrence Lookup & Invalidation -------------------- */
 
 test("getCitation: retrieves rendered citation by clusterId", async () => {
   const { app, settings, projectRoot } = createMockProjectSetup();
@@ -439,9 +447,7 @@ test("disposeDocument: releases session and calls provider.disposeDocument", asy
   host.dispose();
 });
 
-/* -------------------- 9. Host Session Ownership & Invalidation Regression (Lot 7B) -------------------- */
-
-test("Regression A: invalidateResource disposes provider session before reuse and restarts revisions cleanly", async () => {
+test("invalidateResource disposes provider session before reuse and restarts revisions cleanly", async () => {
   const { app, settings, projectRoot, bibFile } = createMockProjectSetup();
   const registry = new CitationEngineRegistry();
 
@@ -495,7 +501,7 @@ test("Regression A: invalidateResource disposes provider session before reuse an
   host.dispose();
 });
 
-test("Regression B: provider replacement disposes session on old provider and new provider starts fresh", async () => {
+test("provider replacement disposes session on old provider and new provider starts fresh", async () => {
   const { app, settings, projectRoot } = createMockProjectSetup();
   const registry = new CitationEngineRegistry();
 
@@ -555,7 +561,7 @@ test("Regression B: provider replacement disposes session on old provider and ne
   assert.deepEqual(disposedB, ["doc-b"], "Provider B session must be disposed on host.dispose");
 });
 
-test("Regression C: host.dispose() disposes every tracked document exactly once", async () => {
+test("host.dispose() disposes every tracked document exactly once", async () => {
   const { app, settings, projectRoot } = createMockProjectSetup();
   const registry = new CitationEngineRegistry();
 
@@ -580,7 +586,7 @@ test("Regression C: host.dispose() disposes every tracked document exactly once"
   assert.equal(disposed.length, 2);
 });
 
-test("Regression D: disposing unknown documentId does not call provider", async () => {
+test("disposing unknown documentId does not call provider", async () => {
   const { app, settings, projectRoot } = createMockProjectSetup();
   const registry = new CitationEngineRegistry();
 
@@ -677,9 +683,7 @@ test("getSettings: host uses fresh settings per render", async () => {
   host.dispose();
 });
 
-/* -------------------- 11. Prepared Document Rendering Tests -------------------- */
-
-test("renderPreparedDocument: A. single bibliography creates request with 1 bibliography", async () => {
+test("renderPreparedDocument: single bibliography creates request with 1 bibliography", async () => {
   const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
   const registry = new CitationEngineRegistry();
   let capturedRequest = null;
@@ -745,7 +749,7 @@ test("renderPreparedDocument: A. single bibliography creates request with 1 bibl
   host.dispose();
 });
 
-test("renderPreparedDocument: B. two bibliographies preserve strict input order", async () => {
+test("renderPreparedDocument: two bibliographies preserve strict input order", async () => {
   const bibFile2 = new TFile("PROJECT/Research/extra.bib");
   bibFile2.extension = "bib";
   bibFile2.stat = { mtime: 54321, size: 250 };
@@ -816,7 +820,7 @@ test("renderPreparedDocument: B. two bibliographies preserve strict input order"
   host.dispose();
 });
 
-test("renderPreparedDocument: C. unique style passes correct id, version, and xml", async () => {
+test("renderPreparedDocument: unique style passes correct id, version, and xml", async () => {
   const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
   const registry = new CitationEngineRegistry();
   let capturedRequest = null;
@@ -875,7 +879,7 @@ test("renderPreparedDocument: C. unique style passes correct id, version, and xm
   host.dispose();
 });
 
-test("renderPreparedDocument: D & E. prepared clusters passed without Markdown parsing and returned on snapshot", async () => {
+test("renderPreparedDocument: prepared clusters passed without Markdown parsing and returned on snapshot", async () => {
   const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
   const registry = new CitationEngineRegistry();
   let capturedRequest = null;
@@ -933,7 +937,7 @@ test("renderPreparedDocument: D & E. prepared clusters passed without Markdown p
   host.dispose();
 });
 
-test("renderPreparedDocument: F, G, H. invalidation of any bibliography or style drops session", async () => {
+test("renderPreparedDocument: invalidation of any bibliography or style drops session", async () => {
   const bibFile2 = new TFile("PROJECT/Research/second.bib");
   bibFile2.extension = "bib";
   bibFile2.stat = { mtime: 333, size: 200 };
@@ -1019,8 +1023,9 @@ test("renderPreparedDocument: F, G, H. invalidation of any bibliography or style
   host.dispose();
 });
 
-test("renderPreparedDocument: I. stale async result does not overwrite newer snapshot", async () => {
+test("renderPreparedDocument: stale async result does not overwrite newer snapshot", async () => {
   const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
+  const startedRev1 = deferred();
 
   let slowResolve = null;
   const slowPromise = new Promise((resolve) => {
@@ -1032,6 +1037,7 @@ test("renderPreparedDocument: I. stale async result does not overwrite newer sna
     createMockProvider({
       renderDocument: async (req) => {
         if (req.revision === 1) {
+          startedRev1.resolve();
           await slowPromise;
         }
         return {
@@ -1095,6 +1101,7 @@ test("renderPreparedDocument: I. stale async result does not overwrite newer sna
 
   // Launch rev 1 (slow)
   const p1 = host.renderPreparedDocument("race-doc", doc1, cslFile, [bibFile]);
+  await startedRev1.promise;
 
   // Launch rev 2 (fast)
   const p2 = host.renderPreparedDocument("race-doc", doc2, cslFile, [bibFile]);
@@ -1114,7 +1121,7 @@ test("renderPreparedDocument: I. stale async result does not overwrite newer sna
   host.dispose();
 });
 
-test("renderPreparedDocument: J. disposeDocument calls provider.disposeDocument once", async () => {
+test("renderPreparedDocument: disposeDocument calls provider.disposeDocument once", async () => {
   const { app, projectRoot, bibFile, cslFile } = createMockProjectSetup();
   let disposedId = null;
 
@@ -1185,4 +1192,323 @@ test("renderDocument sends logical note order and first-call indices in one bibl
   assert.deepEqual(requests[0].clusters.map((cluster) => [cluster.items[0].id, cluster.noteIndex]), [
     ["a", undefined], ["b", 1], ["c", undefined], ["a", 2], ["d", 4],
   ]);
+});
+
+for (const method of ["renderDocument", "renderPreparedDocument"]) {
+  for (const failure of ["provider throw", "resource read", "invalid result", "error diagnostic"]) {
+    test(`${method}: failed ${failure} input retries without reusing an older ready snapshot`, async (t) => {
+      const setup = createMockProjectSetup();
+      const registry = new CitationEngineRegistry();
+      const requests = [];
+      let failNext = false;
+      let readCount = 0;
+      const read = setup.app.vault.read.bind(setup.app.vault);
+      setup.app.vault.read = async (file) => {
+        readCount++;
+        if (failNext && failure === "resource read") {
+          failNext = false;
+          throw new Error("Resource temporarily unavailable");
+        }
+        return read(file);
+      };
+      registry.register(createMockProvider({ renderDocument: async (request) => {
+        requests.push(request);
+        if (failNext) {
+          failNext = false;
+          if (failure === "provider throw") throw new Error("Provider temporarily unavailable");
+          if (failure === "invalid result") return { citations: [] };
+          return resultForRequest(request, [{ severity: "error", code: "UNKNOWN_CITEKEY", message: "Unknown citekey" }]);
+        }
+        return resultForRequest(request);
+      } }));
+      const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+      t.after(() => host.dispose());
+      const render = (source) => method === "renderDocument"
+        ? host.renderDocument("cache", source, setup.projectRoot, null)
+        : host.renderPreparedDocument("cache", parsePandocCitationDocument(source), setup.cslFile, [setup.bibFile]);
+
+      const readyA = await render("[@alpha]");
+      assert.equal(readyA.status, "ready");
+      assert.equal(await render("[@alpha]"), readyA, "Successful input is a cache hit");
+      assert.equal(requests.length, 1);
+      failNext = true;
+      const failedB = await render("[@beta]");
+      assert.equal(failedB.status, failure === "resource read" ? "resources-unavailable" : "engine-error");
+      assert.equal(host.getLatestSnapshot("cache"), readyA, "Failure does not replace the accepted snapshot");
+      const readsBeforeRetry = readCount;
+      const callsBeforeRetry = requests.length;
+      const readyB = await render("[@beta]");
+      assert.equal(readyB.status, "ready");
+      assert.notEqual(readyB, readyA);
+      assert.equal(readyB.result.citations[0].plainText, "beta");
+      assert.equal(readyB.revision, 3);
+      assert.equal(requests.length, callsBeforeRetry + 1, "Failed input retries the provider");
+      assert.ok(readCount > readsBeforeRetry, "Failed input rereads resources");
+      assert.equal(await render("[@beta]"), readyB, "Accepted retry becomes cacheable");
+      assert.equal(requests.length, callsBeforeRetry + 1);
+    });
+  }
+}
+
+for (const invalidate of ["disposeDocument", "invalidateResource", "invalidateAllResources", "provider replacement"]) {
+  test(`Host rejects an in-flight session after ${invalidate}, even when its replacement has revision 1`, async (t) => {
+    const setup = createMockProjectSetup();
+    const registry = new CitationEngineRegistry();
+    const started = deferred();
+    const completion = deferred();
+    const disposed = [];
+    const requests = [];
+    const provider = createMockProvider({
+      renderDocument: async (request) => {
+        requests.push(request);
+        if (requests.length === 1) {
+          started.resolve();
+          await completion.promise;
+        }
+        return resultForRequest(request);
+      },
+      disposeDocument: (id) => disposed.push(id),
+    });
+    registry.register(provider);
+    const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+    t.after(() => host.dispose());
+    const obsolete = host.renderDocument("session", "[@old]", setup.projectRoot, null);
+    await started.promise;
+    if (invalidate === "provider replacement") registry.register(createMockProvider({ renderDocument: async (request) => {
+      requests.push(request);
+      return resultForRequest(request);
+    } }));
+    else if (invalidate === "invalidateResource") host.invalidateResource(setup.bibFile.path);
+    else if (invalidate === "invalidateAllResources") host.invalidateAllResources();
+    else host.disposeDocument("session");
+    assert.deepEqual(disposed, ["session"]);
+    assert.equal(host.getLatestSnapshot("session"), null);
+    const fresh = await host.renderDocument("session", "[@fresh]", setup.projectRoot, null);
+    assert.equal(fresh.status, "ready");
+    assert.equal(fresh.revision, 1);
+    completion.resolve();
+    assert.notEqual((await obsolete).status, "ready", "An obsolete session cannot return an accepted ready snapshot");
+    assert.equal(host.getLatestSnapshot("session"), fresh);
+    assert.deepEqual(requests.map((request) => request.revision), [1, 1]);
+  });
+}
+
+for (const delayedFile of ["cslFile", "bibFile"]) {
+  test(`Host invalidation during ${delayedFile} reading never creates a late provider session`, async (t) => {
+    const setup = createMockProjectSetup();
+    const started = deferred();
+    const completion = deferred();
+    const read = setup.app.vault.read.bind(setup.app.vault);
+    let delayNext = true;
+    setup.app.vault.cachedRead = async (file) => {
+      if (delayNext && file === setup[delayedFile]) {
+        delayNext = false;
+        started.resolve();
+        await completion.promise;
+      }
+      return read(file);
+    };
+    const registry = new CitationEngineRegistry();
+    const requests = [];
+    registry.register(createMockProvider({ renderDocument: async (request) => {
+      requests.push(request);
+      return resultForRequest(request);
+    } }));
+    const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+    t.after(() => host.dispose());
+    const obsolete = host.renderDocument("reading", "[@old]", setup.projectRoot, null);
+    await started.promise;
+    host.disposeDocument("reading");
+    completion.resolve();
+    assert.notEqual((await obsolete).status, "ready");
+    assert.equal(requests.length, 0);
+    assert.equal(host.getLatestSnapshot("reading"), null);
+    const fresh = await host.renderDocument("reading", "[@fresh]", setup.projectRoot, null);
+    assert.equal(fresh.status, "ready");
+    assert.equal(fresh.revision, 1);
+  });
+}
+
+test("Host preserves provider error diagnostics without accepting a ready snapshot", async (t) => {
+  const setup = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  const diagnostics = [
+    { severity: "warning", code: "WARNING", message: "Additional context" },
+    { severity: "error", code: "UNKNOWN_CITEKEY", message: "Unknown citekey", citekey: "unknown" },
+  ];
+  registry.register(createMockProvider({ renderDocument: async (request) => resultForRequest(request, diagnostics) }));
+  const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+  t.after(() => host.dispose());
+  const result = await host.renderDocument("diagnostics", "[@unknown]", setup.projectRoot, null);
+  assert.equal(result.status, "engine-error");
+  assert.deepEqual(result.diagnostics, diagnostics);
+  assert.equal(host.getLatestSnapshot("diagnostics"), null);
+  assert.equal(host.getCitation("diagnostics", "citation:0:10"), null);
+});
+
+test("Host disposal is terminal and idempotent while a provider operation is pending", async () => {
+  const setup = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  const started = deferred();
+  const completion = deferred();
+  const disposed = [];
+  let calls = 0;
+  const provider = createMockProvider({
+    renderDocument: async (request) => {
+      calls++;
+      started.resolve();
+      await completion.promise;
+      return resultForRequest(request);
+    },
+    disposeDocument: (id) => disposed.push(id),
+  });
+  registry.register(provider);
+  const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+  const obsolete = host.renderDocument("disposed", "[@old]", setup.projectRoot, null);
+  await started.promise;
+  host.dispose();
+  host.dispose();
+  completion.resolve();
+  assert.notEqual((await obsolete).status, "ready");
+  assert.equal(host.getLatestSnapshot("disposed"), null);
+  assert.equal(host.getProvider(), null);
+  const events = [];
+  host.onInvalidation((event) => events.push(event));
+  registry.register(provider);
+  host.invalidateProvider();
+  host.invalidateAllResources();
+  host.invalidateResource(setup.bibFile.path);
+  assert.deepEqual(events, [], "Disposal leaves no active invalidation listeners");
+  const result = await host.renderDocument("disposed", "[@new]", setup.projectRoot, null);
+  const prepared = await host.renderPreparedDocument("disposed", parsePandocCitationDocument("[@new]"), setup.cslFile, [setup.bibFile]);
+  assert.notEqual(result.status, "ready");
+  assert.notEqual(prepared.status, "ready");
+  assert.equal(calls, 1, "Neither render entry point can revive provider state");
+  assert.equal(host.getLatestSnapshot("disposed"), null);
+  host.dispose();
+  assert.deepEqual(disposed, ["disposed"]);
+});
+
+for (const method of ["renderDocument", "renderPreparedDocument"]) {
+  test(`${method}: a later cache hit supersedes a pending render in the same session`, async (t) => {
+    const setup = createMockProjectSetup();
+    const registry = new CitationEngineRegistry();
+    const startedB = deferred();
+    const completionB = deferred();
+    const requests = [];
+    const disposed = [];
+    registry.register(createMockProvider({
+      renderDocument: async (request) => {
+        requests.push(request);
+        if (request.clusters[0].items[0].id === "beta") {
+          startedB.resolve();
+          await completionB.promise;
+        }
+        return resultForRequest(request);
+      },
+      disposeDocument: (id) => disposed.push(id),
+    }));
+    const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+    t.after(() => host.dispose());
+    const render = (source) => method === "renderDocument"
+      ? host.renderDocument("cache-order", source, setup.projectRoot, null)
+      : host.renderPreparedDocument("cache-order", parsePandocCitationDocument(source), setup.cslFile, [setup.bibFile]);
+
+    const readyA = await render("[@alpha]");
+    assert.equal(readyA.status, "ready");
+    const clusterId = readyA.result.citations[0].clusterId;
+    const pendingB = render("[@beta]");
+    await startedB.promise;
+    const cachedA = await render("[@alpha]");
+    assert.equal(cachedA, readyA, "A is returned from the accepted ready cache");
+    assert.deepEqual(requests.map((request) => [request.clusters[0].items[0].id, request.revision]), [["alpha", 1], ["beta", 2]]);
+    assert.deepEqual(disposed, [], "Both operations use the same live provider session");
+
+    completionB.resolve();
+    assert.equal(await pendingB, readyA, "Obsolete B returns the current snapshot rather than accepting itself");
+    assert.equal(host.getLatestSnapshot("cache-order"), readyA);
+    assert.equal(host.getCitation("cache-order", clusterId), readyA.result.citations[0]);
+    assert.equal(host.getCitation("cache-order", clusterId).plainText, "alpha");
+    assert.equal(requests.length, 2, "Cached A never adds a provider request");
+    assert.deepEqual(disposed, [], "No invalidation or disposal hides the ordering race");
+
+    const readyC = await render("[@gamma]");
+    assert.equal(readyC.status, "ready");
+    assert.equal(readyC.revision, 3, "The cache hit consumes no provider revision");
+    assert.deepEqual(requests.map((request) => request.revision), [1, 2, 3]);
+  });
+}
+
+for (const failure of ["provider throw", "invalid provider result"]) {
+  test(`Host returns current cached A when superseded B ends with ${failure}`, async (t) => {
+    const setup = createMockProjectSetup();
+    const registry = new CitationEngineRegistry();
+    const startedB = deferred();
+    const completionB = deferred();
+    const requests = [];
+    const disposed = [];
+    registry.register(createMockProvider({
+      renderDocument: async (request) => {
+        requests.push(request);
+        if (request.clusters[0].items[0].id === "beta") {
+          startedB.resolve();
+          await completionB.promise;
+          if (failure === "provider throw") throw new Error("Obsolete provider failure");
+          return { citations: [] };
+        }
+        return resultForRequest(request);
+      },
+      disposeDocument: (id) => disposed.push(id),
+    }));
+    const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+    t.after(() => host.dispose());
+    const render = (source) => host.renderDocument("stale-failure", source, setup.projectRoot, null);
+    const readyA = await render("[@alpha]");
+    assert.equal(readyA.status, "ready");
+    const pendingB = render("[@beta]");
+    await startedB.promise;
+    assert.equal(await render("[@alpha]"), readyA);
+    assert.equal(requests.length, 2);
+    completionB.resolve();
+    const staleResult = await pendingB;
+    assert.notEqual(staleResult.status, "engine-error");
+    assert.equal(staleResult, readyA);
+    assert.equal(host.getLatestSnapshot("stale-failure"), readyA);
+    assert.equal(requests.length, 2);
+    assert.deepEqual(disposed, [], "The cache hit supersedes B within the same live session");
+  });
+}
+
+test("Host returns current cached A when superseded B fails during resource reading", async (t) => {
+  const setup = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  const startedRead = deferred();
+  const completionRead = deferred();
+  const requests = [];
+  const disposed = [];
+  registry.register(createMockProvider({
+    renderDocument: async (request) => {
+      requests.push(request);
+      return resultForRequest(request);
+    },
+    disposeDocument: (id) => disposed.push(id),
+  }));
+  const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+  t.after(() => host.dispose());
+  const render = (source) => host.renderDocument("stale-read", source, setup.projectRoot, null);
+  const readyA = await render("[@alpha]");
+  assert.equal(readyA.status, "ready");
+  setup.app.vault.read = async () => {
+    startedRead.resolve();
+    await completionRead.promise;
+    throw new Error("Obsolete resource failure");
+  };
+  const pendingB = render("[@beta]");
+  await startedRead.promise;
+  assert.equal(await render("[@alpha]"), readyA);
+  completionRead.resolve();
+  assert.equal(await pendingB, readyA);
+  assert.equal(host.getLatestSnapshot("stale-read"), readyA);
+  assert.equal(requests.length, 1, "Neither cached A nor obsolete B adds a provider request");
+  assert.deepEqual(disposed, []);
 });

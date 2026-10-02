@@ -1,5 +1,3 @@
-/* Native CSL Continu / Scrivenings Integration Tests (Lot 7D-B2) */
-
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
@@ -372,9 +370,7 @@ function mountCslContinu(f, files, { selection, visibleRanges } = {}) {
   return { doc, boundaries, view, instance, cslContext };
 }
 
-/* -------------------- 21. Tests CSL Continu -------------------- */
-
-test("Continu CSL A: simple citation in one segment produces CslCitationWidget", async () => {
+test("Continu CSL: simple citation in one segment produces CslCitationWidget", async () => {
   const f = createCslContinuFixture({ docAContent: "Texte [@smith2024]." });
   const { instance, view } = mountCslContinu(f, [f.docA]);
 
@@ -391,7 +387,7 @@ test("Continu CSL A: simple citation in one segment produces CslCitationWidget",
   f.host.dispose();
 });
 
-test("Continu CSL B: two segments, same style, different bibliographies sent as 1 document request", async () => {
+test("Continu CSL: two segments, same style, different bibliographies sent as 1 document request", async () => {
   const bibB = new TFile("PROJECT-extra/bibB.bib");
   bibB.extension = "bib";
   bibB.stat = { mtime: 300, size: 200 };
@@ -436,7 +432,7 @@ test("Continu CSL B: two segments, same style, different bibliographies sent as 
   f.host.dispose();
 });
 
-test("Continu CSL C: NUMERICAL / VIEWPORT — provider receives 3 clusters, visible segment 3 displays [3], never [1]", async () => {
+test("Continu CSL: NUMERICAL / VIEWPORT — provider receives 3 clusters, visible segment 3 displays [3], never [1]", async () => {
   let capturedRequest = null;
   const f = createCslContinuFixture({
     docAContent: "Premier [@smith2024].",
@@ -505,7 +501,7 @@ test("Continu CSL C: NUMERICAL / VIEWPORT — provider receives 3 clusters, visi
   f.host.dispose();
 });
 
-test("Continu CSL D: scroll recomputes visible decorations without new provider query", async () => {
+test("Continu CSL: scroll recomputes visible decorations without new provider query", async () => {
   let renderCallCount = 0;
   const f = createCslContinuFixture({
     docAContent: "A [@smith2024].",
@@ -571,7 +567,7 @@ test("Continu CSL D: scroll recomputes visible decorations without new provider 
   f.host.dispose();
 });
 
-test("Continu CSL E: cursor reveal leaves targeted citation raw while folding other citations", async () => {
+test("Continu CSL: cursor reveal leaves targeted citation raw while folding other citations", async () => {
   const f = createCslContinuFixture({
     docAContent: "Debut [@smith2024] milieu [@doe2023] fin.",
   });
@@ -599,7 +595,7 @@ test("Continu CSL E: cursor reveal leaves targeted citation raw while folding ot
   f.host.dispose();
 });
 
-test("Continu CSL F: prose edit before citations preserves rendering without new provider query", async () => {
+test("Continu CSL: prose edit before citations preserves rendering without new provider query", async () => {
   let renderCallCount = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte [@smith2024].",
@@ -647,7 +643,7 @@ test("Continu CSL F: prose edit before citations preserves rendering without new
   f.host.dispose();
 });
 
-test("Continu CSL G: citation change clears decorations immediately, folds after provider resolves", async () => {
+test("Continu CSL: citation change clears decorations immediately, folds after provider resolves", async () => {
   let resolveProvider = null;
   const f = createCslContinuFixture({
     docAContent: "Texte [@smith2024].",
@@ -706,7 +702,7 @@ test("Continu CSL G: citation change clears decorations immediately, folds after
   f.host.dispose();
 });
 
-test("Continu CSL H: missing resource on one citing segment fails closed across entire Continu", async () => {
+test("Continu CSL: missing resource on one citing segment fails closed across entire Continu", async () => {
   let providerCalled = false;
   const f = createCslContinuFixture({
     docAContent: "A [@smith2024].",
@@ -733,7 +729,7 @@ test("Continu CSL H: missing resource on one citing segment fails closed across 
   f.host.dispose();
 });
 
-test("Continu CSL I: conflicting CSL styles across citing segments fails closed", async () => {
+test("Continu CSL: conflicting CSL styles across citing segments fails closed", async () => {
   const style2 = new TFile("PROJECT/Research/style2.csl");
   style2.extension = "csl";
   style2.stat = { mtime: 500, size: 200 };
@@ -771,7 +767,7 @@ test("Continu CSL I: conflicting CSL styles across citing segments fails closed"
   f.host.dispose();
 });
 
-test("Continu CSL J: non-citing segment with broken config does not invalidate citing segments", async () => {
+test("Continu CSL: non-citing segment with broken config does not invalidate citing segments", async () => {
   const f = createCslContinuFixture({
     docAContent: "A [@smith2024].",
     docBContent: "B sans aucune citation.",
@@ -788,7 +784,7 @@ test("Continu CSL J: non-citing segment with broken config does not invalidate c
   f.host.dispose();
 });
 
-test("Continu CSL K: provider absent fails closed into raw syntax", async () => {
+test("Continu CSL: provider absent fails closed into raw syntax", async () => {
   const f = createCslContinuFixture({ docAContent: "A [@smith2024]." });
   // Unregister provider
   f.registry.unregister("feuillets-csl");
@@ -803,7 +799,7 @@ test("Continu CSL K: provider absent fails closed into raw syntax", async () => 
   f.host.dispose();
 });
 
-test("Continu CSL L: engine error fails closed into raw syntax", async () => {
+test("Continu CSL: engine error fails closed into raw syntax", async () => {
   const f = createCslContinuFixture({
     docAContent: "A [@smith2024].",
     providerOverrides: {
@@ -823,7 +819,7 @@ test("Continu CSL L: engine error fails closed into raw syntax", async () => {
   f.host.dispose();
 });
 
-test("Continu CSL M: diagnostic with severity error fails closed into raw syntax", async () => {
+test("Continu CSL: diagnostic with severity error fails closed into raw syntax", async () => {
   const f = createCslContinuFixture({
     docAContent: "A [@smith2024].",
     providerOverrides: {
@@ -859,7 +855,7 @@ test("Continu CSL M: diagnostic with severity error fails closed into raw syntax
   f.host.dispose();
 });
 
-test("Continu CSL N: incomplete result fails closed into raw syntax", async () => {
+test("Continu CSL: incomplete result fails closed into raw syntax", async () => {
   const f = createCslContinuFixture({
     docAContent: "A [@smith2024] et [@doe2023].",
     providerOverrides: {
@@ -890,7 +886,7 @@ test("Continu CSL N: incomplete result fails closed into raw syntax", async () =
   f.host.dispose();
 });
 
-test("Continu CSL O: two simultaneous Continu views receive distinct documentIds", async () => {
+test("Continu CSL: two simultaneous Continu views receive distinct documentIds", async () => {
   const capturedIds = [];
   const f = createCslContinuFixture({
     docAContent: "A [@smith2024].",
@@ -929,7 +925,7 @@ test("Continu CSL O: two simultaneous Continu views receive distinct documentIds
   f.host.dispose();
 });
 
-test("Continu CSL P: destroy unregisters and disposes host session", async () => {
+test("Continu CSL: destroy unregisters and disposes host session", async () => {
   let disposedId = null;
   const f = createCslContinuFixture({
     docAContent: "A [@smith2024].",
@@ -951,7 +947,7 @@ test("Continu CSL P: destroy unregisters and disposes host session", async () =>
   f.host.dispose();
 });
 
-test("Continu CSL Q: recomposition disposes previous documentId and uses fresh documentId", async () => {
+test("Continu CSL: recomposition disposes previous documentId and uses fresh documentId", async () => {
   const disposedIds = [];
   const requestedIds = [];
   const f = createCslContinuFixture({
@@ -999,7 +995,7 @@ test("Continu CSL Q: recomposition disposes previous documentId and uses fresh d
   f.host.dispose();
 });
 
-test("Continu CSL R: document with no citekeys triggers zero provider calls", async () => {
+test("Continu CSL: document with no citekeys triggers zero provider calls", async () => {
   let providerCalled = false;
   const f = createCslContinuFixture({
     docAContent: "Texte pur sans aucune citation.",
@@ -1022,7 +1018,7 @@ test("Continu CSL R: document with no citekeys triggers zero provider calls", as
   f.host.dispose();
 });
 
-test("Continu CSL S: style off triggers zero CSL calls", async () => {
+test("Continu CSL: style off triggers zero CSL calls", async () => {
   let providerCalled = false;
   const f = createCslContinuFixture({
     docAContent: "Texte [@smith2024].",
@@ -1045,8 +1041,6 @@ test("Continu CSL S: style off triggers zero CSL calls", async () => {
   instance.destroy();
   f.host.dispose();
 });
-
-/* -------------------- 22. ScriveningsView Integration Test -------------------- */
 
 test("ScriveningsView Integration: mountEditor passes mounted document, projectRoot, and host access", async () => {
   let capturedRequest = null;
@@ -1119,9 +1113,7 @@ test("ScriveningsView Integration: mountEditor passes mounted document, projectR
   f.host.dispose();
 });
 
-/* -------------------- 23. Tests Régression Boucle / Freeze (Section 4) -------------------- */
-
-test("Cas A — insertion citationnelle : debounced, résultat stable, nombre d'appels Host FINI", async () => {
+test("Continu CSL: citation insertion debounces with stable output and finite Host calls", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte [@doe2023].",
@@ -1174,7 +1166,7 @@ test("Cas A — insertion citationnelle : debounced, résultat stable, nombre d'
   f.host.dispose();
 });
 
-test("Cas B — empty dispatch après résultat Host : rebuild decorations sans nouvel appel Host", async () => {
+test("Continu CSL: empty dispatch after Host completion rebuilds decorations without another Host call", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte [@doe2023].",
@@ -1221,7 +1213,7 @@ test("Cas B — empty dispatch après résultat Host : rebuild decorations sans 
   f.host.dispose();
 });
 
-test("Cas C — selectionSet seulement : 0 appel Host supplémentaire", async () => {
+test("Continu CSL: selection-only updates make no additional Host calls", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte [@doe2023].",
@@ -1274,7 +1266,7 @@ test("Cas C — selectionSet seulement : 0 appel Host supplémentaire", async ()
   f.host.dispose();
 });
 
-test("Cas D — viewportChanged seulement : 0 appel Host supplémentaire", async () => {
+test("Continu CSL: viewport-only updates make no additional Host calls", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte [@doe2023].",
@@ -1324,7 +1316,7 @@ test("Cas D — viewportChanged seulement : 0 appel Host supplémentaire", async
   f.host.dispose();
 });
 
-test("Cas E — frappe de prose : projection nouveaux offsets, 0 appel Host supplémentaire", async () => {
+test("Continu CSL: prose typing projects new offsets without additional Host calls", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte [@doe2023].",
@@ -1374,7 +1366,7 @@ test("Cas E — frappe de prose : projection nouveaux offsets, 0 appel Host supp
   f.host.dispose();
 });
 
-test("Cas F — vraie modification citationnelle : exactement un nouveau cycle rendu, pas de boucle", async () => {
+test("Continu CSL: citation changes trigger exactly one render cycle", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte [@doe2023].",
@@ -1424,7 +1416,7 @@ test("Cas F — vraie modification citationnelle : exactement un nouveau cycle r
   f.host.dispose();
 });
 
-test("Cas G — invalidation ressource : exactement un nouveau rendu immédiat", async () => {
+test("Continu CSL: resource invalidation triggers exactly one immediate render", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte [@doe2023].",
@@ -1471,7 +1463,7 @@ test("Cas G — invalidation ressource : exactement un nouveau rendu immédiat",
   f.host.dispose();
 });
 
-test("Cas H — bootstrap différé des frontières : 0 appel au départ, 1 appel dès frontières installées sans frappe", async () => {
+test("Continu CSL: delayed boundaries trigger one initial render when they become available", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte A [@smith2024].",
@@ -1545,7 +1537,7 @@ test("Cas H — bootstrap différé des frontières : 0 appel au départ, 1 appe
   f.host.dispose();
 });
 
-test("Cas H bis — ScriveningsView réelle à plusieurs segments : les citations sont rendues dès mountEditor sans frappe", async () => {
+test("Continu CSL: mounted multi-segment ScriveningsView renders citations without typing", async () => {
   let hostCalls = 0;
   const f = createCslContinuFixture({
     docAContent: "Texte A [@smith2024].",

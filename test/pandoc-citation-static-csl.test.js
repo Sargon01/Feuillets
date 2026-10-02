@@ -326,10 +326,6 @@ function createStaticCslFixture({
   };
 }
 
-// =========================================================================
-// SECTION 25: SPECIFICATION TESTS (A through O)
-// =========================================================================
-
 function bibliographyResult(request, { layout = {}, entries, ...overrides } = {}) {
   const ids = [...new Set(request.clusters.flatMap((cluster) => cluster.items.map((item) => item.id)))].reverse();
   return {
@@ -715,7 +711,7 @@ for (const enabled of [true, false]) {
   });
 }
 
-test("Static CSL — Case A: simple citation [@doe2023] produces structured AST span", async () => {
+test("Static CSL — simple citation [@doe2023] produces structured AST span", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const p = f.doc.createElement("p");
@@ -742,7 +738,7 @@ test("Static CSL — Case A: simple citation [@doe2023] produces structured AST 
   assert.equal(p.textContent, "Before (doe2023:normal) after.");
 });
 
-test("Static CSL — Case B: citation group [@doe2023; @smith2024] produces single cluster", async () => {
+test("Static CSL — citation group [@doe2023; @smith2024] produces single cluster", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const p = f.doc.createElement("p");
@@ -772,7 +768,7 @@ test("Static CSL — Case B: citation group [@doe2023; @smith2024] produces sing
   assert.ok(spans[0].textContent.includes("doe2023:normal; smith2024:normal"));
 });
 
-test("Static CSL — Case C: locator [@doe2023, p. 42] is passed into cluster item", async () => {
+test("Static CSL — locator [@doe2023, p. 42] is passed into cluster item", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const p = f.doc.createElement("p");
@@ -796,7 +792,7 @@ test("Static CSL — Case C: locator [@doe2023, p. 42] is passed into cluster it
   assert.equal(item.label, "page");
 });
 
-test("Static CSL — Case D: narrative citation @doe2023 is recognized in composite mode", async () => {
+test("Static CSL — narrative citation @doe2023 is recognized in composite mode", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const p = f.doc.createElement("p");
@@ -819,7 +815,7 @@ test("Static CSL — Case D: narrative citation @doe2023 is recognized in compos
   assert.equal(item.mode, "composite");
 });
 
-test("Static CSL — Case E: multiple citations across multiple text nodes maintain document order", async () => {
+test("Static CSL — multiple citations across multiple text nodes maintain document order", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const p1 = f.doc.createElement("p");
@@ -845,7 +841,7 @@ test("Static CSL — Case E: multiple citations across multiple text nodes maint
   assert.equal(f.requests[0].clusters[1].items[0].id, "smith2024");
 });
 
-test("Static CSL — Case F: numeric sequential rendering format", async () => {
+test("Static CSL — numeric sequential rendering format", async () => {
   const f = createStaticCslFixture({
     customEngineHandler: (req) => ({
       documentId: req.documentId,
@@ -879,7 +875,7 @@ test("Static CSL — Case F: numeric sequential rendering format", async () => {
   assert.equal(p.textContent, "One [1], two [2], three [3].");
 });
 
-test("Static CSL — Case G: inline code `[@doe2023]` remains raw and excluded from CSL", async () => {
+test("Static CSL — inline code `[@doe2023]` remains raw and excluded from CSL", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const p = f.doc.createElement("p");
@@ -904,7 +900,7 @@ test("Static CSL — Case G: inline code `[@doe2023]` remains raw and excluded f
   assert.equal(container.querySelectorAll(".feuillets-csl-citation").length, 0);
 });
 
-test("Static CSL — Case H: fenced code <pre><code>...</code></pre> remains raw", async () => {
+test("Static CSL — fenced code <pre><code>...</code></pre> remains raw", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const pre = f.doc.createElement("pre");
@@ -927,7 +923,7 @@ test("Static CSL — Case H: fenced code <pre><code>...</code></pre> remains raw
   assert.equal(container.querySelectorAll(".feuillets-csl-citation").length, 0);
 });
 
-test("Static CSL — Case I: links and footnotes are protected from transformation", async () => {
+test("Static CSL — links and footnotes are protected from transformation", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const p = f.doc.createElement("p");
@@ -960,7 +956,7 @@ test("Static CSL — Case I: links and footnotes are protected from transformati
   assert.equal(fnP.textContent, "[@smith2024]");
 });
 
-test("Static CSL — Case J: engine diagnostic error triggers atomic fail-closed behavior", async () => {
+test("Static CSL — engine diagnostic error triggers atomic fail-closed behavior", async () => {
   const f = createStaticCslFixture({
     customEngineHandler: (req) => ({
       documentId: req.documentId,
@@ -992,7 +988,7 @@ test("Static CSL — Case J: engine diagnostic error triggers atomic fail-closed
   assert.equal(container.querySelectorAll(".feuillets-csl-citation").length, 0);
 });
 
-test("Static CSL — Case K: partial or incomplete engine result triggers atomic fail-closed behavior", async () => {
+test("Static CSL — partial or incomplete engine result triggers atomic fail-closed behavior", async () => {
   const f = createStaticCslFixture({
     customEngineHandler: (req) => ({
       documentId: req.documentId,
@@ -1031,7 +1027,7 @@ test("Static CSL — Case K: partial or incomplete engine result triggers atomic
   assert.equal(container.querySelectorAll(".feuillets-csl-citation").length, 0);
 });
 
-test("Static CSL — Case L: provider absent fails closed without DOM mutation", async () => {
+test("Static CSL — provider absent fails closed without DOM mutation", async () => {
   const f = createStaticCslFixture({ provider: false });
 
   const container = f.doc.createElement("div");
@@ -1066,7 +1062,7 @@ test("Static CSL — Case L: provider absent fails closed without DOM mutation",
   assert.equal(okNull, false);
 });
 
-test("Static CSL — Case M: zero citations in DOM results in zero host calls", async () => {
+test("Static CSL — zero citations in DOM results in zero host calls", async () => {
   const f = createStaticCslFixture();
   const container = f.doc.createElement("div");
   const p = f.doc.createElement("p");
@@ -1087,7 +1083,7 @@ test("Static CSL — Case M: zero citations in DOM results in zero host calls", 
   assert.equal(f.requests.length, 0, "Host must never be called when DOM has 0 citations");
 });
 
-test("Static CSL — Case N: Host session is properly disposed in all scenarios (success and error)", async () => {
+test("Static CSL — Host session is properly disposed in all scenarios (success and error)", async () => {
   const f = createStaticCslFixture();
   const docId = createStaticDocumentId("test-n", f.projectRoot.path);
 
@@ -1133,7 +1129,7 @@ test("Static CSL — Case N: Host session is properly disposed in all scenarios 
   assert.equal(fError.disposed.includes(errorDocId), true, "disposeDocument must be called after error");
 });
 
-test("Static CSL — Case O: ContentVariant exclusion keeps removed citations out of CSL clusters", async () => {
+test("Static CSL — ContentVariant exclusion keeps removed citations out of CSL clusters", async () => {
   // If a section is removed by content variant, the DOM passed to applyNativeCslToStaticRender
   // only contains surviving text nodes.
   const f = createStaticCslFixture();
@@ -1157,10 +1153,6 @@ test("Static CSL — Case O: ContentVariant exclusion keeps removed citations ou
   assert.equal(f.requests[0].clusters.length, 1);
   assert.equal(f.requests[0].clusters[0].items[0].id, "doe2023");
 });
-
-// =========================================================================
-// INTEGRATION TESTS: STATIC SURFACES & TYPOGRAPHY
-// =========================================================================
 
 test("Static CSL — Reading Mode post-processor skips static renders", async () => {
   const f = createStaticCslFixture();

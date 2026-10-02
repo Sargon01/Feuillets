@@ -317,7 +317,7 @@ export async function applyNativeCslToStaticRender(
       try {
         sourceContent = await app.vault.cachedRead(resolvedFile);
       } catch {
-        // fail-safe: conserve le contenu vide en cas d'erreur de lecture
+        // Leave the source empty when its file cannot be read.
       }
     }
 

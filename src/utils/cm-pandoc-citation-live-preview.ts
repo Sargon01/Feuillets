@@ -38,7 +38,7 @@ import {
  * (cm-scrivenings-citations.ts) — see that module's doc comment. */
 export { notifyPandocCitationBibliographyChanged } from "../services/pandoc-citation-preview.js";
 
-/** Debounce time for whole-document CSL rendering on typing (Lot 7B). */
+/** Debounce time for whole-document CSL rendering on typing. */
 export const CSL_LIVE_PREVIEW_DEBOUNCE_MS = 150;
 
 /**
@@ -833,7 +833,6 @@ export function createPandocCitationLivePreviewExtension(
           return;
         }
 
-        // style === "author-date" (Legacy path)
         this.cleanupCslSession();
 
         const result = buildLegacyDecorations(this.view, getSettings);

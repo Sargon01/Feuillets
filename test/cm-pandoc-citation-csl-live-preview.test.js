@@ -1,5 +1,3 @@
-/* Native CSL Live Preview Integration Tests (Lot 7B) */
-
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -334,10 +332,6 @@ function getDecoCount(decorations) {
   return Array.isArray(decorations) ? decorations.length : 0;
 }
 
-// ---------------------------------------------------------------------------
-// 1. Whole-Document Correctness Test (Section 14)
-// ---------------------------------------------------------------------------
-
 test("CSL Live Preview: space-separated clusters both render parenthetically with exact source ranges", async (t) => {
   const text = "[@doe2023] [@doe2023; @smith2024]";
   const f = createCslFixture({ docContent: text, providerHandler: (req) => ({
@@ -411,10 +405,6 @@ test("CSL Live Preview: whole-document correctness with numeric ordering and vie
   assert.equal(dom.textContent, "[2]");
 });
 
-// ---------------------------------------------------------------------------
-// 2. Two Panes Same File (Section 33)
-// ---------------------------------------------------------------------------
-
 test("CSL Live Preview: two panes on same file have independent document sessions; destroying pane A keeps pane B intact", async () => {
   const text = "Shared file content with [@smith2024].";
   const f = createCslFixture();
@@ -448,10 +438,6 @@ test("CSL Live Preview: two panes on same file have independent document session
   assert.equal(getDecoCount(instanceB.decorations), 1);
   assert.ok(instanceB.decorations[0].widget instanceof CslCitationWidget);
 });
-
-// ---------------------------------------------------------------------------
-// 3. File Switch in Same View (Section 34)
-// ---------------------------------------------------------------------------
 
 test("CSL Live Preview: file switch in same view disposes old session and creates distinct session for new file", async () => {
   const f = createCslFixture();
@@ -497,10 +483,6 @@ test("CSL Live Preview: file switch in same view disposes old session and create
   assert.equal(getDecoCount(instance.decorations), 1);
   assert.equal(instance.decorations[0].widget.clusterId, "citation:11:21");
 });
-
-// ---------------------------------------------------------------------------
-// 4. Document Edit / Revision Behavior (Section 35)
-// ---------------------------------------------------------------------------
 
 test("CSL Live Preview: editing and appending citations updates revisions and outputs without stale widgets", async () => {
   const f = createCslFixture();
@@ -552,10 +534,6 @@ test("CSL Live Preview: editing and appending citations updates revisions and ou
   assert.ok(clusterIds.includes("citation:9:16"));
 });
 
-// ---------------------------------------------------------------------------
-// 5. Selection / Viewport Changes Must NOT Call Provider (Section 36)
-// ---------------------------------------------------------------------------
-
 test("CSL Live Preview: cursor movement and viewport scroll do NOT call provider; cursor reveals raw syntax", async () => {
   const text = "Start [@smith2024] middle [@doe2023] end.";
   const f = createCslFixture();
@@ -599,10 +577,6 @@ test("CSL Live Preview: cursor movement and viewport scroll do NOT call provider
   assert.equal(instance.decorations[0].widget.clusterId, "citation:26:36");
 });
 
-// ---------------------------------------------------------------------------
-// 6. Protected Contexts (Section 37)
-// ---------------------------------------------------------------------------
-
 test("CSL Live Preview: citations in protected contexts are never folded into CSL widgets", async () => {
   const text = `---
 author: [@smith2024]
@@ -644,10 +618,6 @@ URL https://example.com/@smith2024 and email test@smith2024.com
   assert.equal(deco.to, validStart + 12);
 });
 
-// ---------------------------------------------------------------------------
-// 7. Markdown Link Label vs Destination (Section 38)
-// ---------------------------------------------------------------------------
-
 test("CSL Live Preview: citation in markdown link label folds, while destination remains untouched", async () => {
   const text = "[see @doe2023](https://example.com) and [label](https://example.com/@doe2023)";
   const f = createCslFixture();
@@ -667,10 +637,6 @@ test("CSL Live Preview: citation in markdown link label folds, while destination
   assert.equal(deco.to, 13);
   assert.equal(deco.widget.clusterId, "citation:5:13");
 });
-
-// ---------------------------------------------------------------------------
-// 8. CSL Syntax Coverage (Section 39)
-// ---------------------------------------------------------------------------
 
 test("CSL Live Preview: diverse Pandoc citation syntax shapes all fold into CslCitationWidgets", async () => {
   const text = [
@@ -698,10 +664,6 @@ test("CSL Live Preview: diverse Pandoc citation syntax shapes all fold into CslC
     assert.ok(deco.widget instanceof CslCitationWidget);
   }
 });
-
-// ---------------------------------------------------------------------------
-// 9. Provider Appears / Disappears (Sections 31 & 32)
-// ---------------------------------------------------------------------------
 
 test("CSL Live Preview: provider appears dynamically wakes view; provider disappears returns to raw syntax", async () => {
   const text = "Testing [@smith2024].";
@@ -735,10 +697,6 @@ test("CSL Live Preview: provider appears dynamically wakes view; provider disapp
   assert.equal(getDecoCount(instance.decorations), 0);
 });
 
-// ---------------------------------------------------------------------------
-// 10. Source Mode (Section 18)
-// ---------------------------------------------------------------------------
-
 test("CSL Live Preview: source mode shows raw Markdown and disposes CSL host session", async () => {
   const text = "Testing [@smith2024].";
   const f = createCslFixture();
@@ -769,10 +727,6 @@ test("CSL Live Preview: source mode shows raw Markdown and disposes CSL host ses
   assert.ok(f.disposedDocuments.includes(docId), "Session must be disposed when entering Source mode");
 });
 
-// ---------------------------------------------------------------------------
-// 11. Resource Invalidation Events (Sections 28, 29, 30)
-// ---------------------------------------------------------------------------
-
 test("CSL Live Preview: resource modify and invalidateAllResources wake subscribed views", async () => {
   const text = "Testing [@smith2024].";
   const f = createCslFixture();
@@ -800,10 +754,6 @@ test("CSL Live Preview: resource modify and invalidateAllResources wake subscrib
 
   assert.equal(f.getProviderCallCount(), 3, "Global invalidation must wake view");
 });
-
-// ---------------------------------------------------------------------------
-// 12. Quarantine Verification (Sections 42, 43, 44)
-// ---------------------------------------------------------------------------
 
 test("CSL Reading Mode: unsupported owner/context stays raw without legacy fallback", async () => {
   const f = createCslFixture();
@@ -850,10 +800,6 @@ test("Quarantine: applyPandocCitationPreview does nothing when style === 'csl'",
   // Must remain raw markdown!
   assert.equal(p.textContent, "Text with [@smith2024].");
 });
-
-// ---------------------------------------------------------------------------
-// 13. Audit Invariants: ownerDocument, citekeyCslPath change, vault rename
-// ---------------------------------------------------------------------------
 
 test("CSL Live Preview: toDOM strictly uses view.dom.ownerDocument and creates all nodes on that document without global fallback", () => {
   const popoutDoc = new FakeDocument();
@@ -1018,10 +964,6 @@ test("CSL Live Preview: inline footnote with citation decorates only the citatio
   assert.equal(text.slice(decos[0].to), " pour une discussion méthodologique.]");
 });
 
-// ---------------------------------------------------------------------------
-// 14. Live Preview UX Stabilization Tests During Prose Writing
-// ---------------------------------------------------------------------------
-
 // Unit tests for semantic equivalence functions
 test("Semantic equality helpers: detect identical vs modified items, clusters, and sequences", () => {
   const itemAlpha = { id: "alpha" };
@@ -1051,8 +993,7 @@ test("Semantic equality helpers: detect identical vs modified items, clusters, a
   assert.equal(areCitationSequencesSemanticallyEqual(seqB, seqReordered), false);
 });
 
-// 1. PROSE AVANT CITATION
-test("CSL Live Preview UX: 1. prose before citation keeps widget rendered and updates offset immediately without flash", async () => {
+test("CSL Live Preview UX: prose before citation keeps widget rendered and updates offset immediately without flash", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1082,8 +1023,7 @@ test("CSL Live Preview UX: 1. prose before citation keeps widget rendered and up
   assert.equal(f.getProviderCallCount(), 1, "Host/provider must not be called for pure prose change");
 });
 
-// 2. PROSE ENTRE DEUX CITATIONS
-test("CSL Live Preview UX: 2. prose between two citations preserves both widgets at exact new offsets immediately", async () => {
+test("CSL Live Preview UX: prose between two citations preserves both widgets at exact new offsets immediately", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1117,8 +1057,7 @@ test("CSL Live Preview UX: 2. prose between two citations preserves both widgets
   assert.equal(f.getProviderCallCount(), 1);
 });
 
-// 3. PROSE APRÈS CITATIONS
-test("CSL Live Preview UX: 3. prose after citations keeps widgets stable", async () => {
+test("CSL Live Preview UX: prose after citations keeps widgets stable", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1141,8 +1080,7 @@ test("CSL Live Preview UX: 3. prose after citations keeps widgets stable", async
   assert.equal(f.getProviderCallCount(), 1);
 });
 
-// 4. MULTILIGNE
-test("CSL Live Preview UX: 4. adding and removing lines before citations remaps offsets correctly", async () => {
+test("CSL Live Preview UX: adding and removing lines before citations remaps offsets correctly", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1178,8 +1116,7 @@ test("CSL Live Preview UX: 4. adding and removing lines before citations remaps 
   assert.equal(instance.decorations[0].widget.citation.plainText, "[1]");
 });
 
-// 5. DOUBLONS
-test("CSL Live Preview UX: 5. duplicate citekeys remap by cluster order, never confused by citekey", async () => {
+test("CSL Live Preview UX: duplicate citekeys remap by cluster order, never confused by citekey", async () => {
   const f = createCslFixture({
     providerHandler: (req) => ({
       documentId: req.documentId,
@@ -1218,8 +1155,7 @@ test("CSL Live Preview UX: 5. duplicate citekeys remap by cluster order, never c
   assert.equal(instance.decorations[1].widget.citation.plainText, "Occurrence 2");
 });
 
-// 6. STYLE NUMÉRIQUE SIMULÉ
-test("CSL Live Preview UX: 6. numeric style remains stable [1] and [2] immediately when modifying prose", async () => {
+test("CSL Live Preview UX: numeric style remains stable [1] and [2] immediately when modifying prose", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1244,8 +1180,7 @@ test("CSL Live Preview UX: 6. numeric style remains stable [1] and [2] immediate
   assert.equal(instance.decorations[1].widget.citation.plainText, "[2]");
 });
 
-// 7. CITEKEY MODIFIÉE
-test("CSL Live Preview UX: 7. citekey modification fails closed to raw markdown until new snapshot", async () => {
+test("CSL Live Preview UX: citekey modification fails closed to raw markdown until new snapshot", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1272,8 +1207,7 @@ test("CSL Live Preview UX: 7. citekey modification fails closed to raw markdown 
   assert.equal(f.getProviderCallCount(), 2);
 });
 
-// 8. AJOUT DE CITATION
-test("CSL Live Preview UX: 8. adding a citation fails closed to raw markdown until new snapshot", async () => {
+test("CSL Live Preview UX: adding a citation fails closed to raw markdown until new snapshot", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1297,8 +1231,7 @@ test("CSL Live Preview UX: 8. adding a citation fails closed to raw markdown unt
   assert.equal(f.getProviderCallCount(), 2);
 });
 
-// 9. SUPPRESSION DE CITATION
-test("CSL Live Preview UX: 9. removing a citation fails closed until new snapshot", async () => {
+test("CSL Live Preview UX: removing a citation fails closed until new snapshot", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1322,8 +1255,7 @@ test("CSL Live Preview UX: 9. removing a citation fails closed until new snapsho
   assert.equal(f.getProviderCallCount(), 2);
 });
 
-// 10. RÉORDONNANCEMENT
-test("CSL Live Preview UX: 10. reordering citations fails closed until new snapshot", async () => {
+test("CSL Live Preview UX: reordering citations fails closed until new snapshot", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1347,8 +1279,7 @@ test("CSL Live Preview UX: 10. reordering citations fails closed until new snaps
   assert.equal(f.getProviderCallCount(), 2);
 });
 
-// 11. LOCATOR
-test("CSL Live Preview UX: 11. changing locator fails closed until new snapshot", async () => {
+test("CSL Live Preview UX: changing locator fails closed until new snapshot", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1372,8 +1303,7 @@ test("CSL Live Preview UX: 11. changing locator fails closed until new snapshot"
   assert.equal(f.getProviderCallCount(), 2);
 });
 
-// 12. CLICK-TO-REVEAL
-test("CSL Live Preview UX: 12. click-to-reveal unfolds only the intersected citation", async () => {
+test("CSL Live Preview UX: click-to-reveal unfolds only the intersected citation", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1409,8 +1339,7 @@ test("CSL Live Preview UX: 12. click-to-reveal unfolds only the intersected cita
   assert.equal(instance.decorations[0].from, alphaPos);
 });
 
-// 13. CURSEUR + ÉCRITURE DE PROSE
-test("CSL Live Preview UX: 13. typing prose elsewhere keeps all non-intersected citations rendered at every keystroke", async () => {
+test("CSL Live Preview UX: typing prose elsewhere keeps all non-intersected citations rendered at every keystroke", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1443,8 +1372,7 @@ test("CSL Live Preview UX: 13. typing prose elsewhere keeps all non-intersected 
   assert.equal(f.getProviderCallCount(), 1, "Zero redundant provider calls while typing prose");
 });
 
-// 14. INVALIDATION CSL
-test("CSL Live Preview UX: 14. CSL style invalidation fails closed and never reuses old style", async () => {
+test("CSL Live Preview UX: CSL style invalidation fails closed and never reuses old style", async () => {
   const f = createCslFixture({
     providerHandler: (req) => {
       if (!req.style.xml.includes("<style>")) {
@@ -1488,8 +1416,7 @@ test("CSL Live Preview UX: 14. CSL style invalidation fails closed and never reu
   assert.equal(getDecoCount(instance.decorations), 0, "Must fail closed when CSL file is missing");
 });
 
-// 15. PROVIDER DISPARAÎT
-test("CSL Live Preview UX: 15. provider disappearance falls back to raw markdown immediately", async () => {
+test("CSL Live Preview UX: provider disappearance falls back to raw markdown immediately", async () => {
   const f = createCslFixture();
   const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
 
@@ -1507,8 +1434,7 @@ test("CSL Live Preview UX: 15. provider disappearance falls back to raw markdown
   assert.equal(getDecoCount(instance.decorations), 0, "Must return to raw markdown when provider disappears");
 });
 
-// 16. ENGINE ERROR après un changement réel de citations
-test("CSL Live Preview UX: 16. engine error after actual citation change shows raw markdown, never stale snapshot", async () => {
+test("CSL Live Preview UX: engine error after actual citation change shows raw markdown, never stale snapshot", async () => {
   let shouldThrow = false;
   const f = createCslFixture({
     providerHandler: (req) => {
@@ -1557,10 +1483,6 @@ test("CSL Live Preview UX: 16. engine error after actual citation change shows r
   // Must remain raw markdown (0 decorations), never misleading stale [1]
   assert.equal(getDecoCount(instance.decorations), 0, "Must show raw markdown after engine error");
 });
-
-// ---------------------------------------------------------------------------
-// 15. Click-to-Reveal Half-Open Boundary Tests ([from, to))
-// ---------------------------------------------------------------------------
 
 test("selectionOverlaps unit tests: half-open boundary and selection semantics", () => {
   const from = 10;
@@ -1757,4 +1679,44 @@ test("CSL Live Preview: referenced notes retain logical mapping after prose edit
   instance.update({ view, selectionSet: true });
   await flush(180);
   assert.equal(f.getProviderCallCount(), 1);
+});
+
+test("CSL Live Preview: provider error diagnostics clear decorations and preserve raw Markdown", async (t) => {
+  let reportError = false;
+  const f = createCslFixture({ providerHandler: (request) => ({
+    documentId: request.documentId,
+    revision: request.revision,
+    citations: request.clusters.map((cluster) => ({
+      clusterId: cluster.id,
+      plainText: "Rendered citation",
+      content: [{ type: "text", text: "Rendered citation" }],
+    })),
+    bibliography: null,
+    diagnostics: reportError
+      ? [{ severity: "error", code: "UNKNOWN_CITEKEY", message: "Unknown citekey" }]
+      : [],
+  }) });
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+  const view = makeFakeView({ text: "[@alpha]", file: f.docFile, app: f.app });
+  let completeDispatch;
+  const waitForDispatch = () => new Promise((resolve) => { completeDispatch = resolve; });
+  view.dispatch = () => completeDispatch();
+  let dispatched = waitForDispatch();
+  const instance = new PluginClass(view);
+  t.after(() => { instance.destroy(); f.host.dispose(); });
+  await dispatched;
+  assert.equal(getDecoCount(instance.decorations), 1);
+
+  reportError = true;
+  const text = "[@unknown]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+  assert.equal(getDecoCount(instance.decorations), 0);
+  dispatched = waitForDispatch();
+  f.host.invalidateAllResources();
+  await dispatched;
+  assert.equal(f.getProviderCallCount(), 2);
+  assert.equal(getDecoCount(instance.decorations), 0);
+  assert.equal(view.state.doc.toString(), text);
 });

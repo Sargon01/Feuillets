@@ -231,7 +231,7 @@ export function createScriveningsCitationExtension(
         if (liveDoc) {
           this.liveDocumentWasReady = true;
           this.initialRenderRequested = true;
-          this.scheduleCslRender(0, "initial");
+          this.scheduleCslRender(0);
         }
       }
 
@@ -266,7 +266,7 @@ export function createScriveningsCitationExtension(
                 ? this.view.state.doc.sliceString(0, this.view.state.doc.length)
                 : "";
               this.lastDocText = currentDocText;
-              this.scheduleCslRender(0, "initial-boundaries-ready");
+              this.scheduleCslRender(0);
               this.rebuild();
               return;
             }
@@ -300,7 +300,7 @@ export function createScriveningsCitationExtension(
               this.readySnapshot = null;
               this.readyCslDoc = null;
               this.decorations = DecorationTyped.none;
-              this.scheduleCslRender(150, "semantic-change");
+              this.scheduleCslRender(150);
             }
           }
           this.rebuild();
@@ -348,7 +348,7 @@ export function createScriveningsCitationExtension(
           this.readyCslDoc = null;
           this.lastRequestedSemanticSignature = null;
           this.decorations = DecorationTyped.none;
-          this.scheduleCslRender(0, "invalidation");
+          this.scheduleCslRender(0);
         }
       }
 
@@ -406,7 +406,7 @@ export function createScriveningsCitationExtension(
         };
       }
 
-      private scheduleCslRender(delayMs: number, _reason = "unknown"): void {
+      private scheduleCslRender(delayMs: number): void {
         if (this.destroyed) return;
         if (this.debounceTimer !== null) {
           window.clearTimeout(this.debounceTimer);
@@ -451,7 +451,7 @@ export function createScriveningsCitationExtension(
               try {
                 this.view.dispatch({});
               } catch {
-                // Swallowed
+                // The editor may have closed before the asynchronous update.
               }
             }
             return;
@@ -548,7 +548,7 @@ export function createScriveningsCitationExtension(
               try {
                 this.view.dispatch({});
               } catch {
-                // Swallowed
+                // The editor may have closed before the asynchronous update.
               }
             }
           } else {
@@ -576,7 +576,7 @@ export function createScriveningsCitationExtension(
           try {
             this.view.dispatch({});
           } catch {
-            // Swallowed
+            // The editor may have closed before the asynchronous update.
           }
         }
       }
@@ -669,7 +669,6 @@ export function createScriveningsCitationExtension(
           return;
         }
 
-        // Author-date legacy path
         this.cleanupCslSession();
 
         const result = buildScriveningsCitationDecorations(this.view, boundariesField, app, getSettings, files);
