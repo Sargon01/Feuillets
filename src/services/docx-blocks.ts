@@ -53,6 +53,10 @@ type InlineMarks = {
   color?: string;
   size?: number;
   font?: string;
+  underline?: Record<string, never>;
+  smallCaps?: boolean;
+  superScript?: boolean;
+  subScript?: boolean;
 };
 
 type ExportDomNode = {
@@ -177,6 +181,10 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
             color: marks.color,
             size: marks.size,
             font: marks.font,
+            underline: marks.underline,
+            smallCaps: marks.smallCaps,
+            superScript: marks.superScript,
+            subScript: marks.subScript,
           })
         );
         if (afterBreak) afterBreak = false;
@@ -202,6 +210,45 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
     const nextMarks = { ...marks };
     if (tag === "strong" || tag === "b") nextMarks.bold = true;
     if (tag === "em" || tag === "i") nextMarks.italics = true;
+
+    if (node.classList) {
+      if (node.classList.contains("feuillets-csl-font-italic") || node.classList.contains("feuillets-csl-font-oblique")) {
+        nextMarks.italics = true;
+      }
+      if (node.classList.contains("feuillets-csl-font-normal")) {
+        nextMarks.italics = false;
+      }
+      if (node.classList.contains("feuillets-csl-weight-bold")) {
+        nextMarks.bold = true;
+      }
+      if (node.classList.contains("feuillets-csl-weight-normal") || node.classList.contains("feuillets-csl-weight-light")) {
+        nextMarks.bold = false;
+      }
+      if (node.classList.contains("feuillets-csl-decoration-underline")) {
+        nextMarks.underline = {};
+      }
+      if (node.classList.contains("feuillets-csl-decoration-none")) {
+        delete nextMarks.underline;
+      }
+      if (node.classList.contains("feuillets-csl-variant-small-caps")) {
+        nextMarks.smallCaps = true;
+      }
+      if (node.classList.contains("feuillets-csl-variant-normal")) {
+        nextMarks.smallCaps = false;
+      }
+      if (node.classList.contains("feuillets-csl-valign-sup")) {
+        nextMarks.superScript = true;
+        delete nextMarks.subScript;
+      }
+      if (node.classList.contains("feuillets-csl-valign-sub")) {
+        nextMarks.subScript = true;
+        delete nextMarks.superScript;
+      }
+      if (node.classList.contains("feuillets-csl-valign-baseline")) {
+        delete nextMarks.superScript;
+        delete nextMarks.subScript;
+      }
+    }
 
     if (tag === "img") {
       /* Recherche par le nœud lui-même : c'est la clé de la Map construite

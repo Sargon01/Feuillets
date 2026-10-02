@@ -24,6 +24,7 @@ import {
   splitPandocCitationSegments,
   type PandocCitationCatalog,
 } from "./pandoc-citation-preview.js";
+import { STATIC_RENDER_ATTR, STATIC_RENDER_ATTR_VALUE } from "./pandoc-citation-static-csl.js";
 
 export type PandocCitationReadingModePlugin = {
   app: App;
@@ -151,6 +152,9 @@ export function registerPandocCitationReadingMode(plugin: PandocCitationReadingM
     plugin.register?.(() => coordinator.dispose());
   }
   plugin.registerMarkdownPostProcessor(async (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
+    if (el.getAttribute?.(STATIC_RENDER_ATTR) === STATIC_RENDER_ATTR_VALUE || el.closest?.(`[${STATIC_RENDER_ATTR}='${STATIC_RENDER_ATTR_VALUE}']`)) {
+      return;
+    }
     if (typeof ctx.sourcePath !== "string" || !ctx.sourcePath.trim()) return;
     const file = plugin.app.vault.getAbstractFileByPath(ctx.sourcePath);
     if (!(file instanceof TFile)) {

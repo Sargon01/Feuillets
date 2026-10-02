@@ -32,6 +32,7 @@ import { exportPdf } from "./export-pdf.js";
 import { exportOdt } from "./export-odt.js";
 import { type CompileScope, resolveCompileScopeFiles, createProjectScope } from "./compile-scope.js";
 import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
+import type { CslCitationHost } from "./csl-citation-host.js";
 import type { ExportCitationSettings } from "./pandoc-citation-preview.js";
 import { generateSummary, generateTableOfContents } from "./contents-generator.js";
 import type { GeneratedContentsKind } from "./generated-contents.js";
@@ -132,6 +133,8 @@ type NativeExportContext = {
   contentVariant: ContentVariant | null;
   separator: string;
   citationSettings?: ExportCitationSettings;
+  cslHost?: CslCitationHost | null;
+  projectRoot?: TFolder;
 };
 
 /* PresetConfig n'est plus redéclaré ici : il vient de types.d.ts (ambiant,
@@ -1561,8 +1564,8 @@ export async function exportPandocPackageWithScope(
 
 /** Point d'entrée de l'export : route vers le moteur natif (zéro dépendance,
  * fonctionne partout dont mobile). */
-export async function exportFile(app: App, settings: FeuilletsSettings, format = "docx", scopePath: string | null = null) {
-  return exportViaNative(app, settings, format, scopePath);
+export async function exportFile(app: App, settings: FeuilletsSettings, format = "docx", scopePath: string | null = null, cslHost?: CslCitationHost | null) {
+  return exportViaNative(app, settings, format, scopePath, undefined, undefined, false, undefined, null, null, compile, cslHost);
 }
 
 /**
@@ -1588,7 +1591,8 @@ export async function exportWithScope(
   baseName: string,
   contentExtraction: ContentExtraction | null = null,
   contentCollection: ContentCollection | null = null,
-  compileFn: typeof compile = compile
+  compileFn: typeof compile = compile,
+  cslHost?: CslCitationHost | null
 ): Promise<string | undefined> {
   if (format === "md") {
     /* Format Markdown : compile() écrit déjà le .md dans _Sortie et renvoie
@@ -1602,7 +1606,7 @@ export async function exportWithScope(
   /* Formats binaires : on passe par exportViaNative en fournissant la portée
      et le baseName directement — l'extension est ajoutée par exportViaNative
      selon le format. */
-  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope, contentExtraction, contentCollection);
+  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope, contentExtraction, contentCollection, compileFn, cslHost);
 }
 
 /** Export DOCX de soumission : même compilation et même moteur que
@@ -1685,7 +1689,9 @@ async function exportViaNative(
   nonDestructive = false,
   scope?: CompileScope,
   contentExtraction?: ContentExtraction | null,
-  contentCollection?: ContentCollection | null
+  contentCollection?: ContentCollection | null,
+  compileFn: typeof compile = compile,
+  cslHost?: CslCitationHost | null
 ): Promise<string | undefined> {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
@@ -1706,7 +1712,7 @@ async function exportViaNative(
       compileOptions.contentExtraction = contentExtraction;
       compileOptions.contentCollection = contentCollection;
     }
-    const result = await compile(
+    const result = await compileFn(
       app,
       settings,
       scopePath,
@@ -1771,6 +1777,14 @@ async function exportViaNative(
       bibliographyPath: citationBibliographyPath,
     };
 
+    let effectiveProjectRoot = editorialRootForExport;
+    if (scope?.projectRoot) {
+      const candidateRoot = app.vault.getAbstractFileByPath(normalizePath(scope.projectRoot));
+      if (candidateRoot instanceof TFolder) {
+        effectiveProjectRoot = candidateRoot;
+      }
+    }
+
     const ctx: NativeExportContext = {
       markdown: result.manuscript,
       title,
@@ -1780,6 +1794,8 @@ async function exportViaNative(
       contentVariant,
       separator: composition.separator,
       citationSettings,
+      cslHost,
+      projectRoot: effectiveProjectRoot,
     };
 
     if (format === "epub") {

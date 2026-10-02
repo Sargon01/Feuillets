@@ -16,6 +16,13 @@ import { composeDocumentMedia, renderManuscriptHtml, renderManuscriptHtmlWithFro
 import { hasRemainingDocumentLayoutMarker } from "../services/document-layout.js";
 import { loadLayoutStore, layoutOverridesForFile, relativeLayoutFilePath } from "../services/layout-store.js";
 import { applyPandocCitationPreview } from "../services/pandoc-citation-preview.js";
+import type { CslCitationHost } from "../services/csl-citation-host.js";
+import {
+  applyNativeCslToStaticRender,
+  createStaticDocumentId,
+  CITATION_RENDER_CSS,
+  type StaticCslSource,
+} from "../services/pandoc-citation-static-csl.js";
 import { resolveWorkspaceCitationResources } from "../services/workspace-citations.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { activePresetConfig, compile, joinCompiledSegments, resolvedFileTitleMarkdown } from "../services/compile-export.js";
@@ -121,6 +128,7 @@ export type ContinuSourceView = {
 export type PreviewViewPlugin = {
   settings: PreviewViewSettings;
   getProjectFolder(): TFolder | null;
+  cslCitationHost?: CslCitationHost | null;
   /** Mêmes résolveurs que le Binder : pas de seconde logique de titre. */
   shortTitleFor?(file: TFile): string;
   projectDisplayName?(path: string): string;
@@ -193,6 +201,7 @@ type PreviewSource = {
   /** Sous-titre affiché dans l'en-tête de l'onglet (chemin du feuillet). */
   subtitle: string;
   citationScopeFolderPath: string | null;
+  projectRootPath: string;
 };
 
 /** Actualisation automatique du mode Scène : assez long pour ne pas rendre
@@ -340,7 +349,7 @@ function verticalPaddingOf(el: HTMLElement): number {
  * l'aperçu lui transmet les marges du gabarit actif, comme pour ses colonnes.
  * La taille de page reste issue des réglages PDF historiques. */
 export function previewTemplateCss(tpl: ResolvedExportTemplate): string {
-  return templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl);
+  return templateToCss(tpl) + FRONT_PAGE_CSS + "\n" + titleRoleCss(tpl) + "\n" + CITATION_RENDER_CSS;
 }
 
 
@@ -1175,6 +1184,7 @@ export class PreviewView extends ItemView {
         title: settings.manuscriptTitle || root.name,
         subtitle: t("preview.subtitle.scope", { scope: activeScope.type }),
         citationScopeFolderPath,
+        projectRootPath: activeScope.projectRoot,
       };
       return this.applySourceModeTransformation(source);
     }
@@ -1201,6 +1211,7 @@ export class PreviewView extends ItemView {
         title: settings.manuscriptTitle || root.name,
         subtitle: t("preview.subtitle.completeManuscript"),
         citationScopeFolderPath: null,
+        projectRootPath: root.path,
       };
       return this.applySourceModeTransformation(source);
     }
@@ -1225,6 +1236,8 @@ export class PreviewView extends ItemView {
          décalage constaté, pas une page de titre. */
       const body = stripFrontmatter(await this.readFileForPreview(active)).trim();
       const title = this.sceneTitleMarkdown(active, 1);
+      const resolvedScope = typeof this.plugin.compileScopeForFile === "function" ? this.plugin.compileScopeForFile(active) : null;
+      const projectRootPath = resolvedScope?.projectRoot ?? root.path;
       const source: PreviewSource = {
         markdown: title ? `${title}\n\n${body}` : body,
         /* PAS de segment ici, volontairement : le mode Scène rend le texte
@@ -1242,6 +1255,7 @@ export class PreviewView extends ItemView {
         title: this.binderFileTitle(active),
         subtitle: active.path,
         citationScopeFolderPath: active.parent ? active.parent.path : null,
+        projectRootPath,
       };
       return this.applySourceModeTransformation(source);
     }
@@ -1265,6 +1279,8 @@ export class PreviewView extends ItemView {
       this.showMessage("feuillets-preview-empty", t("preview.message.emptyFolder", { name: scope.name }));
       return null;
     }
+    const resolvedScope = typeof this.plugin.compileScopeForFolder === "function" ? this.plugin.compileScopeForFolder(scope) : null;
+    const projectRootPath = resolvedScope?.projectRoot ?? root.path;
     const separator = activePresetConfig(settings).separator || "\n\n";
     const firstScene = segments.find((seg) => seg.path)?.path;
     const source: PreviewSource = {
@@ -1274,6 +1290,7 @@ export class PreviewView extends ItemView {
       title: scope.name,
       subtitle: scope.path,
       citationScopeFolderPath: scope.path,
+      projectRootPath,
     };
     return this.applySourceModeTransformation(source);
   }
@@ -1284,6 +1301,9 @@ export class PreviewView extends ItemView {
     const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
     const title = this.sceneTitleMarkdown(file, 1);
     const text = title ? `${title}\n\n${body}` : body;
+    const resolvedScope = typeof this.plugin.compileScopeForFile === "function" ? this.plugin.compileScopeForFile(file) : null;
+    const root = this.plugin.getProjectFolder();
+    const projectRootPath = resolvedScope?.projectRoot ?? (root ? root.path : (file.parent ? file.parent.path : file.path));
     const source: PreviewSource = {
       markdown: text,
       segments: [{ path: file.path, text, frontType: null, titleBlockCount: title ? 1 : 0 }],
@@ -1291,6 +1311,7 @@ export class PreviewView extends ItemView {
       title: this.binderFileTitle(file),
       subtitle: file.path,
       citationScopeFolderPath: file.parent ? file.parent.path : null,
+      projectRootPath,
     };
     return this.applySourceModeTransformation(source);
   }
@@ -1706,13 +1727,22 @@ export class PreviewView extends ItemView {
     const tpl = await resolveExportTemplate(this.app, settings, settings.exportTemplate);
 
     // Get project settings for Pandoc citation preview
-    const projectRoot = this.plugin?.getProjectFolder();
+    const projectRootCandidate = source.projectRootPath
+      ? this.app.vault.getAbstractFileByPath(source.projectRootPath)
+      : null;
+    const projectRoot = projectRootCandidate instanceof TFolder
+      ? projectRootCandidate
+      : this.plugin?.getProjectFolder();
     let projectPath: string | null = null;
     if (projectRoot) {
       projectPath = projectRoot.path;
+    } else if (source.projectRootPath) {
+      projectPath = source.projectRootPath;
     }
     const projectMeta = projectPath ? settings.projectMeta?.[projectPath] : null;
-    const pandocPreviewStyle = (projectMeta?.pandocCitationPreviewStyle as PandocCitationPreviewStyle) || "off";
+    const globalRoot = this.plugin?.getProjectFolder();
+    const globalMeta = globalRoot ? settings.projectMeta?.[globalRoot.path] : null;
+    const pandocPreviewStyle = ((projectMeta?.pandocCitationPreviewStyle ?? globalMeta?.pandocCitationPreviewStyle) as PandocCitationPreviewStyle) || "off";
     let pandocBibliographyPath = "";
     if (projectRoot) {
       let workspaceFolder: TFolder | null = null;
@@ -1731,12 +1761,35 @@ export class PreviewView extends ItemView {
       }
     }
 
-    // Create afterVariant callback that chains applySourceMarkers and applyPandocCitationPreview
+    // Create afterVariant callback that chains applySourceMarkers and citation rendering
     const createAfterVariantCallback = (hasSourceMarkers: boolean) => async (container: HTMLElement) => {
       if (hasSourceMarkers) {
         applySourceMarkers(container);
       }
-      await applyPandocCitationPreview(this.app, container, pandocPreviewStyle, pandocBibliographyPath);
+      if (pandocPreviewStyle === "csl") {
+        if (projectRoot) {
+          const staticSources: StaticCslSource[] = source.segments
+            ? source.segments
+                .filter((seg): seg is PreviewCompileSegment & { path: string } => typeof seg.path === "string" && seg.path.length > 0)
+                .map((seg) => ({
+                  path: seg.path,
+                  text: seg.text,
+                  renderText: seg.renderText,
+                }))
+            : (source.sourcePath ? [{ path: source.sourcePath, text: source.markdown, renderText: source.markdown }] : []);
+          await applyNativeCslToStaticRender({
+            app: this.app,
+            settings: this.plugin.settings,
+            host: this.plugin.cslCitationHost,
+            projectRoot,
+            container,
+            sources: staticSources,
+            documentId: createStaticDocumentId("preview-static", projectRoot.path),
+          });
+        }
+      } else {
+        await applyPandocCitationPreview(this.app, container, pandocPreviewStyle, pandocBibliographyPath);
+      }
     };
 
     // Même CSS de gabarit pour Scène, Chapitre et Manuscrit (voir helper).

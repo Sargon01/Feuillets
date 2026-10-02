@@ -1,7 +1,13 @@
 import JSZip from "jszip";
-import type { App } from "obsidian";
+import type { App, TFolder } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages } from "./export-render.js";
 import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
+import type { CslCitationHost } from "./csl-citation-host.js";
+import {
+  applyNativeCslToStaticRender,
+  createStaticDocumentId,
+  type StaticCslSource,
+} from "./pandoc-citation-static-csl.js";
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import { escapeXml } from "../utils/xml.js";
@@ -44,7 +50,9 @@ function headingStyleXml(name: string, h: HeadingStyle | undefined, fallbackPt: 
 }
 
 type ExportSegment = {
+  path?: string | null;
   text: string;
+  renderText?: string;
   frontType?: string;
 };
 
@@ -57,6 +65,8 @@ type ExportInput = {
   contentVariant?: ContentVariant | null;
   separator?: string;
   citationSettings?: ExportCitationSettings;
+  cslHost?: CslCitationHost | null;
+  projectRoot?: TFolder;
 };
 
 type OdtOptions = {
@@ -76,11 +86,14 @@ type RenderedFootnote = {
  * page (celui qui porte le saut de page, fo:break-before="page" défini dans
  * les styles automatiques plus bas), "FrontPage" pour les suivants (centrés,
  * mais sans resaut de page). undefined en dehors d'une page Front. */
-function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
-  if (node.nodeType === Node.TEXT_NODE) {
+const DOM_TEXT_NODE = 3;
+const DOM_ELEMENT_NODE = 1;
+
+export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
+  if (node.nodeType === DOM_TEXT_NODE) {
     return escapeXml(node.textContent);
   }
-  if (node.nodeType !== Node.ELEMENT_NODE) return "";
+  if (node.nodeType !== DOM_ELEMENT_NODE) return "";
 
   const element = node as Element;
   const tag = element.tagName.toLowerCase();
@@ -94,40 +107,65 @@ function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   const childrenXml = Array.from(element.childNodes).map((n) => domToOdtContent(n, opts)).join("");
   const manualBreak = element.classList?.contains("feuillets-page-break-before") ? ' fo:break-before="page"' : "";
 
+  let styledChildren = childrenXml;
+  if (element.classList) {
+    if (element.classList.contains("feuillets-csl-font-italic")) {
+      styledChildren = `<text:span text:style-name="Italic">${styledChildren}</text:span>`;
+    } else if (element.classList.contains("feuillets-csl-font-oblique")) {
+      styledChildren = `<text:span text:style-name="Oblique">${styledChildren}</text:span>`;
+    }
+    if (element.classList.contains("feuillets-csl-weight-bold")) {
+      styledChildren = `<text:span text:style-name="Bold">${styledChildren}</text:span>`;
+    } else if (element.classList.contains("feuillets-csl-weight-light")) {
+      styledChildren = `<text:span text:style-name="Light">${styledChildren}</text:span>`;
+    }
+    if (element.classList.contains("feuillets-csl-decoration-underline")) {
+      styledChildren = `<text:span text:style-name="Underline">${styledChildren}</text:span>`;
+    }
+    if (element.classList.contains("feuillets-csl-variant-small-caps")) {
+      styledChildren = `<text:span text:style-name="SmallCaps">${styledChildren}</text:span>`;
+    }
+    if (element.classList.contains("feuillets-csl-valign-sup")) {
+      styledChildren = `<text:span text:style-name="Superscript">${styledChildren}</text:span>`;
+    } else if (element.classList.contains("feuillets-csl-valign-sub")) {
+      styledChildren = `<text:span text:style-name="Subscript">${styledChildren}</text:span>`;
+    }
+  }
+
   if (tag === "strong" || tag === "b") {
-    return `<text:span text:style-name="Bold">${childrenXml}</text:span>`;
+    return `<text:span text:style-name="Bold">${styledChildren}</text:span>`;
   }
   if (tag === "em" || tag === "i") {
-    return `<text:span text:style-name="Italic">${childrenXml}</text:span>`;
+    return `<text:span text:style-name="Italic">${styledChildren}</text:span>`;
   }
   if (tag === "code") {
-    return `<text:span text:style-name="Source_20_Text">${childrenXml}</text:span>`;
+    return `<text:span text:style-name="Source_20_Text">${styledChildren}</text:span>`;
   }
   if (tag === "a") {
     const href = element.getAttribute("href") || "#";
-    return `<text:a xlink:type="simple" xlink:href="${escapeXml(href)}">${childrenXml}</text:a>`;
+    return `<text:a xlink:type="simple" xlink:href="${escapeXml(href)}">${styledChildren}</text:a>`;
   }
   if (/^h[1-6]$/.test(tag)) {
     const level = tag.slice(1);
-    return `<text:h text:style-name="Heading_20_${level}" text:outline-level="${level}"${manualBreak}>${childrenXml}</text:h>`;
+    return `<text:h text:style-name="Heading_20_${level}" text:outline-level="${level}"${manualBreak}>${styledChildren}</text:h>`;
   }
   if (tag === "p") {
-    return `<text:p text:style-name="${opts.frontStyle || "Standard"}"${manualBreak}>${childrenXml}</text:p>`;
+    return `<text:p text:style-name="${opts.frontStyle || "Standard"}"${manualBreak}>${styledChildren}</text:p>`;
   }
   if (tag === "blockquote") {
-    return `<text:p text:style-name="${opts.frontStyle || "Quotations"}">${childrenXml}</text:p>`;
+    return `<text:p text:style-name="${opts.frontStyle || "Quotations"}">${styledChildren}</text:p>`;
   }
   if (tag === "li") {
-    return `<text:list-item><text:p text:style-name="P1">${childrenXml}</text:p></text:list-item>`;
+    return `<text:list-item><text:p text:style-name="P1">${styledChildren}</text:p></text:list-item>`;
   }
   if (tag === "ul" || tag === "ol") {
-    return `<text:list xml:id="list1" text:style-name="L1">${childrenXml}</text:list>`;
+    return `<text:list xml:id="list1" text:style-name="L1">${styledChildren}</text:list>`;
   }
   if (tag === "hr") {
     return `<text:p text:style-name="Horizontal_20_Line">${escapeXml(opts.sceneDivider || "* * *")}</text:p>`;
   }
 
-  return childrenXml;
+  return styledChildren;
 }
 
 /** Notes de bas de page en ODT : ce générateur XML minimal ne construit pas
@@ -154,11 +192,32 @@ function footnotesEndSectionXml(footnotes: RenderedFootnote[]): string {
 }
 
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
-export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: ExportInput): Promise<Uint8Array> {
+export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
-  const afterVariant = citationSettings && citationSettings.style !== "off" && citationSettings.bibliographyPath
+  const afterVariant = citationSettings && citationSettings.style !== "off"
     ? async (container: HTMLElement) => {
-        await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+        if (citationSettings.style === "csl") {
+          if (cslHost && projectRoot) {
+            const staticSources: StaticCslSource[] = segments && segments.length
+              ? segments.filter((s) => s.path).map((s) => ({
+                  path: s.path!,
+                  text: s.text,
+                  renderText: s.renderText,
+                }))
+              : [{ path: sourcePath, text: markdown, renderText: markdown }];
+            await applyNativeCslToStaticRender({
+              app,
+              settings,
+              host: cslHost,
+              projectRoot,
+              container,
+              sources: staticSources,
+              documentId: createStaticDocumentId("export-static:odt", projectRoot.path),
+            });
+          }
+        } else if (citationSettings.bibliographyPath) {
+          await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+        }
       }
     : undefined;
   const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, afterVariant, separator);
@@ -263,6 +322,24 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
     </style:style>
     <style:style style:name="Italic" style:family="text">
       <style:text-properties fo:font-style="italic"/>
+    </style:style>
+    <style:style style:name="Oblique" style:family="text">
+      <style:text-properties fo:font-style="oblique"/>
+    </style:style>
+    <style:style style:name="Light" style:family="text">
+      <style:text-properties fo:font-weight="300"/>
+    </style:style>
+    <style:style style:name="Underline" style:family="text">
+      <style:text-properties style:text-underline-style="solid" style:text-underline-width="auto" style:text-underline-color="font-color"/>
+    </style:style>
+    <style:style style:name="SmallCaps" style:family="text">
+      <style:text-properties fo:font-variant="small-caps"/>
+    </style:style>
+    <style:style style:name="Superscript" style:family="text">
+      <style:text-properties style:text-position="super 58%"/>
+    </style:style>
+    <style:style style:name="Subscript" style:family="text">
+      <style:text-properties style:text-position="sub 58%"/>
     </style:style>
     <style:style style:name="Title" style:family="paragraph">
       <style:paragraph-properties fo:text-align="center" fo:margin-bottom="1cm"/>

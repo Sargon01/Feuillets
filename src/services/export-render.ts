@@ -9,6 +9,7 @@ import { applyContentVariant } from "./content-variant-render.js";
 import type { ContentVariant } from "./content-variants.js";
 import { joinCompiledSegments } from "./compile-segments.js";
 import { flattenPandocCitationElementsForStaticRender } from "./pandoc-citation-preview.js";
+import { STATIC_RENDER_ATTR, STATIC_RENDER_ATTR_VALUE } from "./pandoc-citation-static-csl.js";
 
 type RenderedFootnote = {
   id: string;
@@ -89,6 +90,7 @@ export async function renderManuscriptHtml(
      tout le pipeline export (EPUB/DOCX/PDF) — jamais affiché, seulement
      rendu par MarkdownRenderer puis sérialisé/parcouru nœud par nœud. */
   const container = createDiv();
+  container.setAttribute(STATIC_RENDER_ATTR, STATIC_RENDER_ATTR_VALUE);
   const component = new Component();
   component.load();
   try {

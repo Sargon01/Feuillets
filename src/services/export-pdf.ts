@@ -1,8 +1,14 @@
-import { Notice, Platform } from "obsidian";
-import type { App } from "obsidian";
+import { Notice, Platform, type App, type TFolder } from "obsidian";
 import { t, getLocale } from "../i18n/index.js";
 import { composeDocumentMedia, renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
+import type { CslCitationHost } from "./csl-citation-host.js";
+import {
+  applyNativeCslToStaticRender,
+  createStaticDocumentId,
+  CITATION_RENDER_CSS,
+  type StaticCslSource,
+} from "./pandoc-citation-static-csl.js";
 import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
 import { resolveExportTemplate } from "./export-templates-custom.js";
@@ -15,7 +21,9 @@ import { populatePaginationFootnoteNodes, markRepeatedPaginationFootnoteReferenc
 type PdfFootnote = PaginationFootnoteDefinition;
 
 type PdfExportSegment = {
+  path?: string | null;
   text: string;
+  renderText?: string;
   frontType?: string | null;
 };
 
@@ -28,6 +36,8 @@ type PdfExportInput = {
   contentVariant?: ContentVariant | null;
   separator?: string;
   citationSettings?: ExportCitationSettings;
+  cslHost?: CslCitationHost | null;
+  projectRoot?: TFolder;
 };
 
 type PaginationResult = {
@@ -365,7 +375,7 @@ export function paginateManuscript(
     columnGapPt,
     headingPageBreaks: headingPageBreakPolicy(logicalTpl),
     // Scoped in a shadow root by the engine, never injected into Obsidian's document.
-    css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(logicalTpl),
+    css: templateToCss(logicalTpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(logicalTpl) + "\n" + CITATION_RENDER_CSS,
     reservedBottomAreaProvider: createFootnoteReservedBottomAreaProvider(footnotes, logicalTpl.fontFamily),
   });
 
@@ -591,16 +601,37 @@ export async function paginateManuscriptCooperatively(
 }
 
 /** PDF via la boîte de dialogue d'impression du système */
-export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: PdfExportInput): Promise<void> {
+export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: PdfExportInput): Promise<void> {
   if (Platform.isMobile) {
     new Notice(t("export.pdf.mobileUnavailable"));
     return;
   }
 
   const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
-  const afterVariant = citationSettings && citationSettings.style !== "off" && citationSettings.bibliographyPath
+  const afterVariant = citationSettings && citationSettings.style !== "off"
     ? async (container: HTMLElement) => {
-        await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+        if (citationSettings.style === "csl") {
+          if (cslHost && projectRoot) {
+            const staticSources: StaticCslSource[] = segments && segments.length
+              ? segments.filter((s) => s.path).map((s) => ({
+                  path: s.path!,
+                  text: s.text,
+                  renderText: s.renderText,
+                }))
+              : [{ path: sourcePath, text: markdown, renderText: markdown }];
+            await applyNativeCslToStaticRender({
+              app,
+              settings,
+              host: cslHost,
+              projectRoot,
+              container,
+              sources: staticSources,
+              documentId: createStaticDocumentId("export-static:pdf", projectRoot.path),
+            });
+          }
+        } else if (citationSettings.bibliographyPath) {
+          await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+        }
       }
     : undefined;
   const { containerEl, footnotes, images } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, afterVariant, separator);
@@ -623,7 +654,7 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
 
   const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, title, author);
 
-  const css = templateToCss(tpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(tpl);
+  const css = templateToCss(tpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(tpl) + "\n" + CITATION_RENDER_CSS;
   /* MÊME helper que paginateManuscript ci-dessus : la règle @page du document
      d'impression ne peut plus diverger du format réellement paginé (§26). */
   const { size: pageSize, orientation } = physicalPageGeometry(tpl, settings);

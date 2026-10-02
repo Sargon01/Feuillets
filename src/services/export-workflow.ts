@@ -1,6 +1,7 @@
 import { Notice, TFolder, type App } from "obsidian";
 import { createProjectScope, type CompileScope } from "./compile-scope.js";
-import { activePresetConfig, exportWithScope, type ExportFormat } from "./compile-export.js";
+import { activePresetConfig, compile, exportWithScope, type ExportFormat } from "./compile-export.js";
+import type { CslCitationHost } from "./csl-citation-host.js";
 import { detectProjectStructureLocale } from "./folder-structure.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
 import {
@@ -39,6 +40,7 @@ type ActiveContentDerivation = { projectRoot: string; selection: ContentDerivati
 export type ExportWorkflowPlugin = {
   settings: FeuilletsSettings;
   getProjectFolder(): TFolder | null;
+  cslCitationHost?: CslCitationHost | null;
   /** Portée de session, volontairement non persistée (voir main.ts) :
    * perdue au redémarrage, ce qui est normal. */
   activeExportScope?: CompileScope | null;
@@ -202,5 +204,5 @@ export async function runExportWorkflow(
   const resolvedBaseName = baseName || exportBaseName(settings, app, scopeProjectRoot instanceof TFolder ? scopeProjectRoot : null);
   const derivation = await resolveExportDerivation(app, plugin);
   if (!derivation) return undefined;
-  return exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName, derivation.contentExtraction, derivation.contentCollection);
+  return exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName, derivation.contentExtraction, derivation.contentCollection, compile, plugin.cslCitationHost);
 }

@@ -19,10 +19,16 @@ import {
   VerticalAlignSection,
   LineRuleType,
 } from "docx";
-import type { App } from "obsidian";
+import type { App, TFolder } from "obsidian";
 import type { IParagraphStyleOptions, ISectionOptions, IStylesOptions } from "docx";
 import { renderManuscriptHtml } from "./export-render.js";
 import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
+import type { CslCitationHost } from "./csl-citation-host.js";
+import {
+  applyNativeCslToStaticRender,
+  createStaticDocumentId,
+  type StaticCslSource,
+} from "./pandoc-citation-static-csl.js";
 
 import { resolveExportTemplate, resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
@@ -103,6 +109,8 @@ type ExportInput = {
   contentVariant?: ContentVariant | null;
   separator?: string;
   citationSettings?: ExportCitationSettings;
+  cslHost?: CslCitationHost | null;
+  projectRoot?: TFolder;
 };
 
 type RenderedFootnote = {
@@ -159,7 +167,7 @@ type ExportDocxSettings = FeuilletsSettings & {
    services/docx-review-import.js. */
 
 /** Génère un fichier Word (.docx) avec gestion des en-têtes/pieds et numérotation des pages */
-export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: ExportInput): Promise<Buffer> {
+export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: ExportInput): Promise<Buffer> {
   /* Ces champs sont fournis par DEFAULT_SETTINGS ; FeuilletsSettings les
      garde ouverts pendant la migration progressive pour les autres services. */
   const docxSettings = settings as ExportDocxSettings;
@@ -198,9 +206,30 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   const allSegments = segments ?? [];
   const renderSegments = allSegments.filter((segment) => segment.generatedType !== "summary" && segment.generatedType !== "toc");
   const renderMarkdown = segments && segments.length ? markedMarkdownFor(renderSegments.map((segment) => ({ ...segment, text: segment.renderText ?? segment.text })), separator) : markdown;
-  const afterVariant = citationSettings && citationSettings.style !== "off" && citationSettings.bibliographyPath
+  const afterVariant = citationSettings && citationSettings.style !== "off"
     ? async (container: HTMLElement) => {
-        await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+        if (citationSettings.style === "csl") {
+          if (cslHost && projectRoot) {
+            const staticSources: StaticCslSource[] = segments && segments.length
+              ? segments.filter((s) => s.path).map((s) => ({
+                  path: s.path!,
+                  text: s.text,
+                  renderText: s.renderText,
+                }))
+              : [{ path: sourcePath, text: markdown, renderText: markdown }];
+            await applyNativeCslToStaticRender({
+              app,
+              settings,
+              host: cslHost,
+              projectRoot,
+              container,
+              sources: staticSources,
+              documentId: createStaticDocumentId("export-static:docx", projectRoot.path),
+            });
+          }
+        } else if (citationSettings.bibliographyPath) {
+          await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+        }
       }
     : undefined;
   const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath, [], contentVariant ?? null, undefined, afterVariant);

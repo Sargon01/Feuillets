@@ -1,7 +1,14 @@
 import JSZip from "jszip";
-import type { App } from "obsidian";
+import type { App, TFolder } from "obsidian";
 import { renderManuscriptHtmlWithFrontPages, FRONT_PAGE_CSS } from "./export-render.js";
 import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
+import type { CslCitationHost } from "./csl-citation-host.js";
+import {
+  applyNativeCslToStaticRender,
+  createStaticDocumentId,
+  CITATION_RENDER_CSS,
+  type StaticCslSource,
+} from "./pandoc-citation-static-csl.js";
 import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
@@ -10,7 +17,9 @@ import { escapeXml } from "../utils/xml.js";
 import type { ContentVariant } from "./content-variants.js";
 
 type ExportSegment = {
+  path?: string | null;
   text: string;
+  renderText?: string;
   frontType?: string;
 };
 
@@ -23,6 +32,8 @@ type ExportInput = {
   contentVariant?: ContentVariant | null;
   separator?: string;
   citationSettings?: ExportCitationSettings;
+  cslHost?: CslCitationHost | null;
+  projectRoot?: TFolder;
 };
 
 type ExportFootnote = {
@@ -64,16 +75,37 @@ function footnotesXhtml(footnotes: ExportFootnote[]): string {
  * (markdown, sortie de compile()) : un seul flux XHTML continu, pas de
  * découpage par chapitre en v1 (portée assumée — voir plan). Utilise
  * jszip (pur JS, aucune dépendance Node) : fonctionne desktop et mobile. */
-export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings }: ExportInput): Promise<Uint8Array> {
+export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
-  const afterVariant = citationSettings && citationSettings.style !== "off" && citationSettings.bibliographyPath
+  const afterVariant = citationSettings && citationSettings.style !== "off"
     ? async (container: HTMLElement) => {
-        await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+        if (citationSettings.style === "csl") {
+          if (cslHost && projectRoot) {
+            const staticSources: StaticCslSource[] = segments && segments.length
+              ? segments.filter((s) => s.path).map((s) => ({
+                  path: s.path!,
+                  text: s.text,
+                  renderText: s.renderText,
+                }))
+              : [{ path: sourcePath, text: markdown, renderText: markdown }];
+            await applyNativeCslToStaticRender({
+              app,
+              settings,
+              host: cslHost,
+              projectRoot,
+              container,
+              sources: staticSources,
+              documentId: createStaticDocumentId("export-static:epub", projectRoot.path),
+            });
+          }
+        } else if (citationSettings.bibliographyPath) {
+          await applyPandocCitationPreview(app, container, citationSettings.style, citationSettings.bibliographyPath);
+        }
       }
     : undefined;
   const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, afterVariant, separator);
   const bodyXhtml = serializeXhtmlBody(containerEl);
-  const css = templateV2ToEpubCss(template) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS;
+  const css = templateV2ToEpubCss(template) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + CITATION_RENDER_CSS;
   const lang = settings.epubLanguage || "fr";
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
      page Front de type "titre" — voir même choix dans export-docx.js. */
