@@ -10,6 +10,7 @@ Toutes les évolutions notables du plugin sont consignées ici.
 - Trois modes de rendu : Clés brutes, Auteur-date et CSL natif. Le CSL natif est disponible dans Live Preview, le mode Lecture, Continu, l’Aperçu paginé et les exports PDF, DOCX, EPUB et ODT, avec citations Pandoc groupées, narratives et localisateurs.
 - Rendu avec état et prise en compte de l’ordre et du contexte des notes pour les styles à notes, y compris les citations riches dans les notes de bas de page en Lecture, Continu, Aperçu et exports natifs.
 - Conservation de la syntaxe brute lorsque le traitement CSL est indisponible ou ne peut pas produire un résultat sûr.
+- Recherche → Références réunit la recherche contextuelle des fiches Source et du catalogue BibTeX, la citation directe depuis les résultats ou les références déjà citées, avec génération de bibliographie ; l’inspection des notes reste dans l’Inspecteur.
 
 ### Bibliographie CSL
 

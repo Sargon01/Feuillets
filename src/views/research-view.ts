@@ -76,6 +76,7 @@ export class ResearchView extends BaseFeuilletsView {
     if (this.app?.vault) {
       this.registerEvent(this.app.vault.on("modify", (file) => {
         if (file instanceof TFile && (file.extension === "md" || file.extension === "bib")) {
+          if (this.researchActiveSubTab === "references" && this.referenceRefreshPaths && !this.referenceRefreshPaths.has(file.path)) return;
           debouncedRefresh();
         }
       }));
@@ -90,6 +91,7 @@ export class ResearchView extends BaseFeuilletsView {
 
   async onClose(): Promise<void> {
     this._isClosed = true;
+    this._renderGen = (this._renderGen || 0) + 1;
     if (this._bibliographyDebounceTimer !== null && typeof window !== "undefined") {
       window.clearTimeout(this._bibliographyDebounceTimer);
       this._bibliographyDebounceTimer = null;
@@ -103,7 +105,8 @@ export class ResearchView extends BaseFeuilletsView {
     if (!force && isEditing(container)) return;
 
     const previousBody = findResearchElement<HTMLElement>(container, ".feuillets-research-body");
-    const previousInput = findResearchElement<HTMLInputElement>(container, ".feuillets-binder-search");
+    const searchSelector = this.researchActiveSubTab === "references" ? ".feuillets-reference-search" : ".feuillets-binder-search";
+    const previousInput = findResearchElement<HTMLInputElement>(container, searchSelector);
     const activeInput = typeof document !== "undefined" && document.activeElement === previousInput;
     const previousSelection = activeInput && previousInput ? { start: previousInput.selectionStart, end: previousInput.selectionEnd } : null;
     const previousScrollTop = previousBody?.scrollTop ?? 0;
@@ -119,7 +122,7 @@ export class ResearchView extends BaseFeuilletsView {
     const restoreUi = () => {
       const nextBody = findResearchElement<HTMLElement>(container, ".feuillets-research-body");
       if (nextBody) nextBody.scrollTop = previousScrollTop;
-      const nextInput = activeInput ? findResearchElement<HTMLInputElement>(container, ".feuillets-binder-search") : null;
+      const nextInput = activeInput ? findResearchElement<HTMLInputElement>(container, searchSelector) : null;
       if (nextInput) {
         nextInput.focus({ preventScroll: true });
         if (previousSelection && previousSelection.start !== null && previousSelection.end !== null) {
@@ -134,6 +137,7 @@ export class ResearchView extends BaseFeuilletsView {
     };
 
     const myGen = (this._renderGen = (this._renderGen || 0) + 1);
+    this.referenceRefreshPaths = undefined;
     container.empty();
     container.addClass("feuillets-research-container");
 

@@ -171,7 +171,7 @@ Feuillets now groups six public tabs in the right panel:
 | **Statistics** | Sheet, selection and project statistics |
 | **Proofreading** | Text analysis, collaborative review, DOCX Review and snapshot comparison |
 
-Project configuration is opened from **Manage projects…**, where project information, goals, citations and bibliography, YAML properties, statuses, labels and tags are configured.
+Project configuration is opened from **Manage projects…**, where project information, goals, Source-sheet citation style, YAML properties, statuses, labels and tags are configured.
 
 ## Research that adapts to an existing vault
 
@@ -261,7 +261,7 @@ The source remains ordinary Markdown (`[^1]`); only the displayed marker is smoo
 
 ### BibTeX citations and Pandoc package
 
-Select a `.bib` bibliography and, for Native CSL, a `.csl` style under **Citations and bibliography** for the applicable project/workspace. Type `[@` in a sheet to choose references and locators. The three rendering modes are **Raw citekeys**, **Author-date** (Feuillets’ lightweight renderer) and **Native CSL**, which uses the optional [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL) companion running locally in Obsidian.
+Open **Research → References** and use the settings button to choose the applicable `.bib` bibliography, `.csl` style and citation rendering mode. At the project root, these settings apply to the project; in a workspace, they can inherit from the project or parent workspace, or use local overrides. Type `[@` in a sheet to choose references and locators. The three rendering modes are **Raw citekeys**, **Author-date** (Feuillets’ lightweight renderer) and **Native CSL**, which uses the optional [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL) companion running locally in Obsidian.
 
 Native CSL renders citations in Live Preview, Reading Mode, Continu, paginated Preview and PDF/DOCX/EPUB/ODT exports. It supports note-based styles with document citation state and CSL bibliographies in Preview and those exports. Failed CSL processing preserves raw citation syntax. Manuscript and compiled Markdown keep semantic Pandoc citations. The simple Feuillets bibliography and **Pandoc package (.zip)** remain available; the package contains `manuscript.md`, `pandoc.yaml`, required `.bib` files, the applicable CSL and local media for an independent external workflow. Feuillets remains usable without the companion and never installs or launches Pandoc. See [BibTeX citations and Pandoc package](docs/BIBTEX-CITATIONS-AND-PANDOC.md).
 

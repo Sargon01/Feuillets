@@ -3,6 +3,7 @@ import test from "node:test";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { ResearchView } from "../src/views/research-view.js";
+import { resolveResearchDocumentContext } from "../src/services/research-document-context.js";
 import { footnoteGroupCollapseKey } from "../src/services/research-footnotes-overview.js";
 import { t } from "../src/i18n/index.js";
 
@@ -294,6 +295,12 @@ function createView(fixture, { workspace = null, scopeMode = "project", activeFi
   view.showResearchFileContextMenu = () => {};
   view.filterEntities = () => {};
   view.renderSavedFiltersButton = () => {};
+  // Exercise the retained overview service directly; References no longer presents it.
+  view.render = async () => {
+    contentEl.empty();
+    const context = resolveResearchDocumentContext(app, fixture.settings, fixture.projectRoot, workspace, view.researchScopeMode);
+    await view.renderFootnotesOverviewSection(contentEl, context);
+  };
 
   return { view, contentEl, setActiveFile: (file) => { currentActiveFile = file; } };
 }
@@ -540,7 +547,7 @@ test("a valid reference to an existing definition is never counted twice", async
   assert.equal(labels.length, 1, "[^x1] is defined and cited — exactly one row, not two");
 });
 
-test("the general empty state still applies when no group has any footnote", async () => {
+test("the retained overview service renders no section when no group has a footnote", async () => {
   const fixture = makeFixture();
   for (const file of [
     fixture.article, fixture.deliler, fixture.detail, fixture.chapter1, fixture.chapter2, fixture.warpiNote,
@@ -550,16 +557,13 @@ test("the general empty state still applies when no group has any footnote", asy
     file.stat = { mtime: 2000, size: file.content.length };
   }
   const contentEl = await renderWithDocument(fixture, { scopeMode: "project" });
-  // §5/§8 of the UX correction: an empty Notes section is never rendered at
-  // all (no title, no empty-state message) — with Sources and Bibliography
-  // also empty in this fixture, the References tab falls back to its own
-  // single compact empty state instead.
+  // The overview service leaves empty-scope presentation to its caller.
   assert.equal(footnotesList(contentEl), null, "no Notes section is rendered when the scope has no footnote");
   assert.equal(groupTitles(contentEl).length, 0);
   const tabEmpty = contentEl.querySelectorAll(".feuillets-references-empty").filter(
     (el) => el.text === t("shared.research.noReferencesInScope")
   );
-  assert.equal(tabEmpty.length, 1);
+  assert.equal(tabEmpty.length, 0, "the overview service does not create a References empty state");
 });
 
 /* --- Collapse and persistence --- */

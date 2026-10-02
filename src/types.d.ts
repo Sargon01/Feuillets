@@ -183,6 +183,7 @@ declare type FolderWorkspaceConfig = {
   readingFontSize?: number;
   lineHeight?: number;
   textWidth?: number;
+  pandocCitationPreviewStyle?: PandocCitationPreviewStyle;
   citekeyBibliographyPath?: string;
   citekeyCslPath?: string;
 };

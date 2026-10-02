@@ -3,6 +3,7 @@ import test from "node:test";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { ResearchView } from "../src/views/research-view.js";
+import { resolveResearchDocumentContext } from "../src/services/research-document-context.js";
 import { t, setLocale, getLocale } from "../src/i18n/index.js";
 
 /* Lot 2 — la section "Notes de bas de page (relecture)" doit suivre
@@ -248,6 +249,12 @@ function createView(fixture, { workspace = null, scopeMode = "workspace", active
   view.showResearchFileContextMenu = () => {};
   view.filterEntities = () => {};
   view.renderSavedFiltersButton = () => {};
+  // Exercise the retained overview service directly; References no longer presents it.
+  view.render = async () => {
+    contentEl.empty();
+    const context = resolveResearchDocumentContext(app, fixture.settings, fixture.projectRoot, workspace, view.researchScopeMode);
+    await view.renderFootnotesOverviewSection(contentEl, context);
+  };
 
   return { view, contentEl, setActiveFile: (file) => { currentActiveFile = file; } };
 }
@@ -352,7 +359,7 @@ test("footnotes render even without a Sources folder", async () => {
 
 /* --- Both Research branches --- */
 
-test("footnotes render in the Research branch exactly associated with the isolated space", async () => {
+test("overview service honors the document context of the associated isolated space", async () => {
   const fixture = makeFixture();
   fixture.settings.projectMeta[fixture.projectRoot.path].researchFolderLinks[fixture.workA.path] =
     fixture.workAResearch.path;
@@ -365,7 +372,7 @@ test("footnotes render in the Research branch exactly associated with the isolat
   assert.ok(!labels.includes("[^d]"));
 });
 
-test("the footnotes section never appears twice, in either Research branch", async () => {
+test("the overview service produces one section in Project and Workspace contexts", async () => {
   const fixture = makeFixture();
 
   const generalContent = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "project" });

@@ -59,6 +59,9 @@ import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 import { collectDocumentScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
 import { analyzeResearchCitations, type ResearchCitationAnalysis } from "../services/research-citation-analysis.js";
 import type { ResearchBibliographyGenerationInput } from "../services/bibliography-generator.js";
+import { referenceSourceFolders, referenceSourceRecords, referenceBibliographyFile, resolveReferenceCitationContext, loadReferenceCatalog, searchReferenceRecords } from "../services/research-reference-search.js";
+import { isValidCitekey } from "../services/bibtex-catalog.js";
+import { ReferenceCitationSettingsModal, renderReferenceCitationWarnings } from "../ui/reference-citation-settings.js";
 import {
   buildFootnoteOverviewTree,
   buildFootnoteFileEntries,
@@ -75,12 +78,15 @@ export type ResearchScopeMode = ResearchDocumentScopeMode;
 /** The Research panel's two sub-tabs: "dossiers" shows the project's
  * physical documentary organisation (project/linked research folders,
  * including their Sources and Bibliographie subfolders); "references"
- * shows the reference-focused actions (new Source sheet, insert citation,
- * renumber footnotes) plus the computed Notes and Bibliography, never a
+ * shows reference search, direct citation and cited references, never a
  * folder explorer of any kind. Never persisted to settings — an instance
  * property on ResearchView only, reset on plugin reload, exactly like
  * ResearchScopeMode. */
 export type ResearchSubTab = "dossiers" | "references";
+
+type ReferenceCitation = { kind: "source"; file: TFile }
+  | { kind: "bibtex"; key: string; bibliographyPath: string | undefined };
+type ReferenceCiteButton = (container: HTMLElement, reference: ReferenceCitation, title: string) => void;
 
 /** Context a Research space/folder row needs to be reorderable among its
  * current siblings — visual order only, never a Vault move (see
@@ -375,6 +381,10 @@ export abstract class BaseFeuilletsView extends ItemView {
   _searchCache?: Map<string, { mtime: number; text: string }>;
   _selectedTextFile?: string;
   researchFilterActive?: boolean;
+  private referenceSearchQuery = "";
+  private referenceSearchContext?: string;
+  private referenceSettingsOpener?: () => void;
+  protected referenceRefreshPaths?: Set<string>;
   /** Dossier Recherche copié par l'utilisateur. Le presse-papiers reste
    * volontairement interne au panneau : il ne détourne pas le presse-papiers
    * système et ne permet de coller que dans une autre rubrique Recherche. */
@@ -1076,9 +1086,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const activeSubTab: ResearchSubTab = options.activeSubTab ?? "dossiers";
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
 
-    /* Folder search and tag filters only act on folder rows. Keeping them
-       out of References leaves that tab with its three reference actions
-       and avoids controls that cannot affect the content below. */
+    /* Folder search and tag filters only act on folder rows. References has its own search. */
     if (activeSubTab === "dossiers") {
       const searchInput = toolbar.createEl("input", {
         type: "text",
@@ -1150,8 +1158,7 @@ export abstract class BaseFeuilletsView extends ItemView {
        les catégories dont SON sujet a besoin — un sous-dossier de
        Recherche/ créé ici apparaît automatiquement comme sa propre
        section. Disponible en fiction comme en non-fiction. */
-    /* Folder creation belongs exclusively to Dossiers and is never mixed
-       with the three reference actions below. */
+    /* Folder creation belongs exclusively to Dossiers. */
     if (activeSubTab === "dossiers") {
       const newFolderBtn = this.iconBtn(toolbar, "folder-plus", t("shared.research.newTopicTooltip"));
       newFolderBtn.addEventListener("click", (event) => {
@@ -1218,7 +1225,7 @@ export abstract class BaseFeuilletsView extends ItemView {
        Dossiers as an ordinary browsable folder — it can be the project's
        own global folder or a linked research's own Sources subfolder,
        depending on scope. The
-       computed Bibliography (see renderBibliographySection()) aggregates
+       computed cited references (see renderBibliographySection()) aggregate
        whichever fiches are actually cited, plus resolved BibTeX entries;
        the legacy Bibliographie folder of manually-authored fiches stays
        browsable in Dossiers alongside it — no automatic migration between
@@ -1235,14 +1242,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       ? this.findResearchCategoryFolder(baseResearch, rf, "evenements")
       : this.plugin.getChronoFolder();
 
-    /* New source sheet, insert citation, renumber footnotes: References'
-       three compact actions exclusively — never mixed into the Dossiers
-       toolbar (see newFolderBtn above). Always present together in
-       References, regardless of whether a global Sources/Bibliographie
-       folder happens to exist yet, and regardless of the associatedWorkspaceFolder
-       branch — creating the first Source sheet, inserting a citation or
-       renumbering footnotes are all meaningful even before any Sources
-       folder exists. */
+    /* Source creation remains available before reference resources exist. */
     if (activeSubTab === "references") {
       const newSourceSheetTarget = associatedWorkspaceFolder ? associatedWorkspaceFolder.path : baseResearch;
       const newSourceBtn = this.iconBtn(toolbar, "file-plus", t("shared.research.newSourceSheet"));
@@ -1250,14 +1250,6 @@ export abstract class BaseFeuilletsView extends ItemView {
       newSourceBtn.addEventListener("click", () => {
         this.promptCreateSourceSheetLazily(newSourceSheetTarget, rf, opLocale);
       });
-
-      const citeSearchBtn = this.iconBtn(toolbar, "quote", t("shared.research.insertCitationTooltip"));
-      citeSearchBtn.setAttr("aria-label", t("shared.research.insertCitationTooltip"));
-      citeSearchBtn.addEventListener("click", () => this.plugin.openInsertCitation());
-
-      const renumberBtn = this.iconBtn(toolbar, "list-ordered", t("shared.research.renumberFootnotesTooltip"));
-      renumberBtn.setAttr("aria-label", t("shared.research.renumberFootnotesTooltip"));
-      renumberBtn.addEventListener("click", () => this.plugin.renumberActiveFootnotes());
     }
 
     const standardPaths = new Set([
@@ -1362,6 +1354,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     }
 
     const researchInstanceId = this.researchInstanceId();
+    this.referenceSettingsOpener = undefined;
     this.renderResearchSubTabs(container, researchInstanceId, activeSubTab, options.onSubTabChange);
 
     const body = container.createDiv({ cls: "feuillets-research-body" });
@@ -1402,6 +1395,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         /* Citation analysis (Pandoc + Source-fiche occurrences) — computed
            only for the References tab, never while Dossiers is active. */
         const citationAnalysis = await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
+        if (this._renderGen !== gen) return;
         await this.renderReferencesTab(body, documentContext, citationAnalysis);
       }
       this.filterEntities();
@@ -1615,6 +1609,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       /* Citation analysis (Pandoc + Source-fiche occurrences) — computed
          only for the References tab, never while Dossiers is active. */
       const citationAnalysis = await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
+      if (this._renderGen !== gen) return;
       await this.renderReferencesTab(body, documentContext, citationAnalysis);
     }
 
@@ -1639,7 +1634,16 @@ export abstract class BaseFeuilletsView extends ItemView {
     activeTab: ResearchSubTab,
     onChange?: (tab: ResearchSubTab) => void
   ): void {
-    const tablist = container.createDiv({ cls: "feuillets-research-subtabs" });
+    const header = container.createDiv({ cls: "feuillets-research-tab-header" });
+    const tablist = header.createDiv({ cls: "feuillets-research-subtabs" });
+    if (activeTab === "references") {
+      const settings = header.createEl("button", { cls: "clickable-icon feuillets-reference-settings-button", attr: {
+        type: "button", title: t("shared.research.bibliographySettings"),
+        "aria-label": t("shared.research.bibliographySettings"), "aria-haspopup": "dialog",
+      } });
+      setIcon(settings, "sliders-horizontal");
+      settings.addEventListener("click", () => this.referenceSettingsOpener?.());
+    }
     tablist.setAttr("role", "tablist");
     const tabs: { key: ResearchSubTab; label: string }[] = [
       { key: "dossiers", label: t("shared.research.subtabFolders") },
@@ -1719,29 +1723,119 @@ export abstract class BaseFeuilletsView extends ItemView {
     return this.computeAssociatedResearchFolders(baseResearchFolder, this.plugin.getLinkedResearchFolders(), true);
   }
 
-  /** The References tab: Notes then Bibliography, in that fixed order,
-   * each rendered only when the current ResearchDocumentContext scope
-   * actually has something to show — never a folder explorer, never a
-   * Sources section (Sources stays purely a Dossiers concept; the
-   * References toolbar's "New source sheet" action creates directly into
-   * the resolved Sources folder, and stays visible in the toolbar even
-   * when this tab's own content is empty). When neither section has
-   * anything, a single compact empty-state message is shown instead, with
-   * no leftover empty header. */
+  /** Search replaces only the cited list, preserving its scoped generation snapshot. */
   private async renderReferencesTab(
     container: HTMLElement,
     documentContext: ResearchDocumentContext,
     citationAnalysis: ResearchCitationAnalysis
   ): Promise<void> {
-    let renderedAny = false;
-    if (await this.renderFootnotesOverviewSection(container, documentContext)) renderedAny = true;
-    if (await this.renderBibliographySection(container, documentContext, citationAnalysis)) renderedAny = true;
+    const gen = this._renderGen;
+    const insertionTarget = this.plugin.getReferenceCitationTarget?.() ?? null;
+    const targetFile = insertionTarget?.file ?? this.app.workspace.getActiveFile();
+    const workspacePath = this.plugin.getWorkspaceFolder?.()?.path;
+    const contextKey = `${documentContext.projectRoot.path}:${documentContext.scopeRoot.path}:${targetFile?.path || ""}`;
+    if (this.referenceSearchContext !== contextKey) this.referenceSearchQuery = "";
+    this.referenceSearchContext = contextKey;
+    const sources = referenceSourceRecords(this.app, this.plugin.settings, documentContext, (file) => this.plugin.fmOf(file));
+    const sourceFolderPaths = () => referenceSourceFolders(this.app, this.plugin.settings, documentContext).map((folder) => folder.path).join("\n");
+    const sourceScope = sourceFolderPaths();
+    const citationContext = resolveReferenceCitationContext(documentContext, targetFile);
+    const bibliography = referenceBibliographyFile(this.app, this.plugin.settings, documentContext, targetFile);
+    const bibliographyRevision = bibliography ? `${bibliography.path}:${bibliography.stat?.mtime}:${bibliography.stat?.size}` : "";
+    this.referenceRefreshPaths = new Set([
+      ...documentContext.files.map((file) => file.path),
+      ...sources.flatMap((record) => record.kind === "source" ? [record.file.path] : []),
+      ...citationAnalysis.sourceCitationCounts.keys(),
+      ...(bibliography ? [bibliography.path] : []),
+    ]);
+    const currentTargetFile = () => this.plugin.getReferenceCitationTarget?.()?.file ?? this.app.workspace.getActiveFile();
+    const isCurrent = () => {
+      if (this._renderGen !== gen || currentTargetFile()?.path !== targetFile?.path
+        || this.plugin.getProjectFolder()?.path !== documentContext.projectRoot.path
+        || this.plugin.getWorkspaceFolder?.()?.path !== workspacePath
+        || sourceFolderPaths() !== sourceScope) return false;
+      const current = referenceBibliographyFile(this.app, this.plugin.settings, documentContext, targetFile);
+      return (current ? `${current.path}:${current.stat?.mtime}:${current.stat?.size}` : "") === bibliographyRevision;
+    };
+    this.referenceSettingsOpener = () => {
+      if (!isCurrent()) return;
+      const settingsContextIsCurrent = () => {
+        const current = resolveReferenceCitationContext(documentContext, currentTargetFile());
+        return this.plugin.getProjectFolder()?.path === documentContext.projectRoot.path
+          && this.plugin.getWorkspaceFolder?.()?.path === workspacePath
+          && currentTargetFile()?.path === targetFile?.path
+          && current.scopeRoot.path === citationContext.scopeRoot.path
+          && current.targetScope.path === citationContext.targetScope.path;
+      };
+      new ReferenceCitationSettingsModal(this.app, this.plugin, citationContext, settingsContextIsCurrent).open();
+    };
+    renderReferenceCitationWarnings(container, this.app, this.plugin.settings, citationContext);
+    const addCiteButton: ReferenceCiteButton = (parent, reference, title) => {
+      const button = parent.createEl("button", { cls: "feuillets-reference-cite", text: t("shared.research.cite"), attr: {
+        type: "button", title: t("shared.research.citeReference", { title }),
+        "aria-label": t("shared.research.citeReference", { title }),
+      } });
+      const applicable = reference.kind === "source" || Boolean(bibliography && reference.bibliographyPath === bibliography.path);
+      button.disabled = !insertionTarget || !documentContext.files.some((file) => file.path === insertionTarget.file.path) || !applicable;
+      if (button.disabled) button.setAttr("title", t("main.notice.openSceneBeforeCitation"));
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const currentTarget = this.plugin.getReferenceCitationTarget?.();
+        if (!isCurrent() || !insertionTarget || currentTarget?.editor !== insertionTarget.editor || !applicable
+          || !documentContext.files.some((file) => file.path === insertionTarget.file.path)) return;
+        if (reference.kind === "source") this.plugin.quickCiteSource(reference.file, insertionTarget);
+        else if (isValidCitekey(reference.key)) {
+          const editor = insertionTarget.editor;
+          editor.replaceRange(`[@${reference.key}]`, editor.getCursor());
+          editor.focus();
+        }
+      });
+    };
 
-    if (!renderedAny) {
-      container
-        .createDiv({ cls: "feuillets-research-empty feuillets-references-empty" })
-        .setText(t("shared.research.noReferencesInScope"));
-    }
+    const search = container.createEl("input", { type: "search", cls: "feuillets-reference-search", attr: {
+      placeholder: t("shared.research.searchReferences"),
+      "aria-label": t("shared.research.searchReferences"),
+    } });
+    search.value = this.referenceSearchQuery;
+    const cited = container.createDiv({ cls: "feuillets-reference-cited" });
+    const results = container.createDiv({ cls: "feuillets-reference-results" });
+    results.hidden = true;
+    const rendered = await this.renderBibliographySection(cited, documentContext, citationAnalysis, addCiteButton, citationContext.targetScope);
+    if (!isCurrent()) return;
+    if (!rendered) cited.createDiv({ cls: "feuillets-research-empty feuillets-references-empty" })
+      .setText(t(sources.length || bibliography ? "shared.research.noCitedReferences" : "shared.research.noReferenceSources"));
+
+    let request = 0;
+    let catalog: ReturnType<typeof loadReferenceCatalog> | undefined;
+    const update = async () => {
+      const id = ++request;
+      const query = search.value.trim();
+      this.referenceSearchQuery = search.value;
+      results.empty();
+      cited.hidden = Boolean(query);
+      results.hidden = !query;
+      if (!query || !isCurrent()) return;
+      results.createDiv({ cls: "feuillets-research-category-head" }).setText(t("shared.research.searchResults"));
+      const list = results.createDiv({ cls: "feuillets-research-list" });
+      catalog ??= loadReferenceCatalog(this.app, bibliography).catch(() => []);
+      const entries = await catalog;
+      if (request !== id || !isCurrent()) return;
+      const matches = searchReferenceRecords(sources, entries, query);
+      if (!matches.length) list.createDiv({ cls: "feuillets-research-empty" }).setText(t("shared.research.noMatchingReference"));
+      for (const record of matches) {
+        const row = list.createDiv({ cls: "feuillets-research-item feuillets-reference-result" });
+        const content = row.createDiv({ cls: "feuillets-reference-details" });
+        const author = [record.author, record.date ? `(${record.date})` : ""].filter(Boolean).join(" ");
+        if (author) content.createDiv({ cls: "feuillets-reference-author" }).setText(author);
+        content.createDiv({ cls: "feuillets-reference-title" }).setText(record.title);
+        const origin = record.kind === "source" ? t("shared.research.referenceSource") : `${t("shared.research.referenceBibtex")} · @${record.entry.key}`;
+        content.createDiv({ cls: "feuillets-reference-origin" }).setText(origin);
+        addCiteButton(row, record.kind === "source" ? record
+          : { kind: "bibtex", key: record.entry.key, bibliographyPath: bibliography?.path }, record.title);
+      }
+    };
+    search.addEventListener("input", () => { void update(); });
+    if (search.value.trim()) await update();
   }
 
   /** Projette dans le panneau Recherche les dossiers associés depuis le
@@ -3007,7 +3101,9 @@ export abstract class BaseFeuilletsView extends ItemView {
   async renderBibliographySection(
     container: HTMLElement,
     documentContext: ResearchDocumentContext,
-    citationAnalysis: ResearchCitationAnalysis
+    citationAnalysis: ResearchCitationAnalysis,
+    addCiteButton?: ReferenceCiteButton,
+    bibResolutionScope: TFolder | TFile = documentContext.scopeRoot
   ): Promise<boolean> {
     /* The citation registry (citationAnalysis.sourceCitationCounts, keyed
        by normalized sourcePath) is the sole authority on which Source
@@ -3034,9 +3130,10 @@ export abstract class BaseFeuilletsView extends ItemView {
       this.app,
       this.plugin.settings,
       documentContext.projectRoot,
-      documentContext.scopeRoot,
+      bibResolutionScope,
       citationAnalysis.citekeyCounts
     );
+    if (bibtexResult.bibFile) this.referenceRefreshPaths?.add(bibtexResult.bibFile.path);
 
     if (
       cited.length === 0 &&
@@ -3057,7 +3154,7 @@ export abstract class BaseFeuilletsView extends ItemView {
         title: "feuillets-notes-section-title",
         icon: "feuillets-notes-section-icon",
       },
-      title: t("shared.bibliography.title"),
+      title: t("shared.research.citedReferences"),
       icon: "library",
       collapsed,
       collapseKey,
@@ -3115,6 +3212,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       header
         .createDiv({ cls: "feuillets-research-item-name" })
         .setText(t("shared.bibliography.citationCount", { title: this.plugin.titleFor(f), count: String(n), s: n > 1 ? "s" : "" }));
+      addCiteButton?.(header, { kind: "source", file: f }, this.plugin.titleFor(f));
       row.addEventListener("click", () => {
         this.viewingFile = f;
         void this.render();
@@ -3140,6 +3238,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
         : `@${item.key} (${n} citation${n > 1 ? "s" : ""})`;
       header.createDiv({ cls: "feuillets-research-item-name" }).setText(label);
+      addCiteButton?.(header, { kind: "bibtex", key: item.key, bibliographyPath: bibtexResult.bibFile?.path }, entry?.title || `@${item.key}`);
     }
 
     for (const item of bibtexResult.unknownKeys) {

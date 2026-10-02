@@ -4295,6 +4295,94 @@ body.feuillets-text-width
   padding: 0 6px;
 }
 
+.feuillets-reference-settings {
+  display: grid;
+  gap: var(--size-4-1);
+  margin-bottom: var(--size-4-2);
+}
+
+.feuillets-reference-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr);
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
+  font-size: var(--font-ui-small);
+}
+
+.feuillets-reference-setting-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.feuillets-reference-setting-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  background-color: var(--background-primary);
+}
+
+.feuillets-reference-search {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  margin-bottom: var(--size-4-2);
+  padding: 0 var(--size-4-2);
+  box-sizing: border-box;
+  font-size: var(--font-ui-small);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+
+.feuillets-reference-cited[hidden],
+.feuillets-reference-results[hidden] {
+  display: none;
+}
+
+.feuillets-research-container .feuillets-reference-result {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  padding: var(--size-4-1) 6px;
+  cursor: default;
+}
+
+.feuillets-reference-details {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.feuillets-reference-author,
+.feuillets-reference-title,
+.feuillets-reference-origin {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-reference-author {
+  font-weight: var(--font-medium);
+}
+
+.feuillets-reference-origin {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-reference-cite {
+  flex: 0 0 auto;
+  padding: 0 var(--size-4-2);
+  height: 24px;
+  font-size: var(--font-ui-small);
+}
+
 .feuillets-research-container .feuillets-research-item .feuillets-research-item-header {
   padding: 2px 6px;
 }
@@ -4511,12 +4599,25 @@ body.feuillets-text-width
 }
 
 /* Dossiers / References tabs in the Research panel. */
-.feuillets-research-subtabs {
+.feuillets-research-tab-header {
   display: flex;
+  align-items: center;
   gap: var(--size-4-1);
   padding: 0 var(--size-4-3) var(--size-4-2);
   margin-bottom: var(--size-4-1);
   border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.feuillets-research-subtabs {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  gap: var(--size-4-1);
+}
+
+.feuillets-reference-settings-button {
+  flex-shrink: 0;
+  padding: var(--size-4-1);
 }
 
 .feuillets-research-subtab {
@@ -11844,4 +11945,34 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
 
 .feuillets-csl-citation {
   display: inline;
+}
+
+
+.feuillets-reference-settings-modal {
+  width: 360px;
+  max-width: calc(100vw - 2 * var(--size-4-3));
+}
+
+.feuillets-reference-setting-scope,
+.feuillets-reference-warning {
+  overflow-wrap: anywhere;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  margin-bottom: var(--size-4-2);
+}
+
+.feuillets-reference-setting-source {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 0;
+}
+
+.feuillets-reference-settings-inheritance {
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+  font-size: var(--font-ui-small);
 }

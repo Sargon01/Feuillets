@@ -406,25 +406,29 @@ class ReadingCslCoordinator {
 function wrapCslReadingSection(
   root: HTMLElement, source: string, lineStart: number, lineEnd: number, snapshot: CslHostReadySnapshot
 ): void {
-  if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd) || lineStart < 0 || lineEnd < lineStart) return;
-  const starts = [0];
-  for (let i = 0; i < source.length; i++) if (source[i] === "\n") starts.push(i + 1);
-  if (lineEnd >= starts.length) return;
-  const from = starts[lineStart];
-  const to = lineEnd + 1 < starts.length ? starts[lineEnd + 1] : source.length;
   const noteAware = buildNoteAwarePandocCitationDocument(source);
   const noteSection = findFootnoteSection(root);
   const definitions = footnoteDefinitions(noteSection ?? root);
   const allOccurrences = snapshot.parsedDocument.occurrences;
   for (const definition of definitions) {
     if (!containsElement(root, definition) && !containsElement(definition, root)) continue;
-    const noteIndex = definitions.indexOf(definition) + 1;
+    const nativeId = definition.getAttribute("data-footnote-id") ?? definition.getAttribute("id") ?? "";
+    const nativeNumber = /^fn-(\d+)(?:-|$)/.exec(nativeId);
+    const noteIndex = nativeNumber ? Number(nativeNumber[1]) : definitions.indexOf(definition) + 1;
     const context = noteAware.notes.find((note) => note.noteIndex === noteIndex);
     if (!context) continue;
     wrapCslReadingRange(definition as HTMLElement, source, context.bodyFrom, context.bodyTo,
       allOccurrences.filter((occurrence) => occurrence.cluster.noteIndex === noteIndex), snapshot, true);
   }
   if (noteSection) return;
+  // Obsidian's synthetic footnotes section can lie beyond the source lines.
+  // Only body citations depend on the postprocessor's section coordinates.
+  if (!Number.isInteger(lineStart) || !Number.isInteger(lineEnd) || lineStart < 0 || lineEnd < lineStart) return;
+  const starts = [0];
+  for (let i = 0; i < source.length; i++) if (source[i] === "\n") starts.push(i + 1);
+  if (lineEnd >= starts.length) return;
+  const from = starts[lineStart];
+  const to = lineEnd + 1 < starts.length ? starts[lineEnd + 1] : source.length;
   const bodySource = noteAware.notes.reduce((text, note) =>
     text.slice(0, note.bodyFrom) + " ".repeat(note.bodyTo - note.bodyFrom) + text.slice(note.bodyTo), source);
   wrapCslReadingRange(root, bodySource, from, to,

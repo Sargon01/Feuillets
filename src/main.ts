@@ -2963,6 +2963,9 @@ class FeuilletsPlugin extends Plugin {
   refreshCitationRendering(): void {
     this.cslCitationHost?.invalidateAllResources();
     wakeAllPandocCitationCatalogViews();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PREVIEW)) {
+      if (leaf.view instanceof PreviewView) void leaf.view.refreshPreview();
+    }
   }
 
   patchTabTitles() {
@@ -4105,6 +4108,20 @@ class FeuilletsPlugin extends Plugin {
     ) ?? null;
   }
 
+  /** Keeps editor and file paired when citation actions are invoked from a sidebar. */
+  getReferenceCitationTarget(): { editor: Editor; file: TFile } | null {
+    const workspace = this.app.workspace;
+    const active = workspace.activeEditor;
+    if (active?.editor && active.file?.extension === "md") return { editor: active.editor, file: active.file };
+    const activeView = workspace.getActiveViewOfType(MarkdownView);
+    const recent = workspace.getMostRecentLeaf()?.view;
+    const last = this._lastMarkdownLeaf?.view;
+    for (const view of [activeView, recent, last]) {
+      if (view instanceof MarkdownView && view.file?.extension === "md") return { editor: view.editor, file: view.file };
+    }
+    return null;
+  }
+
   /** Dossier(s) proposés par « Insérer une citation ». Réutilise
    * `resolveBibliographySource`
    * (services/bibliography-generator.ts) : Sources canonique si présent,
@@ -4175,17 +4192,17 @@ class FeuilletsPlugin extends Plugin {
     ).open();
   }
 
-  quickCiteSource(sourceFile: TFile): void {
+  quickCiteSource(sourceFile: TFile, target?: { editor: Editor; file: TFile }): void {
     if (sourceFile.extension.toLowerCase() !== "md") {
       this.quickCiteAttachment(sourceFile);
       return;
     }
-    const editor = this.activeEditorAnywhere();
+    const editor = target?.editor || this.activeEditorAnywhere();
     if (!editor) {
       new Notice(t("main.notice.openSceneBeforeCitation"));
       return;
     }
-    const targetFile = this.app.workspace.getActiveFile();
+    const targetFile = target?.file || this.app.workspace.getActiveFile();
     promptForPage(this.app, this, sourceFile, (file, page) =>
       this.insertCitationFor(file, page, editor, targetFile)
     );

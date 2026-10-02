@@ -855,7 +855,7 @@ test("a genuinely empty scope renders no Bibliography section at all — no head
   // An empty Bibliography is never rendered at all: no header, no permanent
   // Bibliography-specific empty message and no Generate row.
   const titles = harness.contentEl.findAll(".feuillets-notes-section-title").filter(
-    (el) => el.text === t("shared.bibliography.title")
+    (el) => el.text === t("shared.research.citedReferences")
   );
   assert.equal(titles.length, 0, "no Bibliography section at all");
   assert.equal(harness.contentEl.find(".feuillets-bibliography-export-row"), null);
@@ -866,7 +866,7 @@ test("a genuinely empty scope renders no Bibliography section at all — no head
 
   assert.ok(
     harness.contentEl.findAll(".feuillets-references-empty").some(
-      (el) => el.text === t("shared.research.noReferencesInScope")
+      (el) => [t("shared.research.noCitedReferences"), t("shared.research.noReferenceSources")].includes(el.text)
     ),
     "References uses one compact tab-wide empty state"
   );
@@ -877,7 +877,7 @@ test("a genuinely empty scope renders no Bibliography section at all — no head
 test("the Bibliography section title is unique when generation is non-empty", async () => {
   const fixture = makeFixture();
   const harness = await renderAndClickGenerate(fixture, { workspace: null, scopeMode: "project" });
-  const title = t("shared.bibliography.title");
+  const title = t("shared.research.citedReferences");
   const titles = harness.contentEl.findAll(".feuillets-notes-section-title").filter((el) => el.text === title);
   assert.equal(titles.length, 1);
 });

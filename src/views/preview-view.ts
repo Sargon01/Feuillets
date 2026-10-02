@@ -1154,18 +1154,6 @@ export class PreviewView extends ItemView {
          Front en général) est rendue comme une VRAIE page Front grâce aux
          segments, au lieu d'arriver en texte Markdown brut. Le corps
          réassemblé à la main ici avait ce défaut. */
-      let result: PreviewCompileResult | null = null;
-      result = await this.compileForPreview(() =>
-        compile(this.app, settings, null, activeScope, undefined, {
-          writeOutput: false,
-          ...(resolveDocumentCitationStyle(settings, activeScope.projectRoot) === "csl" ? { bibliographyMode: "csl" } : {}),
-        })
-      );
-      if (generation !== this.refreshGeneration) return null;
-      if (!result) {
-        if (!keepCurrentFrame) this.showMessage("feuillets-preview-error", t("preview.message.emptyCompilation"));
-        return null;
-      }
       let citationScopeFolderPath: string | null = null;
       if (activeScope.type === "file") {
         const file = this.app.vault.getAbstractFileByPath(activeScope.path);
@@ -1179,6 +1167,18 @@ export class PreviewView extends ItemView {
         citationScopeFolderPath = activeScope.path;
       } else {
         citationScopeFolderPath = null;
+      }
+      let result: PreviewCompileResult | null = null;
+      result = await this.compileForPreview(() =>
+        compile(this.app, settings, null, activeScope, undefined, {
+          writeOutput: false,
+          ...(resolveDocumentCitationStyle(settings, activeScope.projectRoot, citationScopeFolderPath ?? activeScope.projectRoot) === "csl" ? { bibliographyMode: "csl" } : {}),
+        })
+      );
+      if (generation !== this.refreshGeneration) return null;
+      if (!result) {
+        if (!keepCurrentFrame) this.showMessage("feuillets-preview-error", t("preview.message.emptyCompilation"));
+        return null;
       }
       const firstScene = result.segments?.find((s) => s.path)?.path;
       const source: PreviewSource = {
@@ -1746,7 +1746,7 @@ export class PreviewView extends ItemView {
     } else if (source.projectRootPath) {
       projectPath = source.projectRootPath;
     }
-    const pandocPreviewStyle = projectPath ? resolveDocumentCitationStyle(settings, projectPath) : "off";
+    const pandocPreviewStyle = projectPath ? resolveDocumentCitationStyle(settings, projectPath, source.citationScopeFolderPath ?? projectPath) : "off";
     let pandocBibliographyPath = "";
     if (projectRoot) {
       let workspaceFolder: TFolder | null = null;

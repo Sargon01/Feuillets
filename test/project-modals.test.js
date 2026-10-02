@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { MarkdownView, Notice, TFile, TFolder } from "obsidian";
 import { NewProjectModal, OpenExistingFolderModal, TransformToProjectModal, ManageProjectsModal } from "../src/ui/project-modals.js";
+import { ReferenceCitationSettingsModal } from "../src/ui/reference-citation-settings.js";
 import { ProjectConfigContent, YamlPropertyNameModal } from "../src/ui/project-config-content.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { fr } from "../src/i18n/fr.js";
@@ -119,6 +120,7 @@ function fakePlugin(settings) {
     calls,
     async saveSettings() { calls.push("save"); },
     renderAllViews() { calls.push("render"); },
+    refreshCitationRendering() { calls.push("invalidate"); },
     updateStatusBar() { calls.push("statusBar"); },
     getProjectFolder() { return null; },
     projectDisplayName(_path) { return _path || ""; },
@@ -1027,7 +1029,7 @@ test("ManageProjectsModal — Style citation : le type reste inchangé et la pag
   assert.equal(findCitationSelects(modal.contentEl).length, 1, "la page Citations affiche le contrôle");
 });
 
-test("ManageProjectsModal — Citations page renders bibliography and csl candidate dropdowns without mutating settings", async () => {
+test("References settings — Citations page renders bibliography and csl candidate dropdowns without mutating settings", async () => {
   const project = new TFolder("Test/Manuscript");
   const research = new TFolder("Test/Research");
   const refsBib = new TFile("Test/Research/refs.bib");
@@ -1076,19 +1078,17 @@ test("ManageProjectsModal — Citations page renders bibliography and csl candid
   const plugin = fakePlugin(settings);
   plugin.getProjectFolder = () => project;
   plugin.projectDisplayName = (_path) => "Test";
-  const modal = createModal(ManageProjectsModal, app, plugin);
+  const modal = createModal(ReferenceCitationSettingsModal, app, plugin, { projectRoot: project, scopeRoot: project, targetScope: project }, () => true);
 
   modal.onOpen();
-  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
-  modal.render();
 
   assert.deepEqual(settings, snapshotBefore, "rendering citations page must not mutate settings");
 
   const selects = findElements(modal.contentEl, (el) => el.tag === "select");
-  assert.equal(selects.length, 4, "Citations page has 4 selects");
+  assert.equal(selects.length, 3, "References settings has 3 selects");
 
-  const bibSelect = selects[2];
-  const cslSelect = selects[3];
+  const bibSelect = selects[1];
+  const cslSelect = selects[2];
 
   const bibValues = bibSelect.children.map((c) => c.value);
   assert.ok(bibValues.includes(""), "bib options include empty/none option");
@@ -1101,7 +1101,7 @@ test("ManageProjectsModal — Citations page renders bibliography and csl candid
   assert.ok(cslValues.includes("style.csl"), "csl options include style.csl");
 });
 
-test("ManageProjectsModal — Selecting .bib writes citekeyBibliographyPath and deletes legacy pandocBibliographyPath", async () => {
+test("References settings — Selecting .bib writes citekeyBibliographyPath and deletes legacy pandocBibliographyPath", async () => {
   const project = new TFolder("Test/Manuscript");
   const research = new TFolder("Test/Research");
   const refsBib = new TFile("Test/Research/refs.bib");
@@ -1125,15 +1125,13 @@ test("ManageProjectsModal — Selecting .bib writes citekeyBibliographyPath and 
   const plugin = fakePlugin(settings);
   plugin.getProjectFolder = () => project;
   plugin.projectDisplayName = (_path) => "Test";
-  const modal = createModal(ManageProjectsModal, app, plugin);
+  const modal = createModal(ReferenceCitationSettingsModal, app, plugin, { projectRoot: project, scopeRoot: project, targetScope: project }, () => true);
 
   modal.onOpen();
-  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
-  modal.render();
 
   const selects = findElements(modal.contentEl, (el) => el.tag === "select");
-  const bibSelect = selects[2];
-  assert.equal(bibSelect.value, "refs.bib", "preselected from legacy path");
+  let bibSelect = selects[1];
+  assert.equal(bibSelect.attributes["data-effective-value"], "refs.bib", "effective value from legacy path");
 
   bibSelect.value = "";
   await bibSelect.trigger("change");
@@ -1141,13 +1139,14 @@ test("ManageProjectsModal — Selecting .bib writes citekeyBibliographyPath and 
   assert.equal(settings.projectMeta["Test/Manuscript"].pandocBibliographyPath, undefined, "legacy field deleted");
   assert.ok(plugin.calls.includes("save"));
 
+  bibSelect = findElements(modal.contentEl, (el) => el.tag === "select")[1];
   bibSelect.value = "refs.bib";
   await bibSelect.trigger("change");
   assert.equal(settings.projectMeta["Test/Manuscript"].citekeyBibliographyPath, "refs.bib");
   assert.equal(settings.projectMeta["Test/Manuscript"].pandocBibliographyPath, undefined);
 });
 
-test("ManageProjectsModal — Selecting .csl writes citekeyCslPath", async () => {
+test("References settings — Selecting .csl writes citekeyCslPath", async () => {
   const project = new TFolder("Test/Manuscript");
   const research = new TFolder("Test/Research");
   const styleCsl = new TFile("Test/Research/apa.csl");
@@ -1170,14 +1169,12 @@ test("ManageProjectsModal — Selecting .csl writes citekeyCslPath", async () =>
   const plugin = fakePlugin(settings);
   plugin.getProjectFolder = () => project;
   plugin.projectDisplayName = (_path) => "Test";
-  const modal = createModal(ManageProjectsModal, app, plugin);
+  const modal = createModal(ReferenceCitationSettingsModal, app, plugin, { projectRoot: project, scopeRoot: project, targetScope: project }, () => true);
 
   modal.onOpen();
-  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
-  modal.render();
 
   const selects = findElements(modal.contentEl, (el) => el.tag === "select");
-  const cslSelect = selects[3];
+  const cslSelect = selects[2];
 
   cslSelect.value = "apa.csl";
   await cslSelect.trigger("change");
@@ -1185,7 +1182,7 @@ test("ManageProjectsModal — Selecting .csl writes citekeyCslPath", async () =>
   assert.ok(plugin.calls.includes("save"));
 });
 
-test("ManageProjectsModal — Displays orphan option when configured .bib or .csl file is missing", async () => {
+test("References settings — Displays orphan option when configured .bib or .csl file is missing", async () => {
   const project = new TFolder("Test/Manuscript");
   const research = new TFolder("Test/Research");
 
@@ -1206,15 +1203,13 @@ test("ManageProjectsModal — Displays orphan option when configured .bib or .cs
   const plugin = fakePlugin(settings);
   plugin.getProjectFolder = () => project;
   plugin.projectDisplayName = (_path) => "Test";
-  const modal = createModal(ManageProjectsModal, app, plugin);
+  const modal = createModal(ReferenceCitationSettingsModal, app, plugin, { projectRoot: project, scopeRoot: project, targetScope: project }, () => true);
 
   modal.onOpen();
-  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
-  modal.render();
 
   const selects = findElements(modal.contentEl, (el) => el.tag === "select");
-  const bibSelect = selects[2];
-  const cslSelect = selects[3];
+  const bibSelect = selects[1];
+  const cslSelect = selects[2];
 
   const orphanBibOption = bibSelect.children.find((c) => c.value === "missing.bib");
   assert.ok(orphanBibOption, "orphan bib option rendered");
@@ -1226,7 +1221,7 @@ test("ManageProjectsModal — Displays orphan option when configured .bib or .cs
 });
 
 
-test("ManageProjectsModal — Disables dropdowns when project has no associated research", async () => {
+test("References settings — preserves usable automatic/disabled choices without associated research", async () => {
   const project = new TFolder("Test/Manuscript");
 
   const { vault } = createFakeVault([project]);
@@ -1242,20 +1237,16 @@ test("ManageProjectsModal — Disables dropdowns when project has no associated 
   const plugin = fakePlugin(settings);
   plugin.getProjectFolder = () => project;
   plugin.projectDisplayName = (_path) => "Test";
-  const modal = createModal(ManageProjectsModal, app, plugin);
+  const modal = createModal(ReferenceCitationSettingsModal, app, plugin, { projectRoot: project, scopeRoot: project, targetScope: project }, () => true);
 
   modal.onOpen();
-  modal.detailPage = { projectPath: "Test/Manuscript", page: "citations" };
-  modal.render();
 
   const selects = findElements(modal.contentEl, (el) => el.tag === "select");
-  const bibSelect = selects[2];
-  const cslSelect = selects[3];
+  const bibSelect = selects[1];
+  const cslSelect = selects[2];
 
-  assert.equal(bibSelect.children.length, 1);
-  assert.equal(bibSelect.children[0].value, "");
-  assert.equal(cslSelect.children.length, 1);
-  assert.equal(cslSelect.children[0].value, "");
+  assert.deepEqual(bibSelect.children.map((option) => option.value), ["__inherit__", "", "__effective__"]);
+  assert.deepEqual(cslSelect.children.map((option) => option.value), ["__inherit__", "", "__effective__"]);
 });
 
 /* ==================== i18n final touch-ups: preset labels never hardcoded ==================== */
@@ -1318,4 +1309,28 @@ test("TransformToProjectModal: the preset <select> shows locale-correct labels �
   } finally {
     setLocale(initial);
   }
+});
+
+test("project citation settings retain only the historical Source style and preserve bibliography/CSL metadata", async () => {
+  const project = new TFolder("Test/Manuscript");
+  const { vault } = createFakeVault([project]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  settings.projectFolder = project.path;
+  settings.projectMeta[project.path] = { citationStyle: "footnote", pandocCitationPreviewStyle: "csl", citekeyBibliographyPath: "refs.bib", citekeyCslPath: "notes.csl", pandocBibliographyPath: "legacy.bib" };
+  const before = structuredClone(settings);
+  const plugin = fakePlugin(settings);
+  plugin.getProjectFolder = () => project;
+  const modal = createModal(ManageProjectsModal, app, plugin);
+  modal.onOpen();
+  modal.detailPage = { projectPath: project.path, page: "citations" };
+  modal.render();
+  assert.deepEqual(settings, before);
+  const selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  assert.equal(selects.length, 1);
+  assert.deepEqual(selects[0].children.map((option) => option.value), ["footnote", "parenthetical"]);
+  selects[0].value = "parenthetical";
+  await selects[0].trigger("change");
+  assert.deepEqual(settings.projectMeta[project.path], { ...before.projectMeta[project.path], citationStyle: "parenthetical" });
+  assert.ok(plugin.calls.includes("save"));
 });

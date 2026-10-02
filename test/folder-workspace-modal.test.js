@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { TFile, TFolder } from "obsidian";
+import { ReferenceCitationSettingsModal } from "../src/ui/reference-citation-settings.js";
 import { FolderWorkspaceModal } from "../src/ui/folder-workspace-modal.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { fr } from "../src/i18n/fr.js";
@@ -72,15 +73,9 @@ test("workspace modal : l'option ouvrage exclut la racine globale, Front et ses 
   assert.match(modalSource, /this\.folder\.name === "Front" \|\| this\.folder\.path\.split\("\/"\)\.includes\("Front"\)/);
 });
 
-/* Lot 1: Workspace citation resources (.bib and .csl) */
-test("workspace modal: citations section is placed between workflow and goals (static)", () => {
-  assert.match(modalSource, /this\.renderStatuses\(workflow[\s\S]*?this\.renderCitations\(citations[\s\S]*?this\.renderGoals\(goals/);
-  assert.match(modalSource, /resolveWorkspaceCitationResources\(\s*this\.app,\s*this\.plugin\.settings,\s*projectFolder,\s*this\.folder,?\s*\)/);
-  assert.match(modalSource, /listWorkspaceCitationCandidates/);
-  assert.match(modalSource, /saveLocalField\(projectRootPath, relativeScope, "citekeyBibliographyPath"/);
-  assert.match(modalSource, /saveLocalField\(projectRootPath, relativeScope, "citekeyCslPath"/);
-  assert.match(modalSource, /this\.addFieldReset\(container, projectRootPath, relativeScope, "citekeyBibliographyPath"\)/);
-  assert.match(modalSource, /this\.addFieldReset\(container, projectRootPath, relativeScope, "citekeyCslPath"\)/);
+test("workspace modal leaves citation resources and Pandoc rendering to References", () => {
+  assert.doesNotMatch(modalSource, /renderCitations|listWorkspaceCitationCandidates|resolveWorkspaceCitationResources|citekeyBibliographyPath|citekeyCslPath|pandocCitationPreviewStyle/);
+  assert.match(modalSource, /this\.renderStatuses\(workflow[\s\S]*?this\.renderGoals\(goals/);
 });
 
 class FakeElement {
@@ -164,8 +159,8 @@ function matches(node, selector) {
 }
 
 function findSettingByName(root, name) {
-  for (const nameEl of root.querySelectorAll(".setting-item-name")) {
-    if (nameEl.textContent === name) return nameEl.parentNode.parentNode;
+  for (const nameEl of root.querySelectorAll(".feuillets-reference-setting-label")) {
+    if (nameEl.textContent === name) return nameEl.parentNode;
   }
   return null;
 }
@@ -255,6 +250,7 @@ function buildWorkspaceCitationFixture(initialFolderWorkspaces = {}) {
     getProjectFolder: () => project,
     saveSettings: async () => { saveCount++; },
     renderAllViews: () => { renderCount++; },
+    refreshCitationRendering() {},
   };
 
   const app = { vault };
@@ -285,11 +281,21 @@ function openWorkspaceModal(app, plugin, folder) {
   return modal;
 }
 
+function openReferenceModal(app, plugin, folder) {
+  const modal = new ReferenceCitationSettingsModal(app, plugin, { projectRoot: plugin.getProjectFolder(), scopeRoot: folder, targetScope: folder }, () => true);
+  modal.contentEl = new FakeElement("div");
+  modal.onOpen();
+  return modal;
+}
+
 test("workspace modal: rendering causes zero settings mutation and does not alter researchFolderLinks", () => {
   const f = buildWorkspaceCitationFixture();
   const snapshotBefore = JSON.stringify(f.settings);
 
-  openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  assert.equal(modal.contentEl.querySelector(".feuillets-reference-setting-select"), null);
+  assert.ok(!modal.contentEl.textContent.includes(fr["modal.folderWorkspace.bibliography"]));
+  assert.ok(!modal.contentEl.textContent.includes(fr["modal.folderWorkspace.csl"]));
 
   assert.equal(JSON.stringify(f.settings), snapshotBefore);
   assert.deepEqual(
@@ -298,11 +304,11 @@ test("workspace modal: rendering causes zero settings mutation and does not alte
   );
 });
 
-test("workspace modal: displays inheritance from project when no local config", () => {
+test("References settings: displays inheritance from project when no local config", () => {
   const f = buildWorkspaceCitationFixture();
-  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const modal = openReferenceModal(f.app, f.plugin, f.articleA);
 
-  const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+  const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
   assert.ok(bibSetting, "Bibliography setting exists");
   const desc = bibSetting.querySelector(".setting-item-description")?.textContent;
   assert.ok(desc?.includes(fr["modal.folderWorkspace.inheritedFromProject"]));
@@ -310,104 +316,105 @@ test("workspace modal: displays inheritance from project when no local config", 
   const select = bibSetting.querySelector("select");
   assert.ok(select);
   const optionValues = select.children.map((c) => c.value);
-  assert.ok(optionValues.includes("__inherited__"), "includes __inherited__");
+  assert.ok(optionValues.includes("__effective__"), "includes __effective__");
   assert.ok(optionValues.includes(""), "includes empty option");
   assert.ok(optionValues.includes("articleA.bib"), "includes candidate from article A research");
   assert.ok(!optionValues.includes("leaked.bib"), "does not leak unrelated research");
 });
 
-test("workspace modal: displays inheritance from parent for descendant folder", () => {
+test("References settings: displays inheritance from parent for descendant folder", () => {
   const f = buildWorkspaceCitationFixture({
     "Article-A": {
       version: 1,
       citekeyBibliographyPath: "articleA.bib",
     },
   });
-  const modal = openWorkspaceModal(f.app, f.plugin, f.section1);
+  const modal = openReferenceModal(f.app, f.plugin, f.section1);
 
-  const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+  const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
   assert.ok(bibSetting, "Bibliography setting exists");
   const desc = bibSetting.querySelector(".setting-item-description")?.textContent;
   assert.ok(desc?.includes(fr["modal.folderWorkspace.inheritedFromParent"].replace("{name}", "Article-A")));
 });
 
-test("workspace modal: displays project-level disablement when project bibliography is explicitly disabled", () => {
+test("References settings: displays project-level disablement when project bibliography is explicitly disabled", () => {
   const f = buildWorkspaceCitationFixture();
   f.settings.projectMeta[f.project.path].citekeyBibliographyPath = "";
-  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const modal = openReferenceModal(f.app, f.plugin, f.articleA);
 
-  const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+  const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
   assert.ok(bibSetting, "Bibliography setting exists");
   const desc = bibSetting.querySelector(".setting-item-description")?.textContent;
   const expected = `${fr["modal.folderWorkspace.inheritedFromProject"]} — ${fr["modal.folderWorkspace.disabled"]}`;
   assert.equal(desc, expected);
 });
 
-test("workspace modal: displays ancestor disablement when parent workspace bibliography is explicitly disabled", () => {
+test("References settings: displays ancestor disablement when parent workspace bibliography is explicitly disabled", () => {
   const f = buildWorkspaceCitationFixture({
     "Article-A": {
       version: 1,
       citekeyBibliographyPath: "",
     },
   });
-  const modal = openWorkspaceModal(f.app, f.plugin, f.section1);
+  const modal = openReferenceModal(f.app, f.plugin, f.section1);
 
-  const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+  const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
   assert.ok(bibSetting, "Bibliography setting exists");
   const desc = bibSetting.querySelector(".setting-item-description")?.textContent;
   const expected = `${fr["modal.folderWorkspace.inheritedFromParent"].replace("{name}", "Article-A")} — ${fr["modal.folderWorkspace.disabled"]}`;
   assert.equal(desc, expected);
 });
 
-test("workspace modal: displays not configured when neither project nor workspace has a bibliography set", () => {
+test("References settings: displays not configured when neither project nor workspace has a bibliography set", () => {
   const f = buildWorkspaceCitationFixture();
   delete f.settings.projectMeta[f.project.path].citekeyBibliographyPath;
-  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const modal = openReferenceModal(f.app, f.plugin, f.articleA);
 
-  const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+  const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
   assert.ok(bibSetting, "Bibliography setting exists");
   const desc = bibSetting.querySelector(".setting-item-description")?.textContent;
   assert.equal(desc, fr["modal.folderWorkspace.notConfigured"]);
 });
 
-test("workspace modal: displays invalid path when local workspace contains an invalid path traversal", () => {
+test("References settings: displays invalid path when local workspace contains an invalid path traversal", () => {
   const f = buildWorkspaceCitationFixture({
     "Article-A": {
       version: 1,
       citekeyBibliographyPath: "../outside.bib",
     },
   });
-  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const modal = openReferenceModal(f.app, f.plugin, f.articleA);
 
-  const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+  const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
   assert.ok(bibSetting, "Bibliography setting exists");
   const desc = bibSetting.querySelector(".setting-item-description")?.textContent;
   const expected = `${fr["modal.folderWorkspace.local"]} — ${fr["modal.folderWorkspace.invalidPath"]}`;
   assert.equal(desc, expected);
 });
 
-test("workspace modal: displays unbound research when workspace has no associated Research folder", () => {
+test("References settings: displays unbound research when workspace has no associated Research folder", () => {
   const f = buildWorkspaceCitationFixture();
   f.settings.projectMeta[f.project.path].researchFolderLinks = {
     [f.project.path]: "RESEARCH/NonExistent",
   };
 
-  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const modal = openReferenceModal(f.app, f.plugin, f.articleA);
 
-  const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+  const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
   assert.ok(bibSetting, "Bibliography setting exists");
   const desc = bibSetting.querySelector(".setting-item-description")?.textContent;
   const expected = `${fr["modal.folderWorkspace.inheritedFromProject"]} — ${fr["modal.folderWorkspace.unboundResearch"]}`;
   assert.equal(desc, expected);
 });
 
-test("workspace modal: local candidate selection saves field and triggers saveSettings", async () => {
+test("References settings: local candidate selection saves field and triggers saveSettings", async () => {
   const restore = installWindowStub();
   try {
     const f = buildWorkspaceCitationFixture();
-    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    const modal = openReferenceModal(f.app, f.plugin, f.articleA);
 
-    const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+    modal.contentEl.querySelector(".feuillets-reference-settings-inheritance").click();
+    const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
     const select = bibSetting.querySelector("select");
     select.value = "articleA.bib";
     select.dispatch("change");
@@ -421,13 +428,14 @@ test("workspace modal: local candidate selection saves field and triggers saveSe
   }
 });
 
-test("workspace modal: local deactivation (\"\") saves empty string and shows deactivated status", async () => {
+test("References settings: local deactivation (\"\") saves empty string and shows deactivated status", async () => {
   const restore = installWindowStub();
   try {
     const f = buildWorkspaceCitationFixture();
-    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    const modal = openReferenceModal(f.app, f.plugin, f.articleA);
 
-    const bibSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.bibliography"]);
+    modal.contentEl.querySelector(".feuillets-reference-settings-inheritance").click();
+    const bibSetting = findSettingByName(modal.contentEl, fr["shared.research.citationBibliography"]);
     const select = bibSetting.querySelector("select");
     select.value = "";
     select.dispatch("change");
@@ -440,7 +448,7 @@ test("workspace modal: local deactivation (\"\") saves empty string and shows de
   }
 });
 
-test("workspace modal: reset removes local override and restores inheritance", async () => {
+test("References settings: reset removes local override and restores inheritance", async () => {
   const restore = installWindowStub();
   try {
     const f = buildWorkspaceCitationFixture({
@@ -449,13 +457,11 @@ test("workspace modal: reset removes local override and restores inheritance", a
         citekeyBibliographyPath: "articleA.bib",
       },
     });
-    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    const modal = openReferenceModal(f.app, f.plugin, f.articleA);
 
-    const resetSetting = findSettingByName(modal.contentEl, fr["modal.folderWorkspace.resetField"]);
-    assert.ok(resetSetting, "reset setting button exists for bibliography");
-    const extraBtn = resetSetting.querySelector(".extra-setting-button");
-    assert.ok(extraBtn, "extra button exists");
-    extraBtn.dispatch("click");
+    const resetButton = modal.contentEl.querySelector(".feuillets-reference-settings-inheritance");
+    assert.ok(resetButton, "return to inherited settings button exists");
+    resetButton.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const saved = f.settings.projectMeta[f.project.path].folderWorkspaces?.["Article-A"]?.citekeyBibliographyPath;

@@ -26,8 +26,8 @@ function withSimulatedResearchFileSubmit(submittedName, fn) {
 
 /* The Research panel separates physical organization from computed
    references. Dossiers includes the real Sources folder and linked research
-   trees without scanning document content. Références contains only three
-   actions plus non-empty Footnotes and Bibliography sections. */
+   trees without scanning document content. References provides search, Source
+   creation and cited references, without duplicating Inspector footnotes. */
 
 class FakeElement {
   constructor(options = {}) {
@@ -68,6 +68,7 @@ class FakeElement {
     child.parent = this;
     child.tag = tag;
     if (options.cls) child.addClass(options.cls);
+    for (const [name, value] of Object.entries(options.attr || {})) child.setAttr(name, value);
     this.children.push(child);
     return child;
   }
@@ -326,7 +327,7 @@ async function renderWithDocument(fixture, options) {
 
 const SOURCES_TITLE = researchFolderLabel(RESEARCH_FOLDERS, "sources");
 const FOOTNOTES_TITLE = t("shared.footnotes.title");
-const BIBLIOGRAPHY_TITLE = t("shared.bibliography.title");
+const BIBLIOGRAPHY_TITLE = t("shared.research.citedReferences");
 
 function sectionTitles(contentEl) {
   return contentEl.querySelectorAll(".feuillets-notes-section-title").map((el) => el.text);
@@ -373,7 +374,7 @@ test("the sub-tab bar carries a tablist/tab/tabpanel accessible structure", asyn
   assert.equal(panel.getAttr("role"), "tabpanel");
 });
 
-test("References exposes exactly its three compact actions — new Source sheet, insert citation, renumber footnotes — and no folder search", async () => {
+test("References exposes Source creation and reference search, without citation or footnote toolbar icons", async () => {
   const fixture = makeFixture();
   const { view, contentEl } = createView(fixture, { scopeMode: "project" });
   view.researchActiveSubTab = "references";
@@ -391,9 +392,11 @@ test("References exposes exactly its three compact actions — new Source sheet,
     .map((element) => element.getAttr("aria-label"));
   assert.deepEqual(labels, [
     t("shared.research.newSourceSheet"),
-    t("shared.research.insertCitationTooltip"),
-    t("shared.research.renumberFootnotesTooltip"),
+    t("shared.research.bibliographySettings"),
   ]);
+  assert.equal(contentEl.find(".feuillets-research-subtabs").find(".feuillets-reference-settings-button"), null);
+  assert.equal(contentEl.find(".feuillets-reference-settings"), null);
+  assert.ok(contentEl.find(".feuillets-reference-search"));
 });
 
 /* --- Switching and persistence --- */
@@ -411,7 +414,7 @@ test("clicking the Références tab switches content, and clicking Dossiers agai
   let titles = sectionTitles(contentEl);
   assert.ok(!titles.includes("Personnages"), "Dossiers content is gone once References is active");
   assert.ok(!titles.includes(SOURCES_TITLE), "References never duplicates the physical Sources folder");
-  assert.ok(titles.includes(FOOTNOTES_TITLE));
+  assert.ok(!titles.includes(FOOTNOTES_TITLE), "Footnotes remain in the Inspector");
   assert.ok(titles.includes(BIBLIOGRAPHY_TITLE));
 
   const dossiersTab = tabs(contentEl).find((el) => el.text === t("shared.research.subtabFolders"));

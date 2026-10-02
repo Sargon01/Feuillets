@@ -16,17 +16,16 @@ test("le formulaire principal ne contient plus les réglages de citation ni de t
 test("Configuration route Objectifs et Citations avant Métadonnées", () => {
   const nav = source.slice(source.indexOf("private renderProjectNavRows"));
   const configuration = nav.indexOf('t("modal.manageProjects.configurationHeader")');
-  const goals = nav.indexOf('t("sidebar.project.rowGoals")'), citations = nav.indexOf('t("modal.manageProjects.citationsAndBibliography")');
+  const goals = nav.indexOf('t("sidebar.project.rowGoals")'), citations = nav.indexOf('t("modal.manageProjects.sourceCitations")');
   const metadata = nav.indexOf('t("sidebar.project.metadataHeader")');
   assert.ok(configuration < goals && goals < citations && citations < metadata);
-  assert.match(source, /mkNavRow\("quote", t\("modal\.manageProjects\.citationsAndBibliography"\), "citations"\)/);
+  assert.match(source, /mkNavRow\("quote", t\("modal\.manageProjects\.sourceCitations"\), "citations"\)/);
 });
 
 test("la sous-page Citations conserve les propriétés métier existantes", () => {
   const page = source.slice(source.indexOf("private renderProjectCitationsPage"), source.indexOf("private renderProjectNavRows"));
   assert.match(page, /citationStyle/);
-  assert.match(page, /pandocCitationPreviewStyle/);
-  assert.match(page, /pandocBibliographyPath/);
+  assert.doesNotMatch(page, /pandocCitationPreviewStyle|pandocBibliographyPath|citekeyBibliographyPath|citekeyCslPath/);
   assert.doesNotMatch(page, /resolveType\(meta\(\)\?\.type\) === "nonfiction"/);
   assert.match(page, /settings\.citationStyle\.name/);
   assert.doesNotMatch(page, /this\.render\(|this\.renderCurrentDetailContent\(|this\.requestRender\(/);

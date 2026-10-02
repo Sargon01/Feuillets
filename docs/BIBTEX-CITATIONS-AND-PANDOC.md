@@ -10,7 +10,7 @@ Feuillets currently offers two distinct citation paths. They do not overlap and 
 
 ### Source sheets
 
-The historical Source sheet system, reached from **Research → References → Insert a citation**, writes a plain Feuillets citation directly into the text, in the style configured for the project:
+The historical Source sheet system, available through **Research → References** search and the existing **Insert a citation** command, writes a plain Feuillets citation directly into the text, in the style configured for the project:
 
 - footnote
 - parenthetical
@@ -28,7 +28,7 @@ The second system uses a `.bib` bibliography and semantic Pandoc citekeys. A `.c
 1. Associate a Research folder with the workspace or sheet that needs its own references.
 2. Put a Better BibTeX export, such as `references.bib`, in that Research folder.
 3. Put a `.csl` style file there if you want Native CSL, or optionally for the Pandoc package.
-4. Open the applicable project/workspace settings and select the bibliography and CSL resources under **Citations and bibliography**.
+4. Open **Research → References**, click the settings icon beside the tabs, and select the bibliography and CSL resources in **Bibliography settings**.
 5. Choose the citation preview mode:
 
 ```text
@@ -43,6 +43,8 @@ Native CSL
 
 Selecting resources and selecting the preview mode are separate settings.
 
+These settings follow the active sheet’s context, in both isolated and non-isolated workspaces. The dialog shows the effective values and their inheritance from the project or a parent workspace. Choose **Use settings specific to this workspace** to override rendering, bibliography or CSL style independently. **Return to inherited settings** removes the local overrides. At the project root, the dialog edits project settings directly. The normal References panel keeps only search and cited references visible; resource settings are configured here, rather than in project/folder settings.
+
 The active sheet resolves its direct association first, then the associated folders on its physical ancestor path. Another branch of the Binder is not searched.
 
 Composed documents can use several bibliographies resolved from their citing sheets’ own contexts. Each citing sheet must resolve valid bibliography and style resources, and the document must resolve a single consistent CSL style. Missing resources or conflicting styles prevent Native CSL rendering for that document.
@@ -55,7 +57,11 @@ Feuillets owns Markdown/Pandoc parsing, contextual workspace/project resource re
 
 ## Cite while writing
 
-Type `[@` in a Markdown sheet to open the reference picker. Search by citekey, author, title or year; choose one or more entries and add an optional page locator. Feuillets writes ordinary Pandoc syntax, for example:
+Open **Research → References** and use **Search references…** to find available Source sheets and entries in the bibliography applicable to the current document. Results show their Source or BibTeX origin and offer a **Cite** button. Source citation keeps the project’s footnote/parenthetical style and page prompt, and works without BibTeX or Feuillets CSL. A direct BibTeX citation inserts `[@citekey]` at the current cursor in the Markdown editor.
+
+With an empty search, **Cited references** lists only references used in the displayed project/workspace scope, with counts and unknown citekey warnings; each known reference offers **Cite** to reuse it directly, and its bibliography generation action keeps that scope. Unknown citekeys remain warnings without a citation action. Entering a query temporarily replaces this list with at most 30 results from the available Sources and applicable BibTeX catalogue. Clearing the query restores the cited list. The complete `.bib` catalogue is searched on demand rather than permanently rendered in the sidebar. **New source sheet** remains available even without reference resources; footnote inspection remains in the sheet Inspector.
+
+The fast editor shortcut **`[@`** still opens the citekey picker in a Markdown sheet. Search by citekey, author, title or year; choose one or more entries and add an optional page locator. Feuillets writes ordinary Pandoc syntax, for example:
 
 ```markdown
 [@smith2024]

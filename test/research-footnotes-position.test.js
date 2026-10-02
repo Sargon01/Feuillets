@@ -276,7 +276,7 @@ function topLevelSectionTitles(contentEl) {
 
 const SOURCES_TITLE = "Sources";
 const FOOTNOTES_TITLE = t("shared.footnotes.title");
-const BIBLIOGRAPHY_TITLE = t("shared.bibliography.title");
+const BIBLIOGRAPHY_TITLE = t("shared.research.citedReferences");
 
 function referenceIndices(titles) {
   return {
@@ -299,14 +299,15 @@ test("Dossiers shows the physical Sources folder but no computed Notes or Biblio
 
 /* --- Fixed DOM order within References --- */
 
-test("References tab renders Notes then Bibliography and never a Sources tree", async () => {
+test("References renders search and cited references without Notes or a Sources tree", async () => {
   const fixture = makeFixture();
   const contentEl = await renderWithDocument(fixture, { scopeMode: "project" });
   const titles = topLevelSectionTitles(contentEl);
   const { footnotes, bibliography } = referenceIndices(titles);
   assert.equal(titles.indexOf(SOURCES_TITLE), -1);
-  assert.ok(footnotes > -1 && bibliography > -1);
-  assert.ok(footnotes < bibliography, "Notes comes before Bibliography");
+  assert.equal(footnotes, -1);
+  assert.ok(bibliography > -1);
+  assert.ok(contentEl.find(".feuillets-reference-search"));
 });
 
 test("References tab is independent from the presence of a physical Sources folder", async () => {
@@ -318,13 +319,13 @@ test("References tab is independent from the presence of a physical Sources fold
   const titles = topLevelSectionTitles(contentEl);
   const { footnotes, bibliography } = referenceIndices(titles);
   assert.equal(titles.indexOf(SOURCES_TITLE), -1);
-  assert.ok(footnotes > -1 && bibliography > -1);
-  assert.ok(footnotes < bibliography);
-  assert.equal(titles.length, 2);
+  assert.equal(footnotes, -1);
+  assert.ok(bibliography > -1);
+  assert.equal(titles.length, 1);
   assert.equal(contentEl.querySelectorAll(".feuillets-references-empty").length, 0);
 });
 
-test("References tab: reordering Dossiers never affects the fixed Notes then Bibliography order", async () => {
+test("References tab: reordering Dossiers never adds Notes or changes the cited-reference section", async () => {
   const fixture = makeFixture();
   fixture.settings.researchOrder[`research-sections:${fixture.researchRoot.path}`] = [
     fixture.personnagesFolder.path,
@@ -332,7 +333,8 @@ test("References tab: reordering Dossiers never affects the fixed Notes then Bib
   const contentEl = await renderWithDocument(fixture, { scopeMode: "project" });
   const titles = topLevelSectionTitles(contentEl);
   const { footnotes, bibliography } = referenceIndices(titles);
-  assert.ok(footnotes > -1 && footnotes < bibliography);
+  assert.equal(footnotes, -1);
+  assert.ok(bibliography > -1);
 });
 
 /* --- Single compact empty state when the whole scope has nothing --- */
@@ -348,9 +350,9 @@ test("References tab: a single compact empty state replaces all three sections w
   assert.ok(!titles.includes(SOURCES_TITLE));
   assert.ok(!titles.includes(FOOTNOTES_TITLE));
   assert.ok(!titles.includes(BIBLIOGRAPHY_TITLE));
-  const emptyStates = contentEl.querySelectorAll(".feuillets-references-empty").filter(
-    (el) => el.text === t("shared.research.noReferencesInScope")
-  );
+  const emptyStates = contentEl.querySelectorAll(".feuillets-references-empty");
+  assert.ok([t("shared.research.noCitedReferences"), t("shared.research.noReferenceSources")].includes(emptyStates[0]?.text));
+  assert.ok(contentEl.find(".feuillets-reference-search"));
   assert.equal(emptyStates.length, 1, "exactly one compact empty state, never a per-section one");
   const newSourceSheetBtn = contentEl
     .querySelectorAll(".clickable-icon")

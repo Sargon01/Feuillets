@@ -10,7 +10,7 @@ Feuillets propose actuellement deux chemins de citation distincts. Ils ne se rec
 
 ### Fiches Source
 
-Le système historique des fiches Source, accessible depuis **Recherche → Références → Insérer une citation**, écrit directement une citation textuelle Feuillets dans le texte, selon le style configuré pour le projet :
+Le système historique des fiches Source, disponible par la recherche dans **Recherche → Références** et par la commande existante **Insérer une citation**, écrit directement une citation textuelle Feuillets dans le texte, selon le style configuré pour le projet :
 
 - footnote
 - parenthetical
@@ -28,7 +28,7 @@ Le second système utilise une bibliographie `.bib` et des citekeys Pandoc séma
 1. Associez un dossier Recherche à l’espace ou au feuillet qui doit posséder ses propres références.
 2. Placez dans ce dossier Recherche une exportation Better BibTeX, par exemple `references.bib`.
 3. Placez-y un style `.csl` pour utiliser le CSL natif, ou facultativement pour le paquet Pandoc.
-4. Ouvrez les réglages du projet ou de l’espace concerné et choisissez les ressources bibliographiques et CSL dans **Citations et bibliographie**.
+4. Ouvrez **Recherche → Références**, cliquez sur l’icône de réglages à côté des onglets et choisissez les ressources bibliographiques et CSL dans **Réglages de bibliographie**.
 5. Choisissez le mode d’aperçu des citations :
 
 ```text
@@ -43,6 +43,8 @@ CSL natif
 
 Le choix des ressources et le choix du mode d’aperçu sont des réglages distincts.
 
+Ces réglages suivent le contexte du feuillet actif, dans les espaces isolés comme non isolés. La fenêtre affiche les valeurs effectives et leur héritage du projet ou d’un espace parent. Choisissez **Utiliser des réglages propres à cet espace** pour remplacer indépendamment le rendu, la bibliographie ou le style CSL. **Revenir aux réglages hérités** supprime les valeurs locales. À la racine du projet, la fenêtre modifie directement les réglages du projet. Le panneau Références conserve uniquement la recherche et les références citées ; les ressources se configurent ici, plutôt que dans les réglages du projet ou du dossier.
+
 Le feuillet actif résout d’abord son association directe, puis les dossiers associés sur son chemin physique vers le projet. Une autre branche du Classeur n’est jamais parcourue.
 
 Les documents composés peuvent utiliser plusieurs bibliographies résolues depuis le contexte propre à leurs feuillets citants. Chaque feuillet citant doit résoudre des ressources bibliographiques et CSL valides, et le document doit résoudre un seul style CSL cohérent. Des ressources manquantes ou des styles contradictoires empêchent le rendu CSL natif de ce document.
@@ -55,7 +57,11 @@ Feuillets assure l’analyse Markdown/Pandoc, la résolution contextuelle des re
 
 ## Citer pendant l’écriture
 
-Tapez `[@` dans un feuillet Markdown pour ouvrir le sélecteur. Recherchez par citekey, auteur, titre ou année ; choisissez une ou plusieurs références et ajoutez au besoin un localisateur de page. Feuillets écrit la syntaxe Pandoc ordinaire :
+Ouvrez **Recherche → Références** et utilisez **Rechercher une référence…** pour retrouver les fiches Source disponibles et les entrées de la bibliographie applicable au document courant. Les résultats indiquent leur origine Source ou BibTeX et proposent un bouton **Citer**. La citation Source conserve le style de notes/parenthèses du projet et la demande de page, et fonctionne sans BibTeX ni Feuillets CSL. Une citation BibTeX directe insère `[@citekey]` à la position courante du curseur dans l’éditeur Markdown.
+
+Lorsque la recherche est vide, **Références citées** liste uniquement les références utilisées dans la portée projet/espace affichée, avec leurs compteurs et les avertissements de clés inconnues ; chaque référence connue propose **Citer** pour la réutiliser directement, et son action de génération de bibliographie conserve cette portée. Les clés inconnues restent des avertissements sans action de citation. Une requête remplace temporairement cette liste par au plus 30 résultats parmi les Sources disponibles et le catalogue BibTeX applicable. Effacer la requête rétablit la liste citée. Le catalogue `.bib` complet est recherché à la demande plutôt qu’affiché en permanence dans la barre latérale. **Nouvelle fiche source** reste disponible même sans ressources de références ; l’inspection des notes de bas de page reste dans l’Inspecteur du feuillet.
+
+Le raccourci rapide **`[@`** dans l’éditeur ouvre toujours le sélecteur de citekeys dans un feuillet Markdown. Recherchez par citekey, auteur, titre ou année ; choisissez une ou plusieurs références et ajoutez au besoin un localisateur de page. Feuillets écrit la syntaxe Pandoc ordinaire :
 
 ```markdown
 [@smith2024]

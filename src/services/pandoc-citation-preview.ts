@@ -26,6 +26,7 @@ import { App, TFile, normalizePath } from "obsidian";
 import { parseBibtexCatalog, getCachedBibtexCatalog, type BibtexCatalogEntry } from "./bibtex-catalog.js";
 import { getProjectFolder } from "./folder-structure.js";
 import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
+import { resolveDocumentCitationStyle } from "./document-citation-style.js";
 import {
   intersectFloatingBounds,
   resolveFloatingAvailableSize,
@@ -1021,8 +1022,7 @@ export function resolvePandocCitationPreviewForFile(
   const projectRoot = getProjectFolder(app, settings);
   if (!projectRoot) return { style: "off", bibliographyPath: "" };
 
-  const projectMeta = settings.projectMeta?.[projectRoot.path];
-  const style = (projectMeta?.pandocCitationPreviewStyle as PandocCitationPreviewStyle) || "off";
+  const style = resolveDocumentCitationStyle(settings, projectRoot.path, file.parent?.path ?? projectRoot.path);
   if (style === "off") return { style, bibliographyPath: "" };
 
   const resolution = resolveWorkspaceCitationResources(app, settings, projectRoot, file);

@@ -19,6 +19,6 @@ test("ManageProjectsModal conserve le DOM pour les éditions simples", () => {
 test("ManageProjectsModal garde Citations comme page de détail dédiée", () => {
   assert.match(source, /type ManageProjectDetailPageKind = ProjectConfigPage \| "citations";/);
   assert.match(source, /if \(detailPage\.page === "citations"\) \{[\s\S]*?this\.renderProjectCitationsPage\(detailContentEl, detailPage\.projectPath\);/);
-  assert.match(source, /mkNavRow\("quote", t\("modal\.manageProjects\.citationsAndBibliography"\), "citations"\)/);
+  assert.match(source, /mkNavRow\("quote", t\("modal\.manageProjects\.sourceCitations"\), "citations"\)/);
   assert.doesNotMatch(source, /citationStyleHost|renderCitationStyle/);
 });

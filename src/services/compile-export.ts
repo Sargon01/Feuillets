@@ -1712,7 +1712,9 @@ async function exportViaNative(
   try {
     /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
     const editorialRootForExport = resolveEditorialRootFor(app, folder, scopePath, scope);
-    const citationStyle = resolveDocumentCitationStyle(settings, editorialRootForExport.path);
+    const { folder: citationTargetFolder, failClosed: citationFailClosed } =
+      resolveExportCitationTargetFolder(app, scopePath, scope);
+    const citationStyle = resolveDocumentCitationStyle(settings, editorialRootForExport.path, citationTargetFolder?.path ?? editorialRootForExport.path);
     const compileOptions: CompileOptions = {
       writeOutput: false,
       ...(citationStyle === "csl" ? { bibliographyMode: "csl" } : {}),
@@ -1766,8 +1768,6 @@ async function exportViaNative(
       frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) } : { path, text, frontType, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) }
     );
     const contentVariant = await selectedContentVariant(app, settings);
-    const { folder: citationTargetFolder, failClosed: citationFailClosed } =
-      resolveExportCitationTargetFolder(app, scopePath, scope);
 
     let citationBibliographyPath = "";
 

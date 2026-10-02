@@ -145,7 +145,7 @@ Le panneau Feuillets réunit désormais six onglets publics :
 | **Statistiques** | Statistiques du feuillet, de la sélection et du projet |
 | **Relecture** | Analyse de texte, relecture collaborative, Révision DOCX et comparaison avec un instantané |
 
-La configuration du projet s’ouvre depuis **Gérer les projets…** : informations du projet, objectifs, citations et bibliographie, propriétés YAML, statuts, labels et tags.
+La configuration du projet s’ouvre depuis **Gérer les projets…** : informations du projet, objectifs, style de citation des fiches Source, propriétés YAML, statuts, labels et tags.
 
 ## Recherche adaptée au coffre existant
 
@@ -235,7 +235,7 @@ Le Markdown de la note reste un Markdown ordinaire (`[^1]`). La numérotation es
 
 ### Citations BibTeX et paquet Pandoc
 
-Choisissez une bibliographie `.bib` et, pour le CSL natif, un style `.csl` dans **Citations et bibliographie** pour le projet ou l’espace concerné. Tapez `[@` dans un feuillet pour choisir références et localisateurs. Les trois modes de rendu sont **Clés brutes**, **Auteur-date** (le moteur léger de Feuillets) et **CSL natif**, qui utilise le compagnon facultatif [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL), exécuté localement dans Obsidian.
+Ouvrez **Recherche → Références** et utilisez le bouton de réglages pour choisir la bibliographie `.bib` applicable, le style `.csl` et le mode de rendu des citations. À la racine du projet, ces réglages s’appliquent au projet ; dans un espace, ils peuvent être hérités du projet ou d’un espace parent, ou être remplacés localement. Tapez `[@` dans un feuillet pour choisir références et localisateurs. Les trois modes de rendu sont **Clés brutes**, **Auteur-date** (le moteur léger de Feuillets) et **CSL natif**, qui utilise le compagnon facultatif [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL), exécuté localement dans Obsidian.
 
 Le CSL natif rend les citations dans Live Preview, le mode Lecture, Continu, l’Aperçu paginé et les exports PDF/DOCX/EPUB/ODT. Il prend en charge les styles à notes avec l’état des citations du document et les bibliographies CSL dans l’Aperçu et ces exports. Un échec du traitement CSL conserve la syntaxe brute. Le manuscrit et le Markdown compilé gardent les citations Pandoc sémantiques. La bibliographie simple de Feuillets et **Paquet Pandoc (.zip)** restent disponibles ; le paquet contient `manuscript.md`, `pandoc.yaml`, les `.bib` requis, le CSL applicable et les médias locaux pour un flux externe indépendant. Feuillets reste utilisable sans le compagnon et n’installe ni ne lance jamais Pandoc. Voir [Citations BibTeX et paquet Pandoc](docs/CITATIONS-BIBTEX-ET-PANDOC.md).
 

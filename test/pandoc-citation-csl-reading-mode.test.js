@@ -852,3 +852,105 @@ test("CSL Reading Mode: a note paragraph with no source section metadata renders
   assert.equal(s.el.textContent, "See [1].");
   assert.equal(f.requests[0].clusters[0].noteIndex, 1);
 });
+
+function nativeNoteSection(f, pane, notes) {
+  // Obsidian appends a synthetic section after the last source line.
+  const start = f.docA.content.split("\n").length;
+  const s = f.section(pane, { tag: "section", start, end: start });
+  s.el.className = "footnotes";
+  const list = pane.ownerDocument.createElement("ol");
+  s.el.appendChild(list);
+  for (const [index, text] of notes) {
+    const li = pane.ownerDocument.createElement("li");
+    li.setAttribute("data-footnote-id", `fn-${index}-${pane.contextId}`);
+    li.setAttribute("id", `fn-${index}-${pane.contextId}`);
+    const paragraph = pane.ownerDocument.createElement("p");
+    paragraph.textContent = text;
+    li.appendChild(paragraph);
+    list.appendChild(li);
+  }
+  return s;
+}
+
+test("CSL Reading Mode: native synthetic footnotes render despite section coordinates past EOF", async (t) => {
+  const source = "Première affirmation.[^1]\n\n[^1]: [@doe2023, p. 10]";
+  const f = fixture(t, { source, handler: (req) => providerResult(req, () => "Doe, 10") });
+  const s = nativeNoteSection(f, f.pane(), [[1, "[@doe2023, p. 10]"]]);
+  f.vault.modify = () => { throw new Error("Display must never rewrite the manuscript"); };
+  await s.run();
+  assert.equal(s.el.textContent, "Doe, 10");
+  assert.equal(s.el.querySelectorAll(".feuillets-csl-citation").length, 1);
+  assert.equal(f.requests[0].clusters[0].noteIndex, 1);
+  assert.equal(f.requests[0].clusters[0].items[0].locator, "10");
+  assert.equal(f.docA.content, source);
+});
+
+test("CSL Reading Mode: workspace rendering override renders native notes while the project remains off", async (t) => {
+  const f = fixture(t, { style: "off", source: "Body[^1].\n\n[^1]: [@doe2023, p. 10]" });
+  f.settings.projectMeta[f.root.path].folderWorkspaces["Article-A"].pandocCitationPreviewStyle = "csl";
+  const s = nativeNoteSection(f, f.pane(), [[1, "[@doe2023, p. 10]"]]);
+  await s.run();
+  assert.equal(s.el.textContent, "[1]");
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.settings.projectMeta[f.root.path].pandocCitationPreviewStyle, "off");
+  assert.equal(f.requests[0].clusters[0].noteIndex, 1);
+});
+
+test("CSL Reading Mode: body and synthetic notes share document-wide state in logical call order", async (t) => {
+  const source = "Body [@body]. First[^second].\n\nNext [@middle]. Again[^first].\n\n[^first]: [@doe2023, p. 20]\n[^second]: [@doe2023, p. 10]";
+  const f = fixture(t, { source, handler: (req) => providerResult(req, (cluster, index) => `${cluster.items[0].id}:${index + 1}:${cluster.noteIndex ?? "body"}`) });
+  const pane = f.pane();
+  const body = f.section(pane, { text: "Body [@body]. First[1].", start: 0 });
+  const next = f.section(pane, { text: "Next [@middle]. Again[2].", start: 2 });
+  const notes = nativeNoteSection(f, pane, [[1, "[@doe2023, p. 10]"], [2, "[@doe2023, p. 20]"]]);
+  await Promise.all([notes.run(), next.run(), body.run()]);
+  assert.equal(body.el.textContent, "Body body:1:body. First[1].");
+  assert.equal(next.el.textContent, "Next middle:3:body. Again[2].");
+  assert.equal(notes.el.textContent, "doe2023:2:1doe2023:4:2");
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.requests[0].clusters.map((cluster) => cluster.noteIndex), [undefined, 1, undefined, 2]);
+  assert.deepEqual(f.requests[0].clusters.filter((cluster) => cluster.noteIndex).map((cluster) => cluster.items[0].locator), ["10", "20"]);
+  assert.equal(f.docA.content, source, "Physical definition order remains unchanged");
+});
+
+test("CSL Reading Mode: native inline narrative note renders in the synthetic notes section", async (t) => {
+  const source = "Body [@body].^[Voir @doe2023, p. 57.]";
+  const f = fixture(t, { source, handler: (req) => providerResult(req, (cluster) => cluster.noteIndex ? "Doe (2023)" : "Body citation") });
+  const pane = f.pane();
+  const body = f.section(pane, { text: "Body [@body].[1]" });
+  const notes = nativeNoteSection(f, pane, [[1, "Voir @doe2023, p. 57."]]);
+  await Promise.all([body.run(), notes.run()]);
+  assert.equal(body.el.textContent, "Body Body citation.[1]");
+  assert.equal(notes.el.textContent, "Voir Doe (2023), p. 57.");
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].clusters[1].noteIndex, 1);
+  assert.equal(f.requests[0].clusters[1].items[0].mode, "composite");
+});
+
+test("CSL Reading Mode: an independently rendered later note keeps its global note index", async (t) => {
+  const f = fixture(t, { source: "First[^a]. Next[^b].\n\n[^b]: [@smith2024]\n[^a]: [@doe2023]",
+    handler: (req) => providerResult(req, (cluster) => `${cluster.items[0].id}:${cluster.noteIndex}`) });
+  const s = nativeNoteSection(f, f.pane(), [[2, "[@smith2024]"]]);
+  await s.run();
+  assert.equal(s.el.textContent, "smith2024:2");
+  assert.equal(f.requests.length, 1);
+  assert.deepEqual(f.requests[0].clusters.map((cluster) => cluster.noteIndex), [1, 2]);
+});
+
+test("CSL Reading Mode: a stale synthetic note result cannot replace newer manuscript content", async (t) => {
+  const entered = deferred();
+  const gate = deferred();
+  const f = fixture(t, { source: "Body[^1].\n\n[^1]: [@doe2023, p. 10]", handler: async (req) => {
+    entered.resolve();
+    await gate.promise;
+    return providerResult(req);
+  } });
+  const s = nativeNoteSection(f, f.pane(), [[1, "[@doe2023, p. 10]"]]);
+  const pending = s.run();
+  await entered.promise;
+  f.docA.content = "Body[^1].\n\n[^1]: [@smith2024, p. 20]";
+  gate.resolve();
+  await pending;
+  assert.equal(s.el.textContent, "[@doe2023, p. 10]");
+  assert.equal(s.el.querySelectorAll(".feuillets-csl-citation").length, 0);
+});

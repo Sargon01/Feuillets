@@ -360,7 +360,7 @@ function bibliographyItems(contentEl) {
 }
 
 function bibliographySectionTitles(contentEl) {
-  const title = t("shared.bibliography.title");
+  const title = t("shared.research.citedReferences");
   return contentEl.querySelectorAll(".feuillets-notes-section-title").filter((el) => el.text === title);
 }
 
@@ -607,7 +607,7 @@ test("Scene-A.md is read only once for the citation analysis even though two reg
   // footnotes overview scan, once by the citation analysis — never a third
   // time for the second registry occurrence concerning the same file.
   const sceneAReads = reads.filter((p) => p === fixture.sceneA.path);
-  assert.equal(sceneAReads.length, 2, "one read for footnotes, one read for the citation analysis — never a second read per registry occurrence");
+  assert.equal(sceneAReads.length, 1, "one read for citation analysis — never a second read per registry occurrence");
 });
 
 test("a citation removed from the document is no longer displayed", async () => {
@@ -857,17 +857,14 @@ test("the citation analysis is computed exactly once per Research render", async
     cachedReadSpy: (path) => reads.push(path),
   });
   assert.match(contentEl.textContent, /sharedKey2020/);
-  // Scene-A.md is legitimately read twice per render: once by the
-  // footnotes overview scan, once by the citation analysis. A third read
-  // would mean the citation analysis itself ran more than once (e.g. once
-  // for the Source counters, once more for the Bibliography section).
+  // References reads the scene only for citation analysis; footnotes belong to the Inspector.
   const sceneAReads = reads.filter((p) => p === fixture.sceneA.path);
-  assert.equal(sceneAReads.length, 2, "Scene-A.md must be read once for footnotes and once for the citation analysis — never more");
+  assert.equal(sceneAReads.length, 1, "Scene-A.md must be read once for citation analysis — never more");
 });
 
 /* --- Footnote regression coverage --- */
 
-test("footnotes and the contextual Bibliography coexist correctly in the same render", async () => {
+test("References omits footnote inspection while preserving contextual cited references", async () => {
   const fixture = makeFixture();
   fixture.sceneA.content = "Body A[^a] citing [@sharedKey2020].\n\n[^a]: Footnote A text";
   fixture.sceneA.stat = { mtime: 2000, size: fixture.sceneA.content.length };
@@ -875,8 +872,8 @@ test("footnotes and the contextual Bibliography coexist correctly in the same re
   const contentEl = await renderWithDocument(fixture, { workspace: fixture.workA, scopeMode: "workspace" });
   const footnoteTitle = t("shared.footnotes.title");
   const footnoteTitles = contentEl.querySelectorAll(".feuillets-notes-section-title").filter((el) => el.text === footnoteTitle);
-  assert.equal(footnoteTitles.length, 1);
-  assert.match(contentEl.textContent, /Footnote A text/);
+  assert.equal(footnoteTitles.length, 0);
+  assert.doesNotMatch(contentEl.textContent, /Footnote A text/);
   assert.match(contentEl.textContent, /sharedKey2020/);
   assert.equal(bibliographySectionTitles(contentEl).length, 1);
 });

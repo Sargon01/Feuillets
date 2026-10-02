@@ -11,11 +11,6 @@ import { openFileActivatingWithCursor } from "../utils/dom.js";
 import { t, getLocale } from "../i18n/index.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
 import { ProjectConfigContent, type ProjectConfigPage } from "./project-config-content.js";
-import {
-  citationRelativePath,
-  listWorkspaceCitationCandidates,
-  resolveWorkspaceCitationResearchFolder,
-} from "../services/workspace-citations.js";
 
 type ProjectModalsPlugin = {
   /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
@@ -43,7 +38,6 @@ type ProjectModalsPlugin = {
   exportFeuilProject(path: string): Promise<boolean>;
   importFeuilProject(plan: FeuilProjectImportPlan, destinationRootPath: string): Promise<boolean>;
   flattenFiles(folder: TFolder): readonly (TFile | TFolder)[];
-  refreshCitationRendering?(): void;
 };
 
 /** Étiquette de version pour dupliquer un manuscrit (ex. "v1", "premier
@@ -705,7 +699,7 @@ export class ManageProjectsModal extends Modal {
     const section = container.createDiv({ cls: "feuillets-notes-section" });
     section.createDiv({
       cls: "feuillets-settings-subhead",
-      text: t("modal.manageProjects.citationsAndBibliography")
+      text: t("modal.manageProjects.sourceCitations")
     });
 
     const meta = (): ProjectMeta | undefined => S.projectMeta[path];
@@ -723,128 +717,6 @@ export class ManageProjectsModal extends Modal {
         d.onChange((value) => {
           ensureMeta().citationStyle = value;
           void this.plugin.saveSettings();
-        });
-      });
-
-    section.createDiv({
-      cls: "feuillets-settings-subhead",
-      text: t("project.pandocCitationPreview.title")
-    });
-    new Setting(section)
-      .setName(t("project.pandocCitationPreview.styleLabel"))
-      .addDropdown((d) => {
-        d.addOption("off", t("project.pandocCitationPreview.styleOff"));
-        d.addOption("author-date", t("project.pandocCitationPreview.styleAuthorDate"));
-        d.addOption("csl", t("project.pandocCitationPreview.styleCsl"));
-        d.setValue(meta()?.pandocCitationPreviewStyle || "off");
-        d.onChange((value) => {
-          ensureMeta().pandocCitationPreviewStyle = value as PandocCitationPreviewStyle;
-          void this.plugin.saveSettings();
-          this.plugin.refreshCitationRendering?.();
-        });
-      });
-
-    const projectFolder = this.app.vault.getAbstractFileByPath(path);
-    const projectResearch = projectFolder instanceof TFolder
-      ? resolveWorkspaceCitationResearchFolder(this.app, S, projectFolder, null)
-      : null;
-
-    if (!projectResearch) {
-      new Setting(section)
-        .setName(t("project.pandocCitationPreview.bibliographyLabel"))
-        .setDesc(t("project.pandocCitationPreview.noResearch"))
-        .addDropdown((d) => {
-          d.addOption("", t("project.pandocCitationPreview.noFile"));
-          d.setValue("");
-          d.setDisabled(true);
-        });
-
-      new Setting(section)
-        .setName(t("project.pandocCitationPreview.cslLabel"))
-        .setDesc(t("project.pandocCitationPreview.noResearch"))
-        .addDropdown((d) => {
-          d.addOption("", t("project.pandocCitationPreview.noFile"));
-          d.setValue("");
-          d.setDisabled(true);
-        });
-      return;
-    }
-
-    const bibCandidates = listWorkspaceCitationCandidates(this.app, projectResearch, "bib");
-    let currentBibValue = "";
-    let isBibOrphan = false;
-
-    if (meta()?.citekeyBibliographyPath !== undefined) {
-      currentBibValue = meta()?.citekeyBibliographyPath || "";
-      if (currentBibValue !== "" && !bibCandidates.some((c) => c.relativePath === currentBibValue)) {
-        isBibOrphan = true;
-      }
-    } else if (meta()?.pandocBibliographyPath) {
-      const rawLegacy = meta()?.pandocBibliographyPath?.trim() || "";
-      if (rawLegacy !== "") {
-        const legacyFile = this.app.vault.getAbstractFileByPath(normalizePath(rawLegacy));
-        if (legacyFile instanceof TFile && legacyFile.extension.toLowerCase() === "bib") {
-          const rel = citationRelativePath(projectResearch, legacyFile);
-          if (rel !== null) {
-            currentBibValue = rel;
-          } else {
-            currentBibValue = rawLegacy;
-            isBibOrphan = true;
-          }
-        } else {
-          currentBibValue = rawLegacy;
-          isBibOrphan = true;
-        }
-      }
-    }
-
-    new Setting(section)
-      .setName(t("project.pandocCitationPreview.bibliographyLabel"))
-      .addDropdown((d) => {
-        d.addOption("", t("project.pandocCitationPreview.noFile"));
-        for (const c of bibCandidates) {
-          d.addOption(c.relativePath, c.relativePath);
-        }
-        if (isBibOrphan && currentBibValue !== "") {
-          d.addOption(currentBibValue, t("project.pandocCitationPreview.missingFileOption", { name: currentBibValue }));
-        }
-        d.setValue(currentBibValue);
-        d.onChange((value) => {
-          const m = ensureMeta();
-          m.citekeyBibliographyPath = value;
-          delete m.pandocBibliographyPath;
-          void this.plugin.saveSettings();
-          this.plugin.refreshCitationRendering?.();
-        });
-      });
-
-    const cslCandidates = listWorkspaceCitationCandidates(this.app, projectResearch, "csl");
-    let currentCslValue = "";
-    let isCslOrphan = false;
-
-    if (meta()?.citekeyCslPath !== undefined) {
-      currentCslValue = meta()?.citekeyCslPath || "";
-      if (currentCslValue !== "" && !cslCandidates.some((c) => c.relativePath === currentCslValue)) {
-        isCslOrphan = true;
-      }
-    }
-
-    new Setting(section)
-      .setName(t("project.pandocCitationPreview.cslLabel"))
-      .addDropdown((d) => {
-        d.addOption("", t("project.pandocCitationPreview.noFile"));
-        for (const c of cslCandidates) {
-          d.addOption(c.relativePath, c.relativePath);
-        }
-        if (isCslOrphan && currentCslValue !== "") {
-          d.addOption(currentCslValue, t("project.pandocCitationPreview.missingFileOption", { name: currentCslValue }));
-        }
-        d.setValue(currentCslValue);
-        d.onChange((value) => {
-          const m = ensureMeta();
-          m.citekeyCslPath = value;
-          void this.plugin.saveSettings();
-          this.plugin.refreshCitationRendering?.();
         });
       });
   }
@@ -867,7 +739,7 @@ export class ManageProjectsModal extends Modal {
     const section = container.createDiv({ cls: "feuillets-notes-section" });
     section.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.manageProjects.configurationHeader") });
     mkNavRow("target", t("sidebar.project.rowGoals"), "goals");
-    mkNavRow("quote", t("modal.manageProjects.citationsAndBibliography"), "citations");
+    mkNavRow("quote", t("modal.manageProjects.sourceCitations"), "citations");
 
     const metaSection = container.createDiv({ cls: "feuillets-notes-section" });
     metaSection.createDiv({ cls: "feuillets-settings-subhead", text: t("sidebar.project.metadataHeader") });
