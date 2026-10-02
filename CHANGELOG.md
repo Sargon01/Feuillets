@@ -2,6 +2,27 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.4.0 — 2026-10-02
+
+### CSL natif
+
+- Intégration du compagnon facultatif [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL), exécuté localement dans Obsidian pour appliquer les styles CSL.
+- Trois modes de rendu : Clés brutes, Auteur-date et CSL natif. Le CSL natif est disponible dans Live Preview, le mode Lecture, Continu, l’Aperçu paginé et les exports PDF, DOCX, EPUB et ODT, avec citations Pandoc groupées, narratives et localisateurs.
+- Rendu avec état et prise en compte de l’ordre et du contexte des notes pour les styles à notes, y compris les citations riches dans les notes de bas de page en Lecture, Continu, Aperçu et exports natifs.
+- Conservation de la syntaxe brute lorsque le traitement CSL est indisponible ou ne peut pas produire un résultat sûr.
+
+### Bibliographie CSL
+
+- Génération d’une bibliographie conforme au style choisi lorsque son inclusion est activée, dans l’Aperçu paginé et les exports PDF, DOCX, EPUB et ODT.
+- Préservation de la disposition CSL structurée fournie par le moteur, notamment les retraits suspendus et l’alignement du second champ lorsqu’ils sont pris en charge.
+
+### Architecture et fiabilité
+
+- API publique de moteur de citations v2 et coordinateur de documents CSL, avec résolution contextuelle des ressources bibliographiques et CSL, y compris plusieurs bibliographies dans une même composition.
+- Gestion des sessions, protection contre les résultats asynchrones périmés et sécurisation du rechargement et de la libération des moteurs.
+- Le Markdown du manuscrit et le Markdown compilé conservent la syntaxe Pandoc ; le rendu ne modifie pas les fichiers source. Le paquet Pandoc reste disponible pour un flux externe indépendant.
+- Feuillets CSL reste facultatif : Feuillets fonctionne sans lui, notamment avec son rendu auteur-date et sa bibliographie simple.
+
 ## 3.3.1 — 2026-09-30
 
 - Les sélecteurs CSS `:has()` du Binder Markdown ont été remplacés par des classes explicites, supprimant le warning de performance signalé par le scanner Obsidian Community sans changement fonctionnel ou visuel attendu.

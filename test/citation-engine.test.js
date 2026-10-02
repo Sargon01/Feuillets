@@ -477,7 +477,7 @@ test("validateCitationDocumentResult: root structure errors detected", () => {
   // Invalid diagnostics array
   assert.equal(validateCitationDocumentResult(makeValidResult({ diagnostics: {} })).valid, false);
 
-  // Missing or undefined bibliography property (Lot 7A hardening)
+  // Missing or undefined bibliography property
   const missingBib = makeValidResult();
   delete missingBib.bibliography;
   const valMissing = validateCitationDocumentResult(missingBib);

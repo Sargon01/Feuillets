@@ -1,4 +1,4 @@
-/* Citation Render Nodes Tests (Lot 7A) */
+/* Citation Render Nodes Tests */
 
 import assert from "node:assert/strict";
 import test from "node:test";

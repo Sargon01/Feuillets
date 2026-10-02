@@ -1,5 +1,5 @@
 /**
- * Structured Pandoc Citation Parser for Feuillets (Lot 7A).
+ * Structured Pandoc Citation Parser for Feuillets.
  *
  * Pure syntax-level parser:
  * Markdown/Pandoc source -> ordered structured citation occurrences -> CitationClusterInput[].

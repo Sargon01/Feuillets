@@ -222,13 +222,15 @@ Le panneau Relecture regroupe :
 - appels répétés sans duplication de la définition et notes pleine largeur sous une composition multicolonne ;
 - limitation connue : une note individuelle plus haute qu’une page utile n’est pas encore fragmentée ;
 - aperçu Pandoc/Zotero facultatif à partir de la ressource `.bib` résolue pour l’espace actif ;
-- affichage **Clés brutes** ou **Auteur-date**, avec localisateurs et groupes simples pris en charge ;
-- Markdown source et exports natifs conservent les citekeys brutes ; citekeys non résolues laissées brutes ;
-- ressources `.bib` et CSL facultatif suivant le dossier Recherche associé à l’espace actif ;
+- affichage **Clés brutes**, **Auteur-date** (simplifié) ou **CSL natif**, avec citations groupées, narratives et localisateurs ;
+- CSL natif via le compagnon facultatif [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL) dans Live Preview, le mode Lecture, Continu, l’Aperçu paginé et PDF/DOCX/EPUB/ODT, avec rendu tenant compte des notes et de l’état des citations dans les sorties de lecture et composées ;
+- Markdown source et compilé conservant la syntaxe Pandoc ; traitement CSL natif indisponible ou non sûr laissant les citations brutes visibles ;
+- ressources `.bib` et `.csl` suivant le dossier Recherche associé à l’espace actif ; les deux sont requises pour le CSL natif ;
 - `[@` ouvre un sélecteur BibTeX filtrable, avec références multiples et localisateurs ;
 - entrées BibTeX citées visibles dans Recherche et utilisables pour la bibliographie simple de Feuillets ;
+- bibliographie CSL dans l’Aperçu paginé et PDF/DOCX/EPUB/ODT lorsqu’elle est activée, avec préservation des dispositions structurées prises en charge par le moteur ;
 - **Paquet Pandoc (.zip)** réunissant Markdown compilé, `.bib` requis, CSL éventuel et médias locaux pour un traitement Pandoc externe ;
-- aucun moteur CSL complet : Feuillets n’installe, ne recherche et n’exécute ni Pandoc, ni Zotero, ni Better BibTeX.
+- Feuillets CSL s’exécute localement dans Obsidian et reste facultatif ; Feuillets n’installe, ne recherche et n’exécute ni Pandoc, ni Zotero, ni Better BibTeX.
 
 Les citations relient les sources Recherche au manuscrit. Lors d’une compilation, Feuillets peut limiter la bibliographie aux sources réellement citées dans la portée compilée.
 

@@ -216,13 +216,15 @@ Proofreading groups Text analysis, Collaborative review, DOCX Review and Compare
 - repeated calls without duplicate definitions and full-width footnotes below multi-column composition;
 - known limitation: a single footnote taller than one usable page is not yet split;
 - optional Pandoc/Zotero preview using the `.bib` resource resolved for the active workspace;
-- **Raw citekeys** or **Author-date** display, including locators and simple citation groups;
-- source Markdown and native exports keep raw citekeys; unresolved citekeys remain raw;
-- `.bib` and optional CSL resources can follow the active workspace’s associated Research folder;
+- **Raw citekeys**, **Author-date** (lightweight) or **Native CSL** display, with grouped/narrative citations and locators;
+- Native CSL through the optional [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL) companion in Live Preview, Reading Mode, Continu, paginated Preview and PDF/DOCX/EPUB/ODT, with note-aware stateful rendering in reading/composed outputs;
+- source and compiled Markdown keep Pandoc syntax; unavailable or unsafe Native CSL processing preserves raw citations;
+- `.bib` and `.csl` resources follow the active workspace’s associated Research folder; both are required for Native CSL;
 - `[@` opens a searchable BibTeX picker supporting multiple references and locators;
 - cited BibTeX entries can appear in Research and feed Feuillets’ simple bibliography;
+- CSL bibliography in paginated Preview and PDF/DOCX/EPUB/ODT when enabled, preserving the provider’s supported structured layouts;
 - **Pandoc package (.zip)** can bundle compiled Markdown, required `.bib` files, an optional CSL and local media for an external Pandoc run;
-- no full CSL engine: Feuillets does not install, locate or run Pandoc, Zotero or Better BibTeX.
+- Feuillets CSL runs locally in Obsidian and remains optional; Feuillets does not install, locate or run Pandoc, Zotero or Better BibTeX.
 
 Citations connect Research sources to the manuscript. During compilation, Feuillets can limit the bibliography to sources actually cited within the compiled scope.
 

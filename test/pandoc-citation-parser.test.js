@@ -1,4 +1,4 @@
-/* Structured Pandoc Citation Parser Tests (Lot 7A) */
+/* Structured Pandoc Citation Parser Tests */
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -288,7 +288,7 @@ test("parseCitationDocument: non-citation bracket groups are ignored", () => {
   }
 });
 
-/* -------------------- Non-regression: noteIndex semantics (Lot 7A) -------------------- */
+/* -------------------- Non-regression: noteIndex semantics -------------------- */
 
 test("parseCitationDocument: citation in footnote definition has undefined noteIndex", () => {
   const input = "[^1]: texte [@smith2024]";
@@ -300,7 +300,7 @@ test("parseCitationDocument: citation in footnote definition has undefined noteI
   assert.equal(doc.clusters[0].noteIndex, undefined);
 });
 
-/* -------------------- Non-regression: isValidCitekey domains (Lot 7A) -------------------- */
+/* -------------------- Non-regression: isValidCitekey domains -------------------- */
 
 test("parseCitationDocument: citekeys with internal punctuation allowed by isValidCitekey", () => {
   // alpha#beta, alpha%beta, alpha+beta, alpha.beta, alpha:beta, alpha/beta
@@ -513,7 +513,7 @@ test("extractPandocCitekey: unit tests for braced and non-braced extraction", ()
   assert.equal(extractPandocCitekey("not-at", 0), null);
 });
 
-/* -------------------- Markdown Link Contexts (Lot 7A) -------------------- */
+/* -------------------- Markdown Link Contexts -------------------- */
 
 test("parseCitationDocument: citations inside markdown link text vs link destinations", () => {
   // 1. [see @doe99](https://example.com) -> 1 citation, id "doe99", mode "composite"
@@ -620,7 +620,7 @@ for (const [name, separator] of [["adjacent", ""], ["space-separated", " "], ["t
   });
 }
 
-/* -------------------- Inline Footnotes and Nested Brackets (Lot 7B) -------------------- */
+/* -------------------- Inline Footnotes and Nested Brackets -------------------- */
 
 test("parseCitationDocument: inline footnote containing citation ^[Voir [@doe2023, p. 57] pour une discussion méthodologique.]", () => {
   const input = "^[Voir [@doe2023, p. 57] pour une discussion méthodologique.]";
@@ -643,7 +643,7 @@ test("parseCitationDocument: inline footnote containing citation ^[Voir [@doe202
   assert.equal(occ.cluster.items[0].locator, "57");
   assert.equal(occ.cluster.items[0].label, "page");
 
-  // noteIndex must remain undefined (no premature Lot 7F note semantics)
+  // The syntax parser leaves noteIndex undefined; the document coordinator assigns note context.
   assert.equal(occ.cluster.noteIndex, undefined);
 });
 

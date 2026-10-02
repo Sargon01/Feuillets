@@ -26,7 +26,7 @@ Le **Contexte** examine le passage autour du curseur et rapproche les fiches Rec
 
 Les espaces de travail permettent de conserver cette documentation à l’échelle pertinente d’une partie du projet sans créer de sous-projet. Voir [Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md).
 
-Les **citations** relient les sources Recherche au manuscrit. Selon la configuration, l’Aperçu Pandoc/Zotero peut afficher les citekeys ou une forme auteur-date, et la bibliographie reprend les sources utiles. Lors d’une compilation, Feuillets peut limiter la bibliographie aux sources réellement citées dans la portée compilée.
+Les **citations** relient les sources Recherche au manuscrit. Le chemin BibTeX/Pandoc propose **Clés brutes**, **Auteur-date** simplifié ou **CSL natif** via le compagnon facultatif [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL). Le CSL natif prend en charge les citations et bibliographies selon le style dans les sorties composées et natives, tandis que le manuscrit et le Markdown compilé conservent la syntaxe Pandoc. Le chemin historique des fiches Source reste distinct. Lors d’une compilation, Feuillets peut limiter la bibliographie simple aux sources réellement citées dans la portée compilée. Voir [Citations BibTeX et paquet Pandoc](CITATIONS-BIBTEX-ET-PANDOC.md).
 
 ## Écrire
 

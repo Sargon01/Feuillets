@@ -2,7 +2,7 @@
 
 > English · [Français](CITATIONS-BIBTEX-ET-PANDOC.md) · [Index](README.md)
 
-Feuillets keeps academic citations in ordinary Markdown. It helps locate references while writing, but it does not bundle or run Zotero, Better BibTeX, Pandoc or a CSL engine.
+Feuillets keeps academic citations in ordinary Markdown. It offers three citation rendering modes, including Native CSL through the optional **Feuillets CSL** companion plugin. Feuillets remains fully usable without that companion and never installs or runs Zotero, Better BibTeX or Pandoc.
 
 ## Two citation systems
 
@@ -15,24 +15,43 @@ The historical Source sheet system, reached from **Research → References → I
 - footnote
 - parenthetical
 
-This path does not produce a Pandoc citekey and does not use CSL. Source sheets can supply `author`, `title`, `publisher`, `date` and `url`.
+This path does not produce a Pandoc citekey and is separate from Native CSL. Source sheets can supply `author`, `title`, `publisher`, `date` and `url`.
 
 For compatibility, Feuillets also reads a few common properties found on Source sheets created with ZotFlow — `creator`, `creators`, `publication`, `year` — without ever modifying the underlying files. This is a compatibility reading, not a full Zotero or ZotFlow integration.
 
 ### BibTeX / Pandoc
 
-The second system relies on a `.bib` file and `[@citekey]` syntax, opened by typing `[@` in a sheet. It keeps a Pandoc-compatible, semantic citation syntax in the Markdown source. This is the path that enables the simplified author-date preview inside Feuillets, the Pandoc package, and external CSL processing.
+The second system uses a `.bib` bibliography and semantic Pandoc citekeys. A `.csl` file supplies the citation and bibliography style for Native CSL or an external Pandoc/citeproc workflow. Type `[@` in a sheet to open the citekey picker. This path supports lightweight author-date rendering, Native CSL and the Pandoc package.
 
 ## Prepare a workspace
 
 1. Associate a Research folder with the workspace or sheet that needs its own references.
 2. Put a Better BibTeX export, such as `references.bib`, in that Research folder.
-3. Optionally put one CSL style file there as well.
-4. Open the workspace settings for that folder and select its bibliography and CSL resources under **Citations and bibliography**.
+3. Put a `.csl` style file there if you want Native CSL, or optionally for the Pandoc package.
+4. Open the applicable project/workspace settings and select the bibliography and CSL resources under **Citations and bibliography**.
+5. Choose the citation preview mode:
 
-Selecting a `.bib` file is not enough on its own to display author-date citations. Three settings are distinct: choosing the `.bib` bibliography, optionally choosing a `.csl` style file, and choosing the citation preview mode. That mode can be **off** or **author-date**.
+```text
+Raw citekeys
+Author-date
+Native CSL
+```
+
+- **Raw citekeys** leaves Pandoc syntax visible.
+- **Author-date** uses Feuillets’ historical lightweight BibTeX renderer. It requires an applicable `.bib` bibliography, does not require Feuillets CSL and does not apply a full CSL style.
+- **Native CSL** requires Feuillets CSL installed and enabled, an applicable `.bib` bibliography, a `.csl` style and supported CSL runtime resources. If processing is unavailable or fails, raw citation syntax stays visible; Feuillets never silently substitutes fabricated output.
+
+Selecting resources and selecting the preview mode are separate settings.
 
 The active sheet resolves its direct association first, then the associated folders on its physical ancestor path. Another branch of the Binder is not searched.
+
+Composed documents can use several bibliographies resolved from their citing sheets’ own contexts. Each citing sheet must resolve valid bibliography and style resources, and the document must resolve a single consistent CSL style. Missing resources or conflicting styles prevent Native CSL rendering for that document.
+
+## Native CSL companion
+
+Feuillets does not bundle citeproc itself. Native CSL mode uses the optional [Feuillets CSL companion plugin](https://github.com/Sargon01/Feuillets-CSL) through Feuillets’ public citation provider API v2. It runs locally inside Obsidian. This separation keeps the main Feuillets plugin independent from the citation engine.
+
+Feuillets owns Markdown/Pandoc parsing, contextual workspace/project resource resolution, `.bib` and `.csl` selection, document/session construction, rendering into Obsidian and export surfaces, fail-closed behavior and Pandoc package generation. Feuillets CSL adapts BibTeX/BibLaTeX to CSL data, evaluates CSL through citeproc, processes citations with document state, and supplies safe semantic citation and bibliography output.
 
 ## Cite while writing
 
@@ -42,49 +61,76 @@ Type `[@` in a Markdown sheet to open the reference picker. Search by citekey, a
 [@smith2024]
 [@smith2024, p. 42]
 [@smith2024; @doe2023, pp. 12-14]
+@smith2024
 ```
 
-The citekeys remain in source Markdown. Unknown keys are never silently removed.
+These examples show a single citation, a page locator, a grouped citation with locators, and a narrative citation. The source Markdown always remains semantic Pandoc syntax: rendering never rewrites citation markup in the manuscript. Unknown keys are never silently removed.
 
 ## Interactive surfaces
 
-When the author-date preview mode is enabled and an applicable bibliography is available, Live Preview, Reading Mode and Continu display resolved citations in a readable form while leaving the underlying Markdown untouched. For example:
+### Author-date mode
 
-```
-[@smith2024, p. 42]
-```
+With an applicable bibliography, **Author-date** displays readable citations in Live Preview, Reading Mode and Continuous mode (Continu), as well as paginated Preview, PDF, DOCX, EPUB and ODT. For example, `[@smith2024, p. 42]` can appear as `(Smith, 2024, p. 42)`.
 
-is displayed as:
+The interactive author-date views offer associated bibliographic details through citation tooltips where available. This lightweight renderer does not guarantee compliance with a CSL style.
 
-```
-(Smith, 2024, p. 42)
-```
+### Native CSL mode
 
-These surfaces can also surface the associated bibliographic information where the interface provides for it. This is not a full CSL rendering — it is a simplified author-date display specific to Feuillets. See the limitation below.
+**Native CSL** uses the provider to render citations according to the selected CSL style in:
 
-## Preview, bibliography and native exports
+- Live Preview while editing;
+- Reading Mode;
+- Continuous mode (Continu);
+- paginated Preview;
+- native PDF, DOCX, EPUB and ODT exports.
 
-**Markdown export** always keeps the raw Pandoc syntax, for example `[@smith2024]`.
+Both modes leave manuscript Markdown unchanged. Static exports contain the rendered presentation; they do not provide the editor’s citation tooltips.
 
-**Paginated preview, DOCX, EPUB, ODT and PDF**: when the author-date preview mode is enabled and an applicable bibliography is available, `[@smith2024]` can be rendered as `(Smith, 2024)` in these outputs. When the mode is disabled, or when a citation cannot be resolved, the raw syntax remains visible. The configured `.csl` file is not applied here — see [CSL role](#csl-role) below.
+## Note-based CSL styles
 
-The Research panel lists cited BibTeX entries and reports unknown citekeys. Feuillets can generate a simple Markdown bibliography from the citations in the selected scope; this native bibliography is not a full CSL bibliography, and it does not automatically include an entire `.bib` file — only the citations actually found in scope.
+Native CSL supports note-based styles such as Chicago Notes & Bibliography. Citations inside Markdown footnotes participate in document citation order. Feuillets passes note position and context to the engine, allowing stateful styles to distinguish first and subsequent citations according to citeproc/CSL semantics.
 
-### Limitation: simplified author-date rendering only
+Rendered citations, including rich formatting, remain associated with their original footnote. This note-aware behavior is supported in Reading Mode, Continu, paginated Preview, PDF, DOCX, EPUB and ODT. Live Preview provides Native CSL citation rendering while editing. Feuillets continues to own Preview/PDF footnote pagination.
 
-The native author-date rendering used in Feuillets is not a CSL engine. It does not guarantee full compliance with Chicago, APA, MLA, ISO 690, university style guides, journal styles, or any other CSL style. For a bibliography that must conform to a real CSL style, use the Pandoc package with an external Pandoc/citeproc workflow.
+## Bibliography behavior
 
-## CSL role
+### Simple Feuillets bibliography
 
-A `.csl` file configured in Feuillets is associated with the relevant project or workspace and is included in the Pandoc package when applicable. It is not interpreted by Feuillets itself and does not transform citations in native exports or previews. Feuillets does not currently include a native CSL engine.
+The Research panel lists cited BibTeX entries and reports unknown citekeys. Feuillets can still generate its simple Markdown bibliography from citations in the selected scope where applicable. This legacy path does not apply a full CSL style and includes cited entries rather than automatically adding an entire `.bib` file.
+
+### Native CSL bibliography
+
+When **Native CSL** is active and bibliography inclusion is enabled in Composition, the provider can generate a style-compliant bibliography in paginated Preview, PDF, DOCX, EPUB and ODT. These outputs preserve the provider’s structured CSL layout, including hanging indents and second-field alignment where supported. Bibliography generation follows the selected style’s semantics.
+
+This presentation bibliography does not turn compiled Markdown into CSL-formatted text.
+
+## Markdown export
+
+**Compiled Markdown keeps the Pandoc citation syntax**, such as `[@smith2024]`, in every rendering mode. Native CSL is presentation/export rendering, not destructive replacement of manuscript Markdown. Other native outputs can contain rendered CSL citations and bibliographies.
+
+## CSL locales and limitations
+
+Feuillets CSL currently bundles the CSL runtime locale resources **`en-US`** and **`fr-FR`**. An unsupported runtime locale fails closed; there is no automatic locale substitution. This concerns the locale resources needed during CSL evaluation, not a restriction to English or French CSL styles.
+
+## Troubleshooting
+
+**When Native CSL cannot produce a safe result, Feuillets keeps the raw citation syntax visible.** Check:
+
+- Feuillets CSL is installed and enabled;
+- the applicable `.bib` bibliography exists and is valid;
+- the `.csl` style exists and is selected;
+- each citekey is present in the resolved bibliography;
+- the style’s required runtime locale is supported.
+
+A missing or disabled companion, missing bibliography or style, unknown citekey, invalid bibliography, unsupported locale or provider processing failure causes this fail-closed behavior. Correct the resource or provider problem to restore rendering.
 
 ## BibTeX accents
 
 Feuillets decodes common LaTeX sequences used for accented characters in BibTeX metadata. This is not a general TeX interpreter.
 
-## Use a Pandoc package for a final CSL style
+## Use a Pandoc package
 
-Choose **Pandoc package (.zip)** in Edition export when the final deliverable must use a CSL style supplied by a university, publisher or journal.
+You can use Native CSL through Feuillets CSL directly inside Feuillets and its native outputs, or choose **Pandoc package (.zip)** in Edition export for an independent external Pandoc/citeproc workflow. The package remains available with Native CSL and can carry a university, publisher or journal style.
 
 The archive contains:
 

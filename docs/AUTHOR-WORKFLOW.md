@@ -26,7 +26,7 @@ In **Project**, goals, statuses, labels, favorite tags and YAML property mapping
 
 Workspaces keep this documentation at the relevant scale of a project part without creating a sub-project. See [One project, multiple workspaces](WORKSPACES.md).
 
-**Citations** connect Research sources to the manuscript. Depending on configuration, Pandoc/Zotero Preview can display citekeys or an author-date form, and the bibliography can include the relevant sources. During compilation, Feuillets can limit the bibliography to sources actually cited within the compiled scope.
+**Citations** connect Research sources to the manuscript. The BibTeX/Pandoc path offers **Raw citekeys**, lightweight **Author-date** or **Native CSL** through the optional [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL) companion. Native CSL supports style-based citations and bibliographies in composed/native outputs while manuscript and compiled Markdown retain Pandoc syntax. The historical Source-sheet path remains separate. During compilation, Feuillets can limit the simple bibliography to sources actually cited within the compiled scope. See [BibTeX citations and Pandoc package](BIBTEX-CITATIONS-AND-PANDOC.md).
 
 ## Write
 

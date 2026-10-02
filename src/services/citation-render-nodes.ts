@@ -1,5 +1,5 @@
 /**
- * Safe Citation AST to DOM Renderer for Feuillets (Lot 7A).
+ * Safe Citation AST to DOM Renderer for Feuillets.
  *
  * Renders structured CitationRenderNode[] into safe DOM nodes.
  *

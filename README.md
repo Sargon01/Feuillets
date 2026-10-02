@@ -261,9 +261,9 @@ The source remains ordinary Markdown (`[^1]`); only the displayed marker is smoo
 
 ### BibTeX citations and Pandoc package
 
-An author can place a `.bib` file, and optionally a `.csl` style, in a Research folder associated with a workspace. Type `[@` in a sheet to search the available catalog, select one or more references and add page locators. The Markdown source remains standard Pandoc citation syntax.
+Select a `.bib` bibliography and, for Native CSL, a `.csl` style under **Citations and bibliography** for the applicable project/workspace. Type `[@` in a sheet to choose references and locators. The three rendering modes are **Raw citekeys**, **Author-date** (Feuillets’ lightweight renderer) and **Native CSL**, which uses the optional [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL) companion running locally in Obsidian.
 
-Feuillets can smooth citations in Preview, list cited BibTeX references in the Research panel and generate a simple bibliography. Native exports keep raw citekeys. For a university or journal workflow requiring a final CSL style, **Pandoc package (.zip)** creates a portable archive with `manuscript.md`, `pandoc.yaml`, the required `.bib` files, the optional CSL and local media. It does not run or require Pandoc, Zotero or Better BibTeX. See [BibTeX citations and Pandoc package](docs/BIBTEX-CITATIONS-AND-PANDOC.md).
+Native CSL renders citations in Live Preview, Reading Mode, Continu, paginated Preview and PDF/DOCX/EPUB/ODT exports. It supports note-based styles with document citation state and CSL bibliographies in Preview and those exports. Failed CSL processing preserves raw citation syntax. Manuscript and compiled Markdown keep semantic Pandoc citations. The simple Feuillets bibliography and **Pandoc package (.zip)** remain available; the package contains `manuscript.md`, `pandoc.yaml`, required `.bib` files, the applicable CSL and local media for an independent external workflow. Feuillets remains usable without the companion and never installs or launches Pandoc. See [BibTeX citations and Pandoc package](docs/BIBTEX-CITATIONS-AND-PANDOC.md).
 
 Native formats:
 
@@ -323,6 +323,7 @@ Then enable it in **Settings → Community plugins → Installed plugins**.
 
 Feuillets is designed to work independently, and also pairs well with:
 
+- **[Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL)** — Optional native Citation Style Language engine for BibTeX/Pandoc citations and CSL bibliographies.
 - **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** — French and English grammar checking integrated with the Proofreading panel.
 - **[Courrier](https://github.com/Sargon01/Courrier)** — Word import/export and DOCX Review support.
 - **[Advanced Canvas](https://github.com/Sargon01/Advanced-Canvas)** — Enhanced Canvas features for Notebook and research visualization.
