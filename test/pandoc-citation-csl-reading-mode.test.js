@@ -423,14 +423,14 @@ test("CSL Reading Mode: protected DOM contexts and Markdown link destinations re
   assert.equal(s.el.querySelectorAll("a")[0].getAttribute("href"), "https://example.com/@who2021");
 });
 
-test("CSL Reading Mode: inline notes stay raw and the host retains only the inner cluster without noteIndex", async (t) => {
+test("CSL Reading Mode: unmoved inline syntax stays raw while the host assigns its note index", async (t) => {
   const source = "^[Voir [@doe2023, p. 57] pour une discussion.]";
   const f = fixture(t, { source });
   const s = f.section(f.pane(), { text: source });
   await s.run();
   assert.equal(s.el.textContent, source);
-  assert.deepEqual(f.requests[0].clusters, [{ id: "citation:7:24", items: [{ id: "doe2023", locator: "57", label: "page" }] }]);
-  assert.equal(f.requests[0].clusters[0].noteIndex, undefined);
+  assert.deepEqual(f.requests[0].clusters, [{ id: "citation:7:24", noteIndex: 1, items: [{ id: "doe2023", locator: "57", label: "page" }] }]);
+  assert.equal(f.requests[0].clusters[0].noteIndex, 1);
   assert.equal(f.requests[0].includeBibliography, false);
 });
 
@@ -801,4 +801,54 @@ test("CSL Reading Mode: missing public sourcePath fails closed before Vault look
     assert.equal(s.el.textContent, f.docA.content);
   }
   assert.equal(f.requests.length, 0);
+});
+
+for (const kind of ["reference", "inline"]) {
+  test(`CSL Reading Mode: ${kind} note renders its AST and preserves the backlink`, async (t) => {
+    const source = kind === "reference" ? "Body [@body] [^1].\n\n[^1]: See [@doe2023]." : "Body [@body].^[See [@doe2023].]";
+    const f = fixture(t, { source, handler: (request) => providerResult(request, (cluster) => `${cluster.items[0].id}:${cluster.noteIndex ?? "body"}`) });
+    const pane = f.pane();
+    const s = f.section(pane, { tag: "div", end: source.split("\n").length - 1 });
+    const body = pane.ownerDocument.createElement("p");
+    body.textContent = "Body [@body].";
+    s.el.appendChild(body);
+    const notes = pane.ownerDocument.createElement("section");
+    notes.className = "footnotes";
+    const li = pane.ownerDocument.createElement("li");
+    li.setAttribute("id", "fn1");
+    const content = pane.ownerDocument.createElement("p");
+    content.textContent = "See [@doe2023].";
+    const backlink = pane.ownerDocument.createElement("a");
+    backlink.className = "footnote-backref";
+    backlink.setAttribute("href", "#fnref1");
+    backlink.textContent = "↩";
+    content.appendChild(backlink);
+    li.appendChild(content);
+    notes.appendChild(li);
+    s.el.appendChild(notes);
+    await s.run();
+    assert.equal(body.textContent, "Body body:body.");
+    assert.equal(li.textContent, "See doe2023:1.↩");
+    assert.equal(backlink.getAttribute("href"), "#fnref1");
+    assert.equal(content.querySelectorAll(".feuillets-csl-font-italic").length, 1);
+    assert.equal(f.requests.length, 1);
+    await s.run();
+    assert.equal(s.el.querySelectorAll(".feuillets-csl-citation").length, 2);
+    assert.equal(f.requests.length, 1);
+  });
+}
+
+test("CSL Reading Mode: a note paragraph with no source section metadata renders within its li", async (t) => {
+  const f = fixture(t, { source: "Text[^1].\n\n[^1]: See [@doe2023]." });
+  const pane = f.pane();
+  const s = f.section(pane, { text: "See [@doe2023].", info: null });
+  const section = pane.ownerDocument.createElement("section");
+  section.className = "footnotes";
+  const li = pane.ownerDocument.createElement("li");
+  li.setAttribute("id", "fn1");
+  li.appendChild(s.el);
+  section.appendChild(li);
+  await s.run();
+  assert.equal(s.el.textContent, "See [1].");
+  assert.equal(f.requests[0].clusters[0].noteIndex, 1);
 });

@@ -1,3 +1,4 @@
+import { buildNoteAwarePandocCitationDocument } from "../services/pandoc-citation-notes.js";
 import { Decoration, ViewPlugin, WidgetType } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { editorInfoField, editorLivePreviewField, normalizePath, TFile, type App } from "obsidian";
@@ -28,7 +29,6 @@ import type {
 } from "../api/citation-contract.js";
 import { renderCitationNodes } from "../services/citation-render-nodes.js";
 import {
-  parsePandocCitationDocument,
   type ParsedPandocCitationDocument,
 } from "../services/pandoc-citation-parser.js";
 
@@ -467,7 +467,7 @@ export function createPandocCitationLivePreviewExtension(
             this.lastDocSource = currentDoc;
             if (this.currentDocSource !== currentDoc) {
               this.currentDocSource = currentDoc;
-              this.currentParsed = parsePandocCitationDocument(currentDoc);
+              this.currentParsed = buildNoteAwarePandocCitationDocument(currentDoc).document;
             }
 
             const canReuseSnapshot =
@@ -653,7 +653,7 @@ export function createPandocCitationLivePreviewExtension(
             const currentDoc = getDocumentSource(this.view.state.doc);
             if (this.currentDocSource !== currentDoc) {
               this.currentDocSource = currentDoc;
-              this.currentParsed = parsePandocCitationDocument(currentDoc);
+              this.currentParsed = buildNoteAwarePandocCitationDocument(currentDoc).document;
             }
             const currentParsed = this.currentParsed;
 
@@ -710,7 +710,7 @@ export function createPandocCitationLivePreviewExtension(
         const currentDoc = getDocumentSource(this.view.state.doc);
         if (this.currentDocSource !== currentDoc) {
           this.currentDocSource = currentDoc;
-          this.currentParsed = parsePandocCitationDocument(currentDoc);
+          this.currentParsed = buildNoteAwarePandocCitationDocument(currentDoc).document;
         }
 
         const parsed = this.currentParsed;
@@ -734,7 +734,8 @@ export function createPandocCitationLivePreviewExtension(
         const visibleRanges = this.view.visibleRanges;
         const selection = this.view.state.selection;
         const occurrences = parsed.occurrences;
-        const oldOccurrences = this.readySnapshot.parsedDocument.occurrences;
+        const previousClusterIds = new Map(parsed.clusters.map((cluster, index) =>
+          [cluster.id, this.readySnapshot?.parsedDocument.clusters[index]?.id]));
         const citationByClusterId = this.readySnapshot.citationByClusterId;
 
         for (let i = 0; i < occurrences.length; i++) {
@@ -752,8 +753,8 @@ export function createPandocCitationLivePreviewExtension(
 
           if (selectionOverlaps(selection, occ.from, occ.to)) continue;
 
-          // Retrieve rendered citation by corresponding cluster order
-          const oldClusterId = oldOccurrences[i]?.clusterId;
+          // Retrieve the previous result in logical citation order.
+          const oldClusterId = previousClusterIds.get(occ.clusterId);
           const oldCitation = oldClusterId ? citationByClusterId.get(oldClusterId) : undefined;
           if (!oldCitation) continue;
 

@@ -1164,3 +1164,25 @@ test("renderPreparedDocument: J. disposeDocument calls provider.disposeDocument 
 
   host.dispose();
 });
+
+test("renderDocument sends logical note order and first-call indices in one bibliography request", async (t) => {
+  const setup = createMockProjectSetup();
+  const registry = new CitationEngineRegistry();
+  const requests = [];
+  registry.register(createMockProvider({ renderDocument: async (request) => {
+    requests.push(request);
+    return { documentId: request.documentId, revision: request.revision,
+      citations: request.clusters.map((cluster) => ({ clusterId: cluster.id, plainText: cluster.items[0].id, content: [{ type: "text", text: cluster.items[0].id }] })),
+      bibliography: { entries: [], layout: { hangingIndent: false, entrySpacing: 0, lineSpacing: 1 } }, diagnostics: [] };
+  } }));
+  const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+  t.after(() => host.dispose());
+  const source = "[@a] text[^b] [@c] text[^a] ^[Comment] ^[See [@d]]\n\n[^a]: [@a]\n[^b]: [@b]\n[^unused]: [@unused]";
+  const result = await host.renderDocument("notes", source, setup.projectRoot, null, { includeBibliography: true });
+  assert.equal(result.status, "ready");
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].includeBibliography, true);
+  assert.deepEqual(requests[0].clusters.map((cluster) => [cluster.items[0].id, cluster.noteIndex]), [
+    ["a", undefined], ["b", 1], ["c", undefined], ["a", 2], ["d", 4],
+  ]);
+});

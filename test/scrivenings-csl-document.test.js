@@ -300,3 +300,16 @@ test("K. strict boundary and monotonic order invariants", () => {
     }
   }
 });
+
+test("Note indices accumulate across independently parsed segments, including non-citing notes", () => {
+  const doc = makeDoc([
+    ["A.md", "[@body] [^b][^a]\n\n[^a]: [@a]\n[^b]: Comment"],
+    ["B.md", "^[Comment] text[^b] [@later]\n\n[^b]: [@b]"],
+  ]);
+  const result = buildScriveningsCslDocument(doc);
+  assert.deepEqual(result.clusters.map((cluster) => [cluster.items[0].id, cluster.noteIndex]), [
+    ["body", undefined], ["a", 2], ["b", 4], ["later", undefined],
+  ]);
+  assert.ok(result.occurrences.every((occurrence, index, entries) => index === 0 || entries[index - 1].from < occurrence.from));
+  assert.equal(result.segmentOccurrences[1][1].cluster.noteIndex, 4);
+});

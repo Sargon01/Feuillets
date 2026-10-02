@@ -602,7 +602,8 @@ export function createScriveningsCitationExtension(
         const visibleRanges = this.view.visibleRanges;
         const selection = this.view.state.selection;
         const occurrences = currentCslDoc.occurrences;
-        const oldOccurrences = this.readySnapshot.parsedDocument.occurrences;
+        const previousClusterIds = new Map(currentCslDoc.clusters.map((cluster, index) =>
+          [cluster.id, this.readySnapshot?.parsedDocument.clusters[index]?.id]));
         const citationByClusterId = this.readySnapshot.citationByClusterId;
 
         for (let i = 0; i < occurrences.length; i++) {
@@ -620,7 +621,7 @@ export function createScriveningsCitationExtension(
 
           if (selectionOverlaps(selection, occ.from, occ.to)) continue;
 
-          const oldClusterId = oldOccurrences[i]?.clusterId;
+          const oldClusterId = previousClusterIds.get(occ.clusterId);
           const oldCitation = oldClusterId ? citationByClusterId.get(oldClusterId) : undefined;
           if (!oldCitation) continue;
 

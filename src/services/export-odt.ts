@@ -1,6 +1,7 @@
+import { footnoteCallId, isFootnoteCall } from "./footnote-dom.js";
 import JSZip from "jszip";
 import type { App, TFolder } from "obsidian";
-import { renderManuscriptHtmlWithFrontPages } from "./export-render.js";
+import { renderManuscriptHtmlWithFrontPages, type RenderedFootnote } from "./export-render.js";
 import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
 import type { CslCitationHost } from "./csl-citation-host.js";
 import {
@@ -77,6 +78,8 @@ type OdtOptions = {
   sceneDivider?: string;
   bibliographyStyles?: Map<string, BibliographyLayout>;
   bibliographyAlignment?: boolean;
+  footnotes?: ReadonlyMap<string, RenderedFootnote>;
+  emittedFootnotes?: Map<string, number>;
 };
 
 export function cslBibliographyStyleXml(name: string, layout: BibliographyLayout, fontSizePt = 12): string {
@@ -86,12 +89,6 @@ export function cslBibliographyStyleXml(name: string, layout: BibliographyLayout
     ? `<style:tab-stops><style:tab-stop style:type="left" style:position="${leftPt}pt"/></style:tab-stops>` : "";
   return `<style:style style:name="${escapeXml(name)}" style:family="paragraph"><style:paragraph-properties fo:text-align="left" fo:margin-left="${leftPt}pt" fo:text-indent="${-indentPt}pt" fo:margin-top="0pt" fo:margin-bottom="${layout.entrySpacing * layout.lineSpacing * fontSizePt}pt" fo:line-height="${layout.lineSpacing * 100}%">${tabs}</style:paragraph-properties></style:style>`;
 }
-
-type RenderedFootnote = {
-  id: string;
-  html: string;
-  text: string;
-};
 
 /** opts.frontStyle : nom du style de paragraphe à utiliser pour un <p>/
  * <blockquote> à l'intérieur d'une page Front (titre/dédicace/épigraphe,
@@ -111,6 +108,23 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   const element = node as Element;
   const tag = element.tagName.toLowerCase();
   if (element.getAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR) !== null) return "";
+
+  if (isFootnoteCall(element) && opts.footnotes && opts.emittedFootnotes) {
+    const id = footnoteCallId(element);
+    const note = id ? opts.footnotes.get(id) : undefined;
+    if (!id || !note) return "";
+    const previous = opts.emittedFootnotes.get(id);
+    if (previous !== undefined) {
+      return `<text:note-ref text:ref-name="Footnote${previous}" text:reference-format="text">${previous}</text:note-ref>`;
+    }
+    const index = opts.emittedFootnotes.size + 1;
+    opts.emittedFootnotes.set(id, index);
+    const content = note.contentElement;
+    const hasBlocks = Array.from(content.children).some((child) => ["p", "ul", "ol", "blockquote"].includes(child.tagName.toLowerCase()));
+    const converted = Array.from(content.childNodes).map((child) => domToOdtContent(child, { ...opts, frontStyle: undefined })).join("");
+    const body = hasBlocks ? converted : `<text:p>${converted}</text:p>`;
+    return `<text:note text:id="Footnote${index}" text:note-class="footnote"><text:note-citation>${index}</text:note-citation><text:note-body>${body}</text:note-body></text:note>`;
+  }
 
   if (element.classList?.contains("feuillets-csl-bibliography-entry")) {
     const layout = readCslBibliographyLayout(element);
@@ -195,29 +209,6 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   return styledChildren + (opts.bibliographyAlignment && element.classList?.contains("feuillets-csl-left-margin") ? "<text:tab/>" : "");
 }
 
-/** Notes de bas de page en ODT : ce générateur XML minimal ne construit pas
- * de véritable structure `<text:note>` OpenDocument (contrairement à
- * export-docx.js, qui s'appuie sur la bibliothèque `docx` pour de vraies
- * notes Word) — une note réelle demanderait d'apparier citation et corps de
- * note exactement là où l'appel apparaît dans le flux, ce que ce
- * convertisseur DOM->XML linéaire ne fait pas. Plutôt que de perdre le
- * contenu silencieusement (comportement précédent : `footnotes` n'était
- * jamais lu) ou de le confondre avec le corps du texte, les notes sont
- * ajoutées en NOTES DE FIN clairement identifiées sous un titre "Notes".
- *
- * Texte brut (`fn.text`), pas `fn.html` : réinjecter du HTML dans ce
- * document demanderait de le reconvertir en balisage `text:*` OpenDocument
- * via `domToOdtContent`, donc de le reparser d'abord — une mise en forme
- * (gras, italique, lien) au sein d'une note ne survit donc pas dans cet
- * export ODT, seul le texte. Limite documentée dans FONCTIONNALITES.md. */
-function footnotesEndSectionXml(footnotes: RenderedFootnote[]): string {
-  if (!footnotes.length) return "";
-  const items = footnotes
-    .map((fn, i) => `<text:p text:style-name="Standard">${i + 1}. ${escapeXml(fn.text)}</text:p>`)
-    .join("\n");
-  return `\n<text:h text:style-name="Heading_20_2" text:outline-level="2">Notes</text:h>\n${items}`;
-}
-
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
 export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: ExportInput): Promise<Uint8Array> {
   const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
@@ -275,10 +266,10 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   ].filter(Boolean).join(" ");
 
   const bibliographyStyles = new Map<string, BibliographyLayout>();
-  const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider, bibliographyStyles };
+  const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider, bibliographyStyles,
+    footnotes: new Map(footnotes.map((note) => [note.id, note])), emittedFootnotes: new Map() };
   const bodyXml =
-    Array.from(containerEl.childNodes).map((node) => domToOdtContent(node, sceneDividerOpts)).join("\n") +
-    footnotesEndSectionXml(footnotes);
+    Array.from(containerEl.childNodes).map((node) => domToOdtContent(node, sceneDividerOpts)).join("\n");
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
      page Front de type "titre" — voir même choix dans export-docx.js. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
@@ -340,7 +331,7 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
 </office:document-styles>`;
 
   const contentXml = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2">
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.2">
   <office:font-face-decls>
     <style:font-face style:name="${fontName}" svg:font-family="'${fontName}'"/>
   </office:font-face-decls>

@@ -61,7 +61,7 @@ class TestDomNode {
   remove() { this.parentNode?.removeChild(this); }
   removeAttribute(name) { this.attrs.delete(name); }
   cloneNode(deep) {
-    const clone = new TestDomNode(this.ownerDocument, this.tagName, this.nodeValue);
+    const clone = new TestDomNode(this.ownerDocument, this.nodeType === 3 ? "#text" : this.tagName, this.nodeValue);
     clone.className = this.className;
     for (const [name, value] of this.attrs) clone.setAttribute(name, value);
     if (deep) this.childNodes.forEach((child) => clone.appendChild(child.cloneNode(true)));
@@ -141,6 +141,8 @@ class TestDomNode {
 
   matches(selector) {
     if (selector === "*") return true;
+    const qualified = selector.match(/^([a-z]+)\[([a-z-]+)\]$/i);
+    if (qualified) return this.tagName === qualified[1].toUpperCase() && this.attrs.has(qualified[2]);
     if (selector.startsWith(".")) {
       return selector.slice(1).split(".").every((name) => this.classList.has(name));
     }
@@ -1450,4 +1452,191 @@ test("Static CSL — Scoped projectRoot: renders CSL using scoped projectRoot ev
   assert.equal(spans.length, 1, "citation rendered under scoped projectRoot");
   assert.ok(spans[0].textContent.includes("doe2023:normal"));
   assert.equal(p.textContent, "Nested chapter (doe2023:normal).");
+});
+
+function addNoteCall(doc, parent, id, marker = "1") {
+  const sup = doc.createElement("sup");
+  sup.className = "footnote-ref";
+  const link = doc.createElement("a");
+  link.setAttribute("href", `#${encodeURIComponent(id)}`);
+  link.setAttribute("id", `ref-${id}`);
+  link.textContent = marker;
+  sup.appendChild(link);
+  parent.appendChild(sup);
+  return sup;
+}
+
+function addNoteDefinitions(doc, container, definitions) {
+  const section = doc.createElement("section");
+  section.className = "footnotes";
+  const ol = doc.createElement("ol");
+  for (const [id, text] of definitions) {
+    const li = doc.createElement("li");
+    li.setAttribute("id", id);
+    const paragraph = doc.createElement("p");
+    paragraph.textContent = text;
+    const backref = doc.createElement("a");
+    backref.className = "footnote-backref";
+    backref.setAttribute("href", `#ref-${id}`);
+    backref.textContent = "↩";
+    paragraph.appendChild(backref);
+    li.appendChild(paragraph);
+    ol.appendChild(li);
+  }
+  section.appendChild(ol);
+  container.appendChild(section);
+  return section;
+}
+
+function staticNoteInput(f, container) {
+  return { app: f.app, settings: f.settings, host: f.host, projectRoot: f.projectRoot,
+    container, sources: [{ path: f.fileA.path, text: f.fileA.content }],
+    documentId: createStaticDocumentId("static-notes", f.projectRoot.path) };
+}
+
+test("Static notes: clusters interleave at first calls, irrespective of definition order", async (t) => {
+  const f = createStaticCslFixture();
+  t.after(() => f.host.dispose());
+  const container = f.doc.createElement("div");
+  const p = f.doc.createElement("p");
+  p.appendChild(f.doc.createTextNode("[@doe2023] "));
+  addNoteCall(f.doc, p, "fn B");
+  p.appendChild(f.doc.createTextNode(" [@smith2024] "));
+  addNoteCall(f.doc, p, "fnA", "2");
+  addNoteCall(f.doc, p, "fn B");
+  container.appendChild(p);
+  const notes = addNoteDefinitions(f.doc, container, [["fnA", "[@doe2023]"], ["fn B", "[@smith2024]"]]);
+  assert.equal(await applyNativeCslToStaticRender(staticNoteInput(f, container)), true);
+  assert.deepEqual(f.requests[0].clusters.map((cluster) => [cluster.items[0].id, cluster.noteIndex]), [
+    ["doe2023", undefined], ["smith2024", 1], ["smith2024", undefined], ["doe2023", 2],
+  ]);
+  assert.equal(notes.querySelectorAll(".feuillets-csl-citation").length, 2);
+  assert.equal(notes.querySelectorAll(".footnote-backref").length, 2);
+  assert.equal(f.requests.length, 1);
+});
+
+test("Static notes: non-citing notes count and all citations in one note share an index", async (t) => {
+  const f = createStaticCslFixture();
+  t.after(() => f.host.dispose());
+  const container = f.doc.createElement("div");
+  const p = f.doc.createElement("p");
+  addNoteCall(f.doc, p, "fn1");
+  addNoteCall(f.doc, p, "fn2", "2");
+  container.appendChild(p);
+  addNoteDefinitions(f.doc, container, [["fn1", "Comment"], ["fn2", "[@doe2023] and [@smith2024]"]]);
+  assert.equal(await applyNativeCslToStaticRender(staticNoteInput(f, container)), true);
+  assert.deepEqual(f.requests[0].clusters.map((cluster) => cluster.noteIndex), [2, 2]);
+});
+
+test("Static notes: note-only citations populate the same CSL bibliography request", async (t) => {
+  const f = bibliographyFixture(t, { source: "Text[^1].\n\n[^1]: [@doe2023]" });
+  f.p.textContent = "Text";
+  addNoteCall(f.doc, f.p, "fn1");
+  const notes = addNoteDefinitions(f.doc, f.container, [["fn1", "[@doe2023]"]]);
+  assert.equal(await f.run(), true);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].includeBibliography, true);
+  assert.equal(f.requests[0].clusters[0].noteIndex, 1);
+  assert.equal(notes.querySelectorAll(".feuillets-csl-citation").length, 1);
+  assert.deepEqual(f.container.querySelectorAll(".feuillets-csl-bibliography-entry").map((entry) => entry.textContent), ["Rich doe2023"]);
+});
+
+test("Static notes: ContentVariant orphan definitions have no index or bibliography entry", async (t) => {
+  const f = bibliographyFixture(t);
+  f.p.textContent = "Text";
+  addNoteCall(f.doc, f.p, "fn2");
+  const excluded = f.doc.createElement("p");
+  excluded.className = "feuillets-semantic-role feuillets-role-solution";
+  addNoteCall(f.doc, excluded, "fn1");
+  f.container.insertBefore(excluded, f.p);
+  applyContentVariant(f.container, { excludedRoles: ["solution"], questionAnswerSpace: "keep" });
+  // Simulate a stale definition section retained by the Markdown renderer.
+  const notes = addNoteDefinitions(f.doc, f.container, [["fn1", "[@smith2024]"], ["fn2", "[@doe2023]"]]);
+  assert.equal(await f.run(), true);
+  assert.deepEqual(f.requests[0].clusters.map((cluster) => [cluster.items[0].id, cluster.noteIndex]), [["doe2023", 1]]);
+  assert.equal(notes.querySelectorAll("li")[0].textContent, "[@smith2024]↩");
+  assert.deepEqual(f.container.querySelectorAll(".feuillets-csl-bibliography-entry").map((entry) => entry.textContent), ["Rich doe2023"]);
+});
+
+for (const failure of ["duplicate definition", "missing definition", "partial result", "null bibliography"]) {
+  test(`Static notes: ${failure} preserves both body and note atomically`, async (t) => {
+    const f = bibliographyFixture(t, { handler: (request) => bibliographyResult(request,
+      failure === "partial result" ? { citations: [] } : failure === "null bibliography" ? { bibliography: null } : {}) });
+    f.p.textContent = "[@smith2024] ";
+    addNoteCall(f.doc, f.p, "fn1");
+    addNoteDefinitions(f.doc, f.container, failure === "missing definition" ? [] :
+      failure === "duplicate definition" ? [["fn1", "[@doe2023]"], ["fn1", "[@doe2023]"]] : [["fn1", "[@doe2023]"]]);
+    const before = f.container.outerHTML;
+    assert.equal(await f.run(), false);
+    assert.equal(f.container.outerHTML, before);
+  });
+}
+
+for (const format of ["docx", "epub", "odt"]) {
+  test(`Native ${format}: rich CSL note stays a real linked note without raw citations`, async (t) => {
+    const f = createStaticCslFixture({ docContent: "Text[^1].\n\n[^1]: [@doe2023]", customEngineHandler: (request) => ({
+      documentId: request.documentId, revision: request.revision,
+      citations: request.clusters.map((cluster) => ({ clusterId: cluster.id, plainText: "doe2023:normal",
+        content: [{ type: "span", style: { fontStyle: "italic", fontWeight: "bold", fontVariant: "small-caps", textDecoration: "underline" }, children: [{ type: "text", text: "doe2023:normal" }] },
+          { type: "span", style: { verticalAlign: "superscript" }, children: [{ type: "text", text: "sup" }] },
+          { type: "span", style: { verticalAlign: "subscript" }, children: [{ type: "text", text: "sub" }] }],
+      })), bibliography: null, diagnostics: [],
+    }) });
+    t.after(() => f.host.dispose());
+    installBibliographyRender(t, f.doc);
+    MarkdownRenderer.render = async (_app, _markdown, container) => {
+      const p = f.doc.createElement("p");
+      p.textContent = "Text";
+      addNoteCall(f.doc, p, "fn1");
+      addNoteCall(f.doc, p, "fn1");
+      container.appendChild(p);
+      addNoteDefinitions(f.doc, container, [["fn1", "See [@doe2023]."]]);
+    };
+    const exporter = { docx: exportDocx, epub: exportEpub, odt: exportOdt }[format];
+    const zip = await JSZip.loadAsync(await exporter(f.app, f.settings, {
+      markdown: f.fileA.content, sourcePath: f.fileA.path, title: "Notes", author: "Author",
+      citationSettings: { style: "csl", bibliographyPath: "" }, cslHost: f.host, projectRoot: f.projectRoot,
+    }));
+    const xml = await zip.file({ docx: "word/footnotes.xml", epub: "OEBPS/chapitres.xhtml", odt: "content.xml" }[format]).async("string");
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.requests[0].clusters[0].noteIndex, 1);
+    assert.doesNotMatch(xml, /\[@doe2023\]/);
+    assert.match(xml, /doe2023:normal/);
+    if (format === "docx") {
+      assert.match(xml, /<w:footnote w:id="1"/);
+      for (const property of ["w:i", "w:b", "w:smallCaps", "w:u", "superscript", "subscript"]) assert.ok(xml.includes(property));
+      assert.doesNotMatch(xml, /↩/);
+      const body = await zip.file("word/document.xml").async("string");
+      assert.match(body, /<w:footnoteReference/);
+      assert.doesNotMatch(body, /doe2023:normal/);
+    } else if (format === "epub") {
+      assert.match(xml, /epub:type="footnotes"/);
+      assert.match(xml, /feuillets-csl-font-italic/);
+      assert.match(xml, /href="#ref-fn1"/);
+      assert.equal((xml.match(/<li id="fn1"/g) ?? []).length, 1);
+    } else {
+      assert.match(xml, /<text:note text:id="Footnote1" text:note-class="footnote"/);
+      assert.match(xml, /<text:note-ref text:ref-name="Footnote1"/);
+      for (const style of ["Italic", "Bold", "SmallCaps", "Underline", "Superscript", "Subscript"]) assert.ok(xml.includes(`text:style-name="${style}"`));
+      assert.doesNotMatch(xml, />Notes<\/text:h>|↩/);
+      assert.equal((xml.match(/<text:note-body>/g) ?? []).length, 1);
+    }
+  });
+}
+
+test("Static notes: an unmappable split citation leaves body, notes and bibliography untouched", async (t) => {
+  const f = bibliographyFixture(t);
+  f.p.textContent = "[@smith2024] ";
+  addNoteCall(f.doc, f.p, "fn1");
+  const section = addNoteDefinitions(f.doc, f.container, [["fn1", ""]]);
+  const p = section.querySelector("p");
+  p.insertBefore(f.doc.createTextNode("[@doe"), p.firstChild);
+  const em = f.doc.createElement("em");
+  em.textContent = "2023";
+  p.insertBefore(em, p.querySelector("a"));
+  p.insertBefore(f.doc.createTextNode("]"), p.querySelector("a"));
+  const before = f.container.outerHTML;
+  assert.equal(await f.run(), false);
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.container.outerHTML, before);
 });

@@ -31,6 +31,7 @@ import { renderCitationNodes } from "./citation-render-nodes.js";
 import { createPandocCitationSpan } from "./pandoc-citation-preview.js";
 import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
 import { applyCslBibliographyLayout, createCslBibliographyElement } from "./csl-bibliography-layout.js";
+import { isFootnoteCall, isFootnoteSection, pairDomFootnotes } from "./footnote-dom.js";
 import { t } from "../i18n/index.js";
 
 export const STATIC_RENDER_ATTR = "data-feuillets-static-render";
@@ -167,28 +168,53 @@ function isProtectedElement(element: Element): boolean {
   if (PROTECTED_TAGS.has(element.tagName)) return true;
   if (element.classList && element.classList.contains("feuillets-csl-citation")) return true;
   if (element.classList && element.classList.contains("feuillets-csl-bibliography")) return true;
-  if (element.classList && element.classList.contains("footnotes")) return true;
-  if (element.tagName === "SECTION" && element.classList && element.classList.contains("footnotes")) return true;
   return false;
 }
 
 const DOM_TEXT_NODE = 3;
 const DOM_ELEMENT_NODE = 1;
 
-function collectEligibleTextNodes(node: Node, out: Text[]): void {
-  if (node.nodeType === DOM_TEXT_NODE) {
-    const parent = (node as Text).parentElement;
-    if (parent && !isProtectedElement(parent)) {
-      out.push(node as Text);
+type NoteAwareDomText = { textNode: Text; noteIndex?: number };
+
+function collectNoteAwareTextNodes(container: HTMLElement): NoteAwareDomText[] | null {
+  const notes = pairDomFootnotes(container);
+  if (!notes) return null;
+  const firstCalls = new Map(notes.map((note) => [note.call, note]));
+  const texts: NoteAwareDomText[] = [];
+  const regions: { text: string; raw: string[] }[] = [];
+  const createRegion = () => {
+    const region: { text: string; raw: string[] } = { text: "", raw: [] };
+    regions.push(region);
+    return region;
+  };
+  const blockTags = new Set(["P", "DIV", "LI", "H1", "H2", "H3", "H4", "H5", "H6", "BLOCKQUOTE", "TD", "TH"]);
+  const visit = (node: Node, noteIndex: number | undefined, region: { text: string; raw: string[] }): void => {
+    if (node.nodeType === DOM_TEXT_NODE) {
+      const text = node.nodeValue ?? "";
+      region.text += text;
+      region.raw.push(...parsePandocCitationDocument(text).occurrences.map((occurrence) => occurrence.raw));
+      texts.push({ textNode: node as Text, ...(noteIndex !== undefined ? { noteIndex } : {}) });
+      return;
     }
-    return;
-  }
-  if (node.nodeType !== DOM_ELEMENT_NODE) return;
-  const element = node as Element;
-  if (isProtectedElement(element)) return;
-  for (let i = 0; i < node.childNodes.length; i++) {
-    collectEligibleTextNodes(node.childNodes[i], out);
-  }
+    if (node.nodeType !== DOM_ELEMENT_NODE) return;
+    const element = node as Element;
+    if (isFootnoteSection(element) || isProtectedElement(element)) { region.text += " "; return; }
+    if (isFootnoteCall(element)) {
+      region.text += " ";
+      const note = firstCalls.get(element);
+      if (note) visit(note.definition, note.noteIndex, createRegion());
+      return;
+    }
+    const currentRegion = blockTags.has(element.tagName) ? createRegion() : region;
+    for (const child of Array.from(node.childNodes)) visit(child, noteIndex, currentRegion);
+  };
+  visit(container, undefined, createRegion());
+  // A citation split across DOM nodes has no safe replacement mapping.
+  if (regions.some((region) => {
+    const raw = parsePandocCitationDocument(region.text).occurrences.map((occurrence) => occurrence.raw);
+    return raw.length !== region.raw.length || raw.some((value, index) => value !== region.raw[index]);
+  })) return null;
+  return texts;
 }
 
 type DomOccurrenceMapping = {
@@ -225,9 +251,8 @@ export async function applyNativeCslToStaticRender(
     return false;
   }
 
-  const eligibleTextNodes: Text[] = [];
-  collectEligibleTextNodes(container, eligibleTextNodes);
-  if (eligibleTextNodes.length === 0) {
+  const eligibleTextNodes = collectNoteAwareTextNodes(container);
+  if (!eligibleTextNodes || eligibleTextNodes.length === 0) {
     return false;
   }
 
@@ -236,7 +261,7 @@ export async function applyNativeCslToStaticRender(
   const domMappings: DomOccurrenceMapping[] = [];
 
   let syntheticOffset = 0;
-  for (const textNode of eligibleTextNodes) {
+  for (const { textNode, noteIndex } of eligibleTextNodes) {
     const localText = textNode.nodeValue || "";
     if (!localText) continue;
 
@@ -249,6 +274,7 @@ export async function applyNativeCslToStaticRender(
       const cluster: CitationClusterInput = {
         id: clusterId,
         items: occ.cluster.items,
+        ...(noteIndex !== undefined ? { noteIndex } : {}),
       };
 
       clusters.push(cluster);

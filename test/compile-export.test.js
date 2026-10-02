@@ -3220,6 +3220,17 @@ class FakeCitationEl {
     }
   }
 
+  setCssStyles(styles) { Object.assign(this.style, styles); }
+  createEl(tag, options = {}) {
+    const element = new FakeCitationEl(tag, options.text || "");
+    if (options.cls) element.className = options.cls;
+    for (const [name, value] of Object.entries(options.attr ?? {})) element.setAttribute(name, value);
+    this.appendChild(element);
+    return element;
+  }
+  createDiv(options) { return this.createEl("div", options); }
+  createSpan(options) { return this.createEl("span", options); }
+
   get nodeType() {
     return 1;
   }
@@ -3524,7 +3535,20 @@ function setupCitationExportDom() {
         container.appendChild(new FakeCitationEl(`h${headingMatch[1].length}`, headingMatch[2]));
         continue;
       }
-      container.appendChild(new FakeCitationEl("p", block));
+      const paragraph = new FakeCitationEl("p");
+      const parts = block.split("[^1]");
+      parts.forEach((part, index) => {
+        paragraph.appendChild(createCitationTextNode(part, paragraph));
+        if (index < parts.length - 1) {
+          const call = new FakeCitationEl("sup");
+          call.className = "footnote-ref";
+          const link = new FakeCitationEl("a", "1");
+          link.setAttribute("href", "#fn1");
+          call.appendChild(link);
+          paragraph.appendChild(call);
+        }
+      });
+      container.appendChild(paragraph);
     }
   };
 
@@ -3755,7 +3779,7 @@ test("exportWithScope (file scope) : DOCX, EPUB, ODT et PDF formatent les citati
     assert.doesNotMatch(odtXml, /\[@sharedKey\]/);
     assert.doesNotMatch(odtXml, /WorkAAuthor/);
     assert.doesNotMatch(odtXml, /ProjectAuthor/);
-    assert.match(odtXml, /Footnote cite \(ChapterAuthor, 2024\)/);
+    assert.match(odtXml, /<text:note-body>[\s\S]*Footnote cite [\s\S]*\(ChapterAuthor, 2024\)[\s\S]*<\/text:note-body>/);
     assert.match(odtXml, /\[@workBKey\]/);
     assert.match(odtXml, /\[@unknownKey\]/);
 

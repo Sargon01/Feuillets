@@ -5,6 +5,7 @@
  * their definitions to the page of their first call, with visible marker text.
  */
 
+import { footnoteCallId } from "./footnote-dom.js";
 import type { PaginationPage } from "./pagination-engine.js";
 
 /**
@@ -42,22 +43,7 @@ function extractFootnoteData(supElement: Element): { id: string; markerText: str
   const link = supElement.querySelector("a[href]");
   if (!link) return null;
 
-  const href = link.getAttribute("href");
-  if (!href) return null;
-
-  // Extract fragment after #
-  const hashIndex = href.lastIndexOf("#");
-  if (hashIndex === -1) return null;
-
-  let fragment = href.substring(hashIndex + 1);
-
-  // Try to decode if percent-encoded
-  try {
-    fragment = decodeURIComponent(fragment);
-  } catch {
-    // If decoding fails, use raw fragment
-  }
-
+  const fragment = footnoteCallId(supElement);
   if (!fragment) return null;
 
   const markerText = link.textContent?.trim() ?? "";

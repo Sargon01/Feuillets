@@ -1002,8 +1002,8 @@ test("CSL Live Preview: inline footnote with citation decorates only the citatio
   assert.equal(cluster.items[0].locator, "57");
   assert.equal(cluster.items[0].label, "page");
 
-  // 3. noteIndex is strictly undefined
-  assert.equal(cluster.noteIndex, undefined);
+  // 3. The citation belongs to the first inline note.
+  assert.equal(cluster.noteIndex, 1);
 
   // 4. Decoration in CodeMirror spans ONLY [7, 24], never the whole note
   const decos = instance.decorations;
@@ -1733,4 +1733,28 @@ test("CSL Live Preview boundary: selectionOverlaps uses half-open interval [from
 
   // Cursor after citation (pos 21) -> no overlap
   assert.equal(selectionOverlaps({ ranges: [{ from: 21, to: 21 }] }, from, to), false);
+});
+
+test("CSL Live Preview: referenced notes retain logical mapping after prose edits and definition reordering", async (t) => {
+  const f = createCslFixture();
+  const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+  let text = "Text[^b][^a].\n\n[^a]: See [@alpha]\n[^b]: See [@beta]";
+  const view = makeFakeView({ text, file: f.docFile, app: f.app });
+  const instance = new PluginClass(view);
+  t.after(() => { instance.destroy(); f.host.dispose(); });
+  await flush(10);
+  assert.deepEqual(f.recordedRequests[0].clusters.map((cluster) => [cluster.items[0].id, cluster.noteIndex]), [["beta", 1], ["alpha", 2]]);
+  text = "Longer prose[^b][^a].\n\n[^b]: See [@beta]\n[^a]: See [@alpha]";
+  view.state.doc = makeFakeDoc(text);
+  view.visibleRanges = [{ from: 0, to: text.length }];
+  instance.update({ view, docChanged: true });
+  assert.equal(getDecoCount(instance.decorations), 2);
+  for (const decoration of instance.decorations) {
+    const raw = text.slice(decoration.from, decoration.to);
+    assert.ok(decoration.widget.citation.plainText.includes(raw.includes("beta") ? "1" : "2"));
+  }
+  instance.update({ view, viewportChanged: true });
+  instance.update({ view, selectionSet: true });
+  await flush(180);
+  assert.equal(f.getProviderCallCount(), 1);
 });

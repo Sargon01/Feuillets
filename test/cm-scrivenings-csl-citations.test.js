@@ -1591,3 +1591,27 @@ test("Cas H bis — ScriveningsView réelle à plusieurs segments : les citation
   f.host.dispose();
 });
 
+
+test("CSL Continu: global note indices include non-citing notes and scrolling reuses the document", async (t) => {
+  const requests = [];
+  const f = createCslContinuFixture({
+    docAContent: "Text[^a] ^[Comment].\n\n[^a]: See [@smith2024]",
+    docBContent: "Text.^[See [@doe2023]]",
+    providerOverrides: { renderDocument: async (request) => {
+      requests.push(request);
+      return { documentId: request.documentId, revision: request.revision,
+        citations: request.clusters.map((cluster) => ({ clusterId: cluster.id, plainText: `Note ${cluster.noteIndex}`, content: [{ type: "text", text: `Note ${cluster.noteIndex}` }] })),
+        bibliography: null, diagnostics: [] };
+    } },
+  });
+  const mounted = mountCslContinu(f, [f.docA, f.docB]);
+  t.after(() => { mounted.instance.destroy(); f.host.dispose(); });
+  await flush(10);
+  assert.deepEqual(requests[0].clusters.map((cluster) => cluster.noteIndex), [1, 3]);
+  mounted.view.visibleRanges = [{ from: mounted.doc.segments[1].from, to: mounted.doc.segments[1].to }];
+  mounted.instance.update({ view: mounted.view, viewportChanged: true });
+  await flush(10);
+  assert.equal(requests.length, 1);
+  assert.equal(mounted.instance.decorations.length, 1);
+  assert.equal(mounted.instance.decorations[0].widget.citation.plainText, "Note 3");
+});

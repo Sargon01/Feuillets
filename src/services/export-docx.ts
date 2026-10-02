@@ -1,3 +1,4 @@
+import type { RenderedFootnote } from "./export-render.js";
 import {
   Document,
   Packer,
@@ -40,7 +41,7 @@ import {
   wordLocale,
   titleRoleOf,
 } from "./export-docx-style.js";
-import { blockToParagraphs, headingPageBreakBefore } from "./docx-blocks.js";
+import { inlineChildren, blockToParagraphs, headingPageBreakBefore } from "./docx-blocks.js";
 import { generatedContentsDescriptor, type GeneratedContentsKind } from "./generated-contents.js";
 import type { ContentVariant } from "./content-variants.js";
 
@@ -112,11 +113,6 @@ type ExportInput = {
   citationSettings?: ExportCitationSettings;
   cslHost?: CslCitationHost | null;
   projectRoot?: TFolder;
-};
-
-type RenderedFootnote = {
-  id: string;
-  text: string;
 };
 
 type RenderedImage = {
@@ -240,8 +236,9 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   footnotes.forEach((f, i) => {
     const id = i + 1;
     footnoteIdByHref.set(f.id, id);
-    const text = (f.text || "").replace(/[\s/\\]+$/, "").trim();
-    footnoteMap[id] = { children: [new Paragraph({ children: [new TextRun(` ${text}`)] })] };
+    const blocks = Array.from(f.contentElement.children);
+    const paragraphs = blocks.flatMap((block) => blockToParagraphs(block, new Map(), tpl, {}, images));
+    footnoteMap[id] = { children: paragraphs.length ? paragraphs : [new Paragraph({ children: inlineChildren(f.contentElement, new Map(), images) })] };
   });
 
   const headings = template.headings;

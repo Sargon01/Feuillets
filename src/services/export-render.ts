@@ -12,10 +12,11 @@ import { flattenPandocCitationElementsForStaticRender } from "./pandoc-citation-
 import { STATIC_RENDER_ATTR, STATIC_RENDER_ATTR_VALUE } from "./pandoc-citation-static-csl.js";
 import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
 
-type RenderedFootnote = {
+export type RenderedFootnote = {
   id: string;
   html: string;
   text: string;
+  contentElement: HTMLElement;
 };
 
 type RenderedImage = {
@@ -417,13 +418,7 @@ function extractFootnotes(container: HTMLElement): RenderedFootnote[] {
       const clone = li.cloneNode(true);
       if (!isHtmlElement(clone)) return;
 
-      /* `html` GARDE le lien de retour (`a.footnote-backref`) : c'est le
-         "aller-retour" attendu en HTML/EPUB (voir footnotesXhtml,
-         export-epub.js). `text`, lui, en est délibérément privé — DOCX
-         construit une vraie note Word à partir de ce texte brut, où une
-         flèche "↩" ne représenterait plus un lien cliquable, juste un
-         caractère parasite. D'où deux clones distincts plutôt qu'un retrait
-         partagé qui priverait HTML/EPUB de leur lien de retour. */
+      // HTML keeps backlinks; structured exports use a detached clone without them.
       const textOnlyClone = clone.cloneNode(true);
       if (isHtmlElement(textOnlyClone)) {
         textOnlyClone.querySelectorAll("a.footnote-backref, .footnote-backref").forEach((a) => a.remove());
@@ -452,7 +447,8 @@ function extractFootnotes(container: HTMLElement): RenderedFootnote[] {
         .replace(/(?:&nbsp;|\s)*[/\\]+\s*(<\/p>)/gi, "$1")
         .trim();
 
-      footnotes.push({ id, html, text });
+      if (!isHtmlElement(textOnlyClone)) return;
+      footnotes.push({ id, html, text, contentElement: textOnlyClone });
     });
     section.remove();
   } catch (e) {

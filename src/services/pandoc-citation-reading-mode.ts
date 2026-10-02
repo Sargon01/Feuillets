@@ -1,3 +1,6 @@
+import { buildNoteAwarePandocCitationDocument } from "./pandoc-citation-notes.js";
+import { footnoteDefinitions, isFootnoteSection } from "./footnote-dom.js";
+import type { ParsedPandocCitationOccurrence } from "./pandoc-citation-parser.js";
 /**
  * Reading Mode rendering of Pandoc citekeys, via registerMarkdownPostProcessor().
  *
@@ -333,7 +336,13 @@ class ReadingCslCoordinator {
 
   async process(el: HTMLElement, ctx: MarkdownPostProcessorContext, file: TFile): Promise<void> {
     if (this.disposed) return;
-    const info = ctx.getSectionInfo?.(el);
+    let info = ctx.getSectionInfo?.(el);
+    if (!info && findFootnoteSection(el)) {
+      try {
+        const text = await this.plugin.app.vault.read(file);
+        info = { text, lineStart: 0, lineEnd: text.split("\n").length - 1 };
+      } catch { return; }
+    }
     const project = getProjectFolder(this.plugin.app, this.plugin.settings);
     if (!info || !project) return;
 
@@ -383,7 +392,7 @@ class ReadingCslCoordinator {
       || normalizePath(ctx.sourcePath) !== path || file.path !== path) return;
     // Re-read section metadata immediately before mapping; never trust ranges
     // captured before an asynchronous Vault/provider operation.
-    const currentInfo = ctx.getSectionInfo(el);
+    const currentInfo = ctx.getSectionInfo(el) ?? (findFootnoteSection(el) ? info : null);
     if (!currentInfo || currentInfo.text !== result.source) return;
     wrapCslReadingSection(el, result.source, currentInfo.lineStart, currentInfo.lineEnd, result.snapshot);
   }
@@ -403,13 +412,43 @@ function wrapCslReadingSection(
   if (lineEnd >= starts.length) return;
   const from = starts[lineStart];
   const to = lineEnd + 1 < starts.length ? starts[lineEnd + 1] : source.length;
+  const noteAware = buildNoteAwarePandocCitationDocument(source);
+  const noteSection = findFootnoteSection(root);
+  const definitions = footnoteDefinitions(noteSection ?? root);
+  const allOccurrences = snapshot.parsedDocument.occurrences;
+  for (const definition of definitions) {
+    if (!containsElement(root, definition) && !containsElement(definition, root)) continue;
+    const noteIndex = definitions.indexOf(definition) + 1;
+    const context = noteAware.notes.find((note) => note.noteIndex === noteIndex);
+    if (!context) continue;
+    wrapCslReadingRange(definition as HTMLElement, source, context.bodyFrom, context.bodyTo,
+      allOccurrences.filter((occurrence) => occurrence.cluster.noteIndex === noteIndex), snapshot, true);
+  }
+  if (noteSection) return;
+  const bodySource = noteAware.notes.reduce((text, note) =>
+    text.slice(0, note.bodyFrom) + " ".repeat(note.bodyTo - note.bodyFrom) + text.slice(note.bodyTo), source);
+  wrapCslReadingRange(root, bodySource, from, to,
+    allOccurrences.filter((occurrence) => occurrence.cluster.noteIndex === undefined && occurrence.from >= from && occurrence.to <= to), snapshot, false);
+}
+
+function containsElement(root: Element, element: Element): boolean {
+  for (let current: Element | null = element; current; current = current.parentElement) if (current === root) return true;
+  return false;
+}
+
+function findFootnoteSection(root: Element): Element | null {
+  for (let element: Element | null = root; element; element = element.parentElement) if (isFootnoteSection(element)) return element;
+  return null;
+}
+
+function wrapCslReadingRange(
+  root: HTMLElement, source: string, from: number, to: number,
+  occurrences: readonly ParsedPandocCitationOccurrence[], snapshot: CslHostReadySnapshot, insideNote: boolean
+): void {
   const section = source.slice(from, to);
-  // Native inline footnotes can move text outside its source section/order.
-  if (section.includes("^[") || /^\s*\[\^[^\]]+\]:/m.test(section)) return;
-  const occurrences = snapshot.parsedDocument.occurrences.filter((occ) => occ.from >= from && occ.to <= to);
   const texts: { node: Text; protected: boolean }[] = [];
   const isProtected = (element: Element): boolean => PROTECTED_TAGS.has(element.tagName)
-    || ["internal-embed", "feuillets-csl-citation", "footnotes", "callout"].some((name) => element.classList.contains(name));
+    || ["internal-embed", "feuillets-csl-citation", "callout", ...(insideNote ? [] : ["footnotes"])].some((name) => element.classList.contains(name));
   for (let ancestor = root.parentElement; ancestor; ancestor = ancestor.parentElement) {
     if (isProtected(ancestor)) return;
   }

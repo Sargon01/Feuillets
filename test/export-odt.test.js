@@ -29,6 +29,7 @@ class FakeElement {
   get className() {
     return this.getAttribute("class") || "";
   }
+  get classList() { return { contains: (name) => this.className.split(/\s+/).includes(name) }; }
   get childNodes() {
     // Cette fausse arborescence ne modélise pas les nœuds texte comme de
     // vrais enfants (contrairement au DOM réel) : un élément-feuille avec du
@@ -134,10 +135,15 @@ function setRenderer(render) {
   return () => { MarkdownRenderer.render = previous; };
 }
 
-test("exportOdt : les notes de bas de page apparaissent en notes de fin, jamais silencieusement perdues", async () => {
+test("exportOdt: notes are real footnotes at their calls", async () => {
   const restoreDom = installDom();
   const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
-    container.appendChild(element("p", "Un fait notable."));
+    const paragraph = element("p");
+    paragraph.appendChild(element("span", "Un fait notable."));
+    const call = element("sup", "", { class: "footnote-ref" });
+    call.appendChild(element("a", "1", { href: "#fn1" }));
+    paragraph.appendChild(call);
+    container.appendChild(paragraph);
     const section = element("section", "", { class: "footnotes" });
     const note = element("li", "", { id: "fn1" });
     note.appendChild(element("p", "Une source importante."));
@@ -160,7 +166,8 @@ test("exportOdt : les notes de bas de page apparaissent en notes de fin, jamais 
     const contentXml = await zip.file("content.xml").async("string");
 
     assert.match(contentXml, /Un fait notable\./);
-    assert.match(contentXml, />Notes<\/text:h>/);
+    assert.match(contentXml, /<text:note text:id="Footnote1" text:note-class="footnote">/);
+    assert.doesNotMatch(contentXml, />Notes<\/text:h>/);
     assert.match(contentXml, /Une source importante\./);
   } finally {
     restoreRenderer();

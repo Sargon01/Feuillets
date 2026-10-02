@@ -34,9 +34,9 @@ import {
   type CitationEngineProvider,
   type RenderedCitation,
 } from "../api/citation-engine.js";
+import { buildNoteAwarePandocCitationDocument } from "./pandoc-citation-notes.js";
 import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
 import {
-  parsePandocCitationDocument,
   type ParsedPandocCitationDocument,
   type ParsedPandocCitationOccurrence,
 } from "./pandoc-citation-parser.js";
@@ -444,7 +444,7 @@ export class CslCitationHost {
     const includeBibliography = options.includeBibliography ?? false;
     const cacheSignature = `${bibPath}@${bibVersion}|${cslPath}@${cslVersion}|${effectiveLocale ?? ""}|${includeBibliography ? "1" : "0"}|${markdown}`;
 
-    const parsedDocument = parsePandocCitationDocument(markdown);
+    const parsedDocument = buildNoteAwarePandocCitationDocument(markdown).document;
 
     return this.executeRenderPipeline(
       documentId,

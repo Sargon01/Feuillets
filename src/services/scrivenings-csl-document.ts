@@ -14,7 +14,7 @@
  */
 
 import type { CitationClusterInput } from "../api/citation-contract.js";
-import { parsePandocCitationDocument } from "./pandoc-citation-parser.js";
+import { buildNoteAwarePandocCitationDocument } from "./pandoc-citation-notes.js";
 import type { ScriveningsDocument } from "./scrivenings-document.js";
 
 export interface ScriveningsCslOccurrence {
@@ -48,11 +48,14 @@ export function buildScriveningsCslDocument(
 ): ScriveningsCslDocument {
   const occurrences: ScriveningsCslOccurrence[] = [];
   const segmentOccurrences: ScriveningsCslOccurrence[][] = [];
+  const clusters: CitationClusterInput[] = [];
+  let cumulativeNoteCount = 0;
 
   for (let segmentIndex = 0; segmentIndex < doc.segments.length; segmentIndex++) {
     const segment = doc.segments[segmentIndex];
     const segmentList: ScriveningsCslOccurrence[] = [];
-    const parsed = parsePandocCitationDocument(segment.body);
+    const noteAware = buildNoteAwarePandocCitationDocument(segment.body);
+    const parsed = noteAware.document;
 
     for (const localOccurrence of parsed.occurrences) {
       const globalFrom = segment.from + localOccurrence.from;
@@ -70,7 +73,7 @@ export function buildScriveningsCslDocument(
         id: clusterId,
         items: localOccurrence.cluster.items.map((item) => ({ ...item })),
         ...(localOccurrence.cluster.noteIndex !== undefined
-          ? { noteIndex: localOccurrence.cluster.noteIndex }
+          ? { noteIndex: localOccurrence.cluster.noteIndex + cumulativeNoteCount }
           : {}),
       };
 
@@ -90,6 +93,14 @@ export function buildScriveningsCslDocument(
       occurrences.push(occurrence);
     }
 
+    const byLocalId = new Map(segmentList.map((occurrence) => [
+      `citation:${occurrence.localFrom}:${occurrence.localTo}`, occurrence.cluster,
+    ]));
+    for (const cluster of parsed.clusters) {
+      const rebased = byLocalId.get(cluster.id);
+      if (rebased) clusters.push(rebased);
+    }
+    cumulativeNoteCount += noteAware.noteCount;
     segmentOccurrences.push(segmentList);
   }
 
@@ -103,7 +114,7 @@ export function buildScriveningsCslDocument(
 
   return {
     occurrences,
-    clusters: occurrences.map((o) => o.cluster),
+    clusters,
     segmentOccurrences,
   };
 }

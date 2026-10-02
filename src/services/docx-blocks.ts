@@ -33,6 +33,7 @@ import {
   Tab,
 } from "docx";
 import { readCslBibliographyLayout, cslBibliographyTabPositionPt } from "./csl-bibliography-layout.js";
+import { normalizeFootnoteFragment } from "./footnote-dom.js";
 import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
 import {
   FRONT_PAGE_LINE_SPACING,
@@ -295,7 +296,7 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
       const href = node.getAttribute("href") || "";
       if (href.startsWith("#fn") || node.classList.contains("footnote-ref")) {
         const idStr = href.replace(/^#fn-?/, "").replace(/^#fnref-?/, "");
-        const num = footnoteIdByHref.get(idStr) || footnoteIdByHref.get(href.replace(/^#/, ""));
+        const num = footnoteIdByHref.get(normalizeFootnoteFragment(href) ?? "") || footnoteIdByHref.get(idStr) || footnoteIdByHref.get(href.replace(/^#/, ""));
         if (num != null) {
           runs.push(new FootnoteReferenceRun(num));
           return;
