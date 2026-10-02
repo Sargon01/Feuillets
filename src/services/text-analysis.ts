@@ -31,6 +31,9 @@ export type AnalysisRun = {
    *  faire à partir du texte RÉEL (le texte transmis au fournisseur, lui, a
    *  le Markdown masqué). */
   sourceText: string;
+  /** Origine du texte analysé. Un tampon vivant reste courant même si le
+   * fichier est enregistré juste après l'analyse. */
+  source: "file" | "buffer";
   /** mtime du fichier au moment de l'analyse : sert à signaler au panneau
    *  que les résultats affichés datent d'avant les dernières modifications. */
   mtime: number;
@@ -51,29 +54,53 @@ export async function runAnalysis(
   if (!provider) throw new Error("NO_PROVIDER");
 
   const content = await app.vault.cachedRead(file);
+  return analyzeText(provider, content, {
+    filePath: file.path,
+    fileTitle: options?.fileTitle ?? file.basename,
+    mtime: file.stat.mtime,
+    selection: options?.selection,
+    source: "file",
+  });
+}
+
+/** Analyse un texte déjà disponible en mémoire. Les commandes explicites et
+ * les analyses du tampon partagent ainsi exactement la même préparation et
+ * la même conversion d'offsets. */
+export async function analyzeText(
+  provider: TextAnalysisProvider,
+  content: string,
+  options: {
+    filePath: string;
+    fileTitle: string;
+    mtime: number;
+    selection?: AnalysisSelection;
+    source: "file" | "buffer";
+  }
+): Promise<AnalysisRun> {
   const slice = buildAnalysisSlice(content, options?.selection);
 
   const raw = await callProvider(provider, {
     text: slice.text,
-    filePath: file.path,
+    filePath: options.filePath,
     selectionStart: slice.selectionStart,
     selectionEnd: slice.selectionEnd,
   });
 
   const issues = sanitizeIssues(raw, slice.text.length).map((issue): ResolvedAnalysisIssue => {
     const range = analysisRangeFor(issue, slice, content.length);
-    return { ...issue, ...range, filePath: file.path };
+    return { ...issue, ...range, filePath: options.filePath };
   });
 
   return {
     providerId: provider.id,
     providerName: provider.name,
-    filePath: file.path,
-    fileTitle: options?.fileTitle ?? file.basename,
+    filePath: options.filePath,
+    fileTitle: options.fileTitle,
     scope: slice.selectionStart === undefined ? "document" : "selection",
     issues,
     sourceText: content,
-    mtime: file.stat.mtime,
+    source: options.source,
+    mtime: options.mtime,
   };
 }
 

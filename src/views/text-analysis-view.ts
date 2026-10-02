@@ -103,7 +103,7 @@ export class TextAnalysisView extends BaseFeuilletsView {
     );
 
     const file = this.app.vault.getAbstractFileByPath(run.filePath);
-    if (file instanceof TFile && file.stat.mtime !== run.mtime) {
+    if (run.source !== "buffer" && file instanceof TFile && file.stat.mtime !== run.mtime) {
       summary.createDiv({ cls: "feuillets-notes-sub" }).setText(t("analysisResults.stale"));
     }
 

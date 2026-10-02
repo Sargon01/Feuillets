@@ -247,7 +247,8 @@ import {
 } from "./api/text-analysis.js";
 import { CitationEngineRegistry } from "./api/citation-engine.js";
 import { CslCitationHost } from "./services/csl-citation-host.js";
-import { runAnalysis, type AnalysisRun } from "./services/text-analysis.js";
+import { analyzeText, runAnalysis, type AnalysisRun } from "./services/text-analysis.js";
+import { LiveTextAnalysis } from "./services/live-text-analysis.js";
 
 import {
   Plugin,
@@ -616,8 +617,7 @@ class FeuilletsPlugin extends Plugin {
   /** Dernière analyse effectuée, affichée par l'onglet Relecture. */
   analysisRun: AnalysisRun | null = null;
   analysisRunning = false;
-  autoAnalyzeTimer: number | ReturnType<typeof setTimeout> | null = null;
-  lastAutoAnalyzedContent = "";
+  liveTextAnalysis: LiveTextAnalysis<AnalysisRun> | null = null;
 
 
   isLayoutReady?: boolean;
@@ -776,6 +776,7 @@ class FeuilletsPlugin extends Plugin {
     this.initializeProjectDraftAutoRenamer();
 
     this.registerViews();
+    this.initializeLiveTextAnalysis();
     this.registerHoverLinkSource("feuillets", { display: "Feuillets", defaultMod: false });
     this.registerRibbonIcons();
     this.registerCoreCommands();
@@ -929,7 +930,10 @@ class FeuilletsPlugin extends Plugin {
        rechargement du greffon) : le panneau ouvert doit suivre. `register()`
        coupe l'abonnement au déchargement de Feuillets — pas de référence
        retenue vers une vue morte. */
-    this.register(this.analysisRegistry.onChange(() => this.refreshAnalysisPanel()));
+    this.register(this.analysisRegistry.onChange(() => {
+      this.liveTextAnalysis?.invalidate();
+      this.refreshAnalysisPanel();
+    }));
 
     /* Intégration Advanced Canvas : purement optionnelle, sans effet si le
        plugin compagnon n'est pas installé (voir integrations/advanced-
@@ -1899,33 +1903,50 @@ class FeuilletsPlugin extends Plugin {
         const file = this.app.workspace.getActiveFile();
         if (!file || file.extension !== "md") return;
 
-        const content = editor.getValue();
-        if (content === this.lastAutoAnalyzedContent) return;
-
-        if (this.autoAnalyzeTimer) {
-          window.clearTimeout(this.autoAnalyzeTimer);
-          this.autoAnalyzeTimer = null;
-        }
-
-        this.autoAnalyzeTimer = window.setTimeout(() => {
-          this.autoAnalyzeTimer = null;
-          if (this.settings.autoAnalyzeInRelecture === false) return;
-          if (!this.isRelectureViewActive()) return;
-
-          const currentFile = this.app.workspace.getActiveFile();
-          if (!currentFile || currentFile.path !== file.path) return;
-
-          const currentContent = editor.getValue();
-          if (currentContent === this.lastAutoAnalyzedContent) return;
-          this.lastAutoAnalyzedContent = currentContent;
-
-          void (async () => {
-            await this.analyzeActiveFile();
-            if (typeof editor.focus === "function") editor.focus();
-          })();
-        }, 1000);
+        const provider = this.getAnalysisProvider();
+        if (!provider) return;
+        this.liveTextAnalysis?.schedule({
+          filePath: file.path,
+          fileTitle: this.titleFor(file),
+          text: editor.getValue(),
+          provider,
+          context: editor,
+        });
       })
     );
+  }
+
+  initializeLiveTextAnalysis(): void {
+    this.liveTextAnalysis = new LiveTextAnalysis<AnalysisRun>({
+      analyze: (snapshot) => analyzeText(snapshot.provider, snapshot.text, {
+        filePath: snapshot.filePath,
+        fileTitle: snapshot.fileTitle,
+        mtime: this.app.workspace.getActiveFile()?.stat.mtime ?? 0,
+        source: "buffer",
+      }),
+      isCurrent: (snapshot) => {
+        if (this.settings.autoAnalyzeInRelecture === false || !this.isRelectureViewActive()) return false;
+        const file = this.app.workspace.getActiveFile();
+        const editor = this.activeEditorAnywhere();
+        return file?.path === snapshot.filePath
+          && editor === snapshot.context
+          && editor?.getValue() === snapshot.text
+          && this.getAnalysisProvider() === snapshot.provider;
+      },
+      publish: (run, snapshot) => {
+        this.analysisRun = run;
+        const activeEd = this.activeEditorAnywhere();
+        if (activeEd) {
+          const cm = (activeEd as unknown as Record<string, unknown>).cm as { dispatch(spec: { effects?: unknown }): void } | undefined;
+          if (cm) applyGrammarHighlights(cm, run.issues, this, snapshot.filePath);
+        }
+        this.refreshAnalysisPanel();
+      },
+      onRunningChange: (running) => {
+        this.analysisRunning = running;
+        this.refreshAnalysisPanel();
+      },
+    });
   }
 
   /** Bug fix "writing colors/project-editor class missing until the first
@@ -2910,6 +2931,8 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
+    this.liveTextAnalysis?.dispose();
+    this.liveTextAnalysis = null;
     if (this._mindmapDecorationFrame !== undefined) {
       window.cancelAnimationFrame(this._mindmapDecorationFrame);
       this._mindmapDecorationFrame = undefined;

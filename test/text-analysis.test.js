@@ -751,32 +751,12 @@ test("sanitizeMarkdownForAnalysis : préserve la longueur exacte, les apostrophe
   assert.equal(sanitized.includes("https://example.com"), false, "l'URL est masquée");
 });
 
-test("analyse automatique : déclenchée après délai sans frappe, annulée si le texte ne change pas ou sur roman", () => {
-  let timerFired = false;
-  let scopeUsed = null;
-
-  const plugin = {
-    settings: { autoAnalyzeInRelecture: true },
-    lastAutoAnalyzedContent: "",
-    isRelectureViewActive: () => true,
-    analyzeActiveFile: () => { scopeUsed = "document"; timerFired = true; return Promise.resolve(); },
-  };
-
-  // 1. Même texte -> pas d'analyse
-  const text1 = "Bonjour";
-  if (text1 !== plugin.lastAutoAnalyzedContent && plugin.isRelectureViewActive()) {
-    plugin.lastAutoAnalyzedContent = text1;
-    void plugin.analyzeActiveFile();
-  }
-  assert.equal(timerFired, true);
-  assert.equal(scopeUsed, "document", "l'analyse automatique porte uniquement sur le feuillet (document)");
-
-  // 2. Texte inchangé -> pas de seconde analyse
-  timerFired = false;
-  if (text1 !== plugin.lastAutoAnalyzedContent && plugin.isRelectureViewActive()) {
-    void plugin.analyzeActiveFile();
-  }
-  assert.equal(timerFired, false, "pas de réanalyse si le texte n'a pas changé");
+test("Relecture conserve son unique porte d'entrée pour l'analyse automatique", () => {
+  const mainSource = readFileSync(path.join(SRC_DIR, "main.ts"), "utf8");
+  assert.match(mainSource, /settings\.autoAnalyzeInRelecture === false/);
+  assert.match(mainSource, /isRelectureViewActive\(\)/);
+  assert.match(mainSource, /liveTextAnalysis\?\.schedule/);
+  assert.doesNotMatch(mainSource, /autoAnalyzeTimer|lastAutoAnalyzedContent/);
 });
 
 test("cm-grammar-highlighter : applique soulignement rouge pour orthographe et bleu pour grammaire", async () => {
