@@ -12,6 +12,7 @@ export function EditorView(config) {
   this.dom = config?.parent;
   this.visibleRanges = [{ from: 0, to: config?.state?.doc?.length ?? 0 }];
   this.plugins = [];
+  this.focus = () => {};
   this.destroy = () => {
     for (const plugin of this.plugins) {
       if (typeof plugin.destroy === "function") {
@@ -55,8 +56,8 @@ function makeDoc(text) {
 
   this.dispatch = (tr) => {
     if (!tr) return;
+    const changes = tr.changes ? (Array.isArray(tr.changes) ? tr.changes : [tr.changes]) : [];
     if (tr.changes && this.state?.doc) {
-      const changes = Array.isArray(tr.changes) ? tr.changes : [tr.changes];
       let str = this.state.doc.toString();
       const sorted = [...changes].sort((a, b) => b.from - a.from);
       for (const ch of sorted) {
@@ -81,7 +82,14 @@ function makeDoc(text) {
               effects,
               docChanged: Boolean(tr.changes),
               selectionSet: Boolean(tr.selection),
-              changes: { mapPos: (pos) => pos },
+            changes: {
+              mapPos: (pos) => pos,
+              touchesRange: (from, to) => changes.some((change) => {
+                const changeFrom = change.from;
+                const changeTo = change.to ?? change.from;
+                return changeFrom <= to && changeTo >= from;
+              }),
+            },
               state: this.state,
             }));
           } catch {

@@ -650,12 +650,12 @@ test("panneau & menu contextuel : suggestions absentes des cartes, présentes da
 
   await row.events.get("contextmenu")({ preventDefault: () => {}, stopPropagation: () => {}, clientX: 10, clientY: 20 });
   assert.ok(menuShown);
-  // 2 suggestions + 1 ignorer = 3 items dans le menu
-  assert.equal(menuShown.items.length, 3);
-  assert.match(menuShown.items[0].title, /faute/);
+	// En-tête informatif + 2 suggestions + 1 ignorer
+	assert.equal(menuShown.items.length, 4);
+	assert.match(menuShown.items[1].title, /faute/);
 
   // Clic sur suggestion -> remplace le texte dans l'éditeur
-  await menuShown.items[0].callback();
+	await menuShown.items[1].callback();
   assert.equal(replacedWith, "faute");
 
   Menu.prototype.showAtPosition = originalShowAt;
@@ -698,7 +698,7 @@ test("remplacement exact sans concaténation (début, milieu, fin de ligne, acce
 
   openIssueContextMenu(host, issueMid, { preventDefault: () => {}, stopPropagation: () => {}, clientX: 0, clientY: 0 });
   assert.ok(menuShown);
-  await menuShown.items[0].callback();
+	await menuShown.items[1].callback();
 
   assert.equal(content, "Éléphant faute dans la forêtt", "le mot d'origine a été entièrement remplacé sans concaténation");
   assert.equal(cursorOffset, 14, "le curseur est placé juste après le mot remplacé");
@@ -751,11 +751,11 @@ test("sanitizeMarkdownForAnalysis : préserve la longueur exacte, les apostrophe
   assert.equal(sanitized.includes("https://example.com"), false, "l'URL est masquée");
 });
 
-test("Relecture conserve son unique porte d'entrée pour l'analyse automatique", () => {
+test("l'éditeur enregistre son propre correcteur sans dépendre de Relecture", () => {
   const mainSource = readFileSync(path.join(SRC_DIR, "main.ts"), "utf8");
-  assert.match(mainSource, /settings\.autoAnalyzeInRelecture === false/);
-  assert.match(mainSource, /isRelectureViewActive\(\)/);
-  assert.match(mainSource, /liveTextAnalysis\?\.schedule/);
+  assert.match(mainSource, /registerEditorExtension\(createGrammarCheckerExtension\(this\)\)/);
+  assert.match(mainSource, /analysisRegistry\.onChange\(\(\) => \{[\s\S]*refreshGrammarChecks\(\)/);
+  assert.doesNotMatch(mainSource, /liveTextAnalysis|initializeLiveTextAnalysis/);
   assert.doesNotMatch(mainSource, /autoAnalyzeTimer|lastAutoAnalyzedContent/);
 });
 

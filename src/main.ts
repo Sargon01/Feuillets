@@ -235,8 +235,9 @@ import {
   type ParagraphReorderViewLike,
 } from "./utils/cm-paragraph-reorder.js";
 import {
-  grammarIssuesField,
-  grammarContextMenuExtension,
+  createGrammarCheckerExtension,
+  type GrammarEditorFile,
+  requestGrammarCheck,
   applyGrammarHighlights,
 } from "./utils/cm-grammar-highlighter.js";
 import {
@@ -247,8 +248,7 @@ import {
 } from "./api/text-analysis.js";
 import { CitationEngineRegistry } from "./api/citation-engine.js";
 import { CslCitationHost } from "./services/csl-citation-host.js";
-import { analyzeText, runAnalysis, type AnalysisRun } from "./services/text-analysis.js";
-import { LiveTextAnalysis } from "./services/live-text-analysis.js";
+import { runAnalysis, type AnalysisRun } from "./services/text-analysis.js";
 
 import {
   Plugin,
@@ -617,7 +617,6 @@ class FeuilletsPlugin extends Plugin {
   /** Dernière analyse effectuée, affichée par l'onglet Relecture. */
   analysisRun: AnalysisRun | null = null;
   analysisRunning = false;
-  liveTextAnalysis: LiveTextAnalysis<AnalysisRun> | null = null;
 
 
   isLayoutReady?: boolean;
@@ -776,7 +775,6 @@ class FeuilletsPlugin extends Plugin {
     this.initializeProjectDraftAutoRenamer();
 
     this.registerViews();
-    this.initializeLiveTextAnalysis();
     this.registerHoverLinkSource("feuillets", { display: "Feuillets", defaultMod: false });
     this.registerRibbonIcons();
     this.registerCoreCommands();
@@ -837,7 +835,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerSwipeGestures();
     this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
-    this.registerEditorExtension([grammarIssuesField, grammarContextMenuExtension(this)]);
+    this.registerEditorExtension(createGrammarCheckerExtension(this));
     this.registerEditorExtension([
       annotationHighlightField,
       annotationDoubleClickExtension((id, target) => void this.openAnnotationEditor(id, undefined, target)),
@@ -931,8 +929,8 @@ class FeuilletsPlugin extends Plugin {
        coupe l'abonnement au déchargement de Feuillets — pas de référence
        retenue vers une vue morte. */
     this.register(this.analysisRegistry.onChange(() => {
-      this.liveTextAnalysis?.invalidate();
       this.refreshAnalysisPanel();
+      this.refreshGrammarChecks();
     }));
 
     /* Intégration Advanced Canvas : purement optionnelle, sans effet si le
@@ -1895,58 +1893,25 @@ class FeuilletsPlugin extends Plugin {
       void this.syncProjectPanelsVisibility();
     }));
 
-    this.registerEvent(
-      this.app.workspace.on("editor-change", (editor) => {
-        if (this.settings.autoAnalyzeInRelecture === false) return;
-        if (!this.isRelectureViewActive()) return;
-
-        const file = this.app.workspace.getActiveFile();
-        if (!file || file.extension !== "md") return;
-
-        const provider = this.getAnalysisProvider();
-        if (!provider) return;
-        this.liveTextAnalysis?.schedule({
-          filePath: file.path,
-          fileTitle: this.titleFor(file),
-          text: editor.getValue(),
-          provider,
-          context: editor,
-        });
-      })
-    );
   }
 
-  initializeLiveTextAnalysis(): void {
-    this.liveTextAnalysis = new LiveTextAnalysis<AnalysisRun>({
-      analyze: (snapshot) => analyzeText(snapshot.provider, snapshot.text, {
-        filePath: snapshot.filePath,
-        fileTitle: snapshot.fileTitle,
-        mtime: this.app.workspace.getActiveFile()?.stat.mtime ?? 0,
-        source: "buffer",
-      }),
-      isCurrent: (snapshot) => {
-        if (this.settings.autoAnalyzeInRelecture === false || !this.isRelectureViewActive()) return false;
-        const file = this.app.workspace.getActiveFile();
-        const editor = this.activeEditorAnywhere();
-        return file?.path === snapshot.filePath
-          && editor === snapshot.context
-          && editor?.getValue() === snapshot.text
-          && this.getAnalysisProvider() === snapshot.provider;
-      },
-      publish: (run, snapshot) => {
-        this.analysisRun = run;
-        const activeEd = this.activeEditorAnywhere();
-        if (activeEd) {
-          const cm = (activeEd as unknown as Record<string, unknown>).cm as { dispatch(spec: { effects?: unknown }): void } | undefined;
-          if (cm) applyGrammarHighlights(cm, run.issues, this, snapshot.filePath);
-        }
-        this.refreshAnalysisPanel();
-      },
-      onRunningChange: (running) => {
-        this.analysisRunning = running;
-        this.refreshAnalysisPanel();
-      },
-    });
+  refreshGrammarChecks(): void {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const editor = (leaf.view as unknown as { editor?: unknown }).editor;
+      const cm = (editor as Record<string, unknown> | undefined)?.cm as { dispatch(spec: { effects?: unknown }): void } | undefined;
+      if (cm) requestGrammarCheck(cm);
+    }
+  }
+
+  grammarEditorFile(editorView: { dom?: Node }): GrammarEditorFile | null {
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (!(leaf.view instanceof MarkdownView) || !leaf.view.file) continue;
+      const editor = leaf.view.editor as EditorWithCM;
+      if (editor.cm === editorView || (editorView.dom instanceof Node && leaf.view.contentEl.contains(editorView.dom))) {
+        return leaf.view.file;
+      }
+    }
+    return null;
   }
 
   /** Bug fix "writing colors/project-editor class missing until the first
@@ -2931,8 +2896,6 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
-    this.liveTextAnalysis?.dispose();
-    this.liveTextAnalysis = null;
     if (this._mindmapDecorationFrame !== undefined) {
       window.cancelAnimationFrame(this._mindmapDecorationFrame);
       this._mindmapDecorationFrame = undefined;
@@ -6521,7 +6484,13 @@ class FeuilletsPlugin extends Plugin {
       const activeEd = this.activeEditorAnywhere();
       if (activeEd) {
         const cm = (activeEd as unknown as Record<string, unknown>).cm as { dispatch(spec: { effects?: unknown }): void } | undefined;
-        if (cm) applyGrammarHighlights(cm, this.analysisRun ? this.analysisRun.issues : [], this, file.path);
+        if (cm) applyGrammarHighlights(
+          cm,
+          this.analysisRun ? this.analysisRun.issues : [],
+          this,
+          file.path,
+          this.analysisRun ? this.getAnalysisProvider(this.analysisRun.providerId) ?? undefined : undefined
+        );
       }
     } catch (error) {
       this.analysisRun = null;

@@ -7842,6 +7842,18 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   text-underline-offset: 3px;
 }
 
+.feuillets-grammar-underline-spelling {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-color: var(--text-error);
+}
+
+.feuillets-grammar-underline-grammar {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--color-blue);
+}
+
 .feuillets-grammar-row-flash {
   animation: feuillets-grammar-flash 1.2s ease-out;
 }

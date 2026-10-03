@@ -9,16 +9,26 @@ export interface ContextMenuHost {
   app: import("obsidian").App;
 }
 
+export interface EditorCorrectionTarget {
+  provider: TextAnalysisProvider;
+  isCurrent(): boolean;
+  replace(suggestion: string): boolean;
+  focus(): void;
+  invalidate(): void;
+  refresh(): void;
+}
+
 export function openIssueContextMenu(
   host: ContextMenuHost,
   issue: TextAnalysisIssue | ResolvedAnalysisIssue,
   evt: MouseEvent,
-  filePath?: string
+  filePath?: string,
+  correctionTarget?: EditorCorrectionTarget
 ): void {
   evt.preventDefault();
   evt.stopPropagation();
 
-  const provider = host.getAnalysisProvider();
+  const provider = correctionTarget?.provider ?? host.getAnalysisProvider();
   if (!provider) return;
 
   const canIgnore = typeof provider.ignoreOccurrence === "function";
@@ -31,15 +41,22 @@ export function openIssueContextMenu(
 
   const menu = new Menu();
 
+  menu.addItem((item) => item.setTitle(issue.message).setDisabled(true));
+
   // Suggestions (remplacements)
   if (issue.suggestions && issue.suggestions.length > 0) {
     for (const sug of issue.suggestions) {
       menu.addItem((item) => {
         item
-          .setTitle(t("analysisResults.replaceWith", { suggestion: sug }) || `Remplacer par « ${sug} »`)
+          .setTitle(sug)
           .setIcon("check")
           .onClick(() => {
             void (async () => {
+              if (correctionTarget) {
+                if (!correctionTarget.isCurrent()) return;
+                if (correctionTarget.replace(sug)) correctionTarget.focus();
+                return;
+              }
               const targetPath = filePath || issue.filePath;
               if (targetPath && host.app && host.app.vault) {
                 const file = host.app.vault.getAbstractFileByPath(targetPath);
@@ -74,11 +91,18 @@ export function openIssueContextMenu(
     menu.addItem((item) => {
       item
         .setTitle(t("analysisResults.ignoreOccurrence"))
-        .setIcon("eye-off")
-        .onClick(() => {
-          void (async () => {
-            await provider.ignoreOccurrence!(issue);
-            const editor = host.activeEditorAnywhere();
+          .setIcon("eye-off")
+          .onClick(() => {
+            void (async () => {
+              if (correctionTarget && !correctionTarget.isCurrent()) return;
+              await provider.ignoreOccurrence!(issue);
+              if (correctionTarget) {
+                correctionTarget.invalidate();
+                correctionTarget.focus();
+                correctionTarget.refresh();
+                return;
+              }
+              const editor = host.activeEditorAnywhere();
             if (editor) editor.focus();
             await host.analyzeActiveFile();
           })();
@@ -91,11 +115,18 @@ export function openIssueContextMenu(
     menu.addItem((item) => {
       item
         .setTitle(t("analysisResults.learnWord", { word: wordToLearn }))
-        .setIcon("book-plus")
-        .onClick(() => {
-          void (async () => {
-            await provider.learnWord!(wordToLearn, issue);
-            const editor = host.activeEditorAnywhere();
+          .setIcon("book-plus")
+          .onClick(() => {
+            void (async () => {
+              if (correctionTarget && !correctionTarget.isCurrent()) return;
+              await provider.learnWord!(wordToLearn, issue);
+              if (correctionTarget) {
+                correctionTarget.invalidate();
+                correctionTarget.focus();
+                correctionTarget.refresh();
+                return;
+              }
+              const editor = host.activeEditorAnywhere();
             if (editor) editor.focus();
             await host.analyzeActiveFile();
           })();

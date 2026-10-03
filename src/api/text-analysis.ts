@@ -86,6 +86,7 @@ export interface TextAnalysisProvider {
   /** Nom affiché dans l'en-tête du panneau de résultats. */
   name: string;
   analyze(input: TextAnalysisInput): Promise<TextAnalysisIssue[]>;
+  suggest?(word: string, issue?: TextAnalysisIssue): Promise<string[]> | string[];
   /** Ignore une occurrence particulière d'un signalement. Optionnel. */
   ignoreOccurrence?(issue: TextAnalysisIssue): Promise<void> | void;
   /** Apprend un mot pour le dictionnaire de l'utilisateur. Optionnel. */
