@@ -1,6 +1,6 @@
 {
   "name": "feuillets-dev",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "description": "Feuillets plugin development",
   "main": "main.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "dev": "node esbuild.config.mjs",
     "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
     "lint": "eslint . && tsc -noEmit -skipLibCheck",
-    "lint:obsidian": "eslint --config obsidian-review.config.mjs src",
+    "lint:obsidian": "eslint --max-warnings=0 --config obsidian-review.config.mjs src",
     "test": "npm run test:compiled",
     "test:direct": "node --test test/*.test.js",
     "test:compiled": "node -e \"require('node:fs').rmSync('.test-dist', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node scripts/prepare-test-obsidian-stub.mjs && node --import ./.test-dist/test/i18n-test-bootstrap.js --test .test-dist/test/*.test.js",
@@ -20,14 +20,17 @@
   "license": "GPL-3.0",
   "type": "module",
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@eslint/json": "^0.14.0",
     "@types/node": "^24.0.0",
     "@typescript-eslint/parser": "^8.65.0",
     "esbuild": "^0.28.1",
     "eslint": "^10.8.0",
-    "eslint-plugin-obsidianmd": "^0.4.1",
+    "eslint-plugin-obsidianmd": "^0.4.2",
     "obsidian": "latest",
     "playwright": "1.62.1",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.71.0"
   },
   "dependencies": {
     "@codemirror/commands": "^6.11.0",

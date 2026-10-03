@@ -235,7 +235,7 @@ Le Markdown de la note reste un Markdown ordinaire (`[^1]`). La numérotation es
 
 ### Citations BibTeX et paquet Pandoc
 
-Ouvrez **Recherche → Références** et utilisez le bouton de réglages pour choisir la bibliographie `.bib` applicable, le style `.csl` et le mode de rendu des citations. À la racine du projet, ces réglages s’appliquent au projet ; dans un espace, ils peuvent être hérités du projet ou d’un espace parent, ou être remplacés localement. Tapez `[@` dans un feuillet pour choisir références et localisateurs. Les trois modes de rendu sont **Clés brutes**, **Auteur-date** (le moteur léger de Feuillets) et **CSL natif**, qui utilise le compagnon facultatif [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL), exécuté localement dans Obsidian.
+Ouvrez **Recherche → Références** et utilisez le bouton de réglages pour choisir la bibliographie `.bib` applicable, le style `.csl` et le mode de rendu des citations. **Gérer les projets → Citations** expose aussi la bibliographie et le style CSL du projet ; les ressources du projet restent séparées de celles explicitement associées aux espaces enfants. À la racine du projet, ces réglages s’appliquent au projet ; dans un espace, ils peuvent être hérités du projet ou d’un espace parent, ou être remplacés localement. Tapez `[@` dans un feuillet pour choisir références et localisateurs. Les trois modes de rendu sont **Clés brutes**, **Auteur-date** (le moteur léger de Feuillets) et **CSL natif**, qui utilise le compagnon facultatif [Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL), exécuté localement dans Obsidian.
 
 Le CSL natif rend les citations dans Live Preview, le mode Lecture, Continu, l’Aperçu paginé et les exports PDF/DOCX/EPUB/ODT. Il prend en charge les styles à notes avec l’état des citations du document et les bibliographies CSL dans l’Aperçu et ces exports. Un échec du traitement CSL conserve la syntaxe brute. Le manuscrit et le Markdown compilé gardent les citations Pandoc sémantiques. La bibliographie simple de Feuillets et **Paquet Pandoc (.zip)** restent disponibles ; le paquet contient `manuscript.md`, `pandoc.yaml`, les `.bib` requis, le CSL applicable et les médias locaux pour un flux externe indépendant. Feuillets reste utilisable sans le compagnon et n’installe ni ne lance jamais Pandoc. Voir [Citations BibTeX et paquet Pandoc](docs/CITATIONS-BIBTEX-ET-PANDOC.md).
 
@@ -298,7 +298,7 @@ Puis activez le plugin dans **Paramètres → Plugins communautaires → Plugins
 Feuillets fonctionne de manière indépendante et s'associe bien avec :
 
 - **[Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL)** — Moteur natif facultatif Citation Style Language pour les citations BibTeX/Pandoc et les bibliographies CSL.
-- **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** — Vérification grammaticale française et anglaise intégrée au panneau Relecture.
+- **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** — Correction orthographique et grammaticale française locale et facultative, directement dans l’éditeur et Continu, avec analyse complémentaire dans Relecture.
 - **[Courrier](https://github.com/Sargon01/Courrier)** — Import/export Word et support de la Révision DOCX.
 - **[Advanced Canvas](https://github.com/Sargon01/Advanced-Canvas)** — Fonctionnalités Canvas améliorées pour le Carnet et la visualisation de recherche.
 

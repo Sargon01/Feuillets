@@ -3,62 +3,86 @@ name: Release Plugin
 on:
   push:
     tags:
-      - '*'
-  workflow_dispatch:
+      - "*.*.*"
 
 permissions:
   contents: write
   id-token: write
   attestations: write
+  artifact-metadata: write
 
 jobs:
-  build:
-    name: Build & Release
+  release:
+    name: Build, attest and release
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Check out the tagged commit
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
-          node-version: 20
-          cache: 'npm'
+          node-version: 22
+          cache: npm
 
       - name: Install dependencies
         run: npm ci
 
+      - name: Verify tag and release metadata
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must be semantic versions, optionally prefixed with v: $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+          TAG="$TAG" node -e '
+            const fs = require("node:fs");
+            const tag = process.env.TAG;
+            const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
+            const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
+            if (packageJson.version !== tag || manifest.version !== tag) {
+              throw new Error(`Tag ${tag} must match package.json and manifest.json versions.`);
+            }
+            if (versions[tag] !== manifest.minAppVersion) {
+              throw new Error(`versions.json must map ${tag} to ${manifest.minAppVersion}.`);
+            }
+          '
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Run linting & type checks
+      - name: Type-check and lint
         run: npm run lint
 
-      - name: Run Obsidian review lint
+      - name: Run Community lint
         run: npm run lint:obsidian
 
-      - name: Run tests
+      - name: Test
         run: npm test
 
-      - name: Build plugin
+      - name: Build release assets
         run: npm run build
 
-      - name: Generate artifact attestations
-        uses: actions/attest-build-provenance@v2
+      - name: Verify release assets
+        run: |
+          test -f main.js
+          test -f styles.css
+          test -f manifest.json
+
+      - name: Attest release assets
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
             main.js
             styles.css
             manifest.json
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            main.js
-            styles.css
-            manifest.json
-          draft: false
-          prerelease: false
-          generate_release_notes: true
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" main.js styles.css manifest.json \
+            --verify-tag \
+            --title "Feuillets $GITHUB_REF_NAME" \
+            --generate-notes

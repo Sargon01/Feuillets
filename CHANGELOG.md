@@ -2,6 +2,23 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.5.0 — 2026-10-03
+
+### Correction linguistique
+
+- Intégration facultative de Feuillets-Grammalecte pour la correction orthographique et grammaticale française directement dans l’éditeur et dans Continu.
+- Les signalements d’orthographe et de grammaire sont visuellement distincts ; le menu de correction s’ouvre au clic gauche, avec suggestions orthographiques chargées à la demande.
+- Les occurrences peuvent être ignorées et les mots ajoutés au dictionnaire lorsque le fournisseur le permet. Relecture reste disponible pour l’analyse globale, sans être nécessaire à la correction du texte courant.
+
+### Citations et ressources
+
+- Gérer les projets → Citations permet de choisir la bibliographie et le style CSL au niveau du projet.
+- La résolution respecte les ressources du projet et des espaces de travail, en isolant les ressources explicitement associées aux espaces enfants.
+
+### Fiabilité
+
+- Protection contre les diagnostics asynchrones périmés, plages de correction maintenues sur le texte courant et analyse Continu sensible aux segments.
+
 ## 3.4.0 — 2026-10-02
 
 ### CSL natif
