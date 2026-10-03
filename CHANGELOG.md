@@ -2,6 +2,12 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.5.1 — 2026-10-03
+
+### Compatibilité
+
+- Remplacement du soulignement CSS des diagnostics linguistiques par des bordures compatibles, tout en conservant une distinction visuelle de forme et de couleur entre orthographe et grammaire.
+
 ## 3.5.0 — 2026-10-03
 
 ### Correction linguistique

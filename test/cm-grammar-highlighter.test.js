@@ -267,9 +267,16 @@ test("only primary clicks open an underline menu and right clicks remain native"
 
 test("grammar underline styles provide shape and color distinctions", () => {
   const styles = readFileSync(path.resolve("styles.css"), "utf8");
-  assert.match(styles, /\.feuillets-grammar-underline-spelling\s*\{[^}]*text-decoration-style:\s*wavy[^}]*var\(--text-error\)/);
-  assert.match(styles, /\.feuillets-grammar-underline-grammar\s*\{[^}]*text-decoration-style:\s*dotted[^}]*var\(--color-blue\)/);
-  assert.doesNotMatch(styles, /\.feuillets-grammar-underline-grammar\s*\{[^}]*var\(--text-accent\)/);
+  const spelling = styles.match(/\.feuillets-grammar-underline-spelling\s*\{[^}]*\}/)?.[0] ?? "";
+  const grammar = styles.match(/\.feuillets-grammar-underline-grammar\s*\{[^}]*\}/)?.[0] ?? "";
+
+  assert.match(spelling, /border-bottom:\s*2px\s+dotted\s+var\(--text-error\)/);
+  assert.match(grammar, /border-bottom:\s*2px\s+dashed\s+var\(--color-blue\)/);
+  assert.notEqual(spelling.match(/border-bottom:\s*2px\s+(\w+)/)?.[1], grammar.match(/border-bottom:\s*2px\s+(\w+)/)?.[1]);
+  assert.doesNotMatch(grammar, /var\(--text-accent\)/);
+  for (const selector of [spelling, grammar]) {
+    assert.doesNotMatch(selector, /text-decoration-(?:line|style|color)/);
+  }
 });
 
 test("the registered checker keeps its initial delay and debounces document changes at 600 ms", async () => {

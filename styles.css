@@ -7838,20 +7838,12 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   margin: var(--size-4-1) 0;
 }
 
-.feuillets-grammar-underline {
-  text-underline-offset: 3px;
-}
-
 .feuillets-grammar-underline-spelling {
-  text-decoration-line: underline;
-  text-decoration-style: wavy;
-  text-decoration-color: var(--text-error);
+  border-bottom: 2px dotted var(--text-error);
 }
 
 .feuillets-grammar-underline-grammar {
-  text-decoration-line: underline;
-  text-decoration-style: dotted;
-  text-decoration-color: var(--color-blue);
+  border-bottom: 2px dashed var(--color-blue);
 }
 
 .feuillets-grammar-row-flash {
