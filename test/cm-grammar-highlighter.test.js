@@ -16,7 +16,9 @@ const { EditorView, Decoration } = await import("@codemirror/view");
 const { Menu } = await import(isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js"));
 const {
   applyGrammarHighlights,
+  applyMappedGrammarHighlights,
   clearGrammarHighlights,
+  clearGrammarHighlightsForFile,
   grammarIssuesField,
   grammarContextMenuExtension,
   createGrammarCheckerExtension,
@@ -115,6 +117,21 @@ test("each editor owns independent grammar state and document edits invalidate o
   assert.equal(grammarState(first).issues.get("grammar-0").issue.message, "fresh");
   clearGrammarHighlights(first);
   assert.equal(grammarState(second).issues.get("grammar-0").issue.message, "B");
+});
+
+test("one editor keeps file-scoped diagnostics independently", () => {
+  const editor = view("fotee\nerreur");
+  const active = provider();
+  applyMappedGrammarHighlights(editor, [{ message: "A", start: 0, end: 5, canLearn: true }], "A.md", 0, active);
+  applyMappedGrammarHighlights(editor, [{ message: "B", start: 0, end: 6, category: "Grammaire" }], "B.md", 6, active);
+  assert.equal(grammarState(editor).issues.size, 2);
+  assert.deepEqual([...grammarState(editor).issues.values()].map((entry) => entry.filePath).sort(), ["A.md", "B.md"]);
+  applyMappedGrammarHighlights(editor, [{ message: "fresh A", start: 1, end: 5 }], "A.md", 0, active);
+  assert.equal(grammarState(editor).issues.size, 2);
+  assert.ok([...grammarState(editor).issues.values()].some((entry) => entry.filePath === "B.md" && entry.from === 6));
+  clearGrammarHighlightsForFile(editor, "A.md");
+  assert.equal(grammarState(editor).issues.size, 1);
+  assert.equal([...grammarState(editor).issues.values()][0].filePath, "B.md");
 });
 
 test("editing an issue removes only that issue while preserving neighboring classes", () => {

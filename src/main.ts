@@ -1901,6 +1901,9 @@ class FeuilletsPlugin extends Plugin {
       const cm = (editor as Record<string, unknown> | undefined)?.cm as { dispatch(spec: { effects?: unknown }): void } | undefined;
       if (cm) requestGrammarCheck(cm);
     }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SCRIVENINGS)) {
+      if (leaf.view instanceof ScriveningsView) leaf.view.requestGrammarCheck();
+    }
   }
 
   grammarEditorFile(editorView: { dom?: Node }): GrammarEditorFile | null {

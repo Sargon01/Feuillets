@@ -51,6 +51,8 @@ import {
 } from "../utils/cm-annotation-highlighter.js";
 import { loadAnnotations, annotationsForFile, resolveAnnotation, toManuscriptRelativePath } from "../services/annotations.js";
 import { t } from "../i18n/index.js";
+import type { TextAnalysisProvider } from "../api/text-analysis.js";
+import { ScriveningsGrammarChecker } from "../utils/cm-scrivenings-grammar.js";
 
 /**
  * ScriveningsView — LOT 1 (cœur technique uniquement).
@@ -113,6 +115,10 @@ export function nextScrollAnchorAfterRecomposition(
 export type ScriveningsViewPlugin = {
   app: App;
   settings: FeuilletsSettings;
+  getAnalysisProvider(providerId?: string): TextAnalysisProvider | null;
+  titleFor(file: TFile): string;
+  analyzeActiveFile(): Promise<void>;
+  activeEditorAnywhere(): import("obsidian").Editor | null;
   cslCitationHost?: CslCitationHost | null;
   /** Rafraîchit la status bar de l'écriture (main.ts) — appelé après une
    * modification du document Continu ou une recomposition du groupe (§8 du
@@ -445,6 +451,7 @@ export function resolveCitekeySegment(
 export class ScriveningsView extends ItemView {
   private readonly plugin: ScriveningsViewPlugin;
   private readonly session: ScriveningsSession;
+  private readonly grammarChecker?: ScriveningsGrammarChecker;
   private _compileScope: CompileScope | null = null;
   private cm: EditorViewInstance | null = null;
   /** Comptes de mots par fichier — recalcul complet au chargement/à la
@@ -462,6 +469,11 @@ export class ScriveningsView extends ItemView {
     super(leaf);
     this.plugin = plugin;
     this.session = new ScriveningsSession({ app: plugin.app });
+    this.grammarChecker = new ScriveningsGrammarChecker({
+      host: plugin,
+      getEditor: () => this.cm,
+      getDocument: () => this.session.document,
+    });
   }
 
   /** Scope de compilation actuellement affiché, ou `null` avant tout
@@ -481,6 +493,10 @@ export class ScriveningsView extends ItemView {
    * module. */
   get editorView(): EditorViewInstance | null {
     return this.cm;
+  }
+
+  requestGrammarCheck(paths?: readonly string[]): void {
+    this.grammarChecker?.request(paths, 50);
   }
 
   getViewType(): string {
@@ -673,6 +689,7 @@ export class ScriveningsView extends ItemView {
       ),
       scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
       createScriveningsCopyExtension((from, to) => this.clipboardTextForRange(from, to)),
+      ...(this.grammarChecker?.extensions() ?? []),
       // LOT 1.4 (§33) : Continu possède son propre EditorState — jamais
       // `registerEditorExtension()` — ces deux extensions sont donc montées
       // ICI, pas dans `scriveningsExtensions` (cm-scrivenings.ts), qui reste
@@ -704,6 +721,7 @@ export class ScriveningsView extends ItemView {
     const state = EditorStateTyped.create({ doc: document.text, extensions });
     this.cm = new EditorViewCtorTyped({ state, parent: host });
     this.installContextMenuListener();
+    this.grammarChecker?.reset();
 
     setScriveningsDecorations(
       this.cm,
@@ -753,6 +771,7 @@ export class ScriveningsView extends ItemView {
   }
 
   private destroyEditor(): void {
+    this.grammarChecker?.destroy();
     // Un seul listener à la fois (§6) : toujours retiré AVANT destroy(),
     // qu'il ait ou non été effectivement appelé depuis le montage — jamais
     // deux instances vivantes en même temps lors d'une recomposition
@@ -788,6 +807,7 @@ export class ScriveningsView extends ItemView {
     // scriveningsBoundaryGuard, utils/cm-scrivenings.ts). N'attend ni le
     // disque, ni la sauvegarde différée, ne déclenche aucun rendu ici.
     this.plugin.notifyContinuDocumentChanged?.(result.touchedPaths);
+    this.grammarChecker?.requestTouched(result.touchedPaths);
   }
 
   /* ========================= Composition (§2 et §4) ===================

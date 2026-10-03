@@ -7,6 +7,8 @@ export interface ContextMenuHost {
   analyzeActiveFile(): Promise<void>;
   activeEditorAnywhere(): Editor | null;
   app: import("obsidian").App;
+  clearGrammarIssuesForFile?(filePath: string): void;
+  requestGrammarCheckForFile?(filePath: string, refreshAll?: boolean): void;
 }
 
 export interface EditorCorrectionTarget {

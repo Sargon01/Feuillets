@@ -66,7 +66,7 @@ const ViewPluginTyped = ViewPlugin as ViewPluginStatic;
 
 export const GRAMMAR_CHECK_DEBOUNCE_MS = 600;
 
-export type GrammarIssuesPayload = { issues: TextAnalysisIssue[]; filePath?: string; provider?: TextAnalysisProvider };
+export type GrammarIssuesPayload = { issues: TextAnalysisIssue[]; filePath?: string; provider?: TextAnalysisProvider; offset?: number };
 
 export type GrammarIssueEntry = {
   key: string;
@@ -92,21 +92,27 @@ function isSpellingIssue(issue: TextAnalysisIssue): boolean {
   return issue.canLearn === true || issue.category === "Orthographe";
 }
 
-function stateFromPayload(payload: GrammarIssuesPayload, docLength: number): GrammarHighlightState {
-  const issues = new Map<string, GrammarIssueEntry>();
+function stateFromPayload(payload: GrammarIssuesPayload, docLength: number, previous: GrammarHighlightState): GrammarHighlightState {
+  const issues = payload.filePath === undefined
+    ? new Map<string, GrammarIssueEntry>()
+    : new Map([...previous.issues].filter(([, entry]) => entry.filePath !== payload.filePath));
   const filePath = payload.filePath ?? "";
+  const offset = payload.offset ?? 0;
 
   payload.issues.forEach((issue, index) => {
     if (!Number.isInteger(issue.start) || !Number.isInteger(issue.end)) return;
-    if (issue.start < 0 || issue.end > docLength || issue.start >= issue.end) return;
-    const key = `grammar-${index}`;
-    issues.set(key, { key, issue, from: issue.start, to: issue.end, filePath, provider: payload.provider });
+    const from = offset + issue.start;
+    const to = offset + issue.end;
+    if (issue.start < 0 || from < 0 || to > docLength || from >= to) return;
+    const baseKey = `grammar-${index}`;
+    const key = issues.has(baseKey) ? `${filePath}:${baseKey}` : baseKey;
+    issues.set(key, { key, issue, from, to, filePath, provider: payload.provider });
   });
   return {
     decorations: decorationsFor(issues),
     issues,
-    filePath,
-    provider: payload.provider,
+    filePath: payload.filePath ?? previous.filePath,
+    provider: payload.provider ?? previous.provider,
   };
 }
 
@@ -126,7 +132,7 @@ export const grammarIssuesField = StateFieldTyped.define<GrammarHighlightState>(
   create: emptyGrammarState,
   update(value, tr) {
     for (const effect of tr.effects) {
-      if (effect.is(setGrammarIssuesEffect)) return stateFromPayload(effect.value as GrammarIssuesPayload, tr.state.doc.length);
+      if (effect.is(setGrammarIssuesEffect)) return stateFromPayload(effect.value as GrammarIssuesPayload, tr.state.doc.length, value);
     }
     if (!tr.docChanged) return value;
     const issues = new Map<string, GrammarIssueEntry>();
@@ -155,27 +161,39 @@ function stateFor(view: GrammarEditorView): GrammarHighlightState | null {
 function targetFor(host: ContextMenuHost, view: GrammarEditorView, entry: GrammarIssueEntry): EditorCorrectionTarget | null {
   const provider = entry.provider;
   if (!provider || host.getAnalysisProvider(provider.id) !== provider) return null;
+  const currentEntry = (): GrammarIssueEntry | null => {
+    const current = stateFor(view)?.issues.get(entry.key);
+    if (!current || current.filePath !== entry.filePath || current.provider !== provider) return null;
+    if (current.issue.text !== entry.issue.text) return null;
+    return current;
+  };
   return {
     provider,
     isCurrent: () => {
-      const state = stateFor(view);
-      if (state?.issues.get(entry.key) !== entry || host.getAnalysisProvider(provider.id) !== provider) return false;
-      return !entry.issue.text || view.state.doc.toString().slice(entry.from, entry.to) === entry.issue.text;
+      const current = currentEntry();
+      if (!current || host.getAnalysisProvider(provider.id) !== provider) return false;
+      return !current.issue.text || view.state.doc.toString().slice(current.from, current.to) === current.issue.text;
     },
     replace: (suggestion) => {
-      const state = stateFor(view);
-      if (!state || state.issues.get(entry.key) !== entry) return false;
-      if (entry.from < 0 || entry.to > view.state.doc.length || entry.from >= entry.to) return false;
-      if (entry.issue.text && view.state.doc.toString().slice(entry.from, entry.to) !== entry.issue.text) return false;
+      const current = currentEntry();
+      if (!current) return false;
+      if (current.from < 0 || current.to > view.state.doc.length || current.from >= current.to) return false;
+      if (current.issue.text && view.state.doc.toString().slice(current.from, current.to) !== current.issue.text) return false;
       view.dispatch({
-        changes: { from: entry.from, to: entry.to, insert: suggestion },
-        selection: { anchor: entry.from + suggestion.length },
+        changes: { from: current.from, to: current.to, insert: suggestion },
+        selection: { anchor: current.from + suggestion.length },
       });
       return true;
     },
     focus: () => view.focus(),
-    invalidate: () => clearGrammarHighlights(view),
-    refresh: () => requestGrammarCheck(view),
+    invalidate: () => {
+      if (host.clearGrammarIssuesForFile) host.clearGrammarIssuesForFile(entry.filePath);
+      else clearGrammarHighlightsForFile(view, entry.filePath);
+    },
+    refresh: () => {
+      if (host.requestGrammarCheckForFile) host.requestGrammarCheckForFile(entry.filePath, isSpellingIssue(entry.issue));
+      else requestGrammarCheck(view);
+    },
   };
 }
 
@@ -245,7 +263,11 @@ export function grammarCheckerExtension(host: CheckerHost): unknown {
 export function grammarContextMenuExtension(host: ContextMenuHost) {
   const openMenu = (event: Event, view: GrammarEditorView): boolean => {
     const mouseEvent = event as MouseEvent;
-    const element = mouseEvent.target instanceof HTMLElement ? mouseEvent.target : null;
+    const eventTarget = mouseEvent.target;
+    let element: Element | null = null;
+    if (typeof Element !== "undefined" && eventTarget instanceof Element) element = eventTarget;
+    else if (typeof HTMLElement !== "undefined" && eventTarget instanceof HTMLElement) element = eventTarget;
+    else if (typeof Node !== "undefined" && eventTarget instanceof Node) element = eventTarget.parentElement;
     const target = element?.closest("[data-grammar-key]");
     const key = target?.getAttribute("data-grammar-key");
     if (!key) return false;
@@ -295,6 +317,28 @@ export function applyGrammarHighlights(
   } catch {
     // Une vue détruite ne doit pas interrompre l'édition.
   }
+}
+
+export function applyMappedGrammarHighlights(
+  editorView: { dispatch(spec: { effects?: unknown }): void } | null | undefined,
+  issues: TextAnalysisIssue[] | null | undefined,
+  filePath: string,
+  offset: number,
+  provider?: TextAnalysisProvider,
+): void {
+  if (!editorView || typeof editorView.dispatch !== "function") return;
+  try {
+    editorView.dispatch({ effects: setGrammarIssuesEffect.of({ issues: issues ?? [], filePath, provider, offset }) });
+  } catch {
+    // Une vue détruite ne doit pas interrompre l'édition.
+  }
+}
+
+export function clearGrammarHighlightsForFile(
+  editorView: { dispatch(spec: { effects?: unknown }): void } | null | undefined,
+  filePath: string,
+): void {
+  applyGrammarHighlights(editorView, [], undefined, filePath);
 }
 
 export function clearGrammarHighlights(editorView: { dispatch(spec: { effects?: unknown }): void } | null | undefined): void {
