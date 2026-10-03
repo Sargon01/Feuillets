@@ -20,6 +20,7 @@ const {
   grammarIssuesField,
   grammarContextMenuExtension,
   createGrammarCheckerExtension,
+  GRAMMAR_CHECK_DEBOUNCE_MS,
   requestGrammarCheck,
 } = await import(modulePath("src/utils/cm-grammar-highlighter.js"));
 
@@ -254,13 +255,24 @@ test("grammar underline styles provide shape and color distinctions", () => {
   assert.doesNotMatch(styles, /\.feuillets-grammar-underline-grammar\s*\{[^}]*var\(--text-accent\)/);
 });
 
-test("the registered checker mounts with the field and receives document/provider updates", () => {
+test("the registered checker keeps its initial delay and debounces document changes at 600 ms", async () => {
   const originalWindow = globalThis.window;
-  globalThis.window = { setTimeout: () => 1, clearTimeout() {} };
+  const timers = new Map();
+  let nextTimer = 1;
+  globalThis.window = {
+    setTimeout: (callback, delay) => {
+      const id = nextTimer++;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeout: (id) => timers.delete(id),
+  };
   const file = { path: "A.md", basename: "A", stat: { mtime: 1 } };
+  let analyses = 0;
+  const checkerProvider = { id: "placeholder", name: "placeholder", analyze: async () => { analyses += 1; return []; } };
   const checkerHost = {
-    ...host({ id: "placeholder", name: "placeholder", analyze: async () => [] }),
-    getAnalysisProvider: () => null,
+    ...host(checkerProvider),
+    getAnalysisProvider: () => checkerProvider,
     grammarEditorFile: () => file,
   };
   try {
@@ -268,8 +280,18 @@ test("the registered checker mounts with the field and receives document/provide
     const editor = new EditorView({ state: EditorState.create({ doc: "fotee", extensions }) });
     assert.equal(extensions.length, 3);
     assert.equal(editor.plugins.length, 1);
+    assert.deepEqual([...timers.values()].map((timer) => timer.delay), [50]);
     requestGrammarCheck(editor);
+    assert.deepEqual([...timers.values()].map((timer) => timer.delay), [50]);
     editor.dispatch({ changes: { from: 5, to: 5, insert: "x" } });
+    editor.dispatch({ changes: { from: 6, to: 6, insert: "y" } });
+    assert.equal(GRAMMAR_CHECK_DEBOUNCE_MS, 600);
+    assert.deepEqual([...timers.values()].map((timer) => timer.delay), [600]);
+    const timer = [...timers.values()][0];
+    timer.callback();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(analyses, 1);
   } finally {
     globalThis.window = originalWindow;
   }

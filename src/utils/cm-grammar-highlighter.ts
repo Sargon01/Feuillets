@@ -64,6 +64,8 @@ const DecorationTyped = Decoration as DecorationStatic;
 const EditorViewTyped = EditorView as EditorViewStatic;
 const ViewPluginTyped = ViewPlugin as ViewPluginStatic;
 
+export const GRAMMAR_CHECK_DEBOUNCE_MS = 600;
+
 export type GrammarIssuesPayload = { issues: TextAnalysisIssue[]; filePath?: string; provider?: TextAnalysisProvider };
 
 export type GrammarIssueEntry = {
@@ -210,7 +212,7 @@ export function grammarCheckerExtension(host: CheckerHost): unknown {
     constructor(private readonly view: GrammarEditorView) { this.schedule(50); }
     update(update: { docChanged: boolean; transactions?: Array<{ effects?: Array<{ is(type: unknown): boolean }> }> }): void {
       const requested = update.transactions?.some((transaction) => transaction.effects?.some((effect) => effect.is(requestGrammarCheckEffect))) ?? false;
-      if (update.docChanged) this.schedule(1000);
+      if (update.docChanged) this.schedule(GRAMMAR_CHECK_DEBOUNCE_MS);
       else if (requested) this.schedule(50);
     }
     destroy(): void { if (this.timer) window.clearTimeout(this.timer); }
