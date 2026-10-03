@@ -11,6 +11,15 @@ import { openFileActivatingWithCursor } from "../utils/dom.js";
 import { t, getLocale } from "../i18n/index.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
 import { ProjectConfigContent, type ProjectConfigPage } from "./project-config-content.js";
+import { listProjectCitationCandidates, resolveWorkspaceCitationResources } from "../services/workspace-citations.js";
+
+type ProjectCitationSetting = "pandocCitationPreviewStyle" | "citekeyBibliographyPath" | "citekeyCslPath";
+
+const PROJECT_CITATION_AUTOMATIC = "__inherit__";
+
+function isPandocCitationPreviewStyle(value: string): value is PandocCitationPreviewStyle {
+  return value === "off" || value === "author-date" || value === "csl";
+}
 
 type ProjectModalsPlugin = {
   /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
@@ -25,6 +34,7 @@ type ProjectModalsPlugin = {
   ensureFolder(path: string): Promise<TAbstractFile>;
   initProjectStructure(identity?: { title?: string; author?: string }): Promise<void>;
   saveSettings(): Promise<void>;
+  refreshCitationRendering(): void;
   refreshPresentationAppearance?(): Promise<void>;
   renderAllViews(force?: boolean): void;
   updateStatusBar(): void;
@@ -499,7 +509,7 @@ export class ManageProjectsModal extends Modal {
 
     detailContentEl.empty();
     if (detailPage.page === "citations") {
-      this.renderProjectCitationsPage(detailContentEl, detailPage.projectPath);
+      this.renderProjectCitationsPage(detailContentEl, detailPage.projectPath, projectFolder);
     } else {
       this.projectConfigContent.renderPage(
         detailPage.page,
@@ -694,7 +704,7 @@ export class ManageProjectsModal extends Modal {
     this.renderProjectNavRows(detail, path, folderObj);
   }
 
-  private renderProjectCitationsPage(container: HTMLElement, path: string): void {
+  private renderProjectCitationsPage(container: HTMLElement, path: string, projectRoot: TFolder): void {
     const S = this.plugin.settings;
     const section = container.createDiv({ cls: "feuillets-notes-section" });
     section.createDiv({
@@ -719,6 +729,74 @@ export class ManageProjectsModal extends Modal {
           void this.plugin.saveSettings();
         });
       });
+
+    const resources = resolveWorkspaceCitationResources(this.app, S, projectRoot, projectRoot);
+    const modes: readonly [PandocCitationPreviewStyle, string][] = [
+      ["off", t("project.pandocCitationPreview.styleOff")],
+      ["author-date", t("project.pandocCitationPreview.styleAuthorDate")],
+      ["csl", t("project.pandocCitationPreview.styleCsl")],
+    ];
+    const saveCitationSetting = async (field: ProjectCitationSetting, value: string): Promise<void> => {
+      if (this.app.vault.getAbstractFileByPath(path) !== projectRoot) return;
+      if (field === "pandocCitationPreviewStyle" && value !== PROJECT_CITATION_AUTOMATIC && !isPandocCitationPreviewStyle(value)) return;
+      if (field !== "pandocCitationPreviewStyle" && value !== PROJECT_CITATION_AUTOMATIC && value !== "") {
+        const extension = field === "citekeyBibliographyPath" ? "bib" : "csl";
+        const current = resolveWorkspaceCitationResources(this.app, S, projectRoot, projectRoot);
+        if (!listProjectCitationCandidates(this.app, S, projectRoot, current.selectionResearchFolder, extension).some((candidate) => candidate.relativePath === value)) return;
+      }
+      const project = ensureMeta();
+      if (value === PROJECT_CITATION_AUTOMATIC) {
+        delete project[field];
+      } else if (field === "pandocCitationPreviewStyle") {
+        if (!isPandocCitationPreviewStyle(value)) return;
+        project[field] = value;
+      } else {
+        project[field] = value;
+        if (field === "citekeyBibliographyPath") delete project.pandocBibliographyPath;
+      }
+      this.plugin.refreshCitationRendering();
+      await this.plugin.saveSettings();
+      this.plugin.renderAllViews(true);
+    };
+
+    new Setting(section)
+      .setName(t("shared.research.citationRendering"))
+      .addDropdown((d) => {
+        d.addOption(PROJECT_CITATION_AUTOMATIC, t("shared.research.citationAutomatic"));
+        for (const [value, label] of modes) d.addOption(value, label);
+        d.setValue(meta()?.pandocCitationPreviewStyle ?? PROJECT_CITATION_AUTOMATIC);
+        d.onChange((value) => { void saveCitationSetting("pandocCitationPreviewStyle", value); });
+      });
+
+    const addResourceSetting = (
+      field: Extract<ProjectCitationSetting, "citekeyBibliographyPath" | "citekeyCslPath">,
+      extension: "bib" | "csl",
+      name: string,
+    ): void => {
+      const resource = field === "citekeyBibliographyPath" ? resources.bibliography : resources.csl;
+      const candidates = listProjectCitationCandidates(this.app, S, projectRoot, resources.selectionResearchFolder, extension);
+      const configured = meta()?.[field];
+      new Setting(section)
+        .setName(name)
+        .setDesc(resources.selectionResearchFolder === null
+          ? t("project.pandocCitationPreview.noResearch")
+          : resource.status === "missing_file" || resource.status === "invalid_path"
+            ? t("project.pandocCitationPreview.missingFile")
+            : "")
+        .addDropdown((d) => {
+          d.addOption(PROJECT_CITATION_AUTOMATIC, t("shared.research.citationAutomatic"));
+          d.addOption("", t("project.pandocCitationPreview.noFile"));
+          for (const candidate of candidates) d.addOption(candidate.relativePath, candidate.relativePath);
+          if (configured !== undefined && configured !== "" && !candidates.some((candidate) => candidate.relativePath === configured)) {
+            d.addOption(configured, `${configured} (${t("project.pandocCitationPreview.missingFile")})`);
+          }
+          d.setValue(configured ?? PROJECT_CITATION_AUTOMATIC);
+          d.onChange((value) => { void saveCitationSetting(field, value); });
+        });
+    };
+
+    addResourceSetting("citekeyBibliographyPath", "bib", t("shared.research.citationBibliography"));
+    addResourceSetting("citekeyCslPath", "csl", t("shared.research.citationCslStyle"));
   }
 
   private renderProjectNavRows(container: HTMLElement, path: string, root: TFolder): void {

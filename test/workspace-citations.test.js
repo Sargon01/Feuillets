@@ -5,6 +5,7 @@ import { createFakeVault } from "./helpers/fake-vault.js";
 import {
   citationRelativePath,
   isValidCitationRelativePath,
+  listProjectCitationCandidates,
   listWorkspaceCitationCandidates,
   remapWorkspaceCitationResourcePaths,
   resolveWorkspaceCitationResearchFolder,
@@ -595,6 +596,167 @@ test("24. Association-based project, only sibling workspace is linked: current w
   assert.equal(candidates.length, 0);
 });
 
+test("24b. Project root uses canonical Research when only a sibling workspace is linked", () => {
+  const project = new TFolder("PROJECT");
+  const auxiliary = new TFolder("PROJECT/_Feuillets");
+  const canonicalResearch = new TFolder("PROJECT/_Feuillets/Recherche");
+  const bibliography = new TFolder("PROJECT/_Feuillets/Recherche/Bibliographie");
+  const styles = new TFolder("PROJECT/_Feuillets/Recherche/Styles");
+  const projectBib = new TFile("PROJECT/_Feuillets/Recherche/Bibliographie/references.bib");
+  projectBib.extension = "bib";
+  const projectCsl = new TFile("PROJECT/_Feuillets/Recherche/Styles/chicago.csl");
+  projectCsl.extension = "csl";
+  const wsA = new TFolder("PROJECT/Article-A");
+  const wsB = new TFolder("PROJECT/Article-B");
+  const workspaceBResearch = new TFolder("RESEARCH/Article-B");
+
+  bibliography.children = [projectBib];
+  projectBib.parent = bibliography;
+  styles.children = [projectCsl];
+  projectCsl.parent = styles;
+  canonicalResearch.children = [bibliography, styles];
+  bibliography.parent = canonicalResearch;
+  styles.parent = canonicalResearch;
+  auxiliary.children = [canonicalResearch];
+  canonicalResearch.parent = auxiliary;
+  project.children = [auxiliary, wsA, wsB];
+
+  const { vault } = createFakeVault([
+    project, auxiliary, canonicalResearch, bibliography, styles, projectBib, projectCsl,
+    wsA, wsB, workspaceBResearch,
+  ]);
+  const settings = {
+    projectFolder: project.path,
+    projectMeta: {
+      [project.path]: {
+        citekeyBibliographyPath: "Bibliographie/references.bib",
+        citekeyCslPath: "Styles/chicago.csl",
+        researchFolderLinks: { [wsB.path]: workspaceBResearch.path },
+      },
+    },
+  };
+  const app = { vault };
+  const beforeJson = JSON.stringify(settings);
+
+  const projectResources = resolveWorkspaceCitationResources(app, settings, project, null);
+  assert.equal(projectResources.selectionResearchFolder?.path, canonicalResearch.path);
+  assert.deepEqual(
+    listWorkspaceCitationCandidates(app, projectResources.selectionResearchFolder, "bib").map((candidate) => candidate.relativePath),
+    ["Bibliographie/references.bib"],
+  );
+  assert.deepEqual(
+    listWorkspaceCitationCandidates(app, projectResources.selectionResearchFolder, "csl").map((candidate) => candidate.relativePath),
+    ["Styles/chicago.csl"],
+  );
+
+  const workspaceResources = resolveWorkspaceCitationResources(app, settings, project, wsA);
+  assert.equal(workspaceResources.selectionResearchFolder, null);
+  assert.equal(workspaceResources.bibliography.source, "project");
+  assert.equal(workspaceResources.bibliography.file?.path, projectBib.path);
+  assert.equal(workspaceResources.csl.source, "project");
+  assert.equal(workspaceResources.csl.file?.path, projectCsl.path);
+  assert.equal(JSON.stringify(settings), beforeJson);
+});
+
+test("24c. Project candidates exclude linked child Research subtrees only", () => {
+  const project = new TFolder("PROJECT");
+  const childA = new TFolder("PROJECT/Child-A");
+  const childBFile = new TFile("PROJECT/Child-B.md");
+  const overlapFile = new TFile("PROJECT/Child-A-File.md");
+  const externalChild = new TFolder("PROJECT/External");
+  const orphanChild = new TFolder("PROJECT/Orphan");
+  const auxiliary = new TFolder("PROJECT/_Feuillets");
+  const research = new TFolder("PROJECT/_Feuillets/Recherche");
+  const bibliography = new TFolder("PROJECT/_Feuillets/Recherche/Bibliographie");
+  const styles = new TFolder("PROJECT/_Feuillets/Recherche/Styles");
+  const notes = new TFolder("PROJECT/_Feuillets/Recherche/Notes");
+  const archive = new TFolder("PROJECT/_Feuillets/Recherche/Notes/Archive");
+  const childResearch = new TFolder("PROJECT/_Feuillets/Recherche/Child");
+  const overlapResearch = new TFolder("PROJECT/_Feuillets/Recherche/Child/Specific");
+  const childExtraResearch = new TFolder("PROJECT/_Feuillets/Recherche/Child-Extra");
+  const childBResearch = new TFolder("PROJECT/_Feuillets/Recherche/Child-B");
+  const childBDeep = new TFolder("PROJECT/_Feuillets/Recherche/Child-B/deep");
+  const orphanTarget = new TFolder("PROJECT/_Feuillets/Recherche/OrphanTarget");
+  const externalResearch = new TFolder("EXTERNAL/Research");
+  const projectBib = new TFile("PROJECT/_Feuillets/Recherche/Bibliographie/project.bib");
+  const projectCsl = new TFile("PROJECT/_Feuillets/Recherche/Styles/project.csl");
+  const oldBib = new TFile("PROJECT/_Feuillets/Recherche/Notes/Archive/old.bib");
+  const childBib = new TFile("PROJECT/_Feuillets/Recherche/Child/child.bib");
+  const childCsl = new TFile("PROJECT/_Feuillets/Recherche/Child/child.csl");
+  const overlapBib = new TFile("PROJECT/_Feuillets/Recherche/Child/Specific/specific.bib");
+  const childExtraBib = new TFile("PROJECT/_Feuillets/Recherche/Child-Extra/extra.bib");
+  const childBBib = new TFile("PROJECT/_Feuillets/Recherche/Child-B/deep/child-b.bib");
+  const orphanBib = new TFile("PROJECT/_Feuillets/Recherche/OrphanTarget/available.bib");
+  for (const file of [projectBib, oldBib, childBib, overlapBib, childExtraBib, childBBib, orphanBib]) file.extension = "bib";
+  for (const file of [projectCsl, childCsl]) file.extension = "csl";
+
+  bibliography.children = [projectBib];
+  projectBib.parent = bibliography;
+  styles.children = [projectCsl];
+  projectCsl.parent = styles;
+  archive.children = [oldBib];
+  oldBib.parent = archive;
+  notes.children = [archive];
+  archive.parent = notes;
+  overlapResearch.children = [overlapBib];
+  overlapBib.parent = overlapResearch;
+  childResearch.children = [childBib, childCsl, overlapResearch];
+  childBib.parent = childResearch;
+  childCsl.parent = childResearch;
+  overlapResearch.parent = childResearch;
+  childExtraResearch.children = [childExtraBib];
+  childExtraBib.parent = childExtraResearch;
+  childBDeep.children = [childBBib];
+  childBBib.parent = childBDeep;
+  childBResearch.children = [childBDeep];
+  childBDeep.parent = childBResearch;
+  orphanTarget.children = [orphanBib];
+  orphanBib.parent = orphanTarget;
+  research.children = [bibliography, styles, notes, childResearch, childExtraResearch, childBResearch, orphanTarget];
+  for (const folder of research.children) folder.parent = research;
+  auxiliary.children = [research];
+  research.parent = auxiliary;
+  project.children = [childA, childBFile, overlapFile, externalChild, orphanChild, auxiliary];
+  for (const child of project.children) child.parent = project;
+
+  const { vault } = createFakeVault([
+    project, childA, childBFile, overlapFile, externalChild, orphanChild, auxiliary, research, bibliography, styles, notes, archive,
+    childResearch, overlapResearch, childExtraResearch, childBResearch, childBDeep, orphanTarget, externalResearch,
+    projectBib, projectCsl, oldBib, childBib, childCsl, overlapBib, childExtraBib, childBBib, orphanBib,
+  ]);
+  const settings = {
+    projectFolder: project.path,
+    projectMeta: {
+      [project.path]: {
+        researchFolderLinks: {
+          [project.path]: research.path,
+          [childA.path]: childResearch.path,
+          [childBFile.path]: childBResearch.path,
+          [overlapFile.path]: overlapResearch.path,
+          [orphanChild.path]: "EXTERNAL/Missing",
+          [externalChild.path]: externalResearch.path,
+        },
+      },
+    },
+  };
+  const app = { vault };
+  const beforeJson = JSON.stringify(settings);
+
+  const bibliographies = listProjectCitationCandidates(app, settings, project, research, "bib").map((candidate) => candidate.relativePath);
+  const csls = listProjectCitationCandidates(app, settings, project, research, "csl").map((candidate) => candidate.relativePath);
+  assert.ok(bibliographies.includes("Bibliographie/project.bib"));
+  assert.ok(bibliographies.includes("Notes/Archive/old.bib"));
+  assert.ok(bibliographies.includes("Child-Extra/extra.bib"));
+  assert.ok(bibliographies.includes("OrphanTarget/available.bib"));
+  assert.ok(!bibliographies.includes("Child/child.bib"));
+  assert.ok(!bibliographies.includes("Child/Specific/specific.bib"));
+  assert.ok(!bibliographies.includes("Child-B/deep/child-b.bib"));
+  assert.equal(new Set(bibliographies).size, bibliographies.length);
+  assert.ok(csls.includes("Styles/project.csl"));
+  assert.ok(!csls.includes("Child/child.csl"));
+  assert.equal(JSON.stringify(settings), beforeJson);
+});
+
 test("25. Association-based project, workspace association is orphan: no candidates, no historical fallback", () => {
   const project = new TFolder("PROJECT");
   const wsA = new TFolder("PROJECT/Article-A");
@@ -661,6 +823,38 @@ test("26. Association-based project with explicit link on projectRoot: linked re
   const candidates = listWorkspaceCitationCandidates(app, res.selectionResearchFolder, "bib");
   assert.equal(candidates.length, 1);
   assert.equal(candidates[0].relativePath, "main.bib");
+});
+
+test("26b. Explicit orphan project-root link does not fall back to canonical Research", () => {
+  const project = new TFolder("PROJECT");
+  const auxiliary = new TFolder("PROJECT/_Feuillets");
+  const canonicalResearch = new TFolder("PROJECT/_Feuillets/Recherche");
+  const projectBib = new TFile("PROJECT/_Feuillets/Recherche/references.bib");
+  projectBib.extension = "bib";
+  canonicalResearch.children = [projectBib];
+  projectBib.parent = canonicalResearch;
+  auxiliary.children = [canonicalResearch];
+  canonicalResearch.parent = auxiliary;
+  project.children = [auxiliary];
+
+  const { vault } = createFakeVault([project, auxiliary, canonicalResearch, projectBib]);
+  const settings = {
+    projectFolder: project.path,
+    projectMeta: {
+      [project.path]: {
+        citekeyBibliographyPath: "references.bib",
+        researchFolderLinks: { [project.path]: "RESEARCH/Missing" },
+      },
+    },
+  };
+  const app = { vault };
+  const beforeJson = JSON.stringify(settings);
+
+  const resources = resolveWorkspaceCitationResources(app, settings, project, null);
+  assert.equal(resources.selectionResearchFolder, null);
+  assert.equal(resources.bibliography.status, "unbound_research");
+  assert.equal(resources.bibliography.file, null);
+  assert.equal(JSON.stringify(settings), beforeJson);
 });
 
 test("27. Historical project without any association: historical behavior preserved, no settings mutation", () => {

@@ -137,6 +137,45 @@ export function listWorkspaceCitationCandidates(
   return candidates;
 }
 
+function isPathWithin(path: string, root: string): boolean {
+  const normalizedPath = normalizePath(path);
+  const normalizedRoot = normalizePath(root);
+  return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
+}
+
+/** Lists project-owned candidates while excluding Research subtrees linked to child scopes. */
+export function listProjectCitationCandidates(
+  app: App,
+  settings: FeuilletsSettings,
+  projectRoot: TFolder,
+  researchFolder: TFolder | null,
+  extension: "bib" | "csl",
+): WorkspaceCitationCandidate[] {
+  if (!researchFolder) return [];
+
+  const projectPath = normalizePath(projectRoot.path);
+  const linkedResearch = settings.projectMeta?.[projectRoot.path]?.researchFolderLinks;
+  const excludedRoots = new Set<string>();
+
+  if (linkedResearch) {
+    for (const [sourcePath, linkedPath] of Object.entries(linkedResearch)) {
+      const normalizedSource = normalizePath(sourcePath);
+      if (normalizedSource === projectPath || !isPathWithin(normalizedSource, projectPath)) continue;
+      const source = app.vault.getAbstractFileByPath(normalizedSource);
+      if (!(source instanceof TFile || source instanceof TFolder) || !linkedPath) continue;
+      const linkedFolder = app.vault.getAbstractFileByPath(normalizePath(linkedPath));
+      if (linkedFolder instanceof TFolder && isPathWithin(linkedFolder.path, researchFolder.path)) {
+        excludedRoots.add(normalizePath(linkedFolder.path));
+      }
+    }
+  }
+
+  const excluded = [...excludedRoots];
+  return listWorkspaceCitationCandidates(app, researchFolder, extension).filter(
+    (candidate) => !excluded.some((root) => isPathWithin(candidate.file.path, root)),
+  );
+}
+
 /**
  * Resolves the effective research folder for a project or workspace folder.
  * In association-based mode (researchFolderLinks has >= 1 key):
@@ -144,7 +183,9 @@ export function listWorkspaceCitationCandidates(
  * - Nearest valid association wins.
  * - Stale/orphan associations (pointing to non-existent folder) are skipped,
  *   continuing to ancestors.
- * - Never implicitly falls back to common canonical Research container.
+ * - Project-root resolution uses canonical Research only when it has no
+ *   explicit association of its own.
+ * - Workspace resolution never uses canonical Research as a fallback.
  * In legacy mode (researchFolderLinks absent or empty):
  * - Uses getResearchRootForProject.
  */
@@ -162,12 +203,15 @@ export function resolveWorkspaceCitationResearchFolder(
 
   if (isAssociationBased) {
     if (targetScope === null || targetScope.path === projectRoot.path) {
-      const explicit = configuredLinks[projectRoot.path];
-      if (explicit) {
-        const folder = app.vault.getAbstractFileByPath(normalizePath(explicit));
-        if (folder instanceof TFolder) return folder;
+      if (projectRoot.path in configuredLinks) {
+        const explicit = configuredLinks[projectRoot.path];
+        if (explicit) {
+          const folder = app.vault.getAbstractFileByPath(normalizePath(explicit));
+          if (folder instanceof TFolder) return folder;
+        }
+        return null;
       }
-      return null;
+      return getResearchRootForProject(app, settings, projectRoot);
     }
 
     const rootPath = normalizePath(projectRoot.path);
@@ -385,7 +429,15 @@ export function resolveWorkspaceCitationResources(
       };
 
       let ownerResearch: TFolder | null = null;
-      if (hasExplicitOrphanLink(entry.folder.path)) {
+      const hasDirectFileLink = targetScope instanceof TFile &&
+        isAssociationBased &&
+        configuredLinks !== undefined &&
+        targetScope.path in configuredLinks;
+      if (entry.isProject && hasExplicitOrphanLink(projectRoot.path)) {
+        ownerResearch = null;
+      } else if (entry.isProject && hasDirectFileLink) {
+        ownerResearch = hasExplicitOrphanLink(targetScope.path) ? null : selectionResearchFolder;
+      } else if (hasExplicitOrphanLink(entry.folder.path)) {
         ownerResearch = null;
       } else if (scopeResearch) {
         ownerResearch = scopeResearch;
@@ -471,13 +523,7 @@ export function resolveWorkspaceCitationResources(
 
         if (isAssociationBased) {
           source = "project";
-          const explicit = configuredLinks[projectRoot.path];
-          if (explicit) {
-            const folder = app.vault.getAbstractFileByPath(normalizePath(explicit));
-            if (folder instanceof TFolder) {
-              ownerResearch = folder;
-            }
-          }
+          ownerResearch = resolveWorkspaceCitationResearchFolder(app, settings, projectRoot, null);
         } else {
           source = "legacy";
           ownerResearch = getResearchRootForProject(app, settings, projectRoot);

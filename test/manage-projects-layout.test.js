@@ -22,10 +22,14 @@ test("Configuration route Objectifs et Citations avant Métadonnées", () => {
   assert.match(source, /mkNavRow\("quote", t\("modal\.manageProjects\.sourceCitations"\), "citations"\)/);
 });
 
-test("la sous-page Citations conserve les propriétés métier existantes", () => {
+test("la sous-page Citations réunit les réglages de citation du projet", () => {
   const page = source.slice(source.indexOf("private renderProjectCitationsPage"), source.indexOf("private renderProjectNavRows"));
   assert.match(page, /citationStyle/);
-  assert.doesNotMatch(page, /pandocCitationPreviewStyle|pandocBibliographyPath|citekeyBibliographyPath|citekeyCslPath/);
+  assert.match(page, /pandocCitationPreviewStyle/);
+  assert.match(page, /citekeyBibliographyPath/);
+  assert.match(page, /citekeyCslPath/);
+  assert.match(page, /resolveWorkspaceCitationResources/);
+  assert.match(page, /listProjectCitationCandidates/);
   assert.doesNotMatch(page, /resolveType\(meta\(\)\?\.type\) === "nonfiction"/);
   assert.match(page, /settings\.citationStyle\.name/);
   assert.doesNotMatch(page, /this\.render\(|this\.renderCurrentDetailContent\(|this\.requestRender\(/);

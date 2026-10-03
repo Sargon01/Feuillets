@@ -1311,13 +1311,45 @@ test("TransformToProjectModal: the preset <select> shows locale-correct labels �
   }
 });
 
-test("project citation settings retain only the historical Source style and preserve bibliography/CSL metadata", async () => {
+test("ManageProjectsModal — Citations preserves values when rendered and exposes project citation resources", async () => {
   const project = new TFolder("Test/Manuscript");
-  const { vault } = createFakeVault([project]);
+  const research = new TFolder("Test/Research");
+  const refs = new TFile("Test/Research/refs.bib");
+  refs.extension = "bib";
+  const styles = new TFolder("Test/Research/Styles");
+  const nestedBib = new TFile("Test/Research/Styles/archive.bib");
+  nestedBib.extension = "bib";
+  const csl = new TFile("Test/Research/Styles/notes.csl");
+  csl.extension = "csl";
+  const chapter = new TFolder("Test/Manuscript/Chapter");
+  const childResearch = new TFolder("Test/Research/Chapter");
+  const childBib = new TFile("Test/Research/Chapter/workspace.bib");
+  childBib.extension = "bib";
+  const childCsl = new TFile("Test/Research/Chapter/workspace.csl");
+  childCsl.extension = "csl";
+  research.children = [refs, styles, childResearch];
+  refs.parent = research;
+  styles.children = [nestedBib, csl];
+  styles.parent = research;
+  nestedBib.parent = styles;
+  csl.parent = styles;
+  childResearch.children = [childBib, childCsl];
+  childResearch.parent = research;
+  childBib.parent = childResearch;
+  childCsl.parent = childResearch;
+  project.children = [chapter];
+  chapter.parent = project;
+  const { vault } = createFakeVault([project, research, refs, styles, nestedBib, csl, chapter, childResearch, childBib, childCsl]);
   const app = fakeApp(vault);
   const settings = freshSettings();
   settings.projectFolder = project.path;
-  settings.projectMeta[project.path] = { citationStyle: "footnote", pandocCitationPreviewStyle: "csl", citekeyBibliographyPath: "refs.bib", citekeyCslPath: "notes.csl", pandocBibliographyPath: "legacy.bib" };
+  settings.projectMeta[project.path] = {
+    citationStyle: "footnote",
+    pandocCitationPreviewStyle: "csl",
+    citekeyBibliographyPath: "refs.bib",
+    citekeyCslPath: "Styles/notes.csl",
+    researchFolderLinks: { [project.path]: research.path, [chapter.path]: childResearch.path },
+  };
   const before = structuredClone(settings);
   const plugin = fakePlugin(settings);
   plugin.getProjectFolder = () => project;
@@ -1327,10 +1359,86 @@ test("project citation settings retain only the historical Source style and pres
   modal.render();
   assert.deepEqual(settings, before);
   const selects = findElements(modal.contentEl, (el) => el.tag === "select");
-  assert.equal(selects.length, 1);
+  assert.equal(selects.length, 4);
   assert.deepEqual(selects[0].children.map((option) => option.value), ["footnote", "parenthetical"]);
+  assert.deepEqual(selects[1].children.map((option) => option.value), ["__inherit__", "off", "author-date", "csl"]);
+  assert.ok(selects[2].children.some((option) => option.value === "refs.bib"));
+  assert.ok(selects[2].children.some((option) => option.value === "Styles/archive.bib"));
+  assert.ok(!selects[2].children.some((option) => option.value === "Chapter/workspace.bib"));
+  assert.ok(selects[3].children.some((option) => option.value === "Styles/notes.csl"));
+  assert.ok(!selects[3].children.some((option) => option.value === "Chapter/workspace.csl"));
   selects[0].value = "parenthetical";
   await selects[0].trigger("change");
   assert.deepEqual(settings.projectMeta[project.path], { ...before.projectMeta[project.path], citationStyle: "parenthetical" });
   assert.ok(plugin.calls.includes("save"));
+});
+
+test("ManageProjectsModal — Citations writes project resources and refreshes rendering", async () => {
+  const project = new TFolder("Book");
+  const research = new TFolder("Book/Research");
+  const refs = new TFile("Book/Research/references.bib");
+  refs.extension = "bib";
+  const csl = new TFile("Book/Research/chicago.csl");
+  csl.extension = "csl";
+  research.children = [refs, csl];
+  refs.parent = research;
+  csl.parent = research;
+  const { vault } = createFakeVault([project, research, refs, csl]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  settings.projectFolder = project.path;
+  settings.projectMeta[project.path] = { researchFolderLinks: { [project.path]: research.path } };
+  const plugin = fakePlugin(settings);
+  plugin.getProjectFolder = () => project;
+  const modal = createModal(ManageProjectsModal, app, plugin);
+  modal.onOpen();
+  modal.detailPage = { projectPath: project.path, page: "citations" };
+  modal.render();
+
+  let selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  selects[1].value = "csl";
+  await selects[1].trigger("change");
+  selects[2].value = "references.bib";
+  await selects[2].trigger("change");
+  selects[3].value = "chicago.csl";
+  await selects[3].trigger("change");
+  assert.equal(settings.projectMeta[project.path].pandocCitationPreviewStyle, "csl");
+  assert.equal(settings.projectMeta[project.path].citekeyBibliographyPath, "references.bib");
+  assert.equal(settings.projectMeta[project.path].citekeyCslPath, "chicago.csl");
+  assert.ok(plugin.calls.includes("invalidate"));
+  assert.ok(plugin.calls.includes("render"));
+
+  selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  selects[2].value = "__inherit__";
+  await selects[2].trigger("change");
+  assert.equal(settings.projectMeta[project.path].citekeyBibliographyPath, undefined);
+  selects[3].value = "";
+  await selects[3].trigger("change");
+  assert.equal(settings.projectMeta[project.path].citekeyCslPath, "");
+});
+
+test("ManageProjectsModal — Citations preserves missing resources without a Research folder", () => {
+  const project = new TFolder("Book");
+  const { vault } = createFakeVault([project]);
+  const app = fakeApp(vault);
+  const settings = freshSettings();
+  settings.projectFolder = project.path;
+  settings.projectMeta[project.path] = {
+    citekeyBibliographyPath: "missing.bib",
+    citekeyCslPath: "missing.csl",
+    researchFolderLinks: {},
+  };
+  const before = structuredClone(settings);
+  const plugin = fakePlugin(settings);
+  plugin.getProjectFolder = () => project;
+  const modal = createModal(ManageProjectsModal, app, plugin);
+  modal.onOpen();
+  modal.detailPage = { projectPath: project.path, page: "citations" };
+  modal.render();
+
+  assert.deepEqual(settings, before);
+  const selects = findElements(modal.contentEl, (el) => el.tag === "select");
+  assert.ok(selects[2].children.some((option) => option.value === "missing.bib"));
+  assert.ok(selects[3].children.some((option) => option.value === "missing.csl"));
+  assert.ok(findElements(modal.contentEl, (el) => el.text === fr["project.pandocCitationPreview.noResearch"]).length >= 1);
 });
