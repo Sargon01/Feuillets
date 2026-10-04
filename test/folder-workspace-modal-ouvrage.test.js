@@ -4,6 +4,7 @@ import { TFolder } from "obsidian";
 import { FolderWorkspaceModal } from "../src/ui/folder-workspace-modal.js";
 import { isOuvrageRoot } from "../src/services/editorial-roots.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { fr } from "../src/i18n/fr.js";
 
 /* RECTIFICATION — ALIGNER OUVRAGE SUR LA MODALE EXISTANTE : l'option ouvrage
  * applique chaque changement immédiatement, comme tout le reste de cette
@@ -132,7 +133,7 @@ function installWindowStub() {
   return () => { globalThis.window = previous; };
 }
 
-const OUVRAGE_LABEL = "Définir ce dossier comme ouvrage";
+const OUVRAGE_LABEL = fr["modal.folderWorkspace.defineAsOuvrage"];
 
 function ouvrageSetting(modal) {
   const setting = findSettingByName(modal.contentEl, OUVRAGE_LABEL);
@@ -217,6 +218,10 @@ test("l'option ouvrage est absente pour la racine globale, Front et ses descenda
     assert.equal(findSettingByName(openModal(app, plugin, root).contentEl, OUVRAGE_LABEL), null, "racine globale");
     assert.equal(findSettingByName(openModal(app, plugin, front).contentEl, OUVRAGE_LABEL), null, "Front");
     assert.equal(findSettingByName(openModal(app, plugin, hidden).contentEl, OUVRAGE_LABEL), null, "dossier préfixé par _");
+    const workspaceLabel = fr["modal.folderWorkspace.defineAsWorkspace"];
+    for (const folder of [root, front, hidden]) {
+      assert.equal(findSettingByName(openModal(app, plugin, folder).contentEl, workspaceLabel), null);
+    }
   } finally {
     restore();
   }

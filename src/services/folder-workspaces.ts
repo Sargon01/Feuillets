@@ -1,5 +1,5 @@
 import { folderPathToRelativeScope, relativeScopeToFolderPath } from "../carnet/core/folder-carnets.js";
-import type { App, TFolder } from "obsidian";
+import { TFile, TFolder, type App } from "obsidian";
 import { getProjectFolder } from "./folder-structure.js";
 import { DEFAULT_SETTINGS } from "../default-settings.js";
 import {
@@ -41,6 +41,51 @@ export function getFolderWorkspaceConfig(
 ): FolderWorkspaceConfig | undefined {
   if (!relativeScope || !meta?.folderWorkspaces) return undefined;
   return meta.folderWorkspaces[relativeScope];
+}
+
+/** Checks only the exact existing folder, never inherited settings or session isolation. */
+export function isDeclaredWorkspaceRoot(app: App, settings: FeuilletsSettings, projectRoot: TFolder, folder: TFolder): boolean {
+  const scope = folderPathToWorkspaceScope(projectRoot.path, folder.path);
+  return scope !== null && app.vault.getAbstractFileByPath(folder.path) instanceof TFolder
+    && getFolderWorkspaceConfig(settings.projectMeta?.[projectRoot.path], scope)?.workspaceRoot === true;
+}
+
+/** Adds only persistent workspace identity, preserving all existing settings. */
+export function registerDeclaredWorkspaceRoot(settings: FeuilletsSettings, projectRoot: TFolder, folder: TFolder): boolean {
+  const scope = folderPathToWorkspaceScope(projectRoot.path, folder.path);
+  if (!scope) return false;
+  const meta = (settings.projectMeta ||= {})[projectRoot.path] ||= {};
+  const config = (meta.folderWorkspaces ||= {})[scope] ||= { version: 1 };
+  if (config.workspaceRoot === true) return false;
+  config.workspaceRoot = true;
+  return true;
+}
+
+/** Removes only persistent workspace identity; an editorial identity is retained. */
+export function unregisterDeclaredWorkspaceRoot(settings: FeuilletsSettings, projectRoot: TFolder, folder: TFolder): boolean {
+  const scope = folderPathToWorkspaceScope(projectRoot.path, folder.path);
+  if (!scope) return false;
+  const meta = settings.projectMeta?.[projectRoot.path];
+  const workspaces = meta?.folderWorkspaces;
+  const config = workspaces?.[scope];
+  if (!meta || !workspaces || config?.workspaceRoot === undefined) return false;
+  delete config.workspaceRoot;
+  if (isFolderWorkspaceConfigEmpty(config)) {
+    delete workspaces[scope];
+    if (!Object.keys(workspaces).length) delete meta.folderWorkspaces;
+  }
+  return true;
+}
+
+/** Resolves the deepest explicitly declared ancestor within the supplied project. */
+export function resolveDeclaredWorkspaceRoot(app: App, settings: FeuilletsSettings, projectRoot: TFolder, node: TFile | TFolder): TFolder | null {
+  const folderPath = node instanceof TFile ? node.path.slice(0, node.path.lastIndexOf("/")) : node.path;
+  for (const scope of folderWorkspaceScopeChain(projectRoot.path, folderPath)) {
+    const path = workspaceScopeToFolderPath(projectRoot.path, scope);
+    const folder = path ? app.vault.getAbstractFileByPath(path) : null;
+    if (folder instanceof TFolder && isDeclaredWorkspaceRoot(app, settings, projectRoot, folder)) return folder;
+  }
+  return null;
 }
 
 /** Vrai si une configuration ne porte plus aucun réglage au-delà du champ

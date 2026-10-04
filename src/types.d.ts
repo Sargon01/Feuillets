@@ -158,6 +158,8 @@ declare type FolderWorkspacePreset = "free" | "fiction" | "nonfiction";
 
 declare type FolderWorkspaceConfig = {
   version: 1;
+  /** Explicit persistent workspace identity, independent of editorial identity and session isolation. */
+  workspaceRoot?: true;
   /** Statut d'ouvrage (racine éditoriale imbriquée) de CE dossier — voir
    *  services/editorial-roots.ts isOuvrageRoot/registerOuvrage/
    *  unregisterOuvrage, seuls lecteurs/écrivains légitimes de ce champ. */
