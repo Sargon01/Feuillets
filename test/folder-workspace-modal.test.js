@@ -8,6 +8,7 @@ import { FolderWorkspaceModal } from "../src/ui/folder-workspace-modal.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { fr } from "../src/i18n/fr.js";
 import { isDeclaredWorkspaceRoot } from "../src/services/folder-workspaces.js";
+import { resolveReferenceCitationContext } from "../src/services/research-reference-search.js";
 
 
 const modalSource = readFileSync("src/ui/folder-workspace-modal.ts", "utf8");
@@ -286,8 +287,8 @@ function openWorkspaceModal(app, plugin, folder) {
   return modal;
 }
 
-function openReferenceModal(app, plugin, folder) {
-  const modal = new ReferenceCitationSettingsModal(app, plugin, { projectRoot: plugin.getProjectFolder(), scopeRoot: folder, targetScope: folder }, () => true);
+function openReferenceModal(app, plugin, folder, context = { projectRoot: plugin.getProjectFolder(), scopeRoot: folder, targetScope: folder }) {
+  const modal = new ReferenceCitationSettingsModal(app, plugin, context, () => true);
   modal.contentEl = new FakeElement("div");
   modal.onOpen();
   return modal;
@@ -572,7 +573,13 @@ test("folder and References modals immediately share bibliography, CSL and every
   const restore = installWindowStub();
   try {
     const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, workspaceRoot: true, ouvrage: { version: 1 } } });
-    const folder = openWorkspaceModal(f.app, f.plugin, f.articleA); const reference = openReferenceModal(f.app, f.plugin, f.articleA);
+    const scene = await f.app.vault.create(`${f.articleA.path}/Scene.md`, "Body");
+    const context = resolveReferenceCitationContext(f.app, f.settings, {
+      projectRoot: f.project, scopeRoot: f.project, workspaceRoot: null, mode: "project", files: [scene],
+    }, scene);
+    assert.equal(context.scopeRoot, f.articleA);
+    assert.equal(context.targetScope, scene);
+    const folder = openWorkspaceModal(f.app, f.plugin, f.articleA); const reference = openReferenceModal(f.app, f.plugin, f.articleA, context);
     await changeCitation(folder, "citekeyBibliographyPath", "articleA.bib");
     assert.equal(citationSelect(reference, "citekeyBibliographyPath").value, "articleA.bib");
     await changeCitation(folder, "citekeyCslPath", "articleA.csl");

@@ -1042,6 +1042,27 @@ test("Continu CSL: style off triggers zero CSL calls", async () => {
   f.host.dispose();
 });
 
+for (const [projectStyle, workspaceStyle] of [["csl", "off"], ["off", "csl"]]) {
+  test(`Continu persistent workspace style ${workspaceStyle} overrides project ${projectStyle} without isolation`, async () => {
+    const f = createCslContinuFixture({ previewStyle: projectStyle });
+    const workspace = await f.app.vault.createFolder(`${f.manuscript.path}/Article`);
+    const scene = await f.app.vault.create(`${workspace.path}/Scene.md`, "Body [@smith2024].");
+    f.settings.projectMeta[f.project.path].folderWorkspaces = {
+      "Manuscript/Article": { version: 1, workspaceRoot: true, pandocCitationPreviewStyle: workspaceStyle },
+    };
+    const { instance, view } = mountCslContinu(f, [scene, f.docB]);
+    await flush(10);
+    instance.update({ view });
+    const decorations = Array.isArray(instance.decorations) ? instance.decorations : [];
+    assert.equal(decorations.length, 1);
+    const visibleKey = workspaceStyle === "csl" ? "smith2024" : "doe2023";
+    assert.ok(decorations[0].widget.citation.plainText.includes(visibleKey));
+    assert.equal(view.state.doc.toString().includes("[@smith2024]"), true);
+    instance.destroy();
+    f.host.dispose();
+  });
+}
+
 test("ScriveningsView Integration: mountEditor passes mounted document, projectRoot, and host access", async () => {
   let capturedRequest = null;
   const f = createCslContinuFixture({

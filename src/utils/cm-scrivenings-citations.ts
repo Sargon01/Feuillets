@@ -609,6 +609,8 @@ export function createScriveningsCitationExtension(
         for (let i = 0; i < occurrences.length; i++) {
           const occ = occurrences[i];
           if (occ.from >= occ.to) continue;
+          const file = liveDoc.segments[occ.segmentIndex]?.file;
+          if (!file || resolvePandocCitationPreviewForFile(app, getSettings(), file).style === "off") continue;
 
           let isVisible = false;
           for (const range of visibleRanges) {

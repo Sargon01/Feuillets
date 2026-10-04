@@ -59,7 +59,7 @@ import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 import { collectDocumentScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
 import { analyzeResearchCitations, type ResearchCitationAnalysis } from "../services/research-citation-analysis.js";
 import type { ResearchBibliographyGenerationInput } from "../services/bibliography-generator.js";
-import { referenceSourceFolders, referenceSourceRecords, referenceBibliographyFile, resolveReferenceCitationContext, loadReferenceCatalog, searchReferenceRecords } from "../services/research-reference-search.js";
+import { referenceSourceFolders, referenceSourceRecords, referenceBibliographyFile, resolveReferenceCitationContext, resolveReferenceDocumentContext, loadReferenceCatalog, searchReferenceRecords } from "../services/research-reference-search.js";
 import { isValidCitekey } from "../services/bibtex-catalog.js";
 import { ReferenceCitationSettingsModal, renderReferenceCitationWarnings } from "../ui/reference-citation-settings.js";
 import {
@@ -1368,8 +1368,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     const showProjectAssociations = !options.workspaceActive
       || options.scopeMode !== "workspace";
 
-    /* The mandatory document scope is resolved once by ResearchView.render()
-       and is never recomputed or replaced with `root` here. */
+    // Research keeps its supplied scope; References resolves its document context separately.
     const documentContext = options.documentContext;
 
     if (associatedWorkspaceFolder) {
@@ -1394,9 +1393,8 @@ export abstract class BaseFeuilletsView extends ItemView {
       } else {
         /* Citation analysis (Pandoc + Source-fiche occurrences) — computed
            only for the References tab, never while Dossiers is active. */
-        const citationAnalysis = await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
+        await this.renderReferencesTab(body, documentContext);
         if (this._renderGen !== gen) return;
-        await this.renderReferencesTab(body, documentContext, citationAnalysis);
       }
       this.filterEntities();
       return;
@@ -1608,9 +1606,8 @@ export abstract class BaseFeuilletsView extends ItemView {
     } else {
       /* Citation analysis (Pandoc + Source-fiche occurrences) — computed
          only for the References tab, never while Dossiers is active. */
-      const citationAnalysis = await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
+      await this.renderReferencesTab(body, documentContext);
       if (this._renderGen !== gen) return;
-      await this.renderReferencesTab(body, documentContext, citationAnalysis);
     }
 
     this.filterEntities();
@@ -1726,20 +1723,26 @@ export abstract class BaseFeuilletsView extends ItemView {
   /** Search replaces only the cited list, preserving its scoped generation snapshot. */
   private async renderReferencesTab(
     container: HTMLElement,
-    documentContext: ResearchDocumentContext,
-    citationAnalysis: ResearchCitationAnalysis
+    baseContext: ResearchDocumentContext,
+    suppliedAnalysis?: ResearchCitationAnalysis
   ): Promise<void> {
     const gen = this._renderGen;
     const insertionTarget = this.plugin.getReferenceCitationTarget?.() ?? null;
     const targetFile = insertionTarget?.file ?? this.app.workspace.getActiveFile();
     const workspacePath = this.plugin.getWorkspaceFolder?.()?.path;
+    const currentDocumentContext = () => resolveReferenceDocumentContext(this.app, this.plugin.settings, baseContext,
+      this.plugin.getReferenceCitationTarget?.()?.file ?? this.app.workspace.getActiveFile(), this.plugin.getWorkspaceFolder?.() ?? null);
+    const documentContext = currentDocumentContext();
+    const citationAnalysis = suppliedAnalysis && documentContext === baseContext ? suppliedAnalysis
+      : await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
+    if (this._renderGen !== gen) return;
     const contextKey = `${documentContext.projectRoot.path}:${documentContext.scopeRoot.path}:${targetFile?.path || ""}`;
     if (this.referenceSearchContext !== contextKey) this.referenceSearchQuery = "";
     this.referenceSearchContext = contextKey;
     const sources = referenceSourceRecords(this.app, this.plugin.settings, documentContext, (file) => this.plugin.fmOf(file));
     const sourceFolderPaths = () => referenceSourceFolders(this.app, this.plugin.settings, documentContext).map((folder) => folder.path).join("\n");
     const sourceScope = sourceFolderPaths();
-    const citationContext = resolveReferenceCitationContext(documentContext, targetFile);
+    const citationContext = resolveReferenceCitationContext(this.app, this.plugin.settings, documentContext, targetFile);
     const bibliography = referenceBibliographyFile(this.app, this.plugin.settings, documentContext, targetFile);
     const bibliographyRevision = bibliography ? `${bibliography.path}:${bibliography.stat?.mtime}:${bibliography.stat?.size}` : "";
     this.referenceRefreshPaths = new Set([
@@ -1753,6 +1756,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       if (this._renderGen !== gen || currentTargetFile()?.path !== targetFile?.path
         || this.plugin.getProjectFolder()?.path !== documentContext.projectRoot.path
         || this.plugin.getWorkspaceFolder?.()?.path !== workspacePath
+        || currentDocumentContext().scopeRoot.path !== documentContext.scopeRoot.path
         || sourceFolderPaths() !== sourceScope) return false;
       const current = referenceBibliographyFile(this.app, this.plugin.settings, documentContext, targetFile);
       return (current ? `${current.path}:${current.stat?.mtime}:${current.stat?.size}` : "") === bibliographyRevision;
@@ -1760,11 +1764,11 @@ export abstract class BaseFeuilletsView extends ItemView {
     this.referenceSettingsOpener = () => {
       if (!isCurrent()) return;
       const settingsContextIsCurrent = () => {
-        const current = resolveReferenceCitationContext(documentContext, currentTargetFile());
-        return this.plugin.getProjectFolder()?.path === documentContext.projectRoot.path
-          && this.plugin.getWorkspaceFolder?.()?.path === workspacePath
-          && currentTargetFile()?.path === targetFile?.path
-          && current.scopeRoot.path === citationContext.scopeRoot.path
+        if (this.plugin.getProjectFolder()?.path !== documentContext.projectRoot.path
+          || this.plugin.getWorkspaceFolder?.()?.path !== workspacePath
+          || currentTargetFile()?.path !== targetFile?.path) return false;
+        const current = resolveReferenceCitationContext(this.app, this.plugin.settings, currentDocumentContext(), currentTargetFile());
+        return current.scopeRoot.path === citationContext.scopeRoot.path
           && current.targetScope.path === citationContext.targetScope.path;
       };
       new ReferenceCitationSettingsModal(this.app, this.plugin, citationContext, settingsContextIsCurrent).open();
@@ -3184,13 +3188,7 @@ export abstract class BaseFeuilletsView extends ItemView {
     setIcon(exportIcon, "file-output");
     exportRow.createSpan().setText(generateLabel);
 
-    /* Closes over a snapshot of exactly what this render pass displays —
-       the same Sources fiches (`cited`) and the same resolved BibTeX
-       entries — copied so a later mutation of `cited` or of the result
-       arrays can never change what a pending click writes. `documentContext`
-       was itself resolved once by ResearchView.render() (never re-derived
-       from the active file), so this is always the exact scope currently
-       shown, Project or Workspace. */
+    // Capture the displayed references so pending generation retains its resolved document scope.
     const generationInput: ResearchBibliographyGenerationInput = {
       projectRoot: documentContext.projectRoot,
       sourceFiles: [...cited],

@@ -103,6 +103,7 @@ import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js
 import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters, detectProjectStructureLocale } from "./services/folder-structure.js";
 import { resolveEditorialRoot, isOuvrageRoot } from "./services/editorial-roots.js";
+import { resolveReferenceContextRoot } from "./services/research-reference-search.js";
 import { effectiveComposition } from "./services/ouvrage-composition.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
@@ -4181,7 +4182,12 @@ class FeuilletsPlugin extends Plugin {
    * sinon repli Bibliographie/Bibliography legacy, jamais les deux à la
    * fois — même règle que la bibliographie générée. */
   getCitationFolders(): TFolder[] {
-    const workspace = this.getWorkspaceFolder();
+    const projectRoot = getProjectFolder(this.app, this.settings);
+    const targetFile = this.app.workspace?.getActiveFile?.() ?? null;
+    const isolation = this.getWorkspaceFolder();
+    const contextRoot = projectRoot && targetFile
+      ? resolveReferenceContextRoot(this.app, this.settings, projectRoot, targetFile, isolation) : isolation;
+    const workspace = contextRoot?.path === projectRoot?.path ? null : contextRoot;
     if (!workspace) {
       const resolved = resolveBibliographySource(this.app, this.settings);
       return resolved ? [resolved.folder] : [];
@@ -4568,13 +4574,11 @@ class FeuilletsPlugin extends Plugin {
         }
       }
 
-      const searchFolder = file.parent instanceof TFolder ? file.parent : null;
-
       const resolution = resolveWorkspaceCitationResources(
         this.app,
         this.settings,
         projectRoot,
-        searchFolder,
+        file,
       );
 
       if (

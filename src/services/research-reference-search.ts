@@ -1,5 +1,6 @@
-import { type App, TFile, type TFolder } from "obsidian";
-import { folderPathToWorkspaceScope } from "./folder-workspaces.js";
+import { type App, TFile, TFolder } from "obsidian";
+import { folderPathToWorkspaceScope, resolveDeclaredWorkspaceRoot } from "./folder-workspaces.js";
+import { resolveResearchDocumentContext } from "./research-document-context.js";
 import { resolveCitationCandidates } from "./citation-candidates.js";
 import { resolveBibliographySourceInResearchRoot } from "./bibliography-generator.js";
 import { resolveBibliographyMetadataFromFrontmatter } from "./source-bibliography-resolver.js";
@@ -26,11 +27,42 @@ export type ReferenceCitationContext = {
   targetScope: TFolder | TFile;
 };
 
-/** Resource reads follow the editable file; settings writes stay in its exact folder. */
-export function resolveReferenceCitationContext(context: ResearchDocumentContext, targetFile: TFile | null): ReferenceCitationContext {
+/** Session isolation can narrow a declared reference context, never widen it. */
+export function resolveReferenceContextRoot(
+  app: App, settings: FeuilletsSettings, projectRoot: TFolder,
+  target: TFile | TFolder, isolation: TFolder | null,
+): TFolder {
+  const declared = resolveDeclaredWorkspaceRoot(app, settings, projectRoot, target);
+  const applicableIsolation = isolation instanceof TFolder
+    && folderPathToWorkspaceScope(projectRoot.path, isolation.path)
+    && (target.path === isolation.path || target.path.startsWith(`${isolation.path}/`))
+    ? isolation : null;
+  if (applicableIsolation && (!declared || applicableIsolation.path.startsWith(`${declared.path}/`))) return applicableIsolation;
+  return declared ?? applicableIsolation ?? projectRoot;
+}
+
+/** References have their own document context; other Research tabs retain their scope. */
+export function resolveReferenceDocumentContext(
+  app: App, settings: FeuilletsSettings, context: ResearchDocumentContext,
+  targetFile: TFile | null, isolation: TFolder | null,
+): ResearchDocumentContext {
+  if (!targetFile || !targetFile.path.startsWith(`${context.scopeRoot.path}/`)) return context;
+  const root = resolveReferenceContextRoot(app, settings, context.projectRoot, targetFile, isolation);
+  if (root.path === context.scopeRoot.path) return context;
+  return resolveResearchDocumentContext(app, settings, context.projectRoot, root, "workspace");
+}
+
+/** Reads follow the editable file; writes use its declared context or its exact ordinary folder. */
+export function resolveReferenceCitationContext(
+  app: App, settings: FeuilletsSettings, context: ResearchDocumentContext, targetFile: TFile | null,
+): ReferenceCitationContext {
   if (targetFile?.parent && context.files.some((file) => file.path === targetFile.path)
     && (targetFile.parent.path === context.projectRoot.path || folderPathToWorkspaceScope(context.projectRoot.path, targetFile.parent.path))) {
-    return { projectRoot: context.projectRoot, scopeRoot: targetFile.parent, targetScope: targetFile };
+    const declared = resolveDeclaredWorkspaceRoot(app, settings, context.projectRoot, targetFile);
+    const scopeRoot = declared
+      ? resolveReferenceContextRoot(app, settings, context.projectRoot, targetFile, context.workspaceRoot)
+      : targetFile.parent;
+    return { projectRoot: context.projectRoot, scopeRoot, targetScope: targetFile };
   }
   return { projectRoot: context.projectRoot, scopeRoot: context.scopeRoot, targetScope: context.scopeRoot };
 }
@@ -66,7 +98,7 @@ export function referenceBibliographyFile(
   context: ResearchDocumentContext,
   targetFile: TFile | null,
 ): TFile | null {
-  const target = resolveReferenceCitationContext(context, targetFile).targetScope;
+  const target = resolveReferenceCitationContext(app, settings, context, targetFile).targetScope;
   const resource = resolveWorkspaceCitationResources(app, settings, context.projectRoot, target).bibliography;
   return resource.status === "valid" ? resource.file : null;
 }

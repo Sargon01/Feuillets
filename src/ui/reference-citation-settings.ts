@@ -1,4 +1,4 @@
-import { type App, Modal, TFolder } from "obsidian";
+import { type App, Modal, TFile, TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
 import type { ReferenceCitationContext } from "../services/research-reference-search.js";
 import { resolveDocumentCitationStyleSetting } from "../services/document-citation-style.js";
@@ -19,6 +19,10 @@ const FIELDS: readonly CitationSetting[] = ["pandocCitationPreviewStyle", "citek
 const INHERIT = "__inherit__";
 const EFFECTIVE = "__effective__";
 const openControls = new WeakMap<CitationSettingsPlugin, Set<ReferenceCitationSettingsControls>>();
+
+function citationStyleScope(context: ReferenceCitationContext): TFolder {
+  return context.targetScope instanceof TFile ? context.targetScope.parent ?? context.scopeRoot : context.targetScope;
+}
 
 export function refreshReferenceCitationSettings(plugin: CitationSettingsPlugin): void {
   for (const controls of openControls.get(plugin) ?? []) controls.refresh();
@@ -104,7 +108,7 @@ export class ReferenceCitationSettingsControls {
     // Candidates belong to the folder receiving the override, including its Research association.
     const selection = resolveWorkspaceCitationResources(this.app, this.plugin.settings, projectRoot, scopeRoot);
     const block = contentEl.createDiv({ cls: "feuillets-reference-settings" });
-    const mode = resolveDocumentCitationStyleSetting(this.plugin.settings, projectRoot.path, scopeRoot.path);
+    const mode = resolveDocumentCitationStyleSetting(this.plugin.settings, projectRoot.path, citationStyleScope(this.context).path);
     const modeOwnerPath = mode.source ? workspaceScopeToFolderPath(projectRoot.path, mode.source) : null;
     const modeOwner = modeOwnerPath ? this.app.vault.getAbstractFileByPath(modeOwnerPath) : null;
     const modes: [string, string][] = [
@@ -205,7 +209,7 @@ export class ReferenceCitationSettingsControls {
 }
 
 export function renderReferenceCitationWarnings(container: HTMLElement, app: App, settings: FeuilletsSettings, context: ReferenceCitationContext): void {
-  const mode = resolveDocumentCitationStyleSetting(settings, context.projectRoot.path, context.scopeRoot.path).value;
+  const mode = resolveDocumentCitationStyleSetting(settings, context.projectRoot.path, citationStyleScope(context).path).value;
   if (!mode || mode === "off") return;
   const resources = resolveWorkspaceCitationResources(app, settings, context.projectRoot, context.targetScope);
   const warnings = [
