@@ -201,6 +201,7 @@ import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename 
 import { remapLayoutAfterRename, removeLayoutAfterDelete, LayoutFileCorruptedError } from "./services/layout-store.js";
 import { createSourceAnchor } from "./services/source-anchor.js";
 import { addCitationOccurrence, remapCitationRegistryAfterRename } from "./services/citation-registry.js";
+import { remapCrossReferencesAfterRename } from "./services/cross-reference-store.js";
 import { applyDocumentLayoutChanges, documentLayoutValuesForTarget, type DocumentLayoutTarget } from "./services/document-layout-actions.js";
 import { pageBreakAnchorsForFile } from "./services/document-layout-actions.js";
 import { documentLayoutPageBreakPlugin, setDocumentLayoutPageBreakAnchors } from "./utils/cm-document-layout.js";
@@ -1847,6 +1848,9 @@ class FeuilletsPlugin extends Plugin {
           console.error("Feuillets citation registry rename maintenance", oldPath, file.path, error);
         });
         for (const settings of knownProjectContexts()) {
+          void remapCrossReferencesAfterRename(this.app, settings, oldPath, file.path).catch((error: unknown) => {
+            console.error("Feuillets cross-reference store rename maintenance", oldPath, file.path, error);
+          });
           void remapLayoutAfterRename(this.app, settings, oldPath, file.path).catch((error: unknown) => {
             if (error instanceof LayoutFileCorruptedError) console.warn("Feuillets layout.json rename maintenance", oldPath, file.path, error);
           });

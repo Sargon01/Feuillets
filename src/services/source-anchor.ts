@@ -13,6 +13,11 @@ export interface ResolvedSourceRange {
 
 export const SOURCE_ANCHOR_CONTEXT_CHARS = 64;
 
+export type StrictSourceAnchorResolution =
+  | { status: "resolved"; range: ResolvedSourceRange }
+  | { status: "missing" }
+  | { status: "ambiguous" };
+
 function findAll(content: string, needle: string): number[] {
   if (!needle) return [];
   const result: number[] = [];
@@ -29,6 +34,35 @@ export function createSourceAnchor(content: string, start: number, end: number):
     prefix: content.slice(Math.max(0, start - SOURCE_ANCHOR_CONTEXT_CHARS), start),
     suffix: content.slice(end, Math.min(content.length, end + SOURCE_ANCHOR_CONTEXT_CHARS)),
   };
+}
+
+/** Resolves by unique text or exact surrounding context, never by a preferred offset. */
+export function resolveSourceAnchorStrict(anchor: SourceAnchor, content: string): StrictSourceAnchorResolution {
+  const occurrences = findAll(content, anchor.quote);
+  if (occurrences.length === 1) {
+    return { status: "resolved", range: { start: occurrences[0], end: occurrences[0] + anchor.quote.length } };
+  }
+  if (occurrences.length > 1) {
+    const matches = occurrences.filter((start) =>
+      content.slice(Math.max(0, start - anchor.prefix.length), start) === anchor.prefix
+      && content.slice(start + anchor.quote.length, start + anchor.quote.length + anchor.suffix.length) === anchor.suffix
+    );
+    return matches.length === 1
+      ? { status: "resolved", range: { start: matches[0], end: matches[0] + anchor.quote.length } }
+      : { status: "ambiguous" };
+  }
+  if (!anchor.prefix || !anchor.suffix) return { status: "missing" };
+  const suffixes = findAll(content, anchor.suffix);
+  let candidate: ResolvedSourceRange | undefined;
+  for (const prefixStart of findAll(content, anchor.prefix)) {
+    const start = prefixStart + anchor.prefix.length;
+    for (const end of suffixes) {
+      if (end <= start) continue;
+      if (candidate) return { status: "ambiguous" };
+      candidate = { start, end };
+    }
+  }
+  return candidate ? { status: "resolved", range: candidate } : { status: "missing" };
 }
 
 export function resolveSourceAnchor(anchor: SourceAnchor, content: string): ResolvedSourceRange | null {

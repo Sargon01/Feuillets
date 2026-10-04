@@ -24,6 +24,8 @@ import { projectCreationNames } from "../i18n/project-creation.js";
 import { FALLBACK_LOCALE, getLocale, type Locale } from "../i18n/index.js";
 import { isProjectDraft } from "./project-drafts.js";
 import { ensureFolder } from "./project-files.js";
+import { annexesFolder } from "./annexes.js";
+export { annexesFolder, annexesFiles } from "./annexes.js";
 import { preserveBlankLinesForFrontPage } from "./export-render.js";
 import { parseTitleRoles, hasTitleRoleLines, TITLE_ROLE_MARKER } from "../utils/title-roles.js";
 import { exportEpub } from "./export-epub.js";
@@ -66,38 +68,6 @@ import {
   type PandocPackageCitationReportItem,
   type ResolverStatus,
 } from "./pandoc-package-export.js";
-
-/** Les deux noms reconnus pour le dossier Annexes, à la RACINE du dossier
- * Manuscrit — même convention de double reconnaissance (FR/EN) que
- * Bibliographie/Bibliography (services/bibliography-generator.ts). */
-const ANNEXES_FOLDER_NAMES = ["Annexes", "Appendices"];
-
-/** Dossier Annexes/Appendices du projet, s'il existe — utilisé aussi bien
- * par la compilation (ci-dessous) que par ui/annexes-panel.ts (décompte,
- * bouton « Ouvrir le dossier »). */
-export function annexesFolder(app: App, projectRoot: TFolder | null): TFolder | null {
-  if (!projectRoot) return null;
-  for (const name of ANNEXES_FOLDER_NAMES) {
-    const f = app.vault.getAbstractFileByPath(normalizePath(`${projectRoot.path}/${name}`));
-    if (f instanceof TFolder) return f;
-  }
-  return null;
-}
-
-/** Feuillets Markdown directement dans Annexes/Appendices, DANS L'ORDRE DU
- * PROJET (getOrderedChildren — même service que le Binder et la
- * compilation, aucun second système d'ordre) — sans égard à leur
- * frontmatter `compile`, qui reste une décision de la compilation elle-
- * même (voir plus bas), pas de ce décompte. */
-export function annexesFiles(app: App, settings: FeuilletsSettings, projectRoot: TFolder | null): TFile[] {
-  const folder = annexesFolder(app, projectRoot);
-  if (!folder) return [];
-  const out: TFile[] = [];
-  for (const child of getOrderedChildren(app, settings, folder)) {
-    if (child instanceof TFile && child.extension === "md") out.push(child);
-  }
-  return out;
-}
 
 /** Formats d'export réellement implémentés dans Feuillets.
  * À maintenir en synchro avec les branches de exportViaNative(). */
