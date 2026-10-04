@@ -5,7 +5,7 @@ import { isEditing } from "../utils/dom.js";
 import { BaseFeuilletsView, type ResearchScopeMode, type ResearchSubTab } from "./base-feuillets-view.js";
 import { resolveActiveFileResearchFolders, resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
 import { resolveResearchDocumentContext } from "../services/research-document-context.js";
-import { resolveReferenceTargetFile } from "../services/research-reference-search.js";
+import { resolveReferenceTarget } from "../services/research-reference-search.js";
 
 type ResearchViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type ResearchContainer = HTMLElement & { find?: <T extends HTMLElement>(selector: string) => T | null };
@@ -34,7 +34,7 @@ export class ResearchView extends BaseFeuilletsView {
   protected _bibliographyDebounceTimer: number | null = null;
   protected _bibliographyListenersSetup = false;
   protected _isClosed = false;
-  private referenceTargetPath: string | null | undefined;
+  private referenceTargetKey: string | undefined;
 
   constructor(leaf: WorkspaceLeaf, plugin: ResearchViewPlugin) {
     super(leaf, plugin);
@@ -56,8 +56,9 @@ export class ResearchView extends BaseFeuilletsView {
     if (this._isClosed || this.researchActiveSubTab !== "references" || this.viewingFile) return;
     const root = this.plugin.getProjectFolder();
     if (!root) return;
-    const target = resolveReferenceTargetFile(this.app, root, this.plugin.getReferenceCitationTarget?.()?.file ?? null);
-    if ((target?.path ?? null) === this.referenceTargetPath) return;
+    const target = resolveReferenceTarget(this.app, root, this.plugin.getReferenceCitationTarget?.()?.file ?? null,
+      this.plugin.getCentralContinuView?.()?.compileScope ?? null);
+    if (target.key === this.referenceTargetKey) return;
     await this.render(true);
   }
 
@@ -179,8 +180,8 @@ export class ResearchView extends BaseFeuilletsView {
     }
 
     if (this.researchActiveSubTab === "references") {
-      this.referenceTargetPath = resolveReferenceTargetFile(this.app, root,
-        this.plugin.getReferenceCitationTarget?.()?.file ?? null)?.path ?? null;
+      this.referenceTargetKey = resolveReferenceTarget(this.app, root,
+        this.plugin.getReferenceCitationTarget?.()?.file ?? null, this.plugin.getCentralContinuView?.()?.compileScope ?? null).key;
     }
 
     const workspaceFolder = typeof this.plugin.getWorkspaceFolder === "function"

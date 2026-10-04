@@ -9,6 +9,7 @@ import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
 import { getCachedBibtexCatalog, searchBibtexCatalog, type BibtexCatalogEntry } from "./bibtex-catalog.js";
 import type { ResearchDocumentContext } from "./research-document-context.js";
 import { foldAccents } from "../utils/core.js";
+import type { CompileScope } from "./compile-scope.js";
 
 export type ReferenceSearchRecord = {
   author: string;
@@ -35,6 +36,32 @@ export function resolveReferenceTargetFile(app: App, projectRoot: TFolder, edito
     ? target : null;
 }
 
+export type ReferenceTarget = {
+  kind: "markdown" | "continuous";
+  target: TFile | TFolder | null;
+  key: string;
+};
+
+/** The central continuous scope supplies a location, not a reference boundary. */
+export function resolveReferenceTarget(
+  app: App, projectRoot: TFolder, editorFile: TFile | null, continuousScope: CompileScope | null = null,
+): ReferenceTarget {
+  if (!continuousScope) {
+    const target = resolveReferenceTargetFile(app, projectRoot, editorFile);
+    return { kind: "markdown", target, key: `markdown:${target?.path ?? ""}` };
+  }
+  const scopeRoot = app.vault.getAbstractFileByPath(continuousScope.projectRoot);
+  const path = continuousScope.type === "folder" || continuousScope.type === "file"
+    ? continuousScope.path : continuousScope.projectRoot;
+  const node = app.vault.getAbstractFileByPath(path);
+  const withinProject = (location: string) => location === projectRoot.path || location.startsWith(`${projectRoot.path}/`);
+  const validNode = continuousScope.type === "file" ? node instanceof TFile && node.extension === "md" : node instanceof TFolder;
+  const target = scopeRoot instanceof TFolder && withinProject(scopeRoot.path) && withinProject(path)
+    && (path === scopeRoot.path || path.startsWith(`${scopeRoot.path}/`)) && validNode
+    && (node instanceof TFile || node instanceof TFolder) ? node : null;
+  return { kind: "continuous", target, key: `continuous:${continuousScope.type}:${continuousScope.projectRoot}:${path}` };
+}
+
 /** Session isolation can narrow a declared reference context, never widen it. */
 export function resolveReferenceContextRoot(
   app: App, settings: FeuilletsSettings, projectRoot: TFolder,
@@ -52,10 +79,10 @@ export function resolveReferenceContextRoot(
 /** References have their own document context; other Research tabs retain their scope. */
 export function resolveReferenceDocumentContext(
   app: App, settings: FeuilletsSettings, context: ResearchDocumentContext,
-  targetFile: TFile | null, isolation: TFolder | null,
+  target: TFile | TFolder | null, isolation: TFolder | null,
 ): ResearchDocumentContext {
-  if (!targetFile || !targetFile.path.startsWith(`${context.projectRoot.path}/`)) return context;
-  const root = resolveReferenceContextRoot(app, settings, context.projectRoot, targetFile, isolation);
+  if (!target || (target.path !== context.projectRoot.path && !target.path.startsWith(`${context.projectRoot.path}/`))) return context;
+  const root = resolveReferenceContextRoot(app, settings, context.projectRoot, target, isolation);
   const workspaceRoot = root.path === context.projectRoot.path ? null : root;
   const mode = workspaceRoot ? "workspace" : "project";
   if (root.path === context.scopeRoot.path && context.workspaceRoot?.path === workspaceRoot?.path && context.mode === mode) return context;
@@ -64,12 +91,14 @@ export function resolveReferenceDocumentContext(
 
 /** Reads follow the editable file; writes use the shared contextual root. */
 export function resolveReferenceCitationContext(
-  app: App, settings: FeuilletsSettings, context: ResearchDocumentContext, targetFile: TFile | null,
+  app: App, settings: FeuilletsSettings, context: ResearchDocumentContext, target: TFile | TFolder | null,
 ): ReferenceCitationContext {
-  if (targetFile?.parent && context.files.some((file) => file.path === targetFile.path)
-    && (targetFile.parent.path === context.projectRoot.path || folderPathToWorkspaceScope(context.projectRoot.path, targetFile.parent.path))) {
-    const scopeRoot = resolveReferenceContextRoot(app, settings, context.projectRoot, targetFile, context.workspaceRoot);
-    return { projectRoot: context.projectRoot, scopeRoot, targetScope: targetFile };
+  const applicable = target instanceof TFolder
+    ? target.path === context.scopeRoot.path || target.path.startsWith(`${context.scopeRoot.path}/`)
+    : target instanceof TFile && context.files.some((file) => file.path === target.path);
+  if (target && applicable && (target.path === context.projectRoot.path || target.path.startsWith(`${context.projectRoot.path}/`))) {
+    const scopeRoot = resolveReferenceContextRoot(app, settings, context.projectRoot, target, context.workspaceRoot);
+    return { projectRoot: context.projectRoot, scopeRoot, targetScope: target };
   }
   return { projectRoot: context.projectRoot, scopeRoot: context.scopeRoot, targetScope: context.scopeRoot };
 }
@@ -103,10 +132,10 @@ export function referenceBibliographyFile(
   app: App,
   settings: FeuilletsSettings,
   context: ResearchDocumentContext,
-  targetFile: TFile | null,
+  target: TFile | TFolder | null,
 ): TFile | null {
-  const target = resolveReferenceCitationContext(app, settings, context, targetFile).targetScope;
-  const resource = resolveWorkspaceCitationResources(app, settings, context.projectRoot, target).bibliography;
+  const targetScope = resolveReferenceCitationContext(app, settings, context, target).targetScope;
+  const resource = resolveWorkspaceCitationResources(app, settings, context.projectRoot, targetScope).bibliography;
   return resource.status === "valid" ? resource.file : null;
 }
 
