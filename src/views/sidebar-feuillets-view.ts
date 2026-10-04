@@ -45,7 +45,7 @@ type AnalysisSidebarSubView = SidebarSubView & {
 };
 type SidebarSubViews = {
   notes: SidebarSubView;
-  research: SidebarSubView;
+  research: SidebarSubView & { refreshReferencesOnActiveDocumentChange?(): Promise<void> };
   journal: SidebarSubView;
   docx: SidebarSubView;
   analyse: AnalysisSidebarSubView;
@@ -151,16 +151,17 @@ export class SidebarFeuilletsView extends ItemView {
 
   async onOpen(): Promise<void> {
     await this.render();
-    /* Les sous-vues ne reçoivent pas leur propre onOpen (elles ne sont pas
-       ouvertes comme feuilles) : leurs écouteurs ne se déclenchent donc pas.
-       Le panneau, lui, est une vraie feuille — on y rafraîchit l'onglet actif
-       à chaque ouverture de fichier, pour tous les onglets dont le contenu
-       dépend du feuillet courant (Notes, Correcteur, Analyse — tous lisent
-       getActiveFile). Recherche/Projet/Journal ne dépendent pas du feuillet
-       et ne sont donc pas re-rendus inutilement. */
+    /* Embedded subviews do not receive onOpen. The host forwards document
+       navigation to References without refreshing the Research folder browser. */
+    const refreshReferences = () => {
+      if (this.activeTab === "research") void this.subViews.research.refreshReferencesOnActiveDocumentChange?.();
+    };
+    this.registerEvent(this.app.workspace.on("active-leaf-change", refreshReferences));
+    this.registerEvent(this.app.workspace.on("layout-change", refreshReferences));
     const feuilletTabs = new Set<SidebarTab>(["notes", "relecture", "stats"]);
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
+        refreshReferences();
         if (!feuilletTabs.has(this.activeTab)) return;
         if (this.activeTab === "notes") { awaitRender(this.subViews.notes, true); return; }
         if (this.activeTab === "stats") { awaitRender(this.subViews.analyse, true); return; }
