@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { resolveResearchDocumentContext } from "../src/services/research-document-context.js";
-import { resolveReferenceContextRoot, resolveReferenceDocumentContext, resolveReferenceCitationContext, referenceBibliographyFile } from "../src/services/research-reference-search.js";
+import { resolveReferenceContextRoot, resolveReferenceDocumentContext, resolveReferenceCitationContext, resolveReferenceTargetFile, referenceBibliographyFile } from "../src/services/research-reference-search.js";
 import { registerDeclaredWorkspaceRoot, isDeclaredWorkspaceRoot } from "../src/services/folder-workspaces.js";
 import { resolveDocumentCitationStyleSetting } from "../src/services/document-citation-style.js";
 import { resolveWorkspaceCitationResources } from "../src/services/workspace-citations.js";
@@ -71,6 +71,39 @@ for (const { name, declared, file, isolated, expected } of [
     assert.equal(f.base.scopeRoot, f.root, "the general Research context remains unchanged");
   });
 }
+
+test("References normalizes a stale sibling Research context from the real project boundary", () => {
+  const f = fixture();
+  registerDeclaredWorkspaceRoot(f.settings, f.root, f.nefes);
+  const stale = resolveResearchDocumentContext(f.app, f.settings, f.root, f.sibling, "workspace");
+  const normalized = resolveReferenceDocumentContext(f.app, f.settings, stale, f.scene, f.sibling);
+  assert.equal(normalized.scopeRoot, f.nefes);
+  assert.equal(normalized.workspaceRoot, f.nefes);
+  assert.equal(normalized.mode, "workspace");
+  assert.equal(normalized.files.includes(f.other), false);
+  assert.equal(stale.scopeRoot, f.sibling, "general Research context is not mutated");
+});
+
+test("References normalizes workspace identity even when scopeRoot already matches", () => {
+  const f = fixture();
+  registerDeclaredWorkspaceRoot(f.settings, f.root, f.nefes);
+  const partial = { ...f.base, scopeRoot: f.nefes };
+  const normalized = resolveReferenceDocumentContext(f.app, f.settings, partial, f.scene, null);
+  assert.equal(normalized.workspaceRoot, f.nefes);
+  assert.equal(normalized.mode, "workspace");
+  assert.equal(normalized.files.includes(f.other), false);
+});
+
+test("References prefers the active document and uses a remembered editor only without an active file", () => {
+  const f = fixture();
+  f.app.workspace = { getActiveFile: () => f.scene };
+  assert.equal(resolveReferenceTargetFile(f.app, f.root, f.other), f.scene);
+  f.app.workspace.getActiveFile = () => null;
+  assert.equal(resolveReferenceTargetFile(f.app, f.root, f.scene), f.scene);
+  assert.equal(resolveReferenceTargetFile(f.app, f.root, f.localBib), null);
+  f.app.workspace.getActiveFile = () => f.localBib;
+  assert.equal(resolveReferenceTargetFile(f.app, f.root, f.scene), null, "an active foreign document must not silently restore the old context");
+});
 
 test("reference context does not infer workspaces from ordinary overrides or ouvrage", () => {
   const f = fixture();

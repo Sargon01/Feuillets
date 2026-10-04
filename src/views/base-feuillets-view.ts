@@ -59,7 +59,8 @@ import { FEUILLETS_FILE_DRAG_MIME } from "../carnet/canvas/adapter.js";
 import { collectDocumentScopeCitedBibtexEntries } from "../services/citekey-bibliography.js";
 import { analyzeResearchCitations, type ResearchCitationAnalysis } from "../services/research-citation-analysis.js";
 import type { ResearchBibliographyGenerationInput } from "../services/bibliography-generator.js";
-import { referenceSourceFolders, referenceSourceRecords, referenceBibliographyFile, resolveReferenceCitationContext, resolveReferenceDocumentContext, loadReferenceCatalog, searchReferenceRecords } from "../services/research-reference-search.js";
+import { referenceSourceFolders, referenceSourceRecords, referenceBibliographyFile, resolveReferenceCitationContext, resolveReferenceDocumentContext, resolveReferenceTargetFile, loadReferenceCatalog, searchReferenceRecords } from "../services/research-reference-search.js";
+import { resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
 import { isValidCitekey } from "../services/bibtex-catalog.js";
 import { ReferenceCitationSettingsModal, renderReferenceCitationWarnings } from "../ui/reference-citation-settings.js";
 import {
@@ -1084,7 +1085,23 @@ export abstract class BaseFeuilletsView extends ItemView {
     const S = this.plugin.settings;
     const opLocale = getLocale();
     const activeSubTab: ResearchSubTab = options.activeSubTab ?? "dossiers";
+    if (activeSubTab === "references") {
+      const targetFile = resolveReferenceTargetFile(this.app, root, this.plugin.getReferenceCitationTarget?.()?.file ?? null);
+      const documentContext = resolveReferenceDocumentContext(this.app, S, options.documentContext, targetFile,
+        this.plugin.getWorkspaceFolder?.() ?? null);
+      const workspaceFolder = documentContext.workspaceRoot;
+      const research = workspaceFolder ? resolveWorkspaceResearchFolder(this.app, S, workspaceFolder) : null;
+      options = { ...options, documentContext, workspaceFolder, scopeMode: documentContext.mode,
+        workspaceActive: Boolean(workspaceFolder),
+        associatedResearchFolder: research?.sourceKind === "exact" || research?.sourceKind === "ancestor" ? research.folder : null };
+    }
     const toolbar = container.createDiv({ cls: "feuillets-research-toolbar" });
+
+    if (activeSubTab === "references") {
+      const { workspaceRoot, scopeRoot } = options.documentContext;
+      toolbar.createDiv({ cls: "feuillets-reference-setting-scope", text: t(workspaceRoot
+        ? "shared.research.citationWorkspaceScope" : "shared.research.citationProjectScope", { name: scopeRoot.name }) });
+    }
 
     /* Folder search and tag filters only act on folder rows. References has its own search. */
     if (activeSubTab === "dossiers") {
@@ -1111,7 +1128,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       });
     }
 
-    if (options.workspaceActive) {
+    if (activeSubTab === "dossiers" && options.workspaceActive) {
       const scopeName = options.scopeMode === "project"
         ? t("shared.research.scopeProject")
         : t("shared.research.scopeWorkspace");
@@ -1728,10 +1745,12 @@ export abstract class BaseFeuilletsView extends ItemView {
   ): Promise<void> {
     const gen = this._renderGen;
     const insertionTarget = this.plugin.getReferenceCitationTarget?.() ?? null;
-    const targetFile = insertionTarget?.file ?? this.app.workspace.getActiveFile();
+    const currentTargetFile = () => resolveReferenceTargetFile(this.app, baseContext.projectRoot,
+      this.plugin.getReferenceCitationTarget?.()?.file ?? null);
+    const targetFile = currentTargetFile();
     const workspacePath = this.plugin.getWorkspaceFolder?.()?.path;
     const currentDocumentContext = () => resolveReferenceDocumentContext(this.app, this.plugin.settings, baseContext,
-      this.plugin.getReferenceCitationTarget?.()?.file ?? this.app.workspace.getActiveFile(), this.plugin.getWorkspaceFolder?.() ?? null);
+      currentTargetFile(), this.plugin.getWorkspaceFolder?.() ?? null);
     const documentContext = currentDocumentContext();
     const citationAnalysis = suppliedAnalysis && documentContext === baseContext ? suppliedAnalysis
       : await analyzeResearchCitations(this.app, this.plugin.settings, documentContext);
@@ -1751,7 +1770,6 @@ export abstract class BaseFeuilletsView extends ItemView {
       ...citationAnalysis.sourceCitationCounts.keys(),
       ...(bibliography ? [bibliography.path] : []),
     ]);
-    const currentTargetFile = () => this.plugin.getReferenceCitationTarget?.()?.file ?? this.app.workspace.getActiveFile();
     const isCurrent = () => {
       if (this._renderGen !== gen || currentTargetFile()?.path !== targetFile?.path
         || this.plugin.getProjectFolder()?.path !== documentContext.projectRoot.path
@@ -1780,12 +1798,14 @@ export abstract class BaseFeuilletsView extends ItemView {
         "aria-label": t("shared.research.citeReference", { title }),
       } });
       const applicable = reference.kind === "source" || Boolean(bibliography && reference.bibliographyPath === bibliography.path);
-      button.disabled = !insertionTarget || !documentContext.files.some((file) => file.path === insertionTarget.file.path) || !applicable;
+      button.disabled = !insertionTarget || insertionTarget.file.path !== targetFile?.path
+        || !documentContext.files.some((file) => file.path === insertionTarget.file.path) || !applicable;
       if (button.disabled) button.setAttr("title", t("main.notice.openSceneBeforeCitation"));
       button.addEventListener("click", (event) => {
         event.stopPropagation();
         const currentTarget = this.plugin.getReferenceCitationTarget?.();
         if (!isCurrent() || !insertionTarget || currentTarget?.editor !== insertionTarget.editor || !applicable
+          || insertionTarget.file.path !== targetFile?.path
           || !documentContext.files.some((file) => file.path === insertionTarget.file.path)) return;
         if (reference.kind === "source") this.plugin.quickCiteSource(reference.file, insertionTarget);
         else if (isValidCitekey(reference.key)) {

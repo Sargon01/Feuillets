@@ -3,10 +3,15 @@ import test from "node:test";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { ResearchView } from "../src/views/research-view.js";
+import FeuilletsPlugin from "../src/main.js";
 import { t, getLocale, setLocale } from "../src/i18n/index.js";
 import { RESEARCH_FOLDERS, researchFolderLabel, researchFolderNewName } from "../src/utils/project-modes.js";
 import { NewResearchFileModal } from "../src/ui/basic-modals.js";
 import { clearCitekeyAnalysisCache } from "../src/services/citekey-bibliography.js";
+import { registerDeclaredWorkspaceRoot } from "../src/services/folder-workspaces.js";
+import { referenceSourceFolders, referenceBibliographyFile } from "../src/services/research-reference-search.js";
+import { resolveWorkspaceCitationResources } from "../src/services/workspace-citations.js";
+import { resolveDocumentCitationStyleSetting } from "../src/services/document-citation-style.js";
 
 /** Bypasses NewResearchFileModal's real DOM (the shared Modal test stub's
  * contentEl, not this file's own FakeElement — see research-view.test.js's
@@ -235,14 +240,14 @@ function makeFixture({ includeSources = true } = {}) {
   };
 }
 
-function createView(fixture, { workspace = null, scopeMode = "project", ensureFolderSpy, cachedReadSpy } = {}) {
+function createView(fixture, { workspace = null, scopeMode = "project", activeFile = null, ensureFolderSpy, cachedReadSpy } = {}) {
   const contentEl = new FakeElement();
   const app = {
     vault: cachedReadSpy
       ? { ...fixture.vault, cachedRead: async (file) => { cachedReadSpy(file.path); return fixture.vault.cachedRead(file); } }
       : fixture.vault,
     workspace: {
-      getActiveFile: () => null,
+      getActiveFile: () => activeFile,
       getLeaf: () => ({ openFile: async () => {} }),
       setActiveLeaf: () => {},
     },
@@ -328,6 +333,148 @@ async function renderWithDocument(fixture, options) {
 const SOURCES_TITLE = researchFolderLabel(RESEARCH_FOLDERS, "sources");
 const FOOTNOTES_TITLE = t("shared.footnotes.title");
 const BIBLIOGRAPHY_TITLE = t("shared.research.citedReferences");
+
+async function persistentReferenceFixture() {
+  const f = makeFixture();
+  registerDeclaredWorkspaceRoot(f.settings, f.projectRoot, f.workA);
+  registerDeclaredWorkspaceRoot(f.settings, f.projectRoot, f.workAExtra);
+  f.settings.workspaceFolderPath = "";
+  const sources = await f.vault.createFolder(`${f.workAResearch.path}/Sources`);
+  await f.vault.create(`${sources.path}/Local source.md`, "Local source");
+  const bib = await f.vault.create(`${f.workAResearch.path}/local.bib`,
+    "@article{knuth1968, title={Local Algorithms}, author={Local Author}, year={2024}}\n@article{unused, title={Uncited local reference}}");
+  const csl = await f.vault.create(`${f.workAResearch.path}/local.csl`, "<style/>");
+  Object.assign(f.settings.projectMeta.PROJECT.folderWorkspaces["Work-A"], {
+    pandocCitationPreviewStyle: "off", citekeyBibliographyPath: "local.bib", citekeyCslPath: "local.csl",
+  });
+  f.sceneAExtra.content = "Sibling cites [@foreign].";
+  return { ...f, sources, bib, csl };
+}
+
+async function referencePanelSnapshot(f, { workspace = null, editorFile = f.sceneA, activeFile = f.sceneA } = {}) {
+  const { view, contentEl } = createView(f, { workspace, scopeMode: "workspace", activeFile });
+  view.researchActiveSubTab = "references";
+  let receivedContext;
+  let generationContext;
+  let generationInput;
+  let sourceTarget;
+  const editor = {
+    getCursor: () => ({ line: 0, ch: editorFile.content.length }),
+    replaceRange: (text) => { editorFile.content += text; },
+    focus() {},
+  };
+  view.plugin.getReferenceCitationTarget = () => ({ file: editorFile, editor });
+  const references = view.renderReferencesTab;
+  view.renderReferencesTab = function (container, context, ...args) {
+    receivedContext = context;
+    return references.call(this, container, context, ...args);
+  };
+  const bibliography = view.renderBibliographySection;
+  view.renderBibliographySection = function (container, context, ...args) {
+    generationContext = context;
+    return bibliography.call(this, container, context, ...args);
+  };
+  view.plugin.generateBibliographyFile = async (input) => { generationInput = input; };
+  view.promptCreateSourceSheetLazily = (target) => { sourceTarget = target; };
+  await view.render(true);
+  newSourceSheetButton(contentEl).dispatchClick();
+  const exportButton = contentEl.find(".feuillets-bibliography-export-row");
+  exportButton?.dispatchClick();
+  const resources = resolveWorkspaceCitationResources(view.app, f.settings, f.projectRoot, activeFile);
+  view.referenceSearchQuery = "local";
+  await view.render(true);
+  return {
+    root: receivedContext.scopeRoot.path,
+    workspace: receivedContext.workspaceRoot?.path ?? null,
+    mode: receivedContext.mode,
+    files: receivedContext.files.map((file) => file.path),
+    caption: contentEl.find(".feuillets-reference-setting-scope")?.text,
+    sourceTarget,
+    sourceFolders: referenceSourceFolders(view.app, f.settings, receivedContext).map((folder) => folder.path),
+    insertionFolders: FeuilletsPlugin.prototype.getCitationFolders.call(view.plugin).map((folder) => folder.path),
+    bibliography: referenceBibliographyFile(view.app, f.settings, receivedContext, activeFile)?.path,
+    csl: resources.csl.file?.path,
+    style: resolveDocumentCitationStyleSetting(f.settings, f.projectRoot.path, receivedContext.scopeRoot.path).value,
+    references: contentEl.querySelectorAll(".feuillets-research-item-name").map((element) => element.text),
+    generationRoot: generationContext.scopeRoot.path,
+    generationFiles: generationContext.files.map((file) => file.path),
+    generationLabel: exportButton?.getAttr("aria-label"),
+    generatedKeys: generationInput?.bibtexEntries.map((entry) => entry.citekey),
+    warnings: contentEl.querySelectorAll(".feuillets-citekey-warning").map((element) => element.text),
+    searchResults: contentEl.querySelectorAll(".feuillets-reference-title").map((element) => element.text),
+    insertionAvailable: contentEl.querySelectorAll(".feuillets-reference-cite").map((element) => !element.disabled),
+  };
+}
+
+for (const staleEditor of [false, true]) {
+  test(`full References panel: persistent workspace equals the same isolation (stale editor: ${staleEditor})`, async () => {
+    const f = await persistentReferenceFixture();
+    const before = structuredClone(f.settings);
+    const editorFile = staleEditor ? f.sceneAExtra : f.sceneA;
+    const plain = await referencePanelSnapshot(f, { editorFile });
+    const isolated = await referencePanelSnapshot(f, { workspace: f.workA, editorFile });
+    assert.deepEqual(plain, isolated);
+    assert.equal(plain.root, f.workA.path);
+    assert.equal(plain.workspace, f.workA.path);
+    assert.equal(plain.mode, "workspace");
+    assert.equal(plain.caption, t("shared.research.citationWorkspaceScope", { name: f.workA.name }));
+    assert.equal(plain.sourceTarget, f.workAResearch.path);
+    assert.ok(plain.sourceFolders.includes(f.sources.path));
+    assert.deepEqual(plain.insertionFolders, plain.sourceFolders);
+    assert.ok(!plain.sourceFolders.some((path) => path.startsWith(f.workAExtraResearch.path + "/")));
+    assert.equal(plain.bibliography, f.bib.path);
+    assert.equal(plain.csl, f.csl.path);
+    assert.equal(plain.style, "off");
+    assert.ok(plain.references.some((text) => text.includes("Local Algorithms")));
+    assert.ok(plain.references.every((text) => !text.includes("foreign") && !text.includes("Uncited")));
+    assert.equal(plain.generationRoot, f.workA.path);
+    assert.deepEqual(plain.generationFiles, [f.sceneA.path]);
+    assert.equal(plain.generationLabel, t("shared.bibliography.generateWorkspace"));
+    assert.deepEqual(plain.generatedKeys, ["knuth1968"]);
+    assert.deepEqual(plain.warnings, []);
+    assert.deepEqual(plain.searchResults, ["Local source", "Local Algorithms", "Uncited local reference"]);
+    assert.ok(plain.insertionAvailable.every((available) => available === !staleEditor));
+    assert.deepEqual(f.settings, before, "reference normalization must not change isolation or persisted settings");
+  });
+}
+
+test("full References panel: ordinary overrides do not declare a context boundary", async () => {
+  const f = await persistentReferenceFixture();
+  delete f.settings.projectMeta.PROJECT.folderWorkspaces["Work-A"].workspaceRoot;
+  const panel = await referencePanelSnapshot(f);
+  assert.equal(panel.root, f.projectRoot.path);
+  assert.equal(panel.caption, t("shared.research.citationProjectScope", { name: f.projectRoot.name }));
+  assert.equal(panel.bibliography, f.bib.path, "ordinary overrides still affect document resources");
+  assert.ok(panel.references.some((text) => text.includes("foreign")));
+});
+
+test("full References panel: nested workspaces and wider/narrower isolation share the same root resolver", async () => {
+  const f = await persistentReferenceFixture();
+  const nested = await f.vault.createFolder(`${f.workA.path}/Nested`);
+  const part = await f.vault.createFolder(`${nested.path}/Part`);
+  const scene = await f.vault.create(`${part.path}/Scene.md`, "See [@knuth1968].");
+  registerDeclaredWorkspaceRoot(f.settings, f.projectRoot, nested);
+  const before = structuredClone(f.settings);
+  for (const [activeFile, workspace, expected] of [
+    [f.sceneA, null, f.workA],
+    [scene, null, nested],
+    [scene, f.workA, nested],
+    [scene, part, part],
+    [scene, f.workAExtra, nested],
+  ]) {
+    const panel = await referencePanelSnapshot(f, { activeFile, editorFile: activeFile, workspace });
+    assert.equal(panel.root, expected.path);
+    assert.equal(panel.workspace, expected.path);
+    assert.equal(panel.generationRoot, expected.path);
+    assert.ok(panel.files.includes(activeFile.path));
+    assert.ok(!panel.files.includes(f.sceneAExtra.path));
+    assert.equal(panel.sourceTarget, f.workAResearch.path, "existing ancestor Research association is preserved");
+    assert.equal(panel.bibliography, f.bib.path);
+    assert.equal(panel.csl, f.csl.path);
+    assert.equal(panel.style, "off");
+  }
+  assert.deepEqual(f.settings, before);
+});
 
 function sectionTitles(contentEl) {
   return contentEl.querySelectorAll(".feuillets-notes-section-title").map((el) => el.text);

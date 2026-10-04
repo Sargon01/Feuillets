@@ -794,9 +794,9 @@ test("a legacy Bibliographie folder without any Sources folder is never rendered
   assert.match(legacyItems[0].textContent, /1 citation\b/, "the contextual citation is displayed");
 });
 
-/* --- Independence from the active file --- */
+/* --- Applicable document context --- */
 
-test("changing only the active file never changes the displayed citekeys or Source counters", async () => {
+test("References stays scoped within an applicable isolation and ignores it for documents outside", async () => {
   const fixture = makeFixture();
   const { view, contentEl, setActiveFile } = createView(fixture, { workspace: fixture.workA, scopeMode: "workspace", activeFile: fixture.sceneA });
 
@@ -806,7 +806,7 @@ test("changing only the active file never changes the displayed citekeys or Sour
     await view.render(true);
     const first = contentEl.textContent;
 
-    setActiveFile(fixture.projectNote);
+    setActiveFile(fixture.sceneASub);
     await view.render(true);
     assert.equal(contentEl.textContent, first);
 
@@ -816,7 +816,10 @@ test("changing only the active file never changes the displayed citekeys or Sour
 
     setActiveFile(fixture.sceneB);
     await view.render(true);
-    assert.equal(contentEl.textContent, first);
+    assert.match(contentEl.textContent, /onlyB2023/);
+    assert.match(contentEl.textContent, /onlyA2021/);
+    assert.ok(contentEl.textContent.includes(t("shared.bibliography.generateProject")));
+    assert.equal(view.plugin.getWorkspaceFolder(), fixture.workA, "References leaves session isolation untouched");
   } finally {
     globalThis.document = prevDoc;
   }

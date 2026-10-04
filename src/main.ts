@@ -103,7 +103,7 @@ import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js
 import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters, detectProjectStructureLocale } from "./services/folder-structure.js";
 import { resolveEditorialRoot, isOuvrageRoot } from "./services/editorial-roots.js";
-import { resolveReferenceContextRoot } from "./services/research-reference-search.js";
+import { resolveReferenceContextRoot, resolveReferenceTargetFile } from "./services/research-reference-search.js";
 import { effectiveComposition } from "./services/ouvrage-composition.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
@@ -4167,8 +4167,8 @@ class FeuilletsPlugin extends Plugin {
     const workspace = this.app.workspace;
     const active = workspace.activeEditor;
     if (active?.editor && active.file?.extension === "md") return { editor: active.editor, file: active.file };
-    const activeView = workspace.getActiveViewOfType(MarkdownView);
-    const recent = workspace.getMostRecentLeaf()?.view;
+    const activeView = workspace.getActiveViewOfType?.(MarkdownView);
+    const recent = workspace.getMostRecentLeaf?.()?.view;
     const last = this._lastMarkdownLeaf?.view;
     for (const view of [activeView, recent, last]) {
       if (view instanceof MarkdownView && view.file?.extension === "md") return { editor: view.editor, file: view.file };
@@ -4183,7 +4183,8 @@ class FeuilletsPlugin extends Plugin {
    * fois — même règle que la bibliographie générée. */
   getCitationFolders(): TFolder[] {
     const projectRoot = getProjectFolder(this.app, this.settings);
-    const targetFile = this.app.workspace?.getActiveFile?.() ?? null;
+    const targetFile = projectRoot
+      ? resolveReferenceTargetFile(this.app, projectRoot, this.getReferenceCitationTarget?.()?.file ?? null) : null;
     const isolation = this.getWorkspaceFolder();
     const contextRoot = projectRoot && targetFile
       ? resolveReferenceContextRoot(this.app, this.settings, projectRoot, targetFile, isolation) : isolation;

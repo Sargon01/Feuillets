@@ -4,6 +4,7 @@ import { TFile, TFolder, Notice } from "obsidian";
 import FeuilletsPlugin from "../src/main.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { ResearchView } from "../src/views/research-view.js";
+import { t } from "../src/i18n/index.js";
 import { flattenFiles } from "../src/services/folder-structure.js";
 import { analyzeResearchCitations } from "../src/services/research-citation-analysis.js";
 import { saveCitationRegistry } from "../src/services/citation-registry.js";
@@ -451,7 +452,7 @@ test("ResearchView: triggers debounced render when file-open, editor-change, or 
   assert.equal(renderCount, 5, "No render for non-.md/.bib modifications");
 });
 
-test("ResearchView: active file changes never affect displayed references, only the resolved workspace scope does", async () => {
+test("ResearchView: an isolation applies only to its own active documents, without changing session isolation", async () => {
   const project = new TFolder("Project");
   const resFolder = new TFolder("Project/_Research");
   const sourcesFolder = new TFolder("Project/_Research/Sources");
@@ -511,8 +512,7 @@ test("ResearchView: active file changes never affect displayed references, only 
   };
 
   const { app, plugin } = createMockAppAndPlugin(vault, settings, sceneA);
-  // The Espace actually selected by the user is BranchA — this, not the
-  // active file, is what must drive the displayed references.
+  // Session isolation narrows References only for documents inside it.
   plugin.getWorkspaceFolder = () => branchA;
   const contentEl = new FakeElement();
   const leaf = { app, contentEl };
@@ -532,8 +532,9 @@ test("ResearchView: active file changes never affect displayed references, only 
   // Wait for the 150ms debounce to fire
   await new Promise((resolve) => setTimeout(resolve, 200));
 
-  assert.ok(contentEl.textContent.includes("Knuth, Donald"), "After the debounce, the active file change alone never changes the displayed references");
-  assert.ok(!contentEl.textContent.includes("Turing, Alan"), "Turing must not appear merely because BranchB's file became active");
+  assert.ok(contentEl.textContent.includes("Turing, Alan"), "BranchB's actual document resolves its own bibliography");
+  assert.ok(contentEl.textContent.includes(t("shared.bibliography.generateProject")), "foreign isolation is inapplicable: References falls back to the project");
+  assert.equal(plugin.getWorkspaceFolder(), branchA, "References must not change the active session isolation");
 
   // A genuine scope change — the user actually switching Espace to BranchB —
   // must, by contrast, update what is displayed.

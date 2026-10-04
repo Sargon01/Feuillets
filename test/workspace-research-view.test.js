@@ -20,8 +20,8 @@ test("ResearchView garde la portée Espace/Projet en session et réutilise le r�
   assert.doesNotMatch(viewSource, /onScopeModeChange[\s\S]{0,300}clearWorkspaceFolder/);
 });
 
-test("le renderer commun affiche le sélecteur uniquement avec un workspace descendant", () => {
-  assert.match(baseSource, /if \(options\.workspaceActive\)/);
+test("le renderer commun conserve le sélecteur Dossiers uniquement avec un workspace descendant", () => {
+  assert.match(baseSource, /if \(activeSubTab === "dossiers" && options\.workspaceActive\)/);
   assert.match(baseSource, /shared\.research\.scopeLabel/);
   assert.match(baseSource, /shared\.research\.scopeWorkspace/);
   assert.match(baseSource, /shared\.research\.scopeProject/);

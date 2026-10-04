@@ -967,6 +967,7 @@ test("an active-file context change while a settings modal is open cannot write 
 
 test("isolated References settings ignore an out-of-scope editor and retain the displayed workspace", async () => {
   const f = await workspaceFixture();
+  f.app.workspace.getActiveFile = () => f.workspaceScene;
   const meta = f.settings.projectMeta[f.root.path];
   meta.folderWorkspaces = { Article: { version: 1, pandocCitationPreviewStyle: "off" } };
   f.setTarget({ file: f.scene, editor: editorFor(f.scene) });

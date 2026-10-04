@@ -27,6 +27,14 @@ export type ReferenceCitationContext = {
   targetScope: TFolder | TFile;
 };
 
+/** A remembered sidebar editor is a fallback, not a replacement for the active document. */
+export function resolveReferenceTargetFile(app: App, projectRoot: TFolder, editorFile: TFile | null): TFile | null {
+  const activeFile = app.workspace?.getActiveFile?.();
+  const target = activeFile instanceof TFile ? activeFile : editorFile;
+  return target instanceof TFile && target.extension === "md" && target.path.startsWith(`${projectRoot.path}/`)
+    ? target : null;
+}
+
 /** Session isolation can narrow a declared reference context, never widen it. */
 export function resolveReferenceContextRoot(
   app: App, settings: FeuilletsSettings, projectRoot: TFolder,
@@ -46,9 +54,11 @@ export function resolveReferenceDocumentContext(
   app: App, settings: FeuilletsSettings, context: ResearchDocumentContext,
   targetFile: TFile | null, isolation: TFolder | null,
 ): ResearchDocumentContext {
-  if (!targetFile || !targetFile.path.startsWith(`${context.scopeRoot.path}/`)) return context;
+  if (!targetFile || !targetFile.path.startsWith(`${context.projectRoot.path}/`)) return context;
   const root = resolveReferenceContextRoot(app, settings, context.projectRoot, targetFile, isolation);
-  if (root.path === context.scopeRoot.path) return context;
+  const workspaceRoot = root.path === context.projectRoot.path ? null : root;
+  const mode = workspaceRoot ? "workspace" : "project";
+  if (root.path === context.scopeRoot.path && context.workspaceRoot?.path === workspaceRoot?.path && context.mode === mode) return context;
   return resolveResearchDocumentContext(app, settings, context.projectRoot, root, "workspace");
 }
 
