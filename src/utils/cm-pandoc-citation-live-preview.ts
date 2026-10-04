@@ -1,4 +1,6 @@
 import { buildNoteAwarePandocCitationDocument } from "../services/pandoc-citation-notes.js";
+import { selectionOverlaps } from "./cm-selection-overlap.js";
+export { selectionOverlaps } from "./cm-selection-overlap.js";
 import { Decoration, ViewPlugin, WidgetType } from "@codemirror/view";
 import { syntaxTree } from "@codemirror/language";
 import { editorInfoField, editorLivePreviewField, normalizePath, TFile, type App } from "obsidian";
@@ -264,31 +266,6 @@ function getDocumentSource(doc: EditorDocLike): string {
     }
   }
   return "";
-}
-
-/**
- * Exported for reuse: true when selection overlaps the half-open range `[from, to)`.
- *
- * For a collapsed cursor (range.from === range.to):
- *   overlaps if position >= from && position < to.
- *   (position === from is inside, position === to is outside).
- *
- * For a non-collapsed selection (range.from !== range.to):
- *   overlaps if range.from < to && range.to > from.
- *   (adjacent selections [selFrom, from) or [to, selTo) do not overlap).
- */
-export function selectionOverlaps(selection: EditorSelectionLike, from: number, to: number): boolean {
-  if (!selection?.ranges || from >= to) return false;
-  for (const range of selection.ranges) {
-    const selFrom = Math.min(range.from, range.to);
-    const selTo = Math.max(range.from, range.to);
-    if (selFrom === selTo) {
-      if (selFrom >= from && selFrom < to) return true;
-    } else {
-      if (selFrom < to && selTo > from) return true;
-    }
-  }
-  return false;
 }
 
 /** Recognizes and decorates citations on one line for legacy author-date preview. */

@@ -202,6 +202,10 @@ import { remapLayoutAfterRename, removeLayoutAfterDelete, LayoutFileCorruptedErr
 import { createSourceAnchor } from "./services/source-anchor.js";
 import { addCitationOccurrence, remapCitationRegistryAfterRename } from "./services/citation-registry.js";
 import { remapCrossReferencesAfterRename } from "./services/cross-reference-store.js";
+import { CrossReferenceEditorController } from "./services/cross-reference-editor-controller.js";
+import { crossReferenceEditorialScope } from "./services/cross-reference-context.js";
+import { chooseCrossReferenceTarget, chooseCrossReferenceMode } from "./ui/cross-reference-modal.js";
+import { createCrossReferenceExtension, notifyCrossReferenceEditors, CROSS_REFERENCE_DEBOUNCE_MS } from "./utils/cm-cross-references.js";
 import { applyDocumentLayoutChanges, documentLayoutValuesForTarget, type DocumentLayoutTarget } from "./services/document-layout-actions.js";
 import { pageBreakAnchorsForFile } from "./services/document-layout-actions.js";
 import { documentLayoutPageBreakPlugin, setDocumentLayoutPageBreakAnchors } from "./utils/cm-document-layout.js";
@@ -808,6 +812,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerLayoutDirectiveContextMenu();
     this.registerDocumentLayoutPageBreakSync();
     this.registerAnnotationCommands();
+    this.registerCrossReferenceCommand();
     this.registerAnnotationContextMenu();
     this.registerParagraphReorderCommand();
     this.registerParagraphReorderContextMenu();
@@ -836,6 +841,7 @@ class FeuilletsPlugin extends Plugin {
     this.registerSwipeGestures();
     this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
+    this.registerEditorExtension(createCrossReferenceExtension(this.app, () => this.settings, (file) => this.readCrossReferenceContent(file)));
     this.registerEditorExtension(createGrammarCheckerExtension(this));
     this.registerEditorExtension([
       annotationHighlightField,
@@ -1772,6 +1778,7 @@ class FeuilletsPlugin extends Plugin {
     };
 
     this.registerEvent(this.app.vault.on("create", (file) => {
+      if (file instanceof TFile && (file.extension === "md" || file.name === "cross-references.json")) notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS, [file.path]);
       if (this.isLayoutReady) {
         refresh();
         this.scheduleJournalStatsUpdate();
@@ -1780,6 +1787,7 @@ class FeuilletsPlugin extends Plugin {
     }));
 
     this.registerEvent(this.app.vault.on("delete", (file) => {
+      notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS);
       if (file instanceof TFile) this.projectDraftAutoRenamer?.cancel(file);
       if (this.isLayoutReady) {
         if (this.settings.projectFolder && (file.path === this.settings.projectFolder || this.settings.projectFolder.startsWith(file.path + "/"))) {
@@ -1819,6 +1827,7 @@ class FeuilletsPlugin extends Plugin {
     }));
 
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS);
       if (file instanceof TFile) this.projectDraftAutoRenamer?.handleRename(file, oldPath);
       if (this.isLayoutReady) {
         refresh();
@@ -1880,6 +1889,7 @@ class FeuilletsPlugin extends Plugin {
       }
     }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (file instanceof TFile && (file.extension === "md" || file.name === "cross-references.json")) notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS, [file.path]);
       if (file instanceof TFile) this.projectDraftAutoRenamer?.schedule(file);
       this.refreshView(2500);
       if (this.isLayoutReady && file instanceof TFile && file.extension === "md") {
@@ -2542,6 +2552,55 @@ class FeuilletsPlugin extends Plugin {
       checkCallback: (checking) => {
         if (!this.canAnnotateSelection()) return false;
         if (!checking) void this.createAnnotationFromSelection();
+        return true;
+      },
+    });
+  }
+
+  async readCrossReferenceContent(file: TFile): Promise<string> {
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active?.file?.path === file.path) return active.editor.getValue();
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path) return leaf.view.editor.getValue();
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SCRIVENINGS)) {
+      if (!(leaf.view instanceof ScriveningsView)) continue;
+      const segment = leaf.view.getSegmentByPath(file.path);
+      if (segment) return segment.frontmatter + segment.body;
+    }
+    return this.app.vault.read(file);
+  }
+
+  registerCrossReferenceCommand(): void {
+    this.addCommand({
+      id: "cross-reference",
+      name: t("xref.command"),
+      checkCallback: (checking) => {
+        const continuous = this.app.workspace.getActiveViewOfType(ScriveningsView);
+        const context = continuous?.resolveCursorEditorContext();
+        const native = this.app.workspace.getActiveViewOfType(MarkdownView);
+        if (!continuous && native?.getMode() !== "source") return false;
+        const file = context?.file ?? native?.file;
+        const scope = continuous ? continuous.compileScope : file ? crossReferenceEditorialScope(this.app, this.settings, file) : null;
+        if (!file || !scope || (continuous && !context)) return false;
+        if (!checking) {
+          const editor = continuous?.editorView && context
+            ? new ScriveningsSegmentEditorAdapter(continuous.editorView, file.path, (path) => continuous.getSegmentByPath(path))
+            : native?.editor;
+          if (!editor) return false;
+          const controller = new CrossReferenceEditorController({
+            app: this.app, getSettings: () => this.settings, getLocale,
+            chooseTarget: (targets) => chooseCrossReferenceTarget(this.app, targets),
+            chooseMode: (modes) => chooseCrossReferenceMode(this.app, modes),
+            notify: (message) => { new Notice(message); },
+            changed: () => notifyCrossReferenceEditors(this.app),
+          });
+          void controller.insert(editor, file, scope, async (target) => {
+            const segment = continuous?.getSegmentByPath(target.path);
+            return segment ? segment.frontmatter + segment.body : this.readCrossReferenceContent(target);
+          }, () => continuous ? this.app.workspace.getActiveViewOfType(ScriveningsView) === continuous && continuous.getSegmentByPath(file.path) !== null
+            : this.app.workspace.getActiveViewOfType(MarkdownView) === native && native?.file?.path === file.path && native.getMode() === "source");
+        }
         return true;
       },
     });
@@ -3824,6 +3883,7 @@ class FeuilletsPlugin extends Plugin {
   async saveSettings() {
     this.trimStats();
     await this.saveData(this.settings);
+    notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS);
   }
 
   /** `statsRetention` s'applique séparément à CHAQUE journalStats de projet

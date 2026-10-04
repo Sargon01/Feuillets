@@ -2,7 +2,7 @@ import { TFile, TFolder, normalizePath, type App } from "obsidian";
 import { getProjectFolder, internalResourcesFolderPath } from "./folder-structure.js";
 import { ensureFolder } from "./project-files.js";
 import { annexesFiles } from "./annexes.js";
-import { resolveCompileScopeFiles } from "./compile-scope.js";
+import { resolveCompileScopeFiles, type CompileScope } from "./compile-scope.js";
 import { resolveEditorialRoot } from "./editorial-roots.js";
 import { remapPath } from "../carnet/core/path-reference-maintenance.js";
 import { detectCrossReferenceTargets } from "./cross-reference-detection.js";
@@ -67,11 +67,26 @@ export async function saveCrossReferenceStore(app: App, settings: FeuilletsSetti
 export async function detectProjectCrossReferenceTargets(app: App, settings: FeuilletsSettings): Promise<DetectedCrossReferenceTarget[]> {
   const root = getProjectFolder(app, settings);
   if (!root) return [];
-  const files = resolveCompileScopeFiles(app, settings, { type: "project", projectRoot: root.path });
+  return detectCrossReferenceTargetsForScope(app, settings, { type: "project", projectRoot: root.path });
+}
+
+export type CrossReferenceContentReader = (file: TFile) => Promise<string>;
+export type CrossReferenceTargetDetector = typeof detectCrossReferenceTargets;
+
+export async function detectCrossReferenceTargetsForScope(
+  app: App, settings: FeuilletsSettings, scope: CompileScope,
+  readContent: CrossReferenceContentReader = (file) => app.vault.read(file),
+  detect: CrossReferenceTargetDetector = detectCrossReferenceTargets,
+): Promise<DetectedCrossReferenceTarget[]> {
+  const root = app.vault.getAbstractFileByPath(scope.projectRoot);
+  if (!(root instanceof TFolder)) return [];
+  const files = resolveCompileScopeFiles(app, settings, scope);
+  const projectRoot = getProjectFolder(app, settings);
+  const structuralRoot = projectRoot && (root.path === projectRoot.path || root.path.startsWith(`${projectRoot.path}/`)) ? projectRoot : root;
   const appendixPaths = new Set<string>();
   const editorialRoots = new Map<string, TFolder>([[root.path, root]]);
   for (const file of files) {
-    const editorial = resolveEditorialRoot(app, settings, root, file);
+    const editorial = resolveEditorialRoot(app, settings, structuralRoot, file);
     editorialRoots.set(editorial.path, editorial);
   }
   for (const editorial of editorialRoots.values()) {
@@ -79,7 +94,7 @@ export async function detectProjectCrossReferenceTargets(app: App, settings: Feu
   }
   const targets: DetectedCrossReferenceTarget[] = [];
   for (const [fileOrder, file] of files.entries()) {
-    targets.push(...detectCrossReferenceTargets(file.path, await app.vault.read(file), {
+    targets.push(...detect(file.path, await readContent(file), {
       fileOrder, ...(appendixPaths.has(file.path) ? { appendixTitle: file.basename } : {}),
     }));
   }
@@ -89,6 +104,7 @@ export async function detectProjectCrossReferenceTargets(app: App, settings: Feu
 export async function addCrossReferenceLink(
   app: App, settings: FeuilletsSettings, detected: DetectedCrossReferenceTarget,
   sourceFile: TFile, start: number, end: number, displayMode: CrossReferenceDisplayMode = "number",
+  readContent: CrossReferenceContentReader = (file) => app.vault.read(file),
 ): Promise<CrossReferenceLink> {
   const path = crossReferenceStorePath(app, settings);
   if (!path) throw new Error("Cross-reference store requires an active project");
@@ -97,12 +113,21 @@ export async function addCrossReferenceLink(
     if (!(targetFile instanceof TFile) || app.vault.getAbstractFileByPath(sourceFile.path) !== sourceFile) {
       throw new Error("Cross-reference link requires existing source files");
     }
-    const targetContent = await app.vault.read(targetFile);
-    const content = sourceFile === targetFile ? targetContent : await app.vault.read(sourceFile);
+    const targetContent = await readContent(targetFile);
+    const content = sourceFile === targetFile ? targetContent : await readContent(sourceFile);
     const result = createCrossReferenceLink(await readStore(app, path), detected, targetContent, sourceFile.path, content, start, end, displayMode);
     await writeStore(app, path, result.store);
     return result;
   });
+}
+
+export function addCrossReferenceLinkFromContents(
+  app: App, settings: FeuilletsSettings, detected: DetectedCrossReferenceTarget,
+  targetContent: string, sourceFile: TFile, content: string, start: number, end: number,
+  displayMode: CrossReferenceDisplayMode,
+): Promise<CrossReferenceLink> {
+  return addCrossReferenceLink(app, settings, detected, sourceFile, start, end, displayMode,
+    async (file) => file.path === sourceFile.path ? content : targetContent);
 }
 
 export function remapCrossReferenceStore(store: CrossReferenceStore, oldPath: string, newPath: string): CrossReferenceStore {
@@ -137,7 +162,11 @@ export interface CrossReferenceStoreResolution {
   occurrences: Map<string, CrossReferenceOccurrenceResolution>;
 }
 
-export async function resolveCrossReferenceStore(app: App, store: CrossReferenceStore): Promise<CrossReferenceStoreResolution> {
+export async function resolveCrossReferenceStore(
+  app: App, store: CrossReferenceStore,
+  readContent: CrossReferenceContentReader = (file) => app.vault.read(file),
+  detect: CrossReferenceTargetDetector = detectCrossReferenceTargets,
+): Promise<CrossReferenceStoreResolution> {
   validateCrossReferenceStore(store);
   const contents = new Map<string, string | null>();
   const detections = new Map<string, DetectedCrossReferenceTarget[]>();
@@ -146,10 +175,10 @@ export async function resolveCrossReferenceStore(app: App, store: CrossReference
   for (const entry of [...store.targets, ...store.occurrences]) {
     if (contents.has(entry.sourceFile)) continue;
     const file = app.vault.getAbstractFileByPath(entry.sourceFile);
-    const content = file instanceof TFile ? await app.vault.read(file) : null;
+    const content = file instanceof TFile ? await readContent(file) : null;
     contents.set(entry.sourceFile, content);
     if (content !== null && file instanceof TFile && targetFiles.has(entry.sourceFile)) {
-      detections.set(entry.sourceFile, detectCrossReferenceTargets(entry.sourceFile, content,
+      detections.set(entry.sourceFile, detect(entry.sourceFile, content,
         appendixFiles.has(entry.sourceFile) ? { appendixTitle: file.basename } : {}));
     }
   }
