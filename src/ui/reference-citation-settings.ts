@@ -1,6 +1,6 @@
 import { type App, Modal, TFile, TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
-import type { ReferenceCitationContext } from "../services/research-reference-search.js";
+import { resolveReferenceContextRoot, type ReferenceCitationContext } from "../services/research-reference-search.js";
 import { resolveDocumentCitationStyleSetting } from "../services/document-citation-style.js";
 import {
   ensureExactFolderWorkspaceConfig, folderPathToWorkspaceScope,
@@ -14,6 +14,7 @@ type CitationSettingsPlugin = {
   saveSettings(): Promise<void>;
   refreshCitationRendering?(): void;
   renderAllViews(force?: boolean): void;
+  getWorkspaceFolder?(): TFolder | null;
 };
 const FIELDS: readonly CitationSetting[] = ["pandocCitationPreviewStyle", "citekeyBibliographyPath", "citekeyCslPath"];
 const INHERIT = "__inherit__";
@@ -54,6 +55,10 @@ export class ReferenceCitationSettingsModal extends Modal {
   }
 
   onOpen(): void {
+    if (this.context.targetScope instanceof TFile) {
+      this.context = { ...this.context, scopeRoot: resolveReferenceContextRoot(this.app, this.plugin.settings, this.context.projectRoot,
+        this.context.targetScope, this.plugin.getWorkspaceFolder?.() ?? null) };
+    }
     this.modalEl.addClass("feuillets-reference-settings-modal");
     this.modalEl.setAttr("aria-label", t("shared.research.bibliographySettings"));
     this.controls = new ReferenceCitationSettingsControls(this.app, this.plugin, this.context, this.isCurrent, this.contentEl, () => this.close());
@@ -108,7 +113,7 @@ export class ReferenceCitationSettingsControls {
     // Candidates belong to the folder receiving the override, including its Research association.
     const selection = resolveWorkspaceCitationResources(this.app, this.plugin.settings, projectRoot, scopeRoot);
     const block = contentEl.createDiv({ cls: "feuillets-reference-settings" });
-    const mode = resolveDocumentCitationStyleSetting(this.plugin.settings, projectRoot.path, citationStyleScope(this.context).path);
+    const mode = resolveDocumentCitationStyleSetting(this.plugin.settings, projectRoot.path, scopeRoot.path);
     const modeOwnerPath = mode.source ? workspaceScopeToFolderPath(projectRoot.path, mode.source) : null;
     const modeOwner = modeOwnerPath ? this.app.vault.getAbstractFileByPath(modeOwnerPath) : null;
     const modes: [string, string][] = [

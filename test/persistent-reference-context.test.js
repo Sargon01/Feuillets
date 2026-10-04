@@ -66,7 +66,7 @@ for (const { name, declared, file, isolated, expected } of [
     if (expected !== "root") assert.equal(context.files.includes(f.other), false);
     const citation = resolveReferenceCitationContext(f.app, f.settings, context, f[file]);
     assert.equal(citation.targetScope, f[file]);
-    assert.equal(citation.scopeRoot, declared.length ? f[expected] : f[file].parent);
+    assert.equal(citation.scopeRoot, f[expected]);
     assert.deepEqual(f.settings, before);
     assert.equal(f.base.scopeRoot, f.root, "the general Research context remains unchanged");
   });

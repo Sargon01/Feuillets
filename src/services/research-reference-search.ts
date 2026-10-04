@@ -52,16 +52,13 @@ export function resolveReferenceDocumentContext(
   return resolveResearchDocumentContext(app, settings, context.projectRoot, root, "workspace");
 }
 
-/** Reads follow the editable file; writes use its declared context or its exact ordinary folder. */
+/** Reads follow the editable file; writes use the shared contextual root. */
 export function resolveReferenceCitationContext(
   app: App, settings: FeuilletsSettings, context: ResearchDocumentContext, targetFile: TFile | null,
 ): ReferenceCitationContext {
   if (targetFile?.parent && context.files.some((file) => file.path === targetFile.path)
     && (targetFile.parent.path === context.projectRoot.path || folderPathToWorkspaceScope(context.projectRoot.path, targetFile.parent.path))) {
-    const declared = resolveDeclaredWorkspaceRoot(app, settings, context.projectRoot, targetFile);
-    const scopeRoot = declared
-      ? resolveReferenceContextRoot(app, settings, context.projectRoot, targetFile, context.workspaceRoot)
-      : targetFile.parent;
+    const scopeRoot = resolveReferenceContextRoot(app, settings, context.projectRoot, targetFile, context.workspaceRoot);
     return { projectRoot: context.projectRoot, scopeRoot, targetScope: targetFile };
   }
   return { projectRoot: context.projectRoot, scopeRoot: context.scopeRoot, targetScope: context.scopeRoot };
