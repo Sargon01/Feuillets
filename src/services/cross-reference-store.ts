@@ -4,6 +4,7 @@ import { ensureFolder } from "./project-files.js";
 import { annexesFiles } from "./annexes.js";
 import { resolveCompileScopeFiles, type CompileScope } from "./compile-scope.js";
 import { resolveEditorialRoot } from "./editorial-roots.js";
+import { resolveDeclaredWorkspaceRoot } from "./folder-workspaces.js";
 import { remapPath } from "../carnet/core/path-reference-maintenance.js";
 import { detectCrossReferenceTargets } from "./cross-reference-detection.js";
 import {
@@ -88,6 +89,8 @@ export async function detectCrossReferenceTargetsForScope(
   for (const file of files) {
     const editorial = resolveEditorialRoot(app, settings, structuralRoot, file);
     editorialRoots.set(editorial.path, editorial);
+    const workspace = resolveDeclaredWorkspaceRoot(app, settings, structuralRoot, file);
+    if (workspace) editorialRoots.set(workspace.path, workspace);
   }
   for (const editorial of editorialRoots.values()) {
     for (const file of annexesFiles(app, settings, editorial)) appendixPaths.add(file.path);

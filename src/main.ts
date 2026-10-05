@@ -204,7 +204,7 @@ import { createSourceAnchor } from "./services/source-anchor.js";
 import { addCitationOccurrence, remapCitationRegistryAfterRename } from "./services/citation-registry.js";
 import { remapCrossReferencesAfterRename } from "./services/cross-reference-store.js";
 import { CrossReferenceEditorController } from "./services/cross-reference-editor-controller.js";
-import { crossReferenceEditorialScope } from "./services/cross-reference-context.js";
+import { crossReferenceBoundaryScope } from "./services/cross-reference-context.js";
 import { chooseCrossReferenceTarget, chooseCrossReferenceMode } from "./ui/cross-reference-modal.js";
 import { createCrossReferenceExtension, notifyCrossReferenceEditors, CROSS_REFERENCE_DEBOUNCE_MS } from "./utils/cm-cross-references.js";
 import { applyDocumentLayoutChanges, documentLayoutValuesForTarget, type DocumentLayoutTarget } from "./services/document-layout-actions.js";
@@ -842,7 +842,8 @@ class FeuilletsPlugin extends Plugin {
     this.registerSwipeGestures();
     this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
-    this.registerEditorExtension(createCrossReferenceExtension(this.app, () => this.settings, (file) => this.readCrossReferenceContent(file)));
+    this.registerEditorExtension(createCrossReferenceExtension(this.app, () => this.settings, (file) => this.readCrossReferenceContent(file),
+      undefined, () => this.getWorkspaceFolder()));
     this.registerEditorExtension(createGrammarCheckerExtension(this));
     this.registerEditorExtension([
       annotationHighlightField,
@@ -2582,7 +2583,7 @@ class FeuilletsPlugin extends Plugin {
         const native = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!continuous && native?.getMode() !== "source") return false;
         const file = context?.file ?? native?.file;
-        const scope = continuous ? continuous.compileScope : file ? crossReferenceEditorialScope(this.app, this.settings, file) : null;
+        const scope = continuous ? continuous.compileScope : file ? crossReferenceBoundaryScope(this.app, this.settings, file, this.getWorkspaceFolder?.() ?? null) : null;
         if (!file || !scope || (continuous && !context)) return false;
         if (!checking) {
           const editor = continuous?.editorView && context
@@ -2591,6 +2592,7 @@ class FeuilletsPlugin extends Plugin {
           if (!editor) return false;
           const controller = new CrossReferenceEditorController({
             app: this.app, getSettings: () => this.settings, getLocale,
+            getWorkspaceFolder: () => this.getWorkspaceFolder?.() ?? null,
             chooseTarget: (targets) => chooseCrossReferenceTarget(this.app, targets),
             chooseMode: (modes) => chooseCrossReferenceMode(this.app, modes),
             notify: (message) => { new Notice(message); },
@@ -4038,16 +4040,20 @@ class FeuilletsPlugin extends Plugin {
   }
 
   setWorkspaceFolder(folder: TFolder): void {
+    const previous = this.workspaceFolderPath;
     const projectRoot = this.getProjectFolder();
     const inProject =
       projectRoot &&
       (folder.path === projectRoot.path || folder.path.startsWith(`${projectRoot.path}/`));
     this.workspaceFolderPath = inProject ? folder.path : undefined;
+    if (previous !== this.workspaceFolderPath) notifyCrossReferenceEditors(this.app);
     this.renderAllViews(true);
   }
 
   clearWorkspaceFolder(): void {
+    const previous = this.workspaceFolderPath;
     this.workspaceFolderPath = undefined;
+    if (previous !== undefined) notifyCrossReferenceEditors(this.app);
     this.renderAllViews(true);
   }
 

@@ -2879,7 +2879,7 @@ export const fr = {
   "xref.pickTarget": "Choisir une cible de référence croisée…",
   "xref.pickMode": "Choisir le mode d’affichage…",
   "xref.type.section": "section",
-  "xref.type.figure": "figure",
+  "xref.type.figure": "image",
   "xref.type.table": "tableau",
   "xref.type.appendix": "annexe",
   "xref.mode.type-number": "Type et numéro",

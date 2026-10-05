@@ -1,6 +1,7 @@
 import { TFolder, type App, type TFile } from "obsidian";
-import { createProjectScope, type CompileScope } from "./compile-scope.js";
+import { createProjectScope, createFolderScope, type CompileScope } from "./compile-scope.js";
 import { resolveEditorialRoot } from "./editorial-roots.js";
+import { resolveDeclaredWorkspaceRoot } from "./folder-workspaces.js";
 import { getProjectFolder } from "./folder-structure.js";
 import { detectCrossReferenceTargetsForScope, resolveCrossReferenceStore, type CrossReferenceContentReader, type CrossReferenceStoreResolution, type CrossReferenceTargetDetector } from "./cross-reference-store.js";
 import { detectCrossReferenceTargets } from "./cross-reference-detection.js";
@@ -53,11 +54,19 @@ export function contextualizeCrossReferenceTarget(
     : { status: "out-of-scope", detectedTarget: current };
 }
 
-export function crossReferenceEditorialScope(app: App, settings: FeuilletsSettings, file: TFile, projectRoot?: string): CompileScope | null {
-  const root = projectRoot ? app.vault.getAbstractFileByPath(projectRoot) : getProjectFolder(app, crossReferenceProjectSettings(app, settings, file.path));
+export function crossReferenceBoundaryScope(
+  app: App, settings: FeuilletsSettings, file: TFile, isolation: TFolder | null = null,
+): CompileScope | null {
+  const root = getProjectFolder(app, crossReferenceProjectSettings(app, settings, file.path));
   if (!(root instanceof TFolder) || !file.path.startsWith(`${root.path}/`)) return null;
   const editorial = resolveEditorialRoot(app, settings, root, file);
-  return createProjectScope(editorial.path);
+  const workspace = resolveDeclaredWorkspaceRoot(app, settings, root, file);
+  let boundary = workspace && workspace.path.length > editorial.path.length ? workspace : editorial;
+  if (isolation && app.vault.getAbstractFileByPath(isolation.path) instanceof TFolder
+    && file.path.startsWith(`${isolation.path}/`)
+    && (isolation.path === boundary.path || isolation.path.startsWith(`${boundary.path}/`))
+    && getProjectFolder(app, crossReferenceProjectSettings(app, settings, isolation.path))?.path === root.path) boundary = isolation;
+  return boundary.path === root.path ? createProjectScope(root.path) : createFolderScope(root.path, boundary.path);
 }
 
 export function crossReferenceProjectSettings(app: App, settings: FeuilletsSettings, path: string): FeuilletsSettings {

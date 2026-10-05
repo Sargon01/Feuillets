@@ -1,8 +1,8 @@
 import { Decoration, ViewPlugin, WidgetType, EditorView } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
-import { editorInfoField, editorLivePreviewField, type App, type TFile } from "obsidian";
+import { editorInfoField, editorLivePreviewField, TFile, type App, type TFolder } from "obsidian";
 import { getLocale } from "../i18n/index.js";
-import { createCrossReferenceDetectionSession, crossReferenceEditorialScope, crossReferenceProjectSettings, resolveCrossReferencesInContext } from "../services/cross-reference-context.js";
+import { createCrossReferenceDetectionSession, crossReferenceBoundaryScope, crossReferenceProjectSettings, resolveCrossReferencesInContext } from "../services/cross-reference-context.js";
 import { loadCrossReferenceStore, type CrossReferenceContentReader } from "../services/cross-reference-store.js";
 import { crossReferenceReplacements, compositeCrossReferenceReplacements, type CrossReferenceReplacement } from "../services/cross-reference-render.js";
 import type { CompileScope } from "../services/compile-scope.js";
@@ -25,7 +25,9 @@ interface DecorationStatic {
   set(ranges: unknown[], sort: boolean): unknown;
 }
 interface PluginStatic {
-  fromClass<T>(cls: new (view: CrossReferenceEditorView) => T, spec: { decorations?(value: T): unknown }): unknown;
+  fromClass<T>(cls: new (view: CrossReferenceEditorView) => T, spec: {
+    decorations?(value: T): unknown;
+  }): unknown;
 }
 const decorations = Decoration as DecorationStatic;
 const plugins = ViewPlugin as PluginStatic;
@@ -60,6 +62,7 @@ export function createCrossReferenceExtension(
   app: App, getSettings: () => FeuilletsSettings,
   readContent: CrossReferenceContentReader = (file) => app.vault.read(file),
   getContinuousHost?: () => ContinuousCrossReferenceHost | null,
+  getWorkspaceFolder: () => TFolder | null = () => null,
 ): unknown {
   if (typeof plugins?.fromClass !== "function") return [];
   const setRows = (StateEffect as { define<T>(): { of(value: T): unknown } }).define<readonly CrossReferenceReplacement[]>();
@@ -148,7 +151,7 @@ export function createCrossReferenceExtension(
       const host = getContinuousHost?.();
       const info = this.view.state.field<{ file: TFile | null }>(editorInfoField, false);
       const file = info?.file;
-      const scope = getContinuousHost ? host?.scope ?? null : file ? crossReferenceEditorialScope(app, settings, file) : null;
+      const scope = getContinuousHost ? host?.scope ?? null : file ? crossReferenceBoundaryScope(app, settings, file, getWorkspaceFolder()) : null;
       if (!scope || (!getContinuousHost && this.view.state.field<boolean>(editorLivePreviewField, false) === false)) {
         this.replacements = []; this.rebuild(); this.view.dispatch({ effects: setRows.of([]) }); return;
       }

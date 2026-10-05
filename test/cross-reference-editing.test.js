@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import { TFolder, MarkdownView, Modal, editorInfoField, editorLivePreviewField } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import FeuilletsPlugin from "../src/main.js";
-import { createProjectScope, createSelectionScope, createFileScope } from "../src/services/compile-scope.js";
+import { createProjectScope, createSelectionScope, createFileScope, createFolderScope } from "../src/services/compile-scope.js";
 import { detectCrossReferenceTargets } from "../src/services/cross-reference-detection.js";
+import { parseImageMarkdown, formatCaptionedImageMarkdown } from "../src/services/image-markdown.js";
 import { emptyCrossReferenceStore, serializeCrossReferenceStore } from "../src/services/cross-reference-model.js";
 import { createCrossReferenceLink } from "../src/services/cross-reference-resolution.js";
 import { crossReferenceStorePath, loadCrossReferenceStore, saveCrossReferenceStore, addCrossReferenceLinkFromContents } from "../src/services/cross-reference-store.js";
-import { createCrossReferenceDetectionSession, loadCrossReferenceContext, resolveCrossReferencesInContext, crossReferenceEditorialScope } from "../src/services/cross-reference-context.js";
+import { createCrossReferenceDetectionSession, loadCrossReferenceContext, resolveCrossReferencesInContext, crossReferenceBoundaryScope, crossReferenceProjectSettings } from "../src/services/cross-reference-context.js";
+import { registerDeclaredWorkspaceRoot, unregisterDeclaredWorkspaceRoot } from "../src/services/folder-workspaces.js";
+import { registerOuvrage } from "../src/services/editorial-roots.js";
 import { formatCrossReference } from "../src/services/cross-reference-format.js";
 import { CrossReferenceEditorController } from "../src/services/cross-reference-editor-controller.js";
 import { crossReferenceReplacements, compositeCrossReferenceReplacements } from "../src/services/cross-reference-render.js";
@@ -70,6 +73,7 @@ function controller(state, options = {}) {
   const notices = []; const choices = []; const modes = []; let changes = 0;
   const instance = new CrossReferenceEditorController({
     app: state.app, getSettings: () => state.settings, getLocale: () => options.locale ?? "fr",
+    getWorkspaceFolder: () => options.getWorkspaceFolder?.() ?? null,
     chooseTarget: async (targets) => { choices.push(targets); return options.chooseTarget ? options.chooseTarget(targets) : targets.find((target) => target.detectedTarget.titleOrCaption === "Map B"); },
     chooseMode: async (items) => { modes.push(items); return options.chooseMode ? options.chooseMode(items) : options.mode ?? "type-number"; },
     notify: (notice) => notices.push(notice), changed: () => changes++,
@@ -195,13 +199,168 @@ test("XRef context: normal editor defaults to its registered editorial root and 
   const file = await state.app.vault.create(`${book.path}/Sheet.md`, "# In book");
   state.settings.projectMeta[state.root.path].folderWorkspaces = { Book: { version: 1, ouvrage: { version: 1 } } };
   const technical = await state.app.vault.createFolder(`${book.path}/_Recherche`); await state.app.vault.create(`${technical.path}/Source.md`, "# Technical");
-  const scope = crossReferenceEditorialScope(state.app, state.settings, file);
-  assert.deepEqual(scope, createProjectScope(book.path));
+  const scope = crossReferenceBoundaryScope(state.app, state.settings, file);
+  assert.deepEqual(scope, createFolderScope(state.root.path, book.path));
   assert.deepEqual((await loadCrossReferenceContext(state.app, state.settings, scope)).targets.map((target) => target.detectedTarget.titleOrCaption), ["In book"]);
 });
 
+for (const [name, parentIdentity, childIdentity, isolationLocation, expected] of [
+  ["simple workspace", "workspace", null, null, "parent"],
+  ["nested workspaces", "workspace", "workspace", null, "child"],
+  ["workspace then work", "workspace", "ouvrage", null, "child"],
+  ["work then workspace", "ouvrage", "workspace", null, "child"],
+  ["both identities", null, "both", null, "child"],
+  ["deeper isolation", "workspace", null, "part", "part"],
+  ["wider isolation", "workspace", "workspace", "parent", "child"],
+  ["unrelated isolation", "workspace", null, "sibling", "parent"],
+  ["no boundary", null, null, null, "project"],
+  ["ordinary overrides", "override", "override", null, "project"],
+  ["isolation only", null, null, "child", "child"],
+  ["equal isolation", "workspace", null, "parent", "parent"],
+]) {
+  test(`XRef boundary: ${name} preserves the real project and excludes unrelated isolation`, async () => {
+    const state = await fixture();
+    const parent = await state.app.vault.createFolder(`${state.root.path}/WARPI`);
+    const child = await state.app.vault.createFolder(`${parent.path}/NEFES`);
+    const part = await state.app.vault.createFolder(`${child.path}/Part I`);
+    const sibling = await state.app.vault.createFolder(`${state.root.path}/Sibling`);
+    const file = await state.app.vault.create(`${part.path}/Scene.md`, "# Scene");
+    for (const [folder, identity] of [[parent, parentIdentity], [child, childIdentity]]) {
+      if (identity === "workspace" || identity === "both") registerDeclaredWorkspaceRoot(state.settings, state.root, folder);
+      if (identity === "ouvrage" || identity === "both") registerOuvrage(state.settings, state.root, folder);
+      if (identity === "override") {
+        state.settings.projectMeta[state.root.path].folderWorkspaces ??= {};
+        state.settings.projectMeta[state.root.path].folderWorkspaces[folder.path.slice(state.root.path.length + 1)] =
+          { version: 1, wordGoal: 2000, citekeyBibliographyPath: "local.bib" };
+      }
+    }
+    const before = structuredClone(state.settings);
+    const locations = { parent, child, part, sibling, project: state.root };
+    const scope = crossReferenceBoundaryScope(state.app, state.settings, file, isolationLocation ? locations[isolationLocation] : null);
+    assert.deepEqual(scope, expected === "project" ? state.scope : createFolderScope(state.root.path, locations[expected].path));
+    assert.equal(scope.projectRoot, state.root.path);
+    assert.deepEqual(state.settings, before, "boundary reads must not declare or isolate folders");
+  });
+}
+
+test("XRef boundary: an isolation belonging to a different registered project is ignored", async () => {
+  const state = await fixture(); const other = await state.app.vault.createFolder("Other");
+  state.settings.projects.push(other.path);
+  assert.deepEqual(crossReferenceBoundaryScope(state.app, state.settings, state.a, other), state.scope);
+  const nestedProject = await state.app.vault.createFolder(`${state.root.path}/Independent`);
+  const file = await state.app.vault.create(`${nestedProject.path}/File.md`, "# Other project");
+  state.settings.projects.push(nestedProject.path);
+  assert.deepEqual(crossReferenceBoundaryScope(state.app, state.settings, file, state.root), createProjectScope(nestedProject.path));
+  assert.equal(crossReferenceProjectSettings(state.app, state.settings, file.path).projectFolder, nestedProject.path);
+});
+
+async function workspaceFixture() {
+  const state = await fixture();
+  const workspace = await state.app.vault.createFolder(`${state.root.path}/NEFES`);
+  const first = await state.app.vault.createFolder(`${workspace.path}/Part I`);
+  const second = await state.app.vault.createFolder(`${workspace.path}/Part II`);
+  const sibling = await state.app.vault.createFolder(`${state.root.path}/Sibling`);
+  const earlier = await state.app.vault.create(`${second.path}/Earlier.md`, "![Earlier map](earlier.png)");
+  const target = await state.app.vault.create(`${first.path}/Target.md`, "![Current map](map.png)");
+  const source = await state.app.vault.create(`${first.path}/Reference.md`, "Voir figure 99.");
+  const siblingTarget = await state.app.vault.create(`${sibling.path}/Target.md`, "![Sibling map](sibling.png)");
+  const siblingSource = await state.app.vault.create(`${sibling.path}/Reference.md`, "Voir ");
+  registerDeclaredWorkspaceRoot(state.settings, state.root, workspace);
+  registerDeclaredWorkspaceRoot(state.settings, state.root, sibling);
+  state.settings.orders[workspace.path] = ["Part II", "Part I"];
+  return { ...state, workspace, first, second, sibling, earlier, target, source, siblingTarget, siblingSource };
+}
+
+test("XRef native picker: workspace universe excludes siblings and keeps its sidecar at the real project", async () => {
+  const state = await workspaceFixture();
+  const scope = crossReferenceBoundaryScope(state.app, state.settings, state.source);
+  const surface = editor("Voir ");
+  const action = controller(state, { chooseTarget: (targets) => targets.find((target) => target.detectedTarget.titleOrCaption === "Current map") });
+  await action.instance.insert(surface, state.source, scope);
+  assert.deepEqual(action.choices[0].map((target) => target.detectedTarget.sourceFile), [state.earlier.path, state.target.path]);
+  assert.equal(surface.value, "Voir image 2");
+  const storeSettings = crossReferenceProjectSettings(state.app, state.settings, state.source.path);
+  assert.equal(storeSettings.projectFolder, state.root.path);
+  const store = await loadCrossReferenceStore(state.app, storeSettings);
+  assert.equal(store.version, 1); assert.equal(store.targets[0].type, "figure");
+  assert.match(serializeCrossReferenceStore(store), /"type": "figure"/);
+  assert.equal(store.occurrences[0].anchor.quote, "image 2");
+  assert.equal(store.targets[0].sourceFile, state.target.path);
+  assert.equal(state.files.get(crossReferenceStorePath(state.app, state.settings)).content, serializeCrossReferenceStore(store));
+  assert.equal([...state.files.keys()].filter((path) => path.endsWith("cross-references.json")).length, 1);
+  assert.equal(crossReferenceStorePath(state.app, storeSettings), crossReferenceStorePath(state.app, state.settings));
+  assert.ok(!crossReferenceStorePath(state.app, storeSettings).startsWith(`${state.workspace.path}/`));
+  assert.equal(state.source.content, "Voir figure 99.");
+});
+
+test("XRef workspace appendices: reuse Annexes recognition with the true project in both folder and project scopes", async () => {
+  const state = await workspaceFixture();
+  const annexes = await state.app.vault.createFolder(`${state.workspace.path}/Annexes`);
+  const appendix = await state.app.vault.create(`${annexes.path}/Chronology.md`, "# Chronology");
+  for (const scope of [crossReferenceBoundaryScope(state.app, state.settings, state.source), state.scope]) {
+    const context = await loadCrossReferenceContext(state.app, state.settings, scope);
+    assert.equal(context.targets.find((target) => target.detectedTarget.sourceFile === appendix.path
+      && target.detectedTarget.type === "appendix").detectedTarget.titleOrCaption, "Chronology");
+    assert.equal(scope.projectRoot, state.root.path);
+  }
+});
+
+test("XRef Continu: picker follows the real segment boundary while numbering keeps the exact folder scope", async () => {
+  const state = await workspaceFixture();
+  const entries = [{ file: state.target, content: state.target.content }, { file: state.source, content: "Voir " }];
+  const current = continuous(state, entries, buildScriveningsDocument(entries).segments[1].to);
+  const scope = createFolderScope(state.root.path, state.first.path); current.view._compileScope = scope;
+  const action = controller(state, { chooseTarget: (targets) => targets.find((target) => target.detectedTarget.titleOrCaption === "Current map") });
+  await action.instance.insert(current.adapter, state.source, current.view.compileScope, current.read);
+  assert.deepEqual(action.choices[0].map((target) => target.detectedTarget.sourceFile), [state.earlier.path, state.target.path]);
+  assert.equal(current.adapter.getValue(), "Voir image 1");
+  assert.equal(current.view.compileScope, scope);
+  const store = await loadCrossReferenceStore(state.app, state.settings);
+  const resolution = await resolveCrossReferencesInContext(state.app, state.settings, scope, store, current.read);
+  assert.equal(resolution.context.scope, scope);
+  assert.equal(resolution.targets.get(store.targets[0].id).number, 1);
+  assert.equal(crossReferenceReplacements(store, resolution, "fr")[0].text, "image 1");
+
+  const outside = controller(state, { chooseTarget: (targets) => targets.find((target) => target.detectedTarget.titleOrCaption === "Earlier map") });
+  await outside.instance.insert(current.adapter, state.source, scope, current.read);
+  const withOutside = await loadCrossReferenceStore(state.app, state.settings);
+  const resolved = await resolveCrossReferencesInContext(state.app, state.settings, scope, withOutside, current.read);
+  const outsideTarget = withOutside.targets.find((target) => target.sourceFile === state.earlier.path);
+  assert.equal(resolved.targets.get(outsideTarget.id).status, "out-of-scope");
+  assert.equal(current.adapter.getValue(), "Voir image 1image 1");
+});
+
+test("XRef Continu: moving to a sibling segment changes the picker without changing the composition scope", async () => {
+  const state = await workspaceFixture();
+  const entries = [{ file: state.source, content: "Voir " }, { file: state.siblingSource, content: "Voir " }];
+  const document = buildScriveningsDocument(entries); const current = continuous(state, entries, document.segments[0].to);
+  const scope = current.view.compileScope;
+  const first = controller(state, { chooseTarget: () => null });
+  await first.instance.insert(current.adapter, state.source, scope, current.read);
+  assert.deepEqual(first.choices[0].map((target) => target.detectedTarget.sourceFile), [state.earlier.path, state.target.path]);
+  current.cm.dispatch({ selection: { anchor: document.segments[1].to } });
+  const context = current.view.resolveCursorEditorContext(); assert.equal(context.file, state.siblingSource);
+  const adapter = new ScriveningsSegmentEditorAdapter(current.cm, context.file.path, (path) => current.view.getSegmentByPath(path));
+  const second = controller(state, { chooseTarget: () => null });
+  await second.instance.insert(adapter, context.file, scope, current.read);
+  assert.deepEqual(second.choices[0].map((target) => target.detectedTarget.sourceFile), [state.siblingTarget.path]);
+  assert.equal(current.view.compileScope, scope);
+});
+
+test("XRef insertion: changing isolation while the picker is open invalidates the captured boundary", async () => {
+  const state = await workspaceFixture(); let isolation = null; const surface = editor("Voir ");
+  const action = controller(state, {
+    getWorkspaceFolder: () => isolation,
+    chooseTarget: (targets) => targets.find((target) => target.detectedTarget.sourceFile === state.earlier.path),
+    chooseMode: () => { isolation = state.first; return "type-number"; },
+  });
+  await action.instance.insert(surface, state.source, crossReferenceBoundaryScope(state.app, state.settings, state.source));
+  assert.equal(surface.value, "Voir "); assert.equal(action.notices.length, 1);
+  assert.deepEqual(await loadCrossReferenceStore(state.app, state.settings), emptyCrossReferenceStore());
+});
+
 for (const locale of ["fr", "en"]) {
-  for (const [type, expected] of [["figure", "figure 3"], ["table", locale === "fr" ? "tableau 2" : "table 2"], ["section", "section 5"], ["appendix", locale === "fr" ? "annexe 1" : "appendix 1"]]) {
+  for (const [type, expected] of [["figure", "image 2"], ["table", locale === "fr" ? "tableau 2" : "table 2"], ["section", "section 5"], ["appendix", locale === "fr" ? "annexe 1" : "appendix 1"]]) {
     test(`XRef formatting: ${locale} ${type} supports the three display modes`, () => {
       const number = Number(expected.split(" ").at(-1)); const target = { detectedTarget: { type, titleOrCaption: "Current title" }, number };
       assert.equal(formatCrossReference(target, "type-number", locale), expected);
@@ -211,12 +370,88 @@ for (const locale of ["fr", "en"]) {
   }
 }
 
+for (const [caption, semanticCaption] of [
+  ["légende de schéma", "légende de schéma"],
+  ["[Image 1] essai de légende", "essai de légende"],
+  ["[Image 23] Vue générale", "Vue générale"],
+  ["[Figure 4] Carte ancienne", "Carte ancienne"],
+  ["Résultat comparé à [Image 1]", "Résultat comparé à [Image 1]"],
+  ["[Image 2]   Vue détaillée", "Vue détaillée"],
+  ["[Image 2]Vue détaillée", "Vue détaillée"],
+  ["[Image 1] [Image 2] Suite", "[Image 2] Suite"],
+  ["Avant [Figure 4] Carte ancienne", "Avant [Figure 4] Carte ancienne"],
+  ["[Image N] Vue générale", "[Image N] Vue générale"],
+  ["[Image 1.2] Vue générale", "[Image 1.2] Vue générale"],
+]) {
+  test(`XRef image caption: only one initial numeric prefix is removed from ${caption}`, () => {
+    const markdown = formatCaptionedImageMarkdown("map.png", caption);
+    assert.equal(parseImageMarkdown(markdown).caption, caption, "shared image semantics remain unchanged");
+    const detected = detectCrossReferenceTargets("Project/Image.md", markdown);
+    assert.equal(detected.length, 1); assert.equal(detected[0].type, "figure");
+    assert.equal(detected[0].titleOrCaption, semanticCaption);
+    assert.equal(detected[0].anchor.quote, markdown, "anchors still retain the complete source image");
+    for (const locale of ["fr", "en"]) {
+      const numbered = { detectedTarget: detected[0], number: 2 };
+      assert.equal(formatCrossReference(numbered, "type-number", locale), "image 2");
+      assert.equal(formatCrossReference(numbered, "number", locale), "2");
+      assert.equal(formatCrossReference(numbered, "title", locale), semanticCaption);
+    }
+  });
+}
+
+test("XRef semantic captions: title insertion and the existing mode choices receive human caption text", async () => {
+  const state = await fixture();
+  state.b.content = formatCaptionedImageMarkdown("map.png", "[Image 1] essai de légende");
+  const surface = editor("Voir ");
+  const action = controller(state, { mode: "title", chooseTarget: (targets) => targets.find((target) => target.detectedTarget.type === "figure" && target.detectedTarget.sourceFile === state.b.path) });
+  await action.instance.insert(surface, state.ref, state.scope);
+  assert.equal(surface.value, "Voir essai de légende");
+  assert.deepEqual(action.modes[0], [
+    { mode: "type-number", text: "image 2" }, { mode: "number", text: "2" }, { mode: "title", text: "essai de légende" },
+  ]);
+  const store = await loadCrossReferenceStore(state.app, state.settings);
+  assert.equal(store.version, 1); assert.equal(store.targets[0].type, "figure");
+  assert.equal(store.targets[0].titleOrCaption, "essai de légende");
+  assert.equal(store.occurrences[0].anchor.quote, "essai de légende");
+  assert.match(serializeCrossReferenceStore(store), /"type": "figure"/);
+  assert.equal(parseImageMarkdown(state.b.content).caption, "[Image 1] essai de légende");
+  assert.equal(state.ref.content, "Voir figure 99.");
+});
+
+test("XRef semantic captions: old title occurrences and store snapshots stay intact while native and Continu widgets use redetection", async (t) => {
+  const state = await fixture();
+  state.b.content = formatCaptionedImageMarkdown("map.png", "[Image 1] essai de légende");
+  state.ref.content = "Voir [Image 1] essai de légende.";
+  const detected = detectCrossReferenceTargets(state.b.path, state.b.content)[0];
+  const historical = { ...detected, titleOrCaption: "[Image 1] essai de légende" };
+  const created = createCrossReferenceLink(emptyCrossReferenceStore(), historical, state.b.content,
+    state.ref.path, state.ref.content, 5, state.ref.content.length - 1, "title");
+  await saveCrossReferenceStore(state.app, state.settings, created.store);
+  const saved = state.files.get(crossReferenceStorePath(state.app, state.settings)).content;
+  const document = buildScriveningsDocument([{ file: state.b, content: state.b.content }, { file: state.ref, content: state.ref.content }]);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const [, Native] = createCrossReferenceExtension(state.app, () => state.settings);
+  const [, Continu] = createCrossReferenceExtension(state.app, () => state.settings, (file) => state.app.vault.read(file),
+    () => ({ scope: createSelectionScope(state.root.path, [state.b.path, state.ref.path]), document }));
+  const nativeView = fakeRenderView(state, state.ref.content);
+  const continuousView = fakeRenderView(state, document.text, null);
+  const native = new Native(nativeView); const continuous = new Continu(continuousView);
+  t.after(() => { native.destroy(); continuous.destroy(); });
+  await renderTick(t, [nativeView, continuousView], 0);
+  assert.equal(native.decorations[0].widget.text, "essai de légende");
+  assert.equal(continuous.decorations[0].widget.text, "essai de légende");
+  assert.equal(nativeView.state.doc.toString(), "Voir [Image 1] essai de légende.");
+  assert.equal(continuousView.state.doc.toString(), document.text);
+  assert.equal(state.files.get(crossReferenceStorePath(state.app, state.settings)).content, saved);
+  assert.equal((await loadCrossReferenceStore(state.app, state.settings)).targets[0].titleOrCaption, "[Image 1] essai de légende");
+});
+
 test("XRef insertion: cursor inserts exact human text and stores only a lateral relation", async () => {
   const state = await fixture(); const surface = editor("Voir "); const action = controller(state);
   await action.instance.insert(surface, state.ref, state.scope);
-  assert.equal(surface.value, "Voir figure 2"); assert.equal(action.notices.length, 0); assert.equal(action.changes(), 1);
+  assert.equal(surface.value, "Voir image 2"); assert.equal(action.notices.length, 0); assert.equal(action.changes(), 1);
   const store = await loadCrossReferenceStore(state.app, state.settings);
-  assert.equal(store.targets.length, 1); assert.equal(store.occurrences[0].anchor.quote, "figure 2");
+  assert.equal(store.targets.length, 1); assert.equal(store.occurrences[0].anchor.quote, "image 2");
   assert.equal(store.occurrences[0].sourceFile, state.ref.path);
   assert.equal(surface.value.includes(store.targets[0].id), false);
   assert.equal(state.ref.content, "Voir figure 99.");
@@ -234,9 +469,9 @@ test("XRef insertion: selected existing text is linked without changing any char
 test("XRef insertion: footnote definition uses the same controller and live source", async () => {
   const state = await fixture(); const surface = editor("Body.[^12]\n\n[^12]: Voir "); const action = controller(state);
   await action.instance.insert(surface, state.ref, state.scope);
-  assert.equal(surface.value, "Body.[^12]\n\n[^12]: Voir figure 2");
+  assert.equal(surface.value, "Body.[^12]\n\n[^12]: Voir image 2");
   const store = await loadCrossReferenceStore(state.app, state.settings);
-  assert.equal(store.occurrences[0].anchor.start, surface.value.indexOf("figure 2"));
+  assert.equal(store.occurrences[0].anchor.start, surface.value.indexOf("image 2"));
   assert.equal(state.ref.content, "Voir figure 99.");
 });
 
@@ -255,7 +490,7 @@ test("XRef insertion: failed store write keeps inserted text and reports failure
   t.mock.method(state.app.vault, "create", async (path, content) => { if (path.endsWith("cross-references.json")) throw new Error("Write failed"); return create(path, content); });
   t.mock.method(console, "error", () => {});
   await action.instance.insert(surface, state.ref, state.scope);
-  assert.equal(surface.value, "Voir figure 2"); assert.equal(action.notices.length, 1);
+  assert.equal(surface.value, "Voir image 2"); assert.equal(action.notices.length, 1);
   assert.match(action.notices[0], /conservé/); assert.equal(action.changes(), 0);
 });
 
@@ -272,7 +507,7 @@ test("XRef insertion: positions and focuses immediately, never again after store
   const cursor = t.mock.method(surface, "setCursor"); const focus = t.mock.method(surface, "focus");
   const pending = action.instance.insert(surface, state.ref, state.scope);
   await gate.entered;
-  assert.equal(surface.value, "Voir figure 2"); assert.equal(surface.from, surface.value.length);
+  assert.equal(surface.value, "Voir image 2"); assert.equal(surface.from, surface.value.length);
   assert.equal(cursor.mock.callCount(), 1); assert.equal(focus.mock.callCount(), 1);
   gate.release.resolve(); await pending;
   assert.equal(cursor.mock.callCount(), 1); assert.equal(focus.mock.callCount(), 1);
@@ -293,7 +528,7 @@ test("XRef insertion: typing during store writing preserves the user's new text 
   const pending = action.instance.insert(surface, state.ref, state.scope); await gate.entered;
   surface.replaceRange("Continue. ", surface.offsetToPos(0)); const position = surface.from;
   gate.release.resolve(); await pending;
-  assert.equal(surface.value, "Continue. Voir figure 2"); assert.equal(surface.from, position);
+  assert.equal(surface.value, "Continue. Voir image 2"); assert.equal(surface.from, position);
   assert.equal(cursor.mock.callCount(), 1);
 });
 
@@ -325,7 +560,7 @@ test("XRef insertion: rejected delayed store write keeps inserted text and the u
   const pending = action.instance.insert(surface, state.ref, state.scope); await gate.entered;
   surface.setSelection(surface.offsetToPos(0), surface.offsetToPos(4));
   gate.release.reject(new Error("Write failed")); await pending;
-  assert.equal(surface.value, "Voir figure 2"); assert.deepEqual([surface.from, surface.to], [0, 4]);
+  assert.equal(surface.value, "Voir image 2"); assert.deepEqual([surface.from, surface.to], [0, 4]);
   assert.equal(cursor.mock.callCount(), 1); assert.equal(focus.mock.callCount(), 1);
   assert.equal(action.notices.length, 1); assert.match(action.notices[0], /conservé/);
 });
@@ -359,7 +594,7 @@ test("XRef Continu: inserts in the correct segment, keeps neighboring content an
   const current = continuous(state, entries, buildScriveningsDocument(entries).segments[1].to); const action = controller(state);
   const neighbor = current.view.getSegmentByPath(state.b.path).body;
   await action.instance.insert(current.adapter, state.ref, current.view.compileScope, current.read);
-  assert.equal(current.view.getSegmentByPath(state.ref.path).body, "Voir figure 1");
+  assert.equal(current.view.getSegmentByPath(state.ref.path).body, "Voir image 1");
   assert.equal(current.view.getSegmentByPath(state.b.path).body, neighbor);
   const store = await loadCrossReferenceStore(state.app, state.settings);
   assert.equal(store.occurrences[0].anchor.start, "---\ntitle: R\n---\n".length + 5);
@@ -370,7 +605,7 @@ test("XRef Continu: root picker allows an out-of-scope target and insertion uses
   const state = await fixture(); const entries = [{ file: state.ref, content: "Voir " }];
   const current = continuous(state, entries, 5); const action = controller(state);
   await action.instance.insert(current.adapter, state.ref, current.view.compileScope, current.read);
-  assert.equal(current.view.getSegmentByPath(state.ref.path).body, "Voir figure 2");
+  assert.equal(current.view.getSegmentByPath(state.ref.path).body, "Voir image 2");
   assert.ok(action.choices[0].some((target) => target.detectedTarget.sourceFile === state.b.path));
   const store = await loadCrossReferenceStore(state.app, state.settings);
   const resolution = await resolveCrossReferencesInContext(state.app, state.settings, current.view.compileScope, store, current.read);
@@ -382,10 +617,10 @@ test("XRef Continu: footnote insertion and selected-text linking use the segment
   const entries = [{ file: state.a, content: "Neighbor" }, { file: state.ref, content }];
   const doc = buildScriveningsDocument(entries); const current = continuous(state, entries, doc.segments[1].to); const action = controller(state);
   await action.instance.insert(current.adapter, state.ref, current.view.compileScope, current.read);
-  assert.equal(current.adapter.getValue(), content + "figure 1");
+  assert.equal(current.adapter.getValue(), content + "image 1");
   assert.equal(current.view.getSegmentByPath(state.a.path).body, "Neighbor");
-  const before = current.adapter.getValue(); const from = before.indexOf("figure 1");
-  current.adapter.setSelection(current.adapter.offsetToPos(from), current.adapter.offsetToPos(from + 8));
+  const before = current.adapter.getValue(); const from = before.indexOf("image 1");
+  current.adapter.setSelection(current.adapter.offsetToPos(from), current.adapter.offsetToPos(from + "image 1".length));
   await action.instance.insert(current.adapter, state.ref, current.view.compileScope, current.read);
   assert.equal(current.adapter.getValue(), before);
 });
@@ -394,8 +629,8 @@ test("XRef render: contextual numbering changes widgets while source and store s
   const state = await fixture(); const created = link(state); const snapshot = serializeCrossReferenceStore(created.store);
   const full = await resolveCrossReferencesInContext(state.app, state.settings, state.scope, created.store);
   const partial = await resolveCrossReferencesInContext(state.app, state.settings, createSelectionScope(state.root.path, [state.b.path, state.ref.path]), created.store);
-  assert.equal(crossReferenceReplacements(created.store, full, "fr")[0].text, "figure 2");
-  assert.equal(crossReferenceReplacements(created.store, partial, "fr")[0].text, "figure 1");
+  assert.equal(crossReferenceReplacements(created.store, full, "fr")[0].text, "image 2");
+  assert.equal(crossReferenceReplacements(created.store, partial, "fr")[0].text, "image 1");
   assert.equal(state.ref.content, "Voir figure 99."); assert.equal(serializeCrossReferenceStore(created.store), snapshot);
 });
 
@@ -430,7 +665,7 @@ for (const [name, live, selection, expected] of [
   ["reversed selection", true, [{ from: 20, to: 8 }], 0], ["adjacent selection", true, [{ from: 0, to: 5 }], 1],
 ]) {
   test(`XRef render: ${name} follows the shared cursor-reveal rule`, () => {
-    const ranges = [{ from: 5, to: 14, sourceFile: "File.md", text: "figure 2" }];
+    const ranges = [{ from: 5, to: 14, sourceFile: "File.md", text: "image 2" }];
     assert.equal(visibleCrossReferenceReplacements(ranges, { ranges: selection }, live).length, expected);
   });
 }
@@ -461,7 +696,8 @@ test("XRef picker: searches type, root number, current label and source file; mo
   const opened = []; t.mock.method(Modal.prototype, "open", function () { opened.push(this); });
   const pending = chooseCrossReferenceTarget(state.app, context.targets);
   const modal = opened[0]; const target = modal.getItems().find((target) => target.detectedTarget.titleOrCaption === "Map B");
-  assert.match(modal.getItemText(target), /figure 2.*Map B.*B.md/);
+  assert.equal(modal.getItemText(target), `image 2 — Map B — ${state.b.path}`);
+  assert.equal(target.detectedTarget.type, "figure");
   modal.onClose(); modal.onChooseItem(target); assert.equal(await pending, target);
   const options = ["type-number", "number", "title"].map((mode) => ({ mode, text: formatCrossReference(target, mode, "fr") }));
   const modePending = chooseCrossReferenceMode(state.app, options); const modeModal = opened[1];
@@ -469,6 +705,53 @@ test("XRef picker: searches type, root number, current label and source file; mo
   modeModal.onChooseItem(options[0]); assert.equal(await modePending, "type-number");
   const cancelled = chooseCrossReferenceTarget(state.app, context.targets); opened[2].onClose(); assert.equal(await cancelled, null);
 });
+
+for (const locale of ["fr", "en"]) {
+  test(`XRef picker: stable type grouping, two-level native suggestions and complete fuzzy text (${locale})`, async (t) => {
+    setLocale(locale); const state = await fixture();
+    state.b.content = "# B\n\n" + formatCaptionedImageMarkdown("map.png", "[Image 1] essai de légende");
+    await state.app.vault.delete(state.app.vault.getAbstractFileByPath(`${state.root.path}/Appendices/One.md`));
+    const context = await loadCrossReferenceContext(state.app, state.settings, state.scope);
+    const snapshot = structuredClone(context);
+    const presented = []; t.mock.method(Modal.prototype, "open", function () { presented.push(this); });
+    const pending = chooseCrossReferenceTarget(state.app, context.targets);
+    const modal = presented[0]; const items = modal.getItems();
+    assert.deepEqual(items.map((target) => target.detectedTarget.type), ["figure", "figure", "table", "appendix", "section", "section", "section"]);
+    for (const type of ["figure", "table", "appendix", "section"]) {
+      assert.deepEqual(items.filter((target) => target.detectedTarget.type === type),
+        context.targets.filter((target) => target.detectedTarget.type === type), "document order inside each group must remain intact");
+    }
+    for (const target of items) {
+      assert.equal(target.number, context.targets.find((original) => original === target).number);
+      assert.ok(modal.getItemText(target).includes(target.detectedTarget.sourceFile));
+    }
+    assert.deepEqual(context, snapshot, "presentation must not mutate numbering, scope, anchors or sourceOrder");
+    const image = items[1]; assert.equal(image.number, 2);
+    assert.equal(modal.getItemText(image), `image 2 — essai de légende — ${state.b.path}`);
+    for (const query of ["image", "essai de légende", "B.md", state.root.path]) {
+      assert.ok(modal.getItemText(image).includes(query), "native fuzzy matching retains every searchable component");
+    }
+    assert.ok(modal.getItemText(items[2]).includes(locale === "fr" ? "tableau" : "table"));
+    assert.ok(modal.getItemText(items[3]).includes(locale === "fr" ? "annexe" : "appendix"));
+    assert.ok(modal.getItemText(items[4]).includes("section"));
+    const row = modal.contentEl;
+    row.createDiv({ text: "Obsolete suggestion" });
+    modal.renderSuggestion({ item: image, match: { score: 1, matches: [] } }, row);
+    assert.equal(row.hasClass("is-complex"), true);
+    assert.equal(row.children.length, 1);
+    const content = row.querySelector(".suggestion-content");
+    assert.equal(content.children.length, 2);
+    assert.equal(content.querySelector(".suggestion-title").textContent, "image 2 — essai de légende");
+    assert.equal(content.querySelector(".suggestion-note").textContent, state.b.path);
+    modal.renderSuggestion({ item: items[2], match: { score: 1, matches: [] } }, row);
+    assert.equal(row.children.length, 1, "rerendering replaces the previous row rather than accumulating it");
+    assert.equal(row.querySelector(".suggestion-title").textContent, `${formatCrossReference(items[2], "type-number", locale)} — ${items[2].detectedTarget.titleOrCaption}`);
+    modal.onChooseItem(image); assert.equal(await pending, image);
+    modal.onClose();
+    assert.deepEqual(context, snapshot);
+    assert.equal(parseImageMarkdown(state.b.content.split("\n").at(-1)).caption, "[Image 1] essai de légende");
+  });
+}
 
 test("XRef command: a single palette entry delegates normal Markdown insertion", async () => {
   const state = await fixture(); const native = Object.create(MarkdownView.prototype);
@@ -478,6 +761,25 @@ test("XRef command: a single palette entry delegates normal Markdown insertion",
   const commands = []; const plugin = { app: state.app, settings: state.settings, addCommand: (command) => commands.push(command) };
   FeuilletsPlugin.prototype.registerCrossReferenceCommand.call(plugin);
   assert.equal(commands.length, 1); assert.equal(commands[0].id, "cross-reference"); assert.equal(commands[0].checkCallback(true), true);
+});
+
+test("XRef command: native numbering and controller picker receive the same applicable isolation", async (t) => {
+  const state = await workspaceFixture(); const native = Object.create(MarkdownView.prototype);
+  native.file = state.source; native.editor = editor("Voir "); native.getMode = () => "source";
+  state.app.workspace = { getActiveViewOfType: (type) => type === MarkdownView ? native : null };
+  const commands = []; let isolation = state.first;
+  const plugin = { app: state.app, settings: state.settings, getWorkspaceFolder: () => isolation,
+    addCommand: (command) => commands.push(command) };
+  const insert = t.mock.method(CrossReferenceEditorController.prototype, "insert", async function (_editor, _file, scope) {
+    assert.deepEqual(scope, crossReferenceBoundaryScope(state.app, state.settings, state.source, isolation));
+    assert.equal(this.deps.getWorkspaceFolder(), isolation);
+  });
+  FeuilletsPlugin.prototype.registerCrossReferenceCommand.call(plugin);
+  assert.equal(commands[0].checkCallback(false), true);
+  assert.deepEqual(insert.mock.calls[0].arguments[2], createFolderScope(state.root.path, state.first.path));
+  isolation = state.root;
+  assert.equal(commands[0].checkCallback(false), true);
+  assert.deepEqual(insert.mock.calls[1].arguments[2], createFolderScope(state.root.path, state.workspace.path));
 });
 
 test("XRef command: Reading mode is unavailable and never calls the insertion controller", async (t) => {
@@ -550,7 +852,7 @@ test("XRef CodeMirror: live widget, raw Source mode, cursor reveal and read-only
   const [field, Plugin] = createCrossReferenceExtension(state.app, () => state.settings);
   const view = fakeRenderView(state, state.ref.content); const plugin = new Plugin(view); t.after(() => plugin.destroy());
   await waitFor(() => plugin.decorations.length === 1);
-  assert.ok(plugin.decorations[0].widget instanceof CrossReferenceWidget); assert.equal(plugin.decorations[0].widget.text, "figure 2");
+  assert.ok(plugin.decorations[0].widget instanceof CrossReferenceWidget); assert.equal(plugin.decorations[0].widget.text, "image 2");
   let fieldValue = field.update(field.create(), { state: view.state, docChanged: false, effects: [view.effects.at(-1)] });
   assert.equal(fieldValue.decorations.length, 1);
   view.selection([{ from: 6, to: 6 }]); plugin.update({ view, selectionSet: true }); assert.equal(plugin.decorations.length, 0);
@@ -570,12 +872,12 @@ test("XRef CodeMirror: Continu uses the shared widget and refreshes with scope c
   const [, Plugin] = createCrossReferenceExtension(state.app, () => state.settings, (file) => state.app.vault.read(file), () => ({ scope, document }));
   const plugin = new Plugin(view); t.after(() => plugin.destroy());
   await waitFor(() => plugin.decorations.length === 1);
-  assert.equal(plugin.decorations[0].widget.text, "figure 1");
+  assert.equal(plugin.decorations[0].widget.text, "image 1");
   assert.equal(document.text.slice(plugin.decorations[0].from, plugin.decorations[0].to), "figure 99");
   document = buildScriveningsDocument([{ file: state.a, content: state.a.content }, { file: state.b, content: state.b.content }, { file: state.ref, content: state.ref.content }]);
   scope = createSelectionScope(state.root.path, [state.a.path, state.b.path, state.ref.path]); view.source(document.text);
   plugin.update({ view, docChanged: true }); notifyCrossReferenceEditors(state.app);
-  await waitFor(() => plugin.decorations.length === 1 && plugin.decorations[0].widget.text === "figure 2");
+  await waitFor(() => plugin.decorations.length === 1 && plugin.decorations[0].widget.text === "image 2");
   assert.equal(state.ref.content, "Voir figure 99.");
 });
 
@@ -588,10 +890,10 @@ test("XRef CodeMirror: content changes reread only the affected file, not the wh
   view.source("Introduction.\n" + state.ref.content); plugin.update({ view, docChanged: true });
   const effects = view.effects.length;
   await waitFor(() => view.effects.length > effects);
-  assert.equal(reads.length, first); assert.equal(plugin.decorations[0].widget.text, "figure 2");
+  assert.equal(reads.length, first); assert.equal(plugin.decorations[0].widget.text, "image 2");
   state.a.content = state.a.content.replace("![Map A](a.png)", "Decoration only");
   notifyCrossReferenceEditors(state.app, 0, [state.a.path]);
-  await waitFor(() => plugin.decorations[0]?.widget.text === "figure 1");
+  await waitFor(() => plugin.decorations[0]?.widget.text === "image 1");
   assert.deepEqual(reads.slice(first), [state.a.path]);
 });
 
@@ -613,6 +915,77 @@ async function renderTick(t, views, milliseconds) {
   t.mock.timers.tick(milliseconds); await Promise.all(pending.map(({ completed }) => completed));
   for (const { mock } of pending) mock.mock.restore();
 }
+
+test("XRef native widgets: isolation set/clear and workspace registration/removal refresh without edits", async (t) => {
+  const state = await workspaceFixture();
+  const detected = detectCrossReferenceTargets(state.target.path, state.target.content)[0];
+  assert.equal(detected.type, "figure");
+  const created = createCrossReferenceLink(emptyCrossReferenceStore(), detected, state.target.content,
+    state.source.path, state.source.content, 5, 14, "type-number");
+  await saveCrossReferenceStore(state.app, state.settings, created.store);
+  const snapshot = state.files.get(crossReferenceStorePath(state.app, state.settings)).content;
+  const plugin = {
+    app: state.app, settings: state.settings, workspaceFolderPath: undefined,
+    getProjectFolder: () => state.root,
+    getWorkspaceFolder: FeuilletsPlugin.prototype.getWorkspaceFolder,
+    renderAllViews: t.mock.fn(), trimStats: () => {}, saveData: t.mock.fn(async () => {}),
+  };
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const [, Plugin] = createCrossReferenceExtension(state.app, () => state.settings, (file) => state.app.vault.read(file),
+    undefined, () => plugin.getWorkspaceFolder());
+  const view = fakeRenderView(state, state.source.content, state.source);
+  const renderer = new Plugin(view); t.after(() => renderer.destroy());
+  await renderTick(t, view, 0);
+  assert.equal(renderer.decorations[0].widget.text, "image 2");
+  FeuilletsPlugin.prototype.setWorkspaceFolder.call(plugin, state.first);
+  await renderTick(t, view, 0);
+  assert.equal(renderer.decorations[0].widget.text, "image 1");
+  const effects = view.effects.length;
+  FeuilletsPlugin.prototype.setWorkspaceFolder.call(plugin, state.first);
+  t.mock.timers.tick(0); await Promise.resolve();
+  assert.equal(view.effects.length, effects, "identical isolation does not queue another XRef refresh");
+  FeuilletsPlugin.prototype.clearWorkspaceFolder.call(plugin);
+  await renderTick(t, view, 0); assert.equal(renderer.decorations[0].widget.text, "image 2");
+  assert.equal(plugin.workspaceFolderPath, undefined);
+  unregisterDeclaredWorkspaceRoot(state.settings, state.root, state.workspace);
+  await FeuilletsPlugin.prototype.saveSettings.call(plugin);
+  await renderTick(t, view, 350); assert.equal(renderer.decorations[0].widget.text, "image 4");
+  registerDeclaredWorkspaceRoot(state.settings, state.root, state.workspace);
+  await FeuilletsPlugin.prototype.saveSettings.call(plugin);
+  await renderTick(t, view, 350); assert.equal(renderer.decorations[0].widget.text, "image 2");
+  for (let index = 0; index < 3; index++) {
+    notifyCrossReferenceEditors(state.app); await renderTick(t, view, 0);
+    assert.equal(renderer.decorations.length, 1);
+    assert.equal(renderer.decorations[0].widget.text, "image 2");
+  }
+  assert.equal(view.state.doc.toString(), state.source.content);
+  assert.equal(state.files.get(crossReferenceStorePath(state.app, state.settings)).content, snapshot);
+  assert.equal(plugin.workspaceFolderPath, undefined);
+  renderer.destroy(); const afterDestroy = view.effects.length;
+  notifyCrossReferenceEditors(state.app); t.mock.timers.tick(350); await Promise.resolve();
+  assert.equal(view.effects.length, afterDestroy, "destroyed editors unsubscribe from invalidation");
+});
+
+test("XRef Continu widgets: exact host scope remains the numbering scope regardless of boundaries", async (t) => {
+  const state = await workspaceFixture();
+  const detected = detectCrossReferenceTargets(state.target.path, state.target.content)[0];
+  const created = createCrossReferenceLink(emptyCrossReferenceStore(), detected, state.target.content,
+    state.source.path, state.source.content, 5, 14, "type-number");
+  await saveCrossReferenceStore(state.app, state.settings, created.store);
+  const document = buildScriveningsDocument([{ file: state.target, content: state.target.content }, { file: state.source, content: state.source.content }]);
+  const scope = createFolderScope(state.root.path, state.first.path);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const [, Plugin] = createCrossReferenceExtension(state.app, () => state.settings, (file) => state.app.vault.read(file),
+    () => ({ scope, document }), () => state.workspace);
+  const view = fakeRenderView(state, document.text, null); const renderer = new Plugin(view); t.after(() => renderer.destroy());
+  await renderTick(t, view, 0);
+  assert.equal(renderer.decorations[0].widget.text, "image 1");
+  unregisterDeclaredWorkspaceRoot(state.settings, state.root, state.workspace);
+  notifyCrossReferenceEditors(state.app); await renderTick(t, view, 0);
+  assert.equal(renderer.decorations[0].widget.text, "image 1");
+  assert.equal(renderer.decorations[0].from, locationToCompositeOffset(document, state.source.path, 5));
+  assert.equal(view.state.doc.toString(), document.text);
+});
 
 for (const filename of ["A.md", "B.md"]) {
   test(`XRef Continu: accepted edit in ${filename} invalidates only its true path`, async (t) => {
@@ -678,7 +1051,7 @@ test("XRef store: a sidecar modification refreshes every registered editor witho
   const [, Plugin] = createCrossReferenceExtension(state.app, () => state.settings);
   const first = fakeRenderView(state, state.ref.content); const second = fakeRenderView(state, state.ref.content);
   const a = new Plugin(first); const b = new Plugin(second); t.after(() => { a.destroy(); b.destroy(); });
-  await renderTick(t, [first, second], 0); assert.equal(b.decorations[0].widget.text, "figure 2");
+  await renderTick(t, [first, second], 0); assert.equal(b.decorations[0].widget.text, "image 2");
   created.store.occurrences[0].displayMode = "title"; await saveCrossReferenceStore(state.app, state.settings, created.store);
   notifyCrossReferenceEditors(state.app, 350, [crossReferenceStorePath(state.app, state.settings)]);
   await renderTick(t, [first, second], 350);

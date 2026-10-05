@@ -1,7 +1,7 @@
-import { TFile, type App } from "obsidian";
+import { TFile, type TFolder, type App } from "obsidian";
 import { translate, type Locale } from "../i18n/index.js";
 import { compileScopesEqual, type CompileScope } from "./compile-scope.js";
-import { crossReferenceEditorialScope, crossReferenceProjectSettings, loadCrossReferenceContext, type NumberedCrossReferenceTarget } from "./cross-reference-context.js";
+import { crossReferenceBoundaryScope, crossReferenceProjectSettings, loadCrossReferenceContext, type NumberedCrossReferenceTarget } from "./cross-reference-context.js";
 import { formatCrossReference } from "./cross-reference-format.js";
 import { addCrossReferenceLinkFromContents, type CrossReferenceContentReader } from "./cross-reference-store.js";
 import type { CrossReferenceDisplayMode } from "./cross-reference-model.js";
@@ -12,6 +12,7 @@ export interface CrossReferenceEditorDependencies {
   app: App;
   getSettings(): FeuilletsSettings;
   getLocale(): Locale;
+  getWorkspaceFolder?(): TFolder | null;
   chooseTarget(targets: readonly NumberedCrossReferenceTarget[]): Promise<NumberedCrossReferenceTarget | null>;
   chooseMode(options: readonly CrossReferenceModeOption[]): Promise<CrossReferenceDisplayMode | null>;
   notify(message: string): void;
@@ -34,7 +35,7 @@ export class CrossReferenceEditorController {
     const end = editor.posToOffset(editor.getCursor("to"));
     const read: CrossReferenceContentReader = async (target) => target.path === file.path ? editor.getValue() : readContent(target);
     try {
-      const rootScope = crossReferenceEditorialScope(app, settings, file, scope.projectRoot);
+      const rootScope = crossReferenceBoundaryScope(app, settings, file, this.deps.getWorkspaceFolder?.() ?? null);
       if (!rootScope) return;
       const root = await loadCrossReferenceContext(app, settings, rootScope, read);
       const selected = await this.deps.chooseTarget(root.targets);
@@ -46,7 +47,9 @@ export class CrossReferenceEditorController {
       const modes: CrossReferenceDisplayMode[] = ["type-number", "number", "title"];
       const mode = await this.deps.chooseMode(modes.map((mode) => ({ mode, text: formatCrossReference(initial, mode, locale) })));
       if (!mode) return;
-      if (!isCurrent() || editor.getValue() !== before || editor.posToOffset(editor.getCursor("from")) !== start
+      const currentBoundary = crossReferenceBoundaryScope(app, this.deps.getSettings(), file, this.deps.getWorkspaceFolder?.() ?? null);
+      if (!currentBoundary || !compileScopesEqual(rootScope, currentBoundary)
+        || !isCurrent() || editor.getValue() !== before || editor.posToOffset(editor.getCursor("from")) !== start
         || editor.posToOffset(editor.getCursor("to")) !== end) {
         this.deps.notify(translate(locale, "xref.notice.changed")); return;
       }

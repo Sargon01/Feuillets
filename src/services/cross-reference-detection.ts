@@ -64,7 +64,8 @@ export function detectCrossReferenceTargets(
     const end = start + trimmed.length;
     if (!excluded.some((range) => start < range.end && end > range.start)) {
       const image = parseImageMarkdown(trimmed);
-      if (image?.caption?.trim()) add("figure", base + start, base + end, image.caption);
+      if (image?.caption?.trim()) add("figure", base + start, base + end,
+        image.caption.replace(/^\[(?:Image|Figure) [0-9]+\]\s*/, ""));
     }
     lineStart += line.length + 1;
   }

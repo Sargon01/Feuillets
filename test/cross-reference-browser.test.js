@@ -61,9 +61,9 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
       extensions: [api.editorInfoField, api.editorLivePreviewField, api.createCrossReferenceExtension(app, () => settings)] }), parent: document.body });
     window.browserXref = { view, source, noteStart, app, path, files, json, writes: () => writes };
   });
-  await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("Current map") && document.querySelector(".cm-content")?.textContent.includes("figure 2"));
+  await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("Current map") && document.querySelector(".cm-content")?.textContent.includes("image 2"));
   const first = await page.evaluate(() => ({ text: document.querySelector(".cm-content").textContent, source: window.browserXref.view.state.doc.toString() }));
-  assert.ok(first.text.includes("figure 2")); assert.ok(first.text.includes("Current map")); assert.ok(!first.text.includes("linked text"));
+  assert.ok(first.text.includes("image 2")); assert.ok(first.text.includes("Current map")); assert.ok(!first.text.includes("linked text"));
   assert.equal(first.source, "See figure 99\nlinked text.\n\n[^1]: See figure 88.");
   await page.evaluate(() => window.browserXref.view.dispatch({ selection: { anchor: 7 } }));
   await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("linked text"));

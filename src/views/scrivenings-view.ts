@@ -676,7 +676,8 @@ export class ScriveningsView extends ItemView {
     const extensions = [
       createCrossReferenceExtension(this.plugin.app, () => this.plugin.settings,
         (file) => this.plugin.readCrossReferenceContent?.(file) ?? this.plugin.app.vault.read(file),
-        () => this._compileScope && this.session.document ? { scope: this._compileScope, document: this.session.document } : null),
+        () => this._compileScope && this.session.document ? { scope: this._compileScope, document: this.session.document } : null,
+        () => this.plugin.getWorkspaceFolder?.() ?? null),
       ...createScriveningsExtensions(imageResolver),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
       createScriveningsCitationExtension(
