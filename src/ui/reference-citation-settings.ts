@@ -2,6 +2,7 @@ import { type App, Modal, TFile, TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
 import { resolveReferenceContextRoot, type ReferenceCitationContext } from "../services/research-reference-search.js";
 import { resolveDocumentCitationStyleSetting } from "../services/document-citation-style.js";
+import type { CslCitationHost } from "../services/csl-citation-host.js";
 import {
   ensureExactFolderWorkspaceConfig, folderPathToWorkspaceScope,
   getFolderWorkspaceConfig, isFolderWorkspaceConfigEmpty, workspaceScopeToFolderPath,
@@ -10,6 +11,7 @@ import { listWorkspaceCitationCandidates, resolveWorkspaceCitationResources, typ
 
 type CitationSetting = "pandocCitationPreviewStyle" | "citekeyBibliographyPath" | "citekeyCslPath";
 type CitationSettingsPlugin = {
+  cslCitationHost?: Pick<CslCitationHost, "getProvider"> | null;
   settings: FeuilletsSettings;
   saveSettings(): Promise<void>;
   refreshCitationRendering?(): void;
@@ -20,6 +22,15 @@ const FIELDS: readonly CitationSetting[] = ["pandocCitationPreviewStyle", "citek
 const INHERIT = "__inherit__";
 const EFFECTIVE = "__effective__";
 const openControls = new WeakMap<CitationSettingsPlugin, Set<ReferenceCitationSettingsControls>>();
+
+export function renderCslCompanionNotice(container: HTMLElement, plugin: CitationSettingsPlugin, mode: string): void {
+  container.empty();
+  if (mode !== "csl") return;
+  container.createDiv({ cls: "setting-item-description", text: t("project.pandocCitationPreview.cslCompanionRequired") });
+  if (!plugin.cslCitationHost?.getProvider()) {
+    container.createDiv({ cls: "feuillets-reference-warning", text: t("project.pandocCitationPreview.cslCompanionMissing") });
+  }
+}
 
 function citationStyleScope(context: ReferenceCitationContext): TFolder {
   return context.targetScope instanceof TFile ? context.targetScope.parent ?? context.scopeRoot : context.targetScope;
@@ -147,6 +158,7 @@ export class ReferenceCitationSettingsControls {
     const modeDescription = modeInherited ? modeOwner instanceof TFolder && modeOwner.path !== projectRoot.path
       ? t("modal.folderWorkspace.inheritedFromParent", { name: modeOwner.name }) : t("modal.folderWorkspace.inheritedFromProject") : "";
     addSelect("pandocCitationPreviewStyle", t("shared.research.citationRendering"), modes, mode.value || "off", modes.find(([value]) => value === mode.value)?.[1] || modes[0][1], modeInherited, modeDescription);
+    renderCslCompanionNotice(block.createDiv(), this.plugin, mode.value || "off");
     for (const [field, extension, resource, label] of [
       ["citekeyBibliographyPath", "bib", resolution.bibliography, t("shared.research.citationBibliography")],
       ["citekeyCslPath", "csl", resolution.csl, t("shared.research.citationCslStyle")],

@@ -22,6 +22,13 @@ import { createCrossReferenceExtension, visibleCrossReferenceReplacements, Cross
 import { chooseCrossReferenceTarget, chooseCrossReferenceMode } from "../src/ui/cross-reference-modal.js";
 import { setLocale } from "../src/i18n/index.js";
 
+const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: globalThis });
+test.after(() => {
+  if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+  else delete globalThis.window;
+});
+
 async function fixture() {
   const volume = new TFolder("Project");
   const root = new TFolder("Project/Manuscrit");
@@ -691,6 +698,24 @@ test("XRef widget: textContent creates plain text, with no HTML interpretation o
   assert.equal(widget.eq(new CrossReferenceWidget("other")), false);
 });
 
+test("XRef widget uses the owning window's span helper and preserves plain text", (t) => {
+  const span = { textContent: "" };
+  let calls = 0;
+  const owningWindow = { createSpan(options) { calls++; assert.deepEqual(options, { cls: "" }); return span; } };
+  const ownerDocument = { defaultView: owningWindow };
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
+  Object.defineProperty(globalThis, "document", { configurable: true, value: {
+    createElement() { assert.fail("The global document must not be used"); },
+  } });
+  t.after(() => {
+    if (previous) Object.defineProperty(globalThis, "document", previous);
+    else delete globalThis.document;
+  });
+  assert.equal(new CrossReferenceWidget("<caption>").toDOM({ dom: { ownerDocument } }), span);
+  assert.equal(calls, 1);
+  assert.equal(span.textContent, "<caption>");
+});
+
 test("XRef picker: searches type, root number, current label and source file; modes default to type-number", async (t) => {
   setLocale("fr"); const state = await fixture(); const context = await loadCrossReferenceContext(state.app, state.settings, state.scope);
   const opened = []; t.mock.method(Modal.prototype, "open", function () { opened.push(this); });
@@ -844,6 +869,29 @@ async function waitFor(testPredicate) {
   }
   assert.fail("Cross-reference render did not finish");
 }
+
+test("XRef CodeMirror: rescheduling and destruction cancel the matching window timers", async (t) => {
+  const state = await fixture();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const schedule = t.mock.method(window, "setTimeout");
+  const cancel = t.mock.method(window, "clearTimeout");
+  const read = t.mock.fn(async (file) => file.content);
+  const [, Plugin] = createCrossReferenceExtension(state.app, () => state.settings, read);
+  const view = fakeRenderView(state, state.ref.content);
+  const plugin = new Plugin(view);
+  t.after(() => plugin.destroy());
+  notifyCrossReferenceEditors(state.app, 350);
+  assert.equal(schedule.mock.callCount(), 2);
+  assert.equal(cancel.mock.callCount(), 1);
+  assert.equal(cancel.mock.calls[0].arguments[0], schedule.mock.calls[0].result);
+  plugin.destroy();
+  assert.equal(cancel.mock.callCount(), 2);
+  assert.equal(cancel.mock.calls[1].arguments[0], schedule.mock.calls[1].result);
+  t.mock.timers.tick(350);
+  await Promise.resolve();
+  assert.equal(read.mock.callCount(), 0);
+  assert.equal(view.effects.length, 0);
+});
 
 test("XRef CodeMirror: live widget, raw Source mode, cursor reveal and read-only refresh", async (t) => {
   const state = await fixture(); const created = link(state); await saveCrossReferenceStore(state.app, state.settings, created.store);

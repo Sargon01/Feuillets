@@ -51,7 +51,7 @@ test("CSL bibliography: browser layout, Preview pagination and native PDF retain
     HTMLElement.prototype.empty = function () { this.replaceChildren(); };
     const root = new api.TFolder("Book");
     const research = new api.TFolder("Book/Research");
-    const file = new api.TFile("Book/Chapter.md", "[@doe2023] [@smith2024]");
+    const file = new api.TFile("Book/Chapter.md", "[@doe2023] [@doe2023; @missing9999] [@smith2024]");
     const bib = new api.TFile("Book/Research/refs.bib", "Mock bibliography");
     const csl = new api.TFile("Book/Research/style.csl", "Mock style");
     root.children = [research, file];
@@ -70,12 +70,15 @@ test("CSL bibliography: browser layout, Preview pagination and native PDF retain
     const host = {
       renderPreparedDocument: async (documentId, parsedDocument, _style, _bibs, options) => {
         calls.push(options);
-        const citations = parsedDocument.clusters.map((cluster, index) => ({ clusterId: cluster.id, plainText: `[${index + 1}]`, content: [{ type: "text", text: `[${index + 1}]` }] }));
-        const bibliography = { layout: { hangingIndent: true, entrySpacing: 2, lineSpacing: 1.5, secondFieldAlign: "flush", maxOffset: 4 }, entries: parsedDocument.clusters.map((_cluster, index) => index + 1).map((number) => ({ itemIds: [String(number)], plainText: "Unused", content: [
+        const unresolved = parsedDocument.clusters.filter((cluster) => cluster.items.some((item) => item.id === "missing9999"));
+        const valid = parsedDocument.clusters.filter((cluster) => !unresolved.includes(cluster));
+        const diagnostics = unresolved.map((cluster) => ({ code: "UNKNOWN_CITEKEY", severity: "error", clusterId: cluster.id, citekey: "missing9999", message: "Unknown citekey" }));
+        const citations = valid.map((cluster, index) => ({ clusterId: cluster.id, plainText: `[${index + 1}]`, content: [{ type: "text", text: `[${index + 1}]` }] }));
+        const bibliography = { layout: { hangingIndent: true, entrySpacing: 2, lineSpacing: 1.5, secondFieldAlign: "flush", maxOffset: 4 }, entries: valid.map((_cluster, index) => index + 1).map((number) => ({ itemIds: [String(number)], plainText: "Unused", content: [
           { type: "block", display: "left-margin", children: [{ type: "text", text: `[${number}]` }] },
           { type: "block", display: "right-inline", children: [{ type: "span", style: { fontStyle: "italic" }, children: [{ type: "text", text: `Structured reference ${number}` }] }] },
         ] })) };
-        return { status: "ready", parsedDocument, citationByClusterId: new Map(citations.map((citation) => [citation.clusterId, citation])), result: { documentId, citations, bibliography, diagnostics: [] } };
+        return { status: "ready", documentId, revision: 1, parsedDocument, citationByClusterId: new Map(citations.map((citation) => [citation.clusterId, citation])), result: { documentId, revision: 1, citations, bibliography, diagnostics } };
       },
       disposeDocument: () => {},
     };
@@ -105,7 +108,7 @@ test("CSL bibliography: browser layout, Preview pagination and native PDF retain
     entries[0].setAttribute("data-csl-second-field-align", "flush");
     const template = await api.resolveExportTemplate(app, settings, settings.exportTemplate);
     const pages = api.paginateManuscript(container, [], settings, template, "Book", "Author");
-    file.content = Array.from({ length: 45 }, (_, index) => `[@ref${index + 1}]`).join(" ");
+    file.content = Array.from({ length: 45 }, (_, index) => `[@ref${index + 1}]`).join(" ") + " [@missing9999]";
     await api.exportPdf(app, settings, { markdown: file.content + "\n\n" + api.CSL_BIBLIOGRAPHY_ANCHOR_MARKDOWN, title: "Book", author: "Author", sourcePath: file.path, citationSettings: { style: "csl", bibliographyPath: bib.path }, cslHost: host, projectRoot: root });
     const printed = document.querySelector("iframe").contentDocument;
     return { applied, rectangles, bodyStart, marginStart, marginLabel, pagesHtml: pages.pagesHtml, printed: window.printedBibliography, calls,
@@ -124,6 +127,8 @@ test("CSL bibliography: browser layout, Preview pagination and native PDF retain
   assert.ok(state.marginLabel < state.bodyStart);
   assert.match(state.pagesHtml, /feuillets-csl-bibliography-entry/);
   assert.match(state.pagesHtml, /Structured reference 1/);
+  assert.ok(state.pagesHtml.includes("[@doe2023; @missing9999]"));
+  assert.ok(state.printed.includes("[@missing9999]"));
   assert.match(state.printed, /Structured reference 1/);
   assert.match(state.printed, /Structured reference 2/);
   assert.match(state.printed, /Structured reference 45/);

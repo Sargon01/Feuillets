@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { partialCslResult, partialCslSource } from "./helpers/csl-partial-result.js";
 import { TFile, TFolder, MarkdownRenderer } from "obsidian";
 import { Document, Packer } from "docx";
 import JSZip from "jszip";
@@ -352,6 +353,21 @@ function bibliographyFixture(t, { source = "[@doe2023] [@smith2024] [@doe2023]",
   if (anchor) container.appendChild(anchorEl);
   const run = () => applyNativeCslToStaticRender({ app: f.app, settings: f.settings, host: f.host, projectRoot: f.projectRoot, container, sources: [{ path: f.fileA.path, text: source }], documentId: createStaticDocumentId("bibliography-test", f.projectRoot.path) });
   return { ...f, container, p, anchorEl, run };
+}
+
+for (const grouped of [false, true]) {
+  test(`Static CSL / Preview renders valid citations around an unknown ${grouped ? "group" : "citation"}`, async (t) => {
+    const source = partialCslSource(grouped);
+    const f = bibliographyFixture(t, { source, handler: partialCslResult });
+    assert.equal(await f.run(), true);
+    assert.equal(f.p.querySelectorAll(".feuillets-csl-citation").length, 2);
+    assert.equal(f.p.textContent, source.replaceAll("[@known2026].", "Rendered known2026."));
+    assert.equal(f.fileA.content, source);
+    assert.deepEqual(f.container.querySelectorAll(".feuillets-csl-bibliography-entry").map((entry) => entry.textContent), ["Known book"]);
+    assert.deepEqual(partialCslResult(f.requests[0]).diagnostics.map(({ code, severity, citekey }) => ({ code, severity, citekey })),
+      [{ code: "UNKNOWN_CITEKEY", severity: "error", citekey: "missing9999" }]);
+    assert.equal(f.disposed.length, 1);
+  });
 }
 
 test("Static bibliography: absent anchor does not request or insert bibliography", async (t) => {

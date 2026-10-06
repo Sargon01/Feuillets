@@ -4,6 +4,8 @@
 
 Feuillets keeps academic citations in ordinary Markdown. It offers three citation rendering modes, including Native CSL through the optional **Feuillets CSL** companion plugin. Feuillets remains fully usable without that companion and never installs or runs Zotero, Better BibTeX or Pandoc.
 
+“Optional” means Feuillets works without this plugin. **Native CSL** mode still requires **Feuillets CSL**, installed and enabled separately; **Author-date** does not require it. **Manage projects → Citation format** configures both citation systems.
+
 ## Two citation systems
 
 Feuillets currently offers two distinct citation paths. They do not overlap and do not share a common storage format.
@@ -128,7 +130,9 @@ Feuillets CSL currently bundles the CSL runtime locale resources **`en-US`** and
 - each citekey is present in the resolved bibliography;
 - the style’s required runtime locale is supported.
 
-A missing or disabled companion, missing bibliography or style, unknown citekey, invalid bibliography, unsupported locale or provider processing failure causes this fail-closed behavior. Correct the resource or provider problem to restore rendering.
+An unknown citekey preserves only its citation or entire grouped cluster in exactly its original Pandoc syntax. Other valid clusters continue rendering. The `UNKNOWN_CITEKEY` diagnostic remains an error and identifies the cluster and key; no bibliography item is invented and no group is partially rendered. Unresolved clusters are excluded from citeproc, preserving original note indices and the state of resolved citations. Within a single note, position decisions use only resolved citations: the engine cannot infer an unknown key's bibliographic identity.
+
+A missing or disabled companion, missing bibliography or style, invalid CSL XML, invalid or conflicting bibliography resources, unsupported locale, structurally inconsistent results or provider processing failures preserve raw syntax throughout the document. Correct the resource or provider problem to restore rendering.
 
 ## BibTeX accents
 

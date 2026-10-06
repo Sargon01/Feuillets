@@ -2497,7 +2497,9 @@ export const en = {
 
   "modal.manageProjects.title": "Manage projects",
   "modal.manageProjects.configurationHeader": "Configuration",
-  "modal.manageProjects.sourceCitations": "Source citations",
+  "modal.manageProjects.sourceCitations": "Citation format",
+  "project.pandocCitationPreview.cslCompanionRequired": "Native CSL rendering requires the companion plugin “Feuillets CSL”, installed and enabled separately.",
+  "project.pandocCitationPreview.cslCompanionMissing": "Feuillets CSL is not detected. Install and enable the companion plugin to use native CSL rendering.",
   "modal.manageProjects.citationsAndBibliography": "Citations and bibliography",
   "modal.manageProjects.createDemoTooltip": "Create a demo project…",
   "modal.manageProjects.noneActive": "No active project — create one, import a Scrivener project, or use an existing folder as-is below.",

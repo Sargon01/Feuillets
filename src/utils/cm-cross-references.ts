@@ -8,6 +8,7 @@ import { crossReferenceReplacements, compositeCrossReferenceReplacements, type C
 import type { CompileScope } from "../services/compile-scope.js";
 import type { ScriveningsDocument } from "../services/scrivenings-document.js";
 import { selectionOverlaps, type CrossEditorSelection } from "./cm-selection-overlap.js";
+import { createPandocCitationSpan } from "../services/pandoc-citation-preview.js";
 
 interface CrossReferenceEditorView {
   state: {
@@ -42,7 +43,7 @@ export class CrossReferenceWidget extends WidgetType {
   constructor(readonly text: string) { super(); }
   eq(other: WidgetType): boolean { return other instanceof CrossReferenceWidget && other.text === this.text; }
   toDOM(view?: { dom: HTMLElement }): HTMLElement {
-    const span = (view?.dom.ownerDocument ?? document).createElement("span");
+    const span = createPandocCitationSpan(view?.dom.ownerDocument ?? document, "");
     span.textContent = this.text;
     return span;
   }
@@ -87,7 +88,7 @@ export function createCrossReferenceExtension(
   const plugin = plugins.fromClass(class {
     decorations: unknown = decorations.none;
     private replacements: CrossReferenceReplacement[] = [];
-    private timer: ReturnType<typeof setTimeout> | null = null;
+    private timer: number | null = null;
     private generation = 0;
     private readonly contents = new Map<string, Promise<string>>();
     private readonly detect = createCrossReferenceDetectionSession();
@@ -129,7 +130,7 @@ export function createCrossReferenceExtension(
     destroy(): void {
       this.destroyed = true;
       this.generation++;
-      if (this.timer !== null) clearTimeout(this.timer);
+      if (this.timer !== null) window.clearTimeout(this.timer);
       this.unsubscribe();
       this.contents.clear();
     }
@@ -140,8 +141,8 @@ export function createCrossReferenceExtension(
 
     private schedule(delay: number): void {
       this.generation++;
-      if (this.timer !== null) clearTimeout(this.timer);
-      this.timer = setTimeout(() => { this.timer = null; void this.refresh(this.generation); }, delay);
+      if (this.timer !== null) window.clearTimeout(this.timer);
+      this.timer = window.setTimeout(() => { this.timer = null; void this.refresh(this.generation); }, delay);
     }
 
     private async refresh(generation: number): Promise<void> {

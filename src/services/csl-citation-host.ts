@@ -8,6 +8,7 @@ import {
   CitationEngineRegistry,
   isCitationEngineProvider,
   validateCitationDocumentResult,
+  validateCitationClusterResults,
   validateCitationDocumentResultForRequest,
   type CitationBibliographySource,
   type CitationDocumentRequest,
@@ -100,6 +101,18 @@ export type CslHostSnapshot =
   | CslHostProviderUnavailableSnapshot
   | CslHostResourcesUnavailableSnapshot
   | CslHostEngineErrorSnapshot;
+
+/** Checks completeness and map consistency before a surface builds replacements. */
+export function isUsableCslSnapshot(
+  snapshot: CslHostReadySnapshot,
+  clusters = snapshot.parsedDocument.clusters
+): boolean {
+  return validateCitationDocumentResult(snapshot.result).valid
+    && validateCitationClusterResults(clusters, snapshot.result).valid
+    && snapshot.citationByClusterId.size === snapshot.result.citations.length
+    && snapshot.result.citations.every((citation) =>
+      snapshot.citationByClusterId.get(citation.clusterId) === citation);
+}
 
 export interface CslHostInvalidation {
   documentIds: ReadonlySet<string> | null;
@@ -381,6 +394,7 @@ export class CslCitationHost {
       return {
         status: "engine-error",
         reason: `Provider result does not match request: ${requestVal.errors.join("; ")}`,
+        diagnostics: result.diagnostics,
       };
     }
 
@@ -399,10 +413,11 @@ export class CslCitationHost {
       );
     }
 
-    if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    const clusterValidation = validateCitationClusterResults(request.clusters, result);
+    if (!clusterValidation.valid) {
       return {
         status: "engine-error",
-        reason: "Citation engine reported an error.",
+        reason: `Citation engine reported an error or inconsistent clusters: ${clusterValidation.errors.join("; ")}`,
         diagnostics: result.diagnostics,
       };
     }

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { partialCslResult, partialCslSource } from "./helpers/csl-partial-result.js";
 import { MarkdownView, TFile, TFolder } from "obsidian";
 import { CitationEngineRegistry } from "../src/api/citation-engine.js";
 import { CslCitationHost } from "../src/services/csl-citation-host.js";
@@ -76,6 +77,23 @@ function providerResult(request, format = (_cluster, index) => `[${index + 1}]`)
     }),
     bibliography: null, diagnostics: [],
   };
+}
+
+for (const grouped of [false, true]) {
+  test(`CSL Reading Mode renders valid citations around an unknown ${grouped ? "group" : "citation"}`, async (t) => {
+    const source = partialCslSource(grouped);
+    const f = fixture(t, { source, handler: partialCslResult });
+    const pane = f.pane();
+    const section = f.section(pane, { text: source, end: 2 });
+    await section.run();
+    assert.equal(section.el.querySelectorAll(".feuillets-csl-citation").length, 2);
+    assert.equal(section.el.textContent, source.replaceAll("[@known2026].", "Rendered known2026."));
+    assert.equal(f.docA.content, source);
+    assert.equal(f.requests.length, 1);
+    const snapshot = f.host.getLatestSnapshot(f.requests[0].documentId);
+    assert.equal(snapshot.status, "ready");
+    assert.equal(snapshot.result.diagnostics[0].citekey, "missing9999");
+  });
 }
 
 let fixtureSequence = 0;
@@ -310,8 +328,9 @@ test("CSL Reading Mode: missing provider appears then disappears, waking existin
 for (const [name, handler] of [
   ["engine exception", () => { throw new Error("Engine error"); }],
   ["invalid result", () => ({ citations: "invalid" })],
-  ["UNKNOWN_CITEKEY", (req) => ({ ...providerResult(req), citations: [], diagnostics: [{ severity: "error", code: "UNKNOWN_CITEKEY", message: "Unknown key" }] })],
-  ["UNKNOWN_CITEKEY with partial output", (req) => ({ ...providerResult(req), diagnostics: [{ severity: "error", code: "UNKNOWN_CITEKEY", message: "Unknown key" }] })],
+  ["unattached UNKNOWN_CITEKEY", (req) => ({ ...providerResult(req), citations: [], diagnostics: [{ severity: "error", code: "UNKNOWN_CITEKEY", message: "Unknown key" }] })],
+  ["unattached UNKNOWN_CITEKEY with output", (req) => ({ ...providerResult(req), diagnostics: [{ severity: "error", code: "UNKNOWN_CITEKEY", message: "Unknown key" }] })],
+  ["CSL_STYLE_ERROR", (req) => ({ ...providerResult(req), diagnostics: [{ severity: "error", code: "CSL_STYLE_ERROR", message: "Invalid XML" }] })],
   ["missing global cluster", (req) => ({ ...providerResult(req), citations: providerResult(req).citations.slice(0, 1) })],
 ]) {
   test(`CSL Reading Mode: ${name} leaves the whole document raw without legacy fallback`, async (t) => {

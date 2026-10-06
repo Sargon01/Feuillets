@@ -38,6 +38,7 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
   const page = await browser.newPage(); const errors = []; page.on("pageerror", (error) => errors.push(error.message));
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   await page.evaluate(() => {
+    window.createSpan = () => document.createElement("span");
     const api = window.CrossReferenceBrowser;
     const root = new api.TFolder("Manuscript");
     const a = new api.TFile("Manuscript/A.md", "![First map](a.png)");

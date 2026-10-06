@@ -9,14 +9,15 @@
  * - Monotonic synthetic offsets assign stable cluster IDs in DOM order.
  * - Multi-bibliography resolution delegates to resolveCompositeCslResources.
  * - Single citeproc request per static document via CslCitationHost.renderPreparedDocument().
- * - Atomic fail-closed DOM mutation: 0 changes if any citation is missing or invalid.
+ * - Prepare all substitutions before mutation; unresolved whole clusters remain raw.
+ * - Structural inconsistencies and global errors leave the entire DOM unchanged.
  * - Ephemeral Host session always disposed in finally.
  * - Pure DOM operations: zero innerHTML, zero outerHTML, zero DOMParser.
  * - Respects textNode.ownerDocument for all created elements and spans.
  */
 
 import { normalizePath, TFile, type App, type TFolder } from "obsidian";
-import type { CslCitationHost } from "./csl-citation-host.js";
+import { isUsableCslSnapshot, type CslCitationHost } from "./csl-citation-host.js";
 import type { CitationClusterInput } from "../api/citation-contract.js";
 import {
   parsePandocCitationDocument,
@@ -365,18 +366,7 @@ export async function applyNativeCslToStaticRender(
       return false;
     }
 
-    if (snapshot.result.diagnostics.some((d) => d.severity === "error")) {
-      return false;
-    }
-
-    if (snapshot.result.citations.length !== globalOccurrences.length) {
-      return false;
-    }
-
-    const hasAllClusters = globalOccurrences.every((occ) =>
-      snapshot.citationByClusterId.has(occ.clusterId)
-    );
-    if (!hasAllClusters) {
+    if (!isUsableCslSnapshot(snapshot, preparedDoc.clusters)) {
       return false;
     }
 
@@ -426,7 +416,7 @@ export async function applyNativeCslToStaticRender(
 
       for (const mapping of mappings) {
         const rendered = snapshot.citationByClusterId.get(mapping.clusterId);
-        if (!rendered) return false;
+        if (!rendered) continue;
 
         const span = createPandocCitationSpan(ownerDocument, "feuillets-csl-citation");
         span.setAttribute("data-cluster-id", mapping.clusterId);
@@ -442,6 +432,7 @@ export async function applyNativeCslToStaticRender(
 
       const originalValue = textNode.nodeValue || "";
       if (mappings.some((mapping) => originalValue.slice(mapping.localFrom, mapping.localTo) !== mapping.raw)) return false;
+      if (!items.length) continue;
       const nodes: Node[] = [];
       let cursor = 0;
       for (const item of items) {

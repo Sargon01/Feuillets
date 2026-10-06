@@ -2497,7 +2497,9 @@ export const fr = {
 
   "modal.manageProjects.title": "Gérer les projets",
   "modal.manageProjects.configurationHeader": "Configuration",
-  "modal.manageProjects.sourceCitations": "Citations des fiches Source",
+  "modal.manageProjects.sourceCitations": "Format des citations",
+  "project.pandocCitationPreview.cslCompanionRequired": "Le rendu CSL natif nécessite le plugin compagnon « Feuillets CSL », installé et activé séparément.",
+  "project.pandocCitationPreview.cslCompanionMissing": "Feuillets CSL n’est pas détecté. Installez et activez le plugin compagnon pour utiliser le rendu CSL natif.",
   "modal.manageProjects.citationsAndBibliography": "Citations et bibliographie",
   "modal.manageProjects.createDemoTooltip": "Créer un projet d'exemple…",
   "modal.manageProjects.noneActive": "Aucun projet actif — crée-en un, importe un projet Scrivener, ou utilise un dossier existant tel quel ci-dessous.",

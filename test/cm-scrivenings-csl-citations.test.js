@@ -1,4 +1,5 @@
 import test from "node:test";
+import { partialCslResult, partialCslSource } from "./helpers/csl-partial-result.js";
 import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { Decoration } from "@codemirror/view";
@@ -368,6 +369,23 @@ function mountCslContinu(f, files, { selection, visibleRanges } = {}) {
 
   const instance = new PluginClass(view);
   return { doc, boundaries, view, instance, cslContext };
+}
+
+for (const grouped of [false, true]) {
+  test(`Continu CSL renders valid citations around an unknown ${grouped ? "group" : "citation"}`, async (t) => {
+    const source = partialCslSource(grouped);
+    const f = createCslContinuFixture({ docAContent: source,
+      providerOverrides: { renderDocument: async (request) => partialCslResult(request) } });
+    const { instance, view, doc } = mountCslContinu(f, [f.docA]);
+    t.after(() => { instance.destroy(); f.host.dispose(); });
+    await flush(10);
+    instance.update({ view });
+    assert.equal(instance.decorations.length, 2);
+    assert.deepEqual(instance.decorations.map(({ from, to }) => doc.text.slice(from, to)), ["[@known2026]", "[@known2026]"]);
+    assert.ok(instance.decorations.every(({ widget }) => widget.citation.plainText === "Rendered known2026"));
+    assert.equal(f.docA.content, source);
+    assert.equal(view.state.doc.toString(), doc.text);
+  });
 }
 
 test("Continu CSL: simple citation in one segment produces CslCitationWidget", async () => {

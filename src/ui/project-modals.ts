@@ -12,6 +12,9 @@ import { t, getLocale } from "../i18n/index.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
 import { ProjectConfigContent, type ProjectConfigPage } from "./project-config-content.js";
 import { listProjectCitationCandidates, resolveWorkspaceCitationResources } from "../services/workspace-citations.js";
+import { renderCslCompanionNotice } from "./reference-citation-settings.js";
+import { resolveDocumentCitationStyleSetting } from "../services/document-citation-style.js";
+import type { CslCitationHost } from "../services/csl-citation-host.js";
 
 type ProjectCitationSetting = "pandocCitationPreviewStyle" | "citekeyBibliographyPath" | "citekeyCslPath";
 
@@ -22,6 +25,7 @@ function isPandocCitationPreviewStyle(value: string): value is PandocCitationPre
 }
 
 type ProjectModalsPlugin = {
+  cslCitationHost?: Pick<CslCitationHost, "getProvider"> | null;
   /* manuscriptAuthor : absent de l'interface globale FeuilletsSettings
      (écart préexistant, déjà contourné de la même façon dans
      preview-modal.ts) — champ bien réel dans default-settings.ts, réutilisé
@@ -759,14 +763,21 @@ export class ManageProjectsModal extends Modal {
       this.plugin.renderAllViews(true);
     };
 
+    const companionNotice = section.createDiv();
+    const refreshCompanionNotice = (): void => renderCslCompanionNotice(companionNotice, this.plugin,
+      resolveDocumentCitationStyleSetting(S, path, path).value || "off");
     new Setting(section)
       .setName(t("shared.research.citationRendering"))
       .addDropdown((d) => {
         d.addOption(PROJECT_CITATION_AUTOMATIC, t("shared.research.citationAutomatic"));
         for (const [value, label] of modes) d.addOption(value, label);
         d.setValue(meta()?.pandocCitationPreviewStyle ?? PROJECT_CITATION_AUTOMATIC);
-        d.onChange((value) => { void saveCitationSetting("pandocCitationPreviewStyle", value); });
+        d.onChange((value) => {
+          void saveCitationSetting("pandocCitationPreviewStyle", value);
+          refreshCompanionNotice();
+        });
       });
+    refreshCompanionNotice();
 
     const addResourceSetting = (
       field: Extract<ProjectCitationSetting, "citekeyBibliographyPath" | "citekeyCslPath">,

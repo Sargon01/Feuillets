@@ -4,6 +4,8 @@
 
 Feuillets conserve les citations universitaires dans du Markdown ordinaire. Il propose trois modes de rendu des citations, dont le CSL natif via le module compagnon facultatif **Feuillets CSL**. Feuillets reste pleinement utilisable sans ce compagnon et n’installe ni n’exécute Zotero, Better BibTeX ou Pandoc.
 
+« Facultatif » signifie que Feuillets fonctionne sans ce plugin. Le mode **CSL natif** nécessite cependant **Feuillets CSL**, installé et activé séparément ; **Auteur-date** ne le nécessite pas. La page **Gérer les projets → Format des citations** configure les deux systèmes de citations.
+
 ## Deux systèmes de citation
 
 Feuillets propose actuellement deux chemins de citation distincts. Ils ne se recouvrent pas et ne partagent pas le même format de stockage.
@@ -128,7 +130,9 @@ Feuillets CSL embarque actuellement les ressources de locale d’exécution CSL 
 - que chaque citekey figure dans la bibliographie résolue ;
 - que la locale d’exécution requise par le style est prise en charge.
 
-Un compagnon absent ou désactivé, une bibliographie ou un style manquant, une clé inconnue, une bibliographie invalide, une locale non prise en charge ou un échec de traitement du moteur déclenche cette conservation de la syntaxe brute. Corrigez le problème de ressource ou de moteur pour rétablir le rendu.
+Une citekey inconnue conserve uniquement la citation ou le cluster groupé concerné en syntaxe Pandoc brute, à l’identique. Les autres clusters valides continuent à être rendus. Le diagnostic `UNKNOWN_CITEKEY` reste une erreur et identifie le cluster et la clé ; aucun item bibliographique n’est inventé et aucun groupe n’est rendu partiellement. Les clusters irrésolus sont exclus de citeproc, avec conservation des indices de notes d’origine et de l’état des citations résolues. Dans une même note, les décisions de position reposent uniquement sur les citations résolues : le moteur ne peut pas déduire l’identité bibliographique d’une clé inconnue.
+
+Un compagnon absent ou désactivé, une bibliographie ou un style manquant, un XML CSL invalide, une bibliographie invalide ou contradictoire, une locale non prise en charge, un résultat structurel incohérent ou un échec de traitement du moteur conserve la syntaxe brute du document entier. Corrigez le problème de ressource ou de moteur pour rétablir le rendu.
 
 ## Accents BibTeX
 

@@ -12,6 +12,7 @@
  */
 
 import type {
+  CitationClusterInput,
   CitationDocumentRequest,
   CitationDocumentResult,
 } from "./citation-contract.js";
@@ -564,4 +565,38 @@ export function validateCitationDocumentResultForRequest(
     valid: errors.length === 0,
     errors,
   };
+}
+
+/** Accepts only complete renderings or explicitly unresolved whole clusters. */
+export function validateCitationClusterResults(
+  clusters: readonly CitationClusterInput[],
+  result: CitationDocumentResult
+): ValidationResult {
+  const errors: string[] = [];
+  const requested = new Map(clusters.map((cluster) => [cluster.id, cluster]));
+  const rendered = new Set<string>();
+  const unresolved = new Set<string>();
+  for (const diagnostic of result.diagnostics) {
+    if (diagnostic.severity !== "error") continue;
+    const cluster = diagnostic.clusterId ? requested.get(diagnostic.clusterId) : undefined;
+    if (diagnostic.code !== "UNKNOWN_CITEKEY" || !cluster
+      || !cluster.items.some((item) => item.id === diagnostic.citekey)) {
+      errors.push(`Unrecoverable citation diagnostic: ${diagnostic.code}.`);
+    } else {
+      unresolved.add(cluster.id);
+    }
+  }
+  for (const citation of result.citations) {
+    if (!requested.has(citation.clusterId) || rendered.has(citation.clusterId)
+      || unresolved.has(citation.clusterId)) {
+      errors.push(`Unexpected, duplicate or unresolved rendered cluster: ${citation.clusterId}.`);
+    }
+    rendered.add(citation.clusterId);
+  }
+  for (const cluster of clusters) {
+    if (!rendered.has(cluster.id) && !unresolved.has(cluster.id)) {
+      errors.push(`Missing rendering without an unknown citekey diagnostic: ${cluster.id}.`);
+    }
+  }
+  return { valid: errors.length === 0, errors };
 }
