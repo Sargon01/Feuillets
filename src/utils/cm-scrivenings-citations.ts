@@ -28,6 +28,7 @@ import {
   type ScriveningsCslDocument,
 } from "../services/scrivenings-csl-document.js";
 import { resolveScriveningsCslResources } from "../services/scrivenings-csl-resources.js";
+import { isUsableCslSnapshot } from "../services/csl-citation-host.js";
 import type {
   ScriveningsDocument,
   ScriveningsSegment,
@@ -512,22 +513,9 @@ export function createScriveningsCitationExtension(
           }
 
           if (snapshot.status === "ready") {
-            const hasError = snapshot.result.diagnostics?.some((d) => d.severity === "error") ?? false;
-            if (hasError) {
+            if (!isUsableCslSnapshot(snapshot, cslDoc.clusters)) {
               this.failClosed();
               return;
-            }
-
-            if (snapshot.result.citations.length !== cslDoc.occurrences.length) {
-              this.failClosed();
-              return;
-            }
-
-            for (const occ of cslDoc.occurrences) {
-              if (!snapshot.citationByClusterId.has(occ.clusterId)) {
-                this.failClosed();
-                return;
-              }
             }
 
             const currentLive = this.getLiveDocument();

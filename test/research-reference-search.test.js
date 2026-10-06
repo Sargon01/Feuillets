@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 import { setImmediate } from "node:timers";
 import { TFile, TFolder, MarkdownView } from "obsidian";
 import { ReferenceCitationSettingsModal } from "../src/ui/reference-citation-settings.js";
+import { ManageProjectsModal } from "../src/ui/project-modals.js";
 import { BaseFeuilletsView } from "../src/views/base-feuillets-view.js";
 import { ResearchView } from "../src/views/research-view.js";
 import { PreviewView } from "../src/views/preview-view.js";
@@ -169,6 +170,55 @@ async function workspaceFixture() {
   return { ...f, workspace, workspaceScene: scene };
 }
 async function query(f, text) { const input = inputFor(f); input.value = text; input.events.get("input")(); await settle(); }
+
+for (const inherited of [false, true]) {
+  test(`Citation settings show companion requirements for ${inherited ? "inherited" : "selected"} CSL`, async () => {
+    const f = inherited ? await workspaceFixture() : fixture();
+    f.settings.projectMeta[f.root.path].pandocCitationPreviewStyle = "csl";
+    await f.render();
+    let modal = f.openSettings();
+    assert.ok(modal.contentEl.textContent.includes(t("project.pandocCitationPreview.cslCompanionRequired")));
+    assert.ok(modal.contentEl.textContent.includes(t("project.pandocCitationPreview.cslCompanionMissing")));
+    f.plugin.cslCitationHost = { getProvider: () => ({ id: "feuillets-csl" }) };
+    modal.close();
+    modal = f.openSettings();
+    assert.ok(modal.contentEl.textContent.includes(t("project.pandocCitationPreview.cslCompanionRequired")));
+    assert.equal(modal.contentEl.textContent.includes(t("project.pandocCitationPreview.cslCompanionMissing")), false);
+    for (const mode of ["author-date", "off"]) {
+      await changeSetting(f, "pandocCitationPreviewStyle", mode);
+      assert.equal(modal.contentEl.textContent.includes(t("project.pandocCitationPreview.cslCompanionRequired")), false);
+      assert.equal(modal.contentEl.textContent.includes(t("project.pandocCitationPreview.cslCompanionMissing")), false);
+    }
+    await changeSetting(f, "pandocCitationPreviewStyle", "csl");
+    assert.ok(modal.contentEl.textContent.includes(t("project.pandocCitationPreview.cslCompanionRequired")));
+    modal.close();
+  });
+}
+
+test("the project citation page updates visible companion information when its mode changes", async () => {
+  const f = fixture();
+  const meta = f.settings.projectMeta[f.root.path];
+  meta.pandocCitationPreviewStyle = "csl";
+  const modal = Object.assign(Object.create(ManageProjectsModal.prototype), { app: f.app, plugin: f.plugin });
+  const container = new Element();
+  modal.renderProjectCitationsPage(container, f.root.path, f.root);
+  assert.ok(container.textContent.includes(t("modal.manageProjects.sourceCitations")));
+  assert.ok(container.textContent.includes(t("project.pandocCitationPreview.cslCompanionRequired")));
+  assert.ok(container.textContent.includes(t("project.pandocCitationPreview.cslCompanionMissing")));
+  const section = container.children[0];
+  const select = section._settings.find((setting) => setting.name === t("shared.research.citationRendering")).controls[0];
+  for (const mode of ["off", "author-date", "csl", "__inherit__"]) {
+    select.select(mode);
+    await settle();
+    assert.equal(container.textContent.includes(t("project.pandocCitationPreview.cslCompanionRequired")), mode === "csl");
+  }
+  meta.pandocCitationPreviewStyle = "csl";
+  f.plugin.cslCitationHost = { getProvider: () => ({ id: "feuillets-csl" }) };
+  container.empty();
+  modal.renderProjectCitationsPage(container, f.root.path, f.root);
+  assert.ok(container.textContent.includes(t("project.pandocCitationPreview.cslCompanionRequired")));
+  assert.equal(container.textContent.includes(t("project.pandocCitationPreview.cslCompanionMissing")), false);
+});
 
 test("project settings open from the header, keep the sidebar compact, display effective values and persist through the existing project fields", async () => {
   const f = fixture();

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { partialCslResult, partialCslSource } from "./helpers/csl-partial-result.js";
 
 const isCompiledTest = import.meta.url.includes("/.test-dist/");
 const compiledModule = (p) => new URL(`../.test-dist/${p}`, import.meta.url).href;
@@ -23,6 +24,51 @@ function deferred() {
   let resolve;
   const promise = new Promise((complete) => { resolve = complete; });
   return { promise, resolve };
+}
+
+for (const grouped of [false, true]) {
+  test(`Host accepts valid citations around an unresolved ${grouped ? "group" : "citation"}`, async (t) => {
+    const setup = createMockProjectSetup();
+    const registry = new CitationEngineRegistry();
+    registry.register(createMockProvider({ renderDocument: async (request) => partialCslResult(request) }));
+    const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+    t.after(() => host.dispose());
+    const source = partialCslSource(grouped);
+    const snapshot = await host.renderDocument("partial", source, setup.projectRoot, null);
+    assert.equal(snapshot.status, "ready");
+    assert.equal(snapshot.citationByClusterId.size, 2);
+    const occurrences = snapshot.parsedDocument.occurrences;
+    assert.ok(snapshot.citationByClusterId.has(occurrences[0].clusterId));
+    assert.ok(snapshot.citationByClusterId.has(occurrences[2].clusterId));
+    assert.equal(snapshot.citationByClusterId.has(occurrences[1].clusterId), false);
+    assert.equal(snapshot.result.diagnostics[0].clusterId, occurrences[1].clusterId);
+    assert.equal(snapshot.result.diagnostics[0].citekey, "missing9999");
+    assert.equal(snapshot.result.diagnostics[0].severity, "error");
+    assert.equal(host.getLatestSnapshot("partial"), snapshot);
+  });
+}
+
+for (const failure of ["style", "missing diagnostic", "foreign cluster", "foreign key", "rendered unknown", "duplicate output", "unknown output"]) {
+  test(`Host rejects structurally unsafe partial output: ${failure}`, async (t) => {
+    const setup = createMockProjectSetup();
+    const registry = new CitationEngineRegistry();
+    registry.register(createMockProvider({ renderDocument: async (request) => {
+      const result = partialCslResult(request);
+      if (failure === "style") result.diagnostics.push({ severity: "error", code: "CSL_STYLE_ERROR", message: "Invalid XML" });
+      if (failure === "missing diagnostic") result.diagnostics = [];
+      if (failure === "foreign cluster") result.diagnostics[0].clusterId = "foreign";
+      if (failure === "foreign key") result.diagnostics[0].citekey = "foreign";
+      if (failure === "rendered unknown") result.citations.push({ ...result.citations[0], clusterId: request.clusters[1].id });
+      if (failure === "duplicate output") result.citations.push(result.citations[0]);
+      if (failure === "unknown output") result.citations.push({ ...result.citations[0], clusterId: "foreign" });
+      return result;
+    } }));
+    const host = new CslCitationHost({ ...setup, citationRegistry: registry });
+    t.after(() => host.dispose());
+    const snapshot = await host.renderDocument("unsafe", partialCslSource(false), setup.projectRoot, null);
+    assert.equal(snapshot.status, "engine-error");
+    assert.equal(host.getLatestSnapshot("unsafe"), null);
+  });
 }
 
 function resultForRequest(request, diagnostics = []) {
@@ -247,7 +293,7 @@ test("asynchronous race condition: older revision resolving later cannot overwri
           return {
             documentId: req.documentId,
             revision: 1,
-            citations: [{ clusterId: "c1", plainText: "Rev1", content: [] }],
+            citations: [{ clusterId: req.clusters[0].id, plainText: "Rev1", content: [] }],
             bibliography: null,
             diagnostics: [],
           };
@@ -257,7 +303,7 @@ test("asynchronous race condition: older revision resolving later cannot overwri
         return {
           documentId: req.documentId,
           revision: 2,
-          citations: [{ clusterId: "c1", plainText: "Rev2", content: [] }],
+          citations: [{ clusterId: req.clusters[0].id, plainText: "Rev2", content: [] }],
           bibliography: null,
           diagnostics: [],
         };

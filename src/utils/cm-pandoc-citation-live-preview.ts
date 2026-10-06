@@ -15,6 +15,7 @@ import {
   type PandocCitationCatalog,
 } from "../services/pandoc-citation-preview.js";
 import type { BibtexCatalogEntry } from "../services/bibtex-catalog.js";
+import { isUsableCslSnapshot } from "../services/csl-citation-host.js";
 import { getProjectFolder } from "../services/folder-structure.js";
 import type {
   CslCitationHost,
@@ -649,7 +650,7 @@ export function createPandocCitationLivePreviewExtension(
             return;
           }
 
-          if (snapshot.status === "ready") {
+          if (snapshot.status === "ready" && isUsableCslSnapshot(snapshot)) {
             const currentDoc = getDocumentSource(this.view.state.doc);
             if (this.currentDocSource !== currentDoc) {
               this.currentDocSource = currentDoc;

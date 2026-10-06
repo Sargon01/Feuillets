@@ -230,7 +230,7 @@ Le panneau Relecture regroupe :
 - entrées BibTeX citées visibles dans Recherche et utilisables pour la bibliographie simple de Feuillets ;
 - bibliographie CSL dans l’Aperçu paginé et PDF/DOCX/EPUB/ODT lorsqu’elle est activée, avec préservation des dispositions structurées prises en charge par le moteur ;
 - **Paquet Pandoc (.zip)** réunissant Markdown compilé, `.bib` requis, CSL éventuel et médias locaux pour un traitement Pandoc externe ;
-- Feuillets CSL s’exécute localement dans Obsidian et reste facultatif ; Feuillets n’installe, ne recherche et n’exécute ni Pandoc, ni Zotero, ni Better BibTeX.
+- Feuillets CSL s’exécute localement dans Obsidian et reste facultatif pour Feuillets, mais doit être installé et activé séparément pour le mode CSL natif ; Auteur-date ne le nécessite pas. Une clé inconnue laisse uniquement son cluster entier brut, les autres citations valides restent rendues ; les erreurs globales conservent tout le document brut. Feuillets n’installe, ne recherche et n’exécute ni Pandoc, ni Zotero, ni Better BibTeX.
 
 Les citations relient les sources Recherche au manuscrit. Lors d’une compilation, Feuillets peut limiter la bibliographie aux sources réellement citées dans la portée compilée.
 

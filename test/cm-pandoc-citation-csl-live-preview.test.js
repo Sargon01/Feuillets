@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { partialCslResult, partialCslSource } from "./helpers/csl-partial-result.js";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { TFile, TFolder, editorInfoField, editorLivePreviewField } from "obsidian";
@@ -330,6 +331,25 @@ async function flush(ms = 0) {
 
 function getDecoCount(decorations) {
   return Array.isArray(decorations) ? decorations.length : 0;
+}
+
+for (const grouped of [false, true]) {
+  test(`CSL Live Preview renders valid citations around an unknown ${grouped ? "group" : "citation"}`, async (t) => {
+    const text = partialCslSource(grouped);
+    const f = createCslFixture({ docContent: text, providerHandler: partialCslResult });
+    const PluginClass = createPandocCitationLivePreviewExtension(() => f.settings, () => f.host);
+    const view = makeFakeView({ text, file: f.docFile, app: f.app });
+    const instance = new PluginClass(view);
+    t.after(() => { instance.destroy(); f.host.dispose(); });
+    await flush(10);
+    assert.equal(getDecoCount(instance.decorations), 2);
+    assert.deepEqual(instance.decorations.map(({ from, to }) => text.slice(from, to)), ["[@known2026]", "[@known2026]"]);
+    assert.equal(view.state.doc.toString(), text);
+    assert.ok(instance.decorations.every(({ widget }) => widget.citation.plainText === "Rendered known2026"));
+    const snapshot = f.host.getLatestSnapshot(f.recordedRequests[0].documentId);
+    assert.equal(snapshot.status, "ready");
+    assert.equal(snapshot.result.diagnostics[0].citekey, "missing9999");
+  });
 }
 
 test("CSL Live Preview: space-separated clusters both render parenthetically with exact source ranges", async (t) => {

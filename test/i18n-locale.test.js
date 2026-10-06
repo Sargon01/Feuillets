@@ -22,6 +22,15 @@ test("the module's own initial in-memory locale is English — source-level chec
 
 /* ==================== exact key parity between en and fr ==================== */
 
+test("the general citation page title and companion information are translated independently of Source sheets", () => {
+  assert.equal(en["modal.manageProjects.sourceCitations"], "Citation format");
+  for (const messages of [en, fr]) {
+    assert.ok(messages["modal.manageProjects.sourceCitations"]);
+    assert.ok(messages["project.pandocCitationPreview.cslCompanionRequired"].includes("Feuillets CSL"));
+    assert.ok(messages["project.pandocCitationPreview.cslCompanionMissing"].includes("Feuillets CSL"));
+  }
+});
+
 test("en.ts and fr.ts have exactly the same set of keys", () => {
   const frKeys = Object.keys(fr).sort();
   const enKeys = Object.keys(en).sort();

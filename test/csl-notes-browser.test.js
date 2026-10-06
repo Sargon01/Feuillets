@@ -66,11 +66,11 @@ test("CSL notes: Preview and native PDF keep rich notes at the bottom of the fir
     const app = { vault: { getAbstractFileByPath: (path) => files.get(path), cachedRead: async (source) => source.content }, metadataCache: { getFileCache: () => ({}) } };
     const requests = [];
     const host = {
-      renderPreparedDocument: async (_id, parsedDocument) => {
+      renderPreparedDocument: async (documentId, parsedDocument) => {
         requests.push(parsedDocument.clusters.map((cluster) => cluster.noteIndex));
         const citations = parsedDocument.clusters.map((cluster) => ({ clusterId: cluster.id,
           plainText: "Rich source", content: [{ type: "span", style: { fontStyle: "italic" }, children: [{ type: "text", text: "Rich source" }] }] }));
-        return { status: "ready", parsedDocument, citationByClusterId: new Map(citations.map((citation) => [citation.clusterId, citation])), result: { citations, bibliography: null, diagnostics: [] } };
+        return { status: "ready", documentId, revision: 1, parsedDocument, citationByClusterId: new Map(citations.map((citation) => [citation.clusterId, citation])), result: { documentId, revision: 1, citations, bibliography: null, diagnostics: [] } };
       }, disposeDocument: () => {},
     };
     api.MarkdownRenderer.render = async (_app, _markdown, container) => {

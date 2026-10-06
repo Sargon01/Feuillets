@@ -14,7 +14,7 @@ import type { ParsedPandocCitationOccurrence } from "./pandoc-citation-parser.js
  */
 
 import { MarkdownRenderChild, MarkdownView, normalizePath, TFile, type App, type MarkdownPostProcessorContext } from "obsidian";
-import { CslCitationHost, type CslHostInvalidation, type CslHostReadySnapshot } from "./csl-citation-host.js";
+import { CslCitationHost, isUsableCslSnapshot, type CslHostInvalidation, type CslHostReadySnapshot } from "./csl-citation-host.js";
 import { renderCitationNodes } from "./citation-render-nodes.js";
 import { getProjectFolder } from "./folder-structure.js";
 import { resolveWorkspaceCitationResources } from "./workspace-citations.js";
@@ -375,10 +375,7 @@ class ReadingCslCoordinator {
           const snapshot = await this.host.renderDocument(session.documentId, source, project, file, {
             includeBibliography: false,
           });
-          if (snapshot.status !== "ready" || snapshot.result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) return null;
-          const occurrences = snapshot.parsedDocument.occurrences;
-          if (snapshot.result.citations.length !== occurrences.length
-            || !occurrences.every((occurrence) => snapshot.citationByClusterId.has(occurrence.clusterId))) return null;
+          if (snapshot.status !== "ready" || !isUsableCslSnapshot(snapshot)) return null;
           return { source, snapshot };
         } catch {
           return null;
@@ -503,7 +500,6 @@ function wrapCslReadingRange(
     renderCitationNodes(citation.content, span, doc);
     return { ...replacement, span };
   });
-  if (built.some((replacement) => replacement === null)) return;
   for (const text of texts) {
     const parts = built.filter((part): part is NonNullable<typeof part> => part !== null && part.node === text.node);
     if (!parts.length) continue;
