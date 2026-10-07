@@ -24,6 +24,7 @@ const {
   createGrammarCheckerExtension,
   GRAMMAR_CHECK_DEBOUNCE_MS,
   requestGrammarCheck,
+  replaceGrammarWindow,
 } = await import(modulePath("src/utils/cm-grammar-highlighter.js"));
 
 function provider(id = "provider") {
@@ -319,4 +320,21 @@ test("the registered checker keeps its initial delay and debounces document chan
   } finally {
     globalThis.window = originalWindow;
   }
+});
+
+
+test("Continu window effect replaces all prior files atomically while retaining per-file targets", () => {
+  const editor = view("bad\nwrong\nerror");
+  const active = provider();
+  applyMappedGrammarHighlights(editor, [{ message: "Old", start: 0, end: 5 }], "C.md", 10, active);
+  replaceGrammarWindow(editor, [
+    { filePath: "A.md", offset: 0, provider: active, issues: [{ message: "A", start: 0, end: 3 }] },
+    { filePath: "B.md", offset: 4, provider: active, issues: [{ message: "B", start: 0, end: 5 }] },
+  ]);
+  assert.deepEqual([...grammarState(editor).issues.values()].map((entry) => [entry.filePath, entry.from, entry.to, entry.provider]), [
+    ["A.md", 0, 3, active], ["B.md", 4, 9, active],
+  ]);
+  replaceGrammarWindow(editor, []);
+  assert.equal(grammarState(editor).issues.size, 0);
+  assert.equal(grammarState(editor).decorations, Decoration.none);
 });

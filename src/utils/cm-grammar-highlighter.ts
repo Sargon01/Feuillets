@@ -87,6 +87,26 @@ export type GrammarHighlightState = {
 const emptyGrammarState = (): GrammarHighlightState => ({ decorations: DecorationTyped.none, issues: new Map(), filePath: "" });
 
 export const setGrammarIssuesEffect = StateEffectTyped.define<GrammarIssuesPayload>();
+// Continu replaces its bounded working window atomically. The ordinary
+// Markdown/per-file accumulation effect above keeps its existing semantics.
+export const setGrammarWindowEffect = StateEffectTyped.define<GrammarIssuesPayload[]>();
+
+function stateFromWindow(payloads: GrammarIssuesPayload[], docLength: number): GrammarHighlightState {
+  const issues = new Map<string, GrammarIssueEntry>();
+  for (const payload of payloads) {
+    const filePath = payload.filePath ?? "";
+    const offset = payload.offset ?? 0;
+    payload.issues.forEach((issue, index) => {
+      const from = offset + issue.start;
+      const to = offset + issue.end;
+      if (!Number.isInteger(issue.start) || !Number.isInteger(issue.end)
+        || issue.start < 0 || from < 0 || to > docLength || from >= to) return;
+      const key = `${filePath}:grammar-${index}`;
+      issues.set(key, { key, issue, from, to, filePath, provider: payload.provider });
+    });
+  }
+  return { ...emptyGrammarState(), issues, decorations: decorationsFor(issues) };
+}
 
 function isSpellingIssue(issue: TextAnalysisIssue): boolean {
   return issue.canLearn === true || issue.category === "Orthographe";
@@ -132,6 +152,7 @@ export const grammarIssuesField = StateFieldTyped.define<GrammarHighlightState>(
   create: emptyGrammarState,
   update(value, tr) {
     for (const effect of tr.effects) {
+      if (effect.is(setGrammarWindowEffect)) return stateFromWindow(effect.value as GrammarIssuesPayload[], tr.state.doc.length);
       if (effect.is(setGrammarIssuesEffect)) return stateFromPayload(effect.value as GrammarIssuesPayload, tr.state.doc.length, value);
     }
     if (!tr.docChanged) return value;
@@ -343,4 +364,12 @@ export function clearGrammarHighlightsForFile(
 
 export function clearGrammarHighlights(editorView: { dispatch(spec: { effects?: unknown }): void } | null | undefined): void {
   applyGrammarHighlights(editorView, []);
+}
+
+export function replaceGrammarWindow(
+  editorView: { dispatch(spec: { effects?: unknown }): void } | null | undefined,
+  payloads: GrammarIssuesPayload[],
+): void {
+  if (!editorView) return;
+  try { editorView.dispatch({ effects: setGrammarWindowEffect.of(payloads) }); } catch { /* vue détruite */ }
 }

@@ -372,6 +372,7 @@ interface EditorStateStatic {
 }
 interface EditorViewInstance {
   readonly state: EditorStateInstance;
+  readonly visibleRanges: readonly { from: number; to: number }[];
   /* `selection` : LOT « clic Preview → Continu » (focusSourcePosition) —
      un simple `{ anchor, head? }` reste une `TransactionSpec.selection`
      valide en CodeMirror 6 réel, sans jamais construire d'`EditorSelection`
@@ -496,7 +497,8 @@ export class ScriveningsView extends ItemView {
   }
 
   requestGrammarCheck(paths?: readonly string[]): void {
-    this.grammarChecker?.request(paths, 50);
+    if (paths) this.grammarChecker?.requestTouched(paths);
+    else this.grammarChecker?.refreshLive();
   }
 
   getViewType(): string {
@@ -722,6 +724,7 @@ export class ScriveningsView extends ItemView {
     this.cm = new EditorViewCtorTyped({ state, parent: host });
     this.installContextMenuListener();
     this.grammarChecker?.reset();
+    this.grammarChecker?.request();
 
     setScriveningsDecorations(
       this.cm,

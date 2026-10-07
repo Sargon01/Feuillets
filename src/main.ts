@@ -1901,6 +1901,8 @@ class FeuilletsPlugin extends Plugin {
       const cm = (editor as Record<string, unknown> | undefined)?.cm as { dispatch(spec: { effects?: unknown }): void } | undefined;
       if (cm) requestGrammarCheck(cm);
     }
+    // Continu invalidates provider caches and refreshes only its debounced
+    // visible working window; registration must never start a manuscript scan.
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SCRIVENINGS)) {
       if (leaf.view instanceof ScriveningsView) leaf.view.requestGrammarCheck();
     }
