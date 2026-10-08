@@ -2,6 +2,21 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.5.2 — 2026-10-08
+
+### Citations CSL
+
+- Une clé de citation inconnue ne bloque plus le rendu des autres citations valides du document, avec Feuillets CSL 0.1.3.
+- Les citations non résolues conservent leur syntaxe Pandoc d'origine. Un groupe contenant une clé inconnue reste entièrement brut, sans rendu partiel ni référence inventée.
+- Les erreurs globales du moteur ou des ressources continuent à préserver la syntaxe brute du document.
+
+### Continu et correction linguistique
+
+- Optimisation de la correction grammaticale en direct dans Continu pour les manuscrits volumineux.
+- Analyse limitée aux feuillets effectivement visibles, avec temporisation, mise en cache et plafonnement des diagnostics pour réduire la charge du processeur.
+- Stabilisation du suivi des zones visibles et de l'actualisation des soulignements lors du défilement et des modifications.
+- La relecture complète reste disponible dans le panneau Relecture, sans les limites appliquées à la correction en direct.
+
 ## 3.5.1 — 2026-10-03
 
 ### Compatibilité
