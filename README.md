@@ -265,6 +265,8 @@ Open **Research → References** and use the settings button to choose the appli
 
 Native CSL renders citations in Live Preview, Reading Mode, Continu, paginated Preview and PDF/DOCX/EPUB/ODT exports. It supports note-based styles with document citation state and CSL bibliographies in Preview and those exports. An unknown citekey leaves only its entire cluster in raw syntax; other valid citations continue rendering. Global engine or resource failures preserve raw syntax throughout the document. Manuscript and compiled Markdown keep semantic Pandoc citations. The simple Feuillets bibliography and **Pandoc package (.zip)** remain available; the package contains `manuscript.md`, `pandoc.yaml`, required `.bib` files, the applicable CSL and local media for an independent external workflow. Feuillets remains usable without the companion and never installs or launches Pandoc. The companion is optional for Feuillets, but **Native CSL** requires **Feuillets CSL**, installed and enabled separately; **Author-date** does not require it. See [BibTeX citations and Pandoc package](docs/BIBTEX-CITATIONS-AND-PANDOC.md).
 
+For companion update order, version compatibility and mandatory CI checks, see [Feuillets / CSL integration](docs/CSL-INTEGRATION.md). Full isolation of cited incompatible, ambiguous or cyclic references requires both corrected plugins; update Feuillets first.
+
 Native formats:
 
 - **compiled Markdown**;

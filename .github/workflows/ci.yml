@@ -10,19 +10,49 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: feuillets
+    env:
+      FEUILLETS_CSL_REF: ${{ vars.FEUILLETS_CSL_REF }}
+      FEUILLETS_CSL_SOURCE: ${{ github.workspace }}/feuillets-csl
+      FEUILLETS_CSL_REQUIRED: '1'
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          path: feuillets
+
+      - name: Require an explicit companion revision
+        run: |
+          if [[ ! "$FEUILLETS_CSL_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Set repository variable FEUILLETS_CSL_REF to a reviewed, remotely available commit SHA." >&2
+            exit 1
+          fi
+
+      - name: Checkout pinned Feuillets CSL
+        uses: actions/checkout@v4
+        with:
+          repository: Sargon01/Feuillets-CSL
+          ref: ${{ env.FEUILLETS_CSL_REF }}
+          path: feuillets-csl
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
+          cache-dependency-path: |
+            feuillets/package-lock.json
+            feuillets-csl/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install companion dependencies separately
+        run: npm ci --prefix ../feuillets-csl
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
@@ -35,6 +65,9 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+      - name: Require real companion integration
+        run: npm run test:csl-integration
 
       - name: Build plugin
         run: npm run build

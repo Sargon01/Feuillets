@@ -10,12 +10,16 @@ import { chromium } from "playwright";
 // content nor rendered metadata is written to logs or included in this repository.
 const companion = process.env.FEUILLETS_CSL_SOURCE;
 const available = companion && existsSync(resolve(companion, "main.ts")) && existsSync(chromium.executablePath());
+const required = process.env.FEUILLETS_CSL_REQUIRED === "1";
 
-test("real Feuillets CSL: registration, resources and all rendering surfaces isolate bibliography errors", { skip: !available }, async (t) => {
+test("real Feuillets CSL: registration, resources and all rendering surfaces isolate bibliography errors", { skip: !available && !required }, async (t) => {
+  assert.ok(companion, "FEUILLETS_CSL_SOURCE is required for the CSL integration check");
+  assert.ok(existsSync(resolve(companion, "main.ts")), "The required Feuillets CSL source is missing");
+  assert.ok(existsSync(chromium.executablePath()), "Chromium is required for the CSL integration check; run npx playwright install chromium");
   const bundle = await build({
     stdin: { contents: `export { default as CompanionPlugin } from ${JSON.stringify(resolve(companion, "main.ts"))};
       export { CslCitationHost } from "./services/csl-citation-host.ts";
-      export { CitationEngineRegistry, validateCitationClusterResults } from "./api/citation-engine.ts";
+      export { CitationEngineRegistry, createCitationApi, validateCitationClusterResults } from "./api/citation-engine.ts";
       export { buildScriveningsDocument, boundaryOffsets } from "./services/scrivenings-document.ts";
       export { createScriveningsCitationExtension } from "./utils/cm-scrivenings-citations.ts";
       export { createPandocCitationLivePreviewExtension } from "./utils/cm-pandoc-citation-live-preview.ts";
@@ -113,7 +117,7 @@ test("real Feuillets CSL: registration, resources and all rendering surfaces iso
         citekeyBibliographyPath: "library.bib", citekeyCslPath: "style.csl",
       } } };
       const registry = new api.CitationEngineRegistry();
-      const citationApi = { apiVersion: 2, registerProvider: (p) => registry.register(p), unregisterProvider: (id) => registry.unregister(id), getProvider: (id) => registry.get(id) };
+      const citationApi = api.createCitationApi(registry);
       const app = { plugins: { plugins: { feuillets: { api: { citations: citationApi } } } },
         workspace: { onLayoutReady: (cb) => cb(), getLeavesOfType: () => [] },
         vault: { getAbstractFileByPath: (path) => indexed.get(path), cachedRead: async (source) => source.content, read: async (source) => source.content },
@@ -128,6 +132,11 @@ test("real Feuillets CSL: registration, resources and all rendering surfaces iso
       provider.renderDocument = async (req) => { requests.push(req); const result = await render(req); results.push(result); return result; };
       const host = new api.CslCitationHost({ app, settings, citationRegistry: registry });
       const initial = await host.renderDocument("resource-proof", markdown, root, file);
+      if (initial.status !== "ready") throw new Error(`Real CSL provider returned an unusable result: ${initial.reason ?? initial.status}`);
+      if (input.label === "synthetic" && ["Synthetic Study", "Miscellaneous Work"].some((title) =>
+        !initial.result.citations.some((citation) => citation.plainText.includes(title)))) {
+        throw new Error("Real CSL provider returned incorrect citation text for the synthetic library");
+      }
       const cached = await host.renderDocument("resource-proof", markdown, root, file);
       const cacheHit = initial === cached && requests.length === 1;
       settings.projectMeta.Book.folderWorkspaces = { Draft: { citekeyBibliographyPath: "alternate.bib", citekeyCslPath: "alternate.csl" } };
