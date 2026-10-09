@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { createSearchEditor } from "./search-editor-helper.js";
 
 const isCompiledTest = import.meta.url.includes("/.test-dist/");
 const compiledModule = (path) => new URL(`../.test-dist/${path}`, import.meta.url).href;
 const modulePath = (path) => isCompiledTest ? `../${path}` : compiledModule(path);
+const { setLocale } = await import(modulePath("src/i18n/index.js"));
+setLocale("en");
 const { MarkdownView, Notice } = await import(isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js"));
 const { SearchReplaceBar } = await import(modulePath("src/views/search-replace-bar.js"));
 const { FeuilletsSearchEngine } = await import(modulePath("src/services/feuillets-search-engine.js"));
@@ -71,14 +74,11 @@ function installDom() {
 
 function createBar({ active = true } = {}) {
   const parent = new FakeElement();
-  const editor = {
-    cm: { state: { doc: { length: 200 } }, dispatch() { editor.highlights += 1; } },
-    setSelection(...args) { editor.selection = args; },
-    scrollIntoView(...args) { editor.scrolled = args; },
-    highlights: 0,
-  };
-  const file = { path: "Projet/Scene.md" };
-  const view = Object.assign(new MarkdownView(), { containerEl: parent, file, editor });
+  const editor = createSearchEditor("  mot\n mot");
+  editor.highlights = 0;
+  editor.cm = { state: { doc: { length: 200 } }, dispatch() { editor.highlights += 1; } };
+  const file = { path: "Projet/Scene.md", name: "Scene.md" };
+  const view = Object.assign(new MarkdownView(), { containerEl: parent, file, editor, getMode: () => "source" });
   const workspace = {
     getActiveViewOfType() { return active ? view : null; },
     getActiveFile() { return file; },
@@ -86,7 +86,7 @@ function createBar({ active = true } = {}) {
     getLeaf() { return { openFile() {}, view }; },
     setActiveLeaf() {},
   };
-  const app = { workspace };
+  const app = { workspace, vault: { read: async () => editor.getValue(), process: async () => { throw new Error("Unexpected vault write"); } } };
   const plugin = { renderAllViews: async () => { plugin.renders += 1; }, renders: 0 };
   return { bar: new SearchReplaceBar(app, plugin), parent, editor, file, app, plugin };
 }
@@ -99,7 +99,7 @@ test("SearchReplaceBar — état, ouverture, fermeture et champs", async () => {
   assert.equal(bar.showReplace, false);
   assert.deepEqual(bar.occurrences, []);
   assert.equal(bar.currentIndex, 0);
-  assert.deepEqual(bar.options, { ignoreCase: true, ignoreDiacritics: false, matchMode: "contains", scope: "manuscript", includeYaml: false });
+  assert.deepEqual(bar.options, { ignoreCase: true, ignoreDiacritics: false, matchMode: "contains", scope: "document", includeYaml: false, protectMarkdown: false });
 
   bar.open();
   assert.ok(bar.containerEl);
@@ -174,6 +174,7 @@ test("SearchReplaceBar — temporisation, navigation et moteur", async () => {
   const dom = installDom();
   const { bar, file, editor } = createBar();
   bar.open();
+  bar.options.scope = "manuscript";
   dom.runTimers();
   const originalSearch = FeuilletsSearchEngine.searchInVault;
   const originalReplace = FeuilletsSearchEngine.replaceInVault;
@@ -183,7 +184,7 @@ test("SearchReplaceBar — temporisation, navigation et moteur", async () => {
     searchCalls.push({ query, options });
     return { occurrences: [
       { file, index: 2, length: 3, line: 0, ch: 2 },
-      { file, index: 8, length: 3, line: 1, ch: 1 },
+      { file, index: 7, length: 3, line: 1, ch: 1 },
     ] };
   };
   FeuilletsSearchEngine.replaceInVault = async (_app, _plugin, query, replacement, options) => {
@@ -207,15 +208,12 @@ test("SearchReplaceBar — temporisation, navigation et moteur", async () => {
     assert.ok(editor.selection);
     assert.ok(editor.highlights > 0);
 
+    bar.options.scope = "document";
     bar.replaceQuery = "autre";
     await bar.executeReplaceAll();
-    assert.equal(replaceCalls.length, 1);
-    assert.deepEqual(replaceCalls[0], {
-      query: "mot", replacement: "autre",
-      // includeYaml n'est volontairement pas transmis par le comportement actuel.
-      options: { scope: "manuscript", ignoreCase: true, ignoreDiacritics: false, matchMode: "contains", activeFile: file },
-    });
-    assert.ok(searchCalls.length >= 2);
+    assert.equal(replaceCalls.length, 0);
+    assert.equal(editor.getValue(), "  autre\n autre");
+    assert.equal(editor.transactions.length, 1);
 
     bar.searchQuery = "";
     await bar.runSearch();
@@ -224,4 +222,84 @@ test("SearchReplaceBar — temporisation, navigation et moteur", async () => {
     FeuilletsSearchEngine.searchInVault = originalSearch;
     FeuilletsSearchEngine.replaceInVault = originalReplace;
   }
+});
+
+test("SearchReplaceBar applies real unsaved replacements and preserves selections after refresh", async () => {
+  installDom();
+  const { bar, editor } = createBar();
+  editor.edit(0, editor.getValue().length, "ney *ney* **before ney after** `ney`\n[^1]: ney");
+  editor.setSelection({ line: 1, ch: 6 }, { line: 1, ch: 9 });
+  const original = editor.getValue();
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  try {
+    bar.showReplace = true;
+    bar.searchQuery = "ney";
+    bar.replaceQuery = "*ney*";
+    bar.options.protectMarkdown = true;
+    bar.open();
+    await bar.runSearch(false);
+    assert.equal(bar.occurrences.length, 2);
+    const before = editor.listSelections();
+    await bar.executeReplaceAll();
+    assert.equal(editor.getValue(), "*ney* *ney* **before ney after** `ney`\n[^1]: *ney*");
+    assert.equal(editor.transactions.length, 1);
+    assert.deepEqual(editor.listSelections(), [{ anchor: { line: 1, ch: 6 }, head: { line: 1, ch: 11 } }]);
+    assert.equal(bar.occurrences.length, 0);
+    assert.match(notices[0], /2/);
+    await bar.executeReplaceAll();
+    assert.equal(editor.transactions.length, 1);
+    assert.match(notices[1], /No changes/);
+    editor.undo();
+    assert.equal(editor.getValue(), original);
+    assert.deepEqual(editor.listSelections(), before);
+  } finally { Notice.onCreate = null; }
+});
+
+test("SearchReplaceBar locks concurrent activations and never reports success on failure", async () => {
+  installDom();
+  const { bar, editor } = createBar();
+  bar.showReplace = true;
+  bar.searchQuery = "mot";
+  bar.replaceQuery = "word";
+  bar.open();
+  let finish;
+  bar.runSearch = () => new Promise((resolve) => { finish = resolve; });
+  const first = bar.executeReplaceAll();
+  assert.equal(bar.containerEl.querySelector(".feuillets-replace-all-btn").disabled, true);
+  await bar.executeReplaceAll();
+  assert.equal(editor.transactions.length, 1);
+  finish();
+  await first;
+  assert.equal(bar.containerEl.querySelector(".feuillets-replace-all-btn").disabled, false);
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    bar.searchQuery = "word";
+    bar.replaceQuery = "next";
+    editor.transaction = () => { throw new Error("Read-only"); };
+    await bar.executeReplaceAll();
+    assert.equal(editor.getValue(), "  word\n word");
+    assert.equal(bar.replacing, false);
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /failed/);
+    assert.doesNotMatch(notices[0], /occurrence.*replaced/);
+  } finally { Notice.onCreate = null; console.error = originalError; }
+});
+
+test("SearchReplaceBar makes document scope visible and blocks folder replacement", async () => {
+  installDom();
+  const { bar, editor } = createBar();
+  bar.showReplace = true;
+  bar.open();
+  assert.match(bar.containerEl.querySelector(".feuillets-search-scope").text, /Scene.md/);
+  bar.options.scope = "manuscript";
+  bar.updateScopeUI();
+  assert.match(bar.containerEl.querySelector(".feuillets-search-scope").text, /search only/);
+  assert.equal(bar.containerEl.querySelector(".feuillets-replace-all-btn").disabled, true);
+  bar.searchQuery = "mot";
+  await bar.executeReplaceAll();
+  assert.equal(editor.transactions.length, 0);
 });

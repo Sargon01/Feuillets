@@ -3,6 +3,16 @@ declare module "@codemirror/state" {
   export const StateField: unknown;
   export const EditorState: unknown;
   export const Prec: unknown;
+  export class Text {
+    static of(lines: readonly string[]): Text;
+    lineAt(offset: number): { from: number; number: number; text: string };
+    toString(): string;
+  }
+  export class ChangeSet {
+    static of(changes: readonly { from: number; to: number; insert: string }[], length: number): ChangeSet;
+    apply(doc: Text): Text;
+    mapPos(position: number, association?: number): number;
+  }
 }
 
 declare module "@codemirror/view" {

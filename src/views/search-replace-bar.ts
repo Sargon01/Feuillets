@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, setIcon, type App, type TFile } from "obsidian";
+import { MarkdownView, Notice, setIcon, type App, type TFile, type Editor } from "obsidian";
 import { FeuilletsSearchEngine, type SearchOccurrence } from "../services/feuillets-search-engine.js";
 import { openFileActivating } from "../utils/dom.js";
 import { applyEditorHighlights, clearEditorHighlights } from "../utils/cm-search-highlighter.js";
@@ -12,16 +12,12 @@ type SearchOptions = {
   matchMode: MatchMode;
   scope: SearchScope;
   includeYaml: boolean;
+  protectMarkdown: boolean;
 };
 type SearchReplacePlugin = {
-  renderAllViews(force?: boolean): void | Promise<void>;
   getManuscriptFiles?: () => TFile[];
 };
-type SearchEditor = {
-  cm?: { dispatch?: (transaction: unknown) => void };
-  setSelection(from: { line: number; ch: number }, to: { line: number; ch: number }): void;
-  scrollIntoView(range: { from: { line: number; ch: number }; to: { line: number; ch: number } }, center: boolean): void;
-};
+type SearchEditor = Editor & { cm?: { dispatch?: (transaction: unknown) => void } };
 type SearchMarkdownView = MarkdownView & { file?: TFile; editor?: SearchEditor; containerEl: HTMLElement };
 
 function hasSearchView(view: MarkdownView): view is SearchMarkdownView {
@@ -56,6 +52,9 @@ export class SearchReplaceBar {
   currentIndex: number;
   searchTimer: ReturnType<Window["setTimeout"]> | null;
   options: SearchOptions;
+  replacing = false;
+  searchVersion = 0;
+  highlightedView: SearchMarkdownView | null = null;
 
   constructor(app: App, plugin: SearchReplacePlugin) {
     this.app = app;
@@ -73,14 +72,15 @@ export class SearchReplaceBar {
       ignoreCase: true,
       ignoreDiacritics: false,
       matchMode: "contains", // "contains" | "startsWith" | "wholeWord"
-      scope: "manuscript",   // "document" | "manuscript"
+      scope: "document",
       includeYaml: false,
+      protectMarkdown: false,
     };
   }
 
   open() {
     const activeLeaf = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!activeLeaf) {
+    if (!activeLeaf || !hasSearchView(activeLeaf) || !activeLeaf.file?.path.endsWith(".md") || activeLeaf.getMode() !== "source") {
       new Notice(t("searchReplace.openSheetFirst"));
       return;
     }
@@ -95,10 +95,13 @@ export class SearchReplaceBar {
 
     this.containerEl = parent.createDiv({ cls: "feuillets-search-bar" });
     this.render();
+    void this.runSearch(false);
   }
 
   close() {
     this.closePopover();
+    window.clearTimeout(this.searchTimer ?? undefined);
+    this.searchVersion++;
     this.clearActiveHighlights();
     if (this.containerEl) {
       this.containerEl.remove();
@@ -162,6 +165,9 @@ export class SearchReplaceBar {
     const counterEl = searchRow.createSpan({ cls: "feuillets-search-counter" });
     this.updateCounterEl(counterEl);
 
+    this.containerEl.createDiv({ cls: "feuillets-search-scope" });
+    this.updateScopeUI();
+
     // Flèche Précédent (<)
     const prevBtn = searchRow.createDiv({
       cls: "feuillets-search-icon-btn",
@@ -187,6 +193,7 @@ export class SearchReplaceBar {
     toggleReplaceBtn.addEventListener("click", () => {
       this.showReplace = !this.showReplace;
       this.render();
+      void this.runSearch(false);
     });
 
     // Bouton Fermer (×)
@@ -209,6 +216,7 @@ export class SearchReplaceBar {
       replaceInput.value = this.replaceQuery;
       replaceInput.addEventListener("input", () => {
         this.replaceQuery = replaceInput.value;
+        this.scheduleSearch(false);
       });
 
       replaceInput.addEventListener("keydown", (e) => {
@@ -221,11 +229,21 @@ export class SearchReplaceBar {
         }
       });
 
+      const protectionLabel = this.containerEl.createEl("label", { cls: "feuillets-search-protection" });
+      const protection = protectionLabel.createEl("input", { type: "checkbox" });
+      protection.checked = this.options.protectMarkdown;
+      protectionLabel.createSpan({ text: t("searchReplace.options.protectMarkdown") });
+      protection.addEventListener("change", () => {
+        this.options.protectMarkdown = protection.checked;
+        void this.runSearch(false);
+      });
+
       // Bouton Remplacer tout (CTA)
       const replaceAllBtn = replaceRow.createEl("button", {
         text: t("searchReplace.replaceAllBtn"),
         cls: "feuillets-btn-replace-all feuillets-replace-all-btn",
       });
+      replaceAllBtn.disabled = this.replacing || this.options.scope !== "document";
       replaceAllBtn.addEventListener("click", () => { void this.executeReplaceAll(); });
     }
   }
@@ -259,6 +277,7 @@ export class SearchReplaceBar {
         e.stopPropagation();
         onClick();
         void this.runSearch();
+        this.updateScopeUI();
         this.renderPopover();
       });
     };
@@ -346,12 +365,37 @@ export class SearchReplaceBar {
     }
   }
 
-  scheduleSearch() {
-    window.clearTimeout(this.searchTimer ?? undefined);
-    this.searchTimer = window.setTimeout(() => { void this.runSearch(); }, 200);
+  updateScopeUI() {
+    const scope = this.containerEl?.querySelector(".feuillets-search-scope");
+    const file = this.app.workspace.getActiveFile();
+    scope?.setText(this.options.scope === "document"
+      ? t("searchReplace.activeDocumentScope", { name: file?.name ?? file?.path ?? "" })
+      : t("searchReplace.folderSearchOnly"));
+    const button = this.containerEl?.querySelector<HTMLButtonElement>(".feuillets-replace-all-btn");
+    if (button) button.disabled = this.replacing || this.options.scope !== "document";
   }
 
-  async runSearch() {
+  handleActiveViewChange() {
+    if (!this.containerEl) return;
+    this.clearActiveHighlights();
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || !hasSearchView(view) || !view.file?.path.endsWith(".md") || view.getMode() !== "source") {
+      this.close();
+      return;
+    }
+    view.containerEl.appendChild(this.containerEl);
+    this.updateScopeUI();
+    void this.runSearch(false);
+  }
+
+  scheduleSearch(navigate = true) {
+    this.searchVersion++;
+    window.clearTimeout(this.searchTimer ?? undefined);
+    this.searchTimer = window.setTimeout(() => { void this.runSearch(navigate); }, 200);
+  }
+
+  async runSearch(navigate = true) {
+    const version = ++this.searchVersion;
     if (!this.searchQuery) {
       this.occurrences = [];
       this.currentIndex = 0;
@@ -359,24 +403,19 @@ export class SearchReplaceBar {
       this.clearActiveHighlights();
       return;
     }
-
-    const activeFile = this.app.workspace.getActiveFile();
-    const res = await FeuilletsSearchEngine.searchInVault(this.app, this.plugin, this.searchQuery, {
-      ...this.options,
-      activeFile,
-    });
-
+    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const activeFile = activeView && hasSearchView(activeView) ? activeView.file : null;
+    const activeEditor = activeView && hasSearchView(activeView) ? activeView.editor : null;
+    const options = { ...this.options, replacementQuery: this.showReplace ? this.replaceQuery : "", activeFile, activeEditor };
+    const res = this.options.scope === "document"
+      ? { occurrences: activeFile && activeEditor ? FeuilletsSearchEngine.searchInText(activeEditor.getValue(), activeFile, this.searchQuery, options) : [] }
+      : await FeuilletsSearchEngine.searchInVault(this.app, this.plugin, this.searchQuery, options);
+    if (version !== this.searchVersion) return;
     this.occurrences = res.occurrences;
-    if (this.currentIndex >= this.occurrences.length) {
-      this.currentIndex = 0;
-    }
+    if (this.currentIndex >= this.occurrences.length) this.currentIndex = 0;
     this.updateCounterUI();
-
-    if (this.occurrences.length > 0) {
-      await this.jumpToCurrentMatch();
-    } else {
-      this.clearActiveHighlights();
-    }
+    if (navigate && this.occurrences.length > 0) await this.jumpToCurrentMatch();
+    else this.updateActiveEditorHighlights();
   }
 
   updateCounterUI() {
@@ -395,7 +434,8 @@ export class SearchReplaceBar {
     }
   }
 
-  async navigateMatch(delta) {
+  async navigateMatch(delta: number) {
+    await this.runSearch(false);
     if (this.occurrences.length === 0) return;
     this.currentIndex = (this.currentIndex + delta + this.occurrences.length) % this.occurrences.length;
     this.updateCounterUI();
@@ -421,8 +461,10 @@ export class SearchReplaceBar {
 
     if (targetView && hasSearchView(targetView) && targetView.editor) {
       const editor = targetView.editor;
-      editor.setSelection({ line: match.line, ch: match.ch }, { line: match.line, ch: match.ch + match.length });
-      editor.scrollIntoView({ from: { line: match.line, ch: match.ch }, to: { line: match.line, ch: match.ch + match.length } }, true);
+      const from = editor.offsetToPos(match.index);
+      const to = editor.offsetToPos(match.index + match.length);
+      editor.setSelection(from, to);
+      editor.scrollIntoView({ from, to }, true);
 
       this.updateActiveEditorHighlights(targetView);
     }
@@ -442,42 +484,51 @@ export class SearchReplaceBar {
       activeIndexInDoc = docOccurrences.findIndex((occ) => occ.index === activeMatch.index);
     }
 
+    if (this.highlightedView && this.highlightedView !== activeView) this.clearActiveHighlights();
+    this.highlightedView = activeView;
     applyEditorHighlights(activeView.editor.cm, docOccurrences, activeIndexInDoc);
   }
 
   clearActiveHighlights(): void {
-    const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (activeView && hasSearchView(activeView) && activeView.editor && activeView.editor.cm) {
-      clearEditorHighlights(activeView.editor.cm);
-    }
+    const activeView = this.highlightedView ?? this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeView && hasSearchView(activeView) && activeView.editor?.cm) clearEditorHighlights(activeView.editor.cm);
+    this.highlightedView = null;
   }
 
   async executeReplaceAll() {
+    if (this.replacing) return;
     if (!this.searchQuery) {
       new Notice(t("searchReplace.enterSearchTerm"));
       return;
     }
-
-    const activeFile = this.app.workspace.getActiveFile();
-    const { totalReplacements, filesCount } = await FeuilletsSearchEngine.replaceInVault(
-      this.app,
-      this.plugin,
-      this.searchQuery,
-      this.replaceQuery,
-      {
-        scope: this.options.scope,
-        ignoreCase: this.options.ignoreCase,
-        ignoreDiacritics: this.options.ignoreDiacritics,
-        matchMode: this.options.matchMode,
-        activeFile,
-      }
-    );
-
-    new Notice(
-      t("searchReplace.replacedNotice", { count: String(totalReplacements), s1: totalReplacements > 1 ? "s" : "", files: String(filesCount), s2: filesCount > 1 ? "s" : "" })
-    );
-
-    await this.runSearch();
-    await this.plugin.renderAllViews(true);
+    if (this.options.scope !== "document") {
+      new Notice(t("searchReplace.folderSearchOnly"));
+      return;
+    }
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view || !hasSearchView(view) || !view.file?.path.endsWith(".md") || !view.editor || view.getMode() !== "source") {
+      new Notice(t("searchReplace.openSheetFirst"));
+      return;
+    }
+    this.replacing = true;
+    window.clearTimeout(this.searchTimer ?? undefined);
+    this.searchVersion++;
+    this.updateScopeUI();
+    try {
+      const { totalReplacements, filesCount } = FeuilletsSearchEngine.replaceInEditor(
+        view.editor, this.searchQuery, this.replaceQuery, this.options
+      );
+      // Refresh highlights without moving the selections mapped by the transaction.
+      await this.runSearch(false);
+      new Notice(totalReplacements > 0
+        ? t("searchReplace.replacedNotice", { count: String(totalReplacements), s1: totalReplacements > 1 ? "s" : "", files: String(filesCount), s2: filesCount > 1 ? "s" : "" })
+        : t("searchReplace.noReplacements"));
+    } catch (error) {
+      console.error("Feuillets: Replace all failed", error);
+      new Notice(t("searchReplace.replaceFailed"));
+    } finally {
+      this.replacing = false;
+      this.updateScopeUI();
+    }
   }
 }

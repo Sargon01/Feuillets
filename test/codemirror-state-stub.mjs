@@ -103,3 +103,10 @@ export const EditorState = {
 export const Prec = {
   highest: (extension) => ({ prec: "highest", extension }),
 };
+
+// Replacement tests use real text mapping while existing decoration tests retain their stubs.
+const realStateUrl = new URL(import.meta.url.includes("/.test-dist/")
+  ? "../../../../node_modules/@codemirror/state/dist/index.js"
+  : "../node_modules/@codemirror/state/dist/index.js", import.meta.url);
+const { ChangeSet, Text } = await import(realStateUrl.href);
+export { ChangeSet, Text };

@@ -835,6 +835,11 @@ class FeuilletsPlugin extends Plugin {
     this.registerSwipeGestures();
     this.registerAutoBackup();
     this.registerEditorExtension(searchHighlightField);
+    this.registerEvent(this.app.workspace.on("editor-change", () => {
+      if (this._searchReplaceBar?.containerEl) this._searchReplaceBar.scheduleSearch(false);
+    }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this._searchReplaceBar?.handleActiveViewChange()));
+    this.registerEvent(this.app.workspace.on("file-open", () => this._searchReplaceBar?.handleActiveViewChange()));
     this.registerEditorExtension(createGrammarCheckerExtension(this));
     this.registerEditorExtension([
       annotationHighlightField,
@@ -2901,6 +2906,7 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
+    this._searchReplaceBar?.close();
     if (this._mindmapDecorationFrame !== undefined) {
       window.cancelAnimationFrame(this._mindmapDecorationFrame);
       this._mindmapDecorationFrame = undefined;

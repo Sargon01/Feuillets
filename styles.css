@@ -5832,6 +5832,19 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   box-shadow: none;
 }
 
+.feuillets-search-scope,
+.feuillets-search-protection {
+  font-size: var(--font-ui-smaller, 11px);
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.feuillets-search-protection {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .feuillets-search-counter {
   font-size: var(--font-ui-smaller, 11px);
   color: var(--text-muted);
