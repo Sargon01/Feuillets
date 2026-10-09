@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, fix/csl-bibliography-clean ]
   pull_request:
     branches: [ main ]
 

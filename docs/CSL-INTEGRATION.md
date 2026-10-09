@@ -91,12 +91,10 @@ when this workflow change was prepared; no workflow claims they are fetchable.
 8. When suitable, update Feuillets' companion pin to the reviewed released
    companion commit and rerun checks. Keep immutable SHAs, never temporary branches.
 
-The current host branch also inherits the preexisting search commit `2758c6a`,
-which is not in the published 3.5.2 tag. This CI change does not alter that commit
-or the remaining uncommitted search work. Before a narrowly scoped host PR, review
-whether that existing parent has already been integrated. If not, obtain separate
-approval for its integration first, or explicitly review its inclusion in the
-host PR. Do not rewrite or transplant the preserved correction commits to hide it.
+The host branch `fix/csl-bibliography-clean` starts from `origin/main` and contains
+the CSL correction and CI commits cherry-picked as `fc19fc8` and `95b9ca8`.
+It excludes the search commit `2758c6a`. That commit and the uncommitted search
+work remain intact in the separate local `main` checkout.
 
 ## User compatibility
 
