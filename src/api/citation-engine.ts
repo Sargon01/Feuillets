@@ -567,7 +567,11 @@ export function validateCitationDocumentResultForRequest(
   };
 }
 
-/** Accepts only complete renderings or explicitly unresolved whole clusters. */
+/**
+ * Accepts complete renderings or explicitly unresolved whole clusters.
+ * Unused rejected bibliography entries are warnings. Recoverable errors must
+ * identify a requested citekey in a requested cluster; every other error is fatal.
+ */
 export function validateCitationClusterResults(
   clusters: readonly CitationClusterInput[],
   result: CitationDocumentResult
@@ -576,10 +580,13 @@ export function validateCitationClusterResults(
   const requested = new Map(clusters.map((cluster) => [cluster.id, cluster]));
   const rendered = new Set<string>();
   const unresolved = new Set<string>();
+  const entryErrorCodes = new Set([
+    "UNKNOWN_CITEKEY", "DUPLICATE_CITEKEY", "UNSUPPORTED_BIBTEX_TYPE", "AMBIGUOUS_CROSSREF", "CYCLIC_CROSSREF",
+  ]);
   for (const diagnostic of result.diagnostics) {
     if (diagnostic.severity !== "error") continue;
     const cluster = diagnostic.clusterId ? requested.get(diagnostic.clusterId) : undefined;
-    if (diagnostic.code !== "UNKNOWN_CITEKEY" || !cluster
+    if (!entryErrorCodes.has(diagnostic.code) || !cluster
       || !cluster.items.some((item) => item.id === diagnostic.citekey)) {
       errors.push(`Unrecoverable citation diagnostic: ${diagnostic.code}.`);
     } else {
@@ -595,7 +602,7 @@ export function validateCitationClusterResults(
   }
   for (const cluster of clusters) {
     if (!rendered.has(cluster.id) && !unresolved.has(cluster.id)) {
-      errors.push(`Missing rendering without an unknown citekey diagnostic: ${cluster.id}.`);
+      errors.push(`Missing rendering without an unresolved citekey diagnostic: ${cluster.id}.`);
     }
   }
   return { valid: errors.length === 0, errors };

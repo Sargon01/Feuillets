@@ -15,18 +15,48 @@ jobs:
   release:
     name: Build, attest and release
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: feuillets
+    env:
+      FEUILLETS_CSL_REF: ${{ vars.FEUILLETS_CSL_REF }}
+      FEUILLETS_CSL_SOURCE: ${{ github.workspace }}/feuillets-csl
+      FEUILLETS_CSL_REQUIRED: '1'
     steps:
       - name: Check out the tagged commit
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          path: feuillets
+
+      - name: Require an explicit companion revision
+        run: |
+          if [[ ! "$FEUILLETS_CSL_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Set repository variable FEUILLETS_CSL_REF to a reviewed, remotely available commit SHA." >&2
+            exit 1
+          fi
+
+      - name: Checkout pinned Feuillets CSL
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          repository: Sargon01/Feuillets-CSL
+          ref: ${{ env.FEUILLETS_CSL_REF }}
+          path: feuillets-csl
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: |
+            feuillets/package-lock.json
+            feuillets-csl/package-lock.json
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Install companion dependencies separately
+        run: npm ci --prefix ../feuillets-csl
 
       - name: Verify tag and release metadata
         run: |
@@ -61,6 +91,9 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Require real companion integration
+        run: npm run test:csl-integration
+
       - name: Build release assets
         run: npm run build
 
@@ -74,9 +107,9 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
         with:
           subject-path: |
-            main.js
-            styles.css
-            manifest.json
+            feuillets/main.js
+            feuillets/styles.css
+            feuillets/manifest.json
 
       - name: Create GitHub release
         env:
