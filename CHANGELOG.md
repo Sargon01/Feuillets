@@ -2,6 +2,20 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.5.3 — 2026-10-10
+
+### Citations CSL
+
+- Les diagnostics bibliographiques récupérables renvoyés par le compagnon ne bloquent plus le rendu des citations valides du document.
+- Les citations valides restent affichées malgré des références incompatibles ou des clés ambiguës ailleurs dans la bibliographie.
+- Un groupe de citations non résolu conserve intégralement sa syntaxe Pandoc, sans rendu partiel ni référence inventée. Les erreurs globales du moteur ou des ressources continuent à préserver la syntaxe brute.
+- La pleine isolation des erreurs touchant les références citées nécessite le moteur corrigé de Feuillets CSL 0.1.4. Mettre à jour Feuillets avant le compagnon ; la conversion BibTeX reste assurée par celui-ci.
+
+### Validation
+
+- Les workflows CI et de publication imposent les tests d'intégration avec le véritable compagnon CSL, épinglé à une révision explicite.
+- Les tests couvrent les groupes de citations, plusieurs bibliographies, les réparations de ressources et les erreurs globales de style, ainsi que les principales surfaces de rendu.
+
 ## 3.5.2 — 2026-10-08
 
 ### Citations CSL
