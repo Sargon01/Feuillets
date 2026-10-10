@@ -211,6 +211,8 @@ import {
 } from "./services/annotation-editor-controller.js";
 
 import { SearchReplaceBar } from "./views/search-replace-bar.js";
+import { GlobalSearchReplace } from "./services/global-search-replace.js";
+import { globalReplaceErrorMessage } from "./ui/search-replace-confirm-modal.js";
 import { searchHighlightField } from "./utils/cm-search-highlighter.js";
 import {
   annotationHighlightField,
@@ -658,6 +660,7 @@ class FeuilletsPlugin extends Plugin {
     { mtime: number; wc: number; chars: number; charsNoSpaces: number; sentences: number; paragraphs: number }
   >;
   _searchReplaceBar?: SearchReplaceBar;
+  private globalSearchReplace?: GlobalSearchReplace;
   _lastBackupAt?: number;
   _isSyncingPanels?: boolean;
   _lastFeuilletsActive?: boolean;
@@ -1601,6 +1604,17 @@ class FeuilletsPlugin extends Plugin {
       id: "open-search-replace-bar",
       name: t("main.cmd.openSearchReplaceBar"),
       callback: () => this.toggleSearchReplaceBar(),
+    });
+    this.addCommand({
+      id: "undo-last-global-replacement",
+      name: t("searchReplace.undoCommand"),
+      callback: async () => {
+        try {
+          const count = await this.getGlobalSearchReplace().undoLast();
+          new Notice(t("searchReplace.undoSuccess", { files: String(count), s: count > 1 ? "s" : "" }));
+          await this._searchReplaceBar?.runSearch(false);
+        } catch (error) { new Notice(globalReplaceErrorMessage(error)); }
+      },
     });
   }
 
@@ -2907,6 +2921,7 @@ class FeuilletsPlugin extends Plugin {
 
   onunload() {
     this._searchReplaceBar?.close();
+    this.globalSearchReplace?.invalidateContext();
     if (this._mindmapDecorationFrame !== undefined) {
       window.cancelAnimationFrame(this._mindmapDecorationFrame);
       this._mindmapDecorationFrame = undefined;
@@ -4012,6 +4027,7 @@ class FeuilletsPlugin extends Plugin {
     const target = this.app.vault.getAbstractFileByPath(path);
     if (!(target instanceof TFolder)) return false;
     if (path === S.projectFolder) return true;
+    this.globalSearchReplace?.invalidateContext();
     if (S.projectFolder && !S.projects.includes(S.projectFolder)) S.projects.push(S.projectFolder);
     this.workspaceFolderPath = undefined;
     S.projectFolder = path;
@@ -6267,6 +6283,17 @@ class FeuilletsPlugin extends Plugin {
       this._searchReplaceBar = new SearchReplaceBar(this.app, this);
     }
     this._searchReplaceBar.toggle();
+  }
+
+  getGlobalSearchReplace(): GlobalSearchReplace {
+    return this.globalSearchReplace ??= new GlobalSearchReplace(this.app, this);
+  }
+
+  getSearchReplaceView(): MarkdownView | null {
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active) return active;
+    const leaf = this._lastMarkdownLeaf;
+    return leaf && leaf.view instanceof MarkdownView && this.app.workspace.getLeavesOfType("markdown").includes(leaf) ? leaf.view : null;
   }
 
   newFolder(parent: TFolder): void { return newFolder(this.app, parent, () => this.renderAllViews(true)); }

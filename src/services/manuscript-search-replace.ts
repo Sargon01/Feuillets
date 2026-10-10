@@ -267,6 +267,10 @@ export function planTextReplacements(content: string, query: string, replacement
 export function replaceInText(content: string | null | undefined, searchQuery: string, replaceQuery: string, options: SearchReplaceOptions = {}): { newContent: string; count: number } {
   if (typeof content !== "string") return { newContent: content || "", count: 0 };
   const changes = planTextReplacements(content, searchQuery, replaceQuery ?? "", options);
+  return { newContent: applyTextReplacements(content, changes), count: changes.length };
+}
+
+export function applyTextReplacements(content: string, changes: readonly TextReplacement[]): string {
   const parts: string[] = [];
   let offset = 0;
   for (const change of changes) {
@@ -274,7 +278,7 @@ export function replaceInText(content: string | null | undefined, searchQuery: s
     offset = change.to;
   }
   parts.push(content.slice(offset));
-  return { newContent: parts.join(""), count: changes.length };
+  return parts.join("");
 }
 
 /**

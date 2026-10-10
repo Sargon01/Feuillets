@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { setImmediate } from "node:timers";
 import { createSearchEditor } from "./search-editor-helper.js";
 
 const isCompiledTest = import.meta.url.includes("/.test-dist/");
@@ -7,9 +8,10 @@ const compiledModule = (path) => new URL(`../.test-dist/${path}`, import.meta.ur
 const modulePath = (path) => isCompiledTest ? `../${path}` : compiledModule(path);
 const { setLocale } = await import(modulePath("src/i18n/index.js"));
 setLocale("en");
-const { MarkdownView, Notice } = await import(isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js"));
+const { MarkdownView, Notice, TFile, TFolder } = await import(isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js"));
 const { SearchReplaceBar } = await import(modulePath("src/views/search-replace-bar.js"));
-const { FeuilletsSearchEngine } = await import(modulePath("src/services/feuillets-search-engine.js"));
+const { createFakeVault } = await import(modulePath("test/helpers/fake-vault.js"));
+const { GlobalSearchReplace } = await import(modulePath("src/services/global-search-replace.js"));
 
 class FakeElement {
   constructor(tag = "div", options = {}) {
@@ -29,6 +31,7 @@ class FakeElement {
   createEl(tag, options = {}) { const child = new FakeElement(tag, options); child.parent = this; this.children.push(child); return child; }
   createDiv(options = {}) { return this.createEl("div", options); }
   createSpan(options = {}) { return this.createEl("span", options); }
+  appendChild(child) { this.children.push(child); child.parent = this; }
   addClass(names) { for (const name of names.split(" ")) this.classes.add(name); }
   setText(text) { this.text = String(text); return this; }
   setAttr() {}
@@ -77,21 +80,35 @@ function createBar({ active = true } = {}) {
   const editor = createSearchEditor("  mot\n mot");
   editor.highlights = 0;
   editor.cm = { state: { doc: { length: 200 } }, dispatch() { editor.highlights += 1; } };
-  const file = { path: "Projet/Scene.md", name: "Scene.md" };
-  const view = Object.assign(new MarkdownView(), { containerEl: parent, file, editor, getMode: () => "source" });
+  const root = new TFolder("Project");
+  const file = new TFile("Project/Scene.md", "  mot\n mot");
+  file.parent = root; root.children = [file];
+  const fake = createFakeVault([root, file]);
+  const view = Object.assign(new MarkdownView(), { containerEl: parent, file, editor, getMode: () => "source", save: () => fake.vault.process(file, () => editor.getValue()) });
   const workspace = {
     getActiveViewOfType() { return active ? view : null; },
     getActiveFile() { return file; },
-    getLeavesOfType() { return []; },
+    getLeavesOfType(type) { return type === "markdown" ? [{ view }] : []; },
     getLeaf() { return { openFile() {}, view }; },
     setActiveLeaf() {},
   };
-  const app = { workspace, vault: { read: async () => editor.getValue(), process: async () => { throw new Error("Unexpected vault write"); } } };
-  const plugin = { renderAllViews: async () => { plugin.renders += 1; }, renders: 0 };
+  const app = { workspace, ...fake, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const plugin = {
+    settings: { projectFolder: root.path, orders: {}, folderPositions: {}, compileFileName: "Compiled.md", projectMeta: {} },
+    getProjectFolder: () => root,
+    editorialRootFor: () => root,
+    compileScopeForFolder: (folder) => ({ type: "folder", projectRoot: root.path, path: folder.path }),
+    compileScopeForSelection: (paths) => ({ type: "selection", projectRoot: root.path, paths }),
+    _binderMultiSelect: new Set([file.path]),
+    getSearchReplaceView: () => active ? view : null,
+    renderAllViews: async () => { plugin.renders += 1; }, renders: 0,
+  };
+  const service = new GlobalSearchReplace(app, plugin);
+  plugin.getGlobalSearchReplace = () => service;
   return { bar: new SearchReplaceBar(app, plugin), parent, editor, file, app, plugin };
 }
 
-test("SearchReplaceBar — état, ouverture, fermeture et champs", async () => {
+test("SearchReplaceBar state, opening, closing and fields", async () => {
   const dom = installDom();
   const { bar, parent, editor } = createBar();
   assert.equal(bar.searchQuery, "");
@@ -127,7 +144,7 @@ test("SearchReplaceBar — état, ouverture, fermeture et champs", async () => {
   Notice.onCreate = null;
 });
 
-test("SearchReplaceBar — remplacement, popover et insertion au curseur", async () => {
+test("SearchReplaceBar replacement, options and cursor insertion", async () => {
   const dom = installDom();
   const { bar } = createBar();
   bar.open();
@@ -161,67 +178,42 @@ test("SearchReplaceBar — remplacement, popover et insertion au curseur", async
   const items = all(bar.popoverEl).filter((element) => element.classes.has("feuillets-search-popover-item"));
   const runCalls = [];
   bar.runSearch = async () => { runCalls.push({ ...bar.options }); };
-  for (const item of [items[0], items[1], items[2], items[3], items[4], items.at(-2), items.at(-1)]) item.dispatchEvent({ type: "click", stopPropagation() {} });
+  for (const item of [items[0], items[1], items[2], items[3], items[4], items.at(-5), items.at(-4)]) item.dispatchEvent({ type: "click", stopPropagation() {} });
   assert.equal(bar.options.ignoreCase, false);
   assert.equal(bar.options.ignoreDiacritics, true);
   assert.equal(bar.options.matchMode, "wholeWord");
-  assert.equal(bar.options.scope, "manuscript");
+  assert.equal(bar.options.scope, "folder");
   assert.ok(runCalls.length >= 7);
   dom.runTimers();
 });
 
-test("SearchReplaceBar — temporisation, navigation et moteur", async () => {
+test("SearchReplaceBar debounce, multi-file navigation and local replacement", async () => {
   const dom = installDom();
-  const { bar, file, editor } = createBar();
+  const { bar, editor, app } = createBar();
   bar.open();
-  bar.options.scope = "manuscript";
+  bar.options.scope = "folder";
   dom.runTimers();
-  const originalSearch = FeuilletsSearchEngine.searchInVault;
-  const originalReplace = FeuilletsSearchEngine.replaceInVault;
-  const searchCalls = [];
-  const replaceCalls = [];
-  FeuilletsSearchEngine.searchInVault = async (_app, _plugin, query, options) => {
-    searchCalls.push({ query, options });
-    return { occurrences: [
-      { file, index: 2, length: 3, line: 0, ch: 2 },
-      { file, index: 7, length: 3, line: 1, ch: 1 },
-    ] };
-  };
-  FeuilletsSearchEngine.replaceInVault = async (_app, _plugin, query, replacement, options) => {
-    replaceCalls.push({ query, replacement, options });
-    return { totalReplacements: 2, filesCount: 1 };
-  };
-  try {
-    bar.searchQuery = "mot";
-    bar.scheduleSearch();
-    bar.scheduleSearch();
-    assert.equal(dom.timers.size, 1);
-    dom.runTimers();
-    await Promise.resolve();
-    assert.equal(searchCalls.length, 1);
-    assert.equal(searchCalls[0].options.includeYaml, false);
-    assert.equal(bar.occurrences.length, 2);
-    await bar.navigateMatch(-1);
-    assert.equal(bar.currentIndex, 1);
-    await bar.navigateMatch(1);
-    assert.equal(bar.currentIndex, 0);
-    assert.ok(editor.selection);
-    assert.ok(editor.highlights > 0);
-
-    bar.options.scope = "document";
-    bar.replaceQuery = "autre";
-    await bar.executeReplaceAll();
-    assert.equal(replaceCalls.length, 0);
-    assert.equal(editor.getValue(), "  autre\n autre");
-    assert.equal(editor.transactions.length, 1);
-
-    bar.searchQuery = "";
-    await bar.runSearch();
-    assert.deepEqual(bar.occurrences, []);
-  } finally {
-    FeuilletsSearchEngine.searchInVault = originalSearch;
-    FeuilletsSearchEngine.replaceInVault = originalReplace;
-  }
+  bar.searchQuery = "mot";
+  bar.scheduleSearch(); bar.scheduleSearch();
+  assert.equal(dom.timers.size, 1);
+  dom.runTimers();
+  await bar.runSearch(false);
+  assert.equal(bar.occurrences.length, 2);
+  await bar.navigateMatch(-1);
+  assert.equal(bar.currentIndex, 1);
+  await bar.navigateMatch(1);
+  assert.equal(bar.currentIndex, 0);
+  assert.ok(editor.selection);
+  assert.ok(editor.highlights > 0);
+  bar.options.scope = "document";
+  bar.replaceQuery = "autre";
+  await bar.executeReplaceAll();
+  assert.equal(editor.getValue(), "  autre\n autre");
+  assert.equal(editor.transactions.length, 1);
+  assert.equal(app.vault.getAbstractFileByPath("Project/Scene.md").content, "  mot\n mot");
+  bar.searchQuery = "";
+  await bar.runSearch();
+  assert.deepEqual(bar.occurrences, []);
 });
 
 test("SearchReplaceBar applies real unsaved replacements and preserves selections after refresh", async () => {
@@ -289,17 +281,88 @@ test("SearchReplaceBar locks concurrent activations and never reports success on
   } finally { Notice.onCreate = null; console.error = originalError; }
 });
 
-test("SearchReplaceBar makes document scope visible and blocks folder replacement", async () => {
+test("SearchReplaceBar shows the exact folder, previews, cancels and confirms real multi-file writes", async () => {
   installDom();
-  const { bar, editor } = createBar();
+  const { bar, editor, app } = createBar();
   bar.showReplace = true;
   bar.open();
   assert.match(bar.containerEl.querySelector(".feuillets-search-scope").text, /Scene.md/);
-  bar.options.scope = "manuscript";
+  bar.options.scope = "folder";
   bar.updateScopeUI();
-  assert.match(bar.containerEl.querySelector(".feuillets-search-scope").text, /search only/);
-  assert.equal(bar.containerEl.querySelector(".feuillets-replace-all-btn").disabled, true);
-  bar.searchQuery = "mot";
-  await bar.executeReplaceAll();
+  assert.match(bar.containerEl.querySelector(".feuillets-search-scope").text, /Project/);
+  assert.equal(bar.containerEl.querySelector(".feuillets-replace-all-btn").disabled, false);
+  bar.searchQuery = "mot"; bar.replaceQuery = "word";
+  const cancelled = bar.executeReplaceAll();
+  while (!bar.previewModal) await new Promise((resolve) => setImmediate(resolve));
+  bar.previewModal.onClose();
+  await cancelled;
   assert.equal(editor.transactions.length, 0);
+  assert.equal(app.vault.getAbstractFileByPath("Project/Scene.md").content, "  mot\n mot");
+  const confirmed = bar.executeReplaceAll();
+  while (!bar.previewModal) await new Promise((resolve) => setImmediate(resolve));
+  const button = bar.previewModal.contentEl.querySelectorAll("button").find((button) => button.textContent === "Replace in 1 sheet");
+  button.click(); button.click();
+  await confirmed;
+  assert.equal(editor.getValue(), "  word\n word");
+  assert.equal(app.vault.getAbstractFileByPath("Project/Scene.md").content, editor.getValue());
+  assert.equal(editor.transactions.length, 1);
+});
+
+test("Binder focus keeps the explicitly tracked Markdown target and selection scope", async () => {
+  installDom();
+  const { bar, plugin, app, editor } = createBar();
+  bar.open();
+  const view = bar.boundView;
+  plugin.getSearchReplaceView = () => view;
+  app.workspace.getActiveViewOfType = () => null;
+  bar.handleActiveViewChange();
+  assert.ok(bar.containerEl);
+  bar.options.scope = "selection";
+  bar.searchQuery = "mot";
+  await bar.runSearch(false);
+  assert.equal(bar.occurrences.length, 2);
+  assert.deepEqual(bar.scope.paths, ["Project/Scene.md"]);
+  bar.options.scope = "document"; bar.replaceQuery = "word";
+  await bar.executeReplaceAll();
+  assert.equal(editor.getValue(), "  word\n word");
+});
+
+test("a stale multi-file confirmation reports failure without success or source writes", async () => {
+  installDom();
+  const { bar, editor, app } = createBar();
+  bar.open(); bar.showReplace = true; bar.options.scope = "folder";
+  bar.searchQuery = "mot"; bar.replaceQuery = "word";
+  const notices = [];
+  Notice.onCreate = (message) => notices.push(message);
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    const pending = bar.executeReplaceAll();
+    while (!bar.previewModal) await new Promise((resolve) => setImmediate(resolve));
+    await bar.executeReplaceAll();
+    editor.edit(0, 0, "later ");
+    bar.previewModal.contentEl.querySelectorAll("button").find((button) => button.textContent === "Replace in 1 sheet").click();
+    await pending;
+    assert.equal(editor.getValue(), "later   mot\n mot");
+    assert.equal(app.vault.getAbstractFileByPath("Project/Scene.md").content, "  mot\n mot");
+    assert.equal(editor.transactions.length, 0);
+    assert.equal(notices.length, 1);
+    assert.match(notices[0], /changed/);
+    assert.doesNotMatch(notices[0], /occurrence.*replaced/);
+    assert.equal(bar.replacing, false);
+  } finally { Notice.onCreate = null; console.error = originalError; }
+});
+
+test("closing the bar while preview is calculated prevents a later confirmation", async () => {
+  installDom();
+  const { bar, plugin } = createBar();
+  bar.open(); bar.options.scope = "folder"; bar.searchQuery = "mot"; bar.replaceQuery = "word";
+  const plan = await plugin.getGlobalSearchReplace().preview({ type: "project", projectRoot: "Project" }, "mot", "word", bar.options);
+  let finish;
+  plugin.getGlobalSearchReplace = () => ({ preview: () => new Promise((resolve) => { finish = resolve; }) });
+  const pending = bar.executeReplaceAll();
+  bar.close(); finish(plan);
+  await pending;
+  assert.equal(bar.previewModal, null);
+  assert.equal(bar.replacing, false);
 });

@@ -1,6 +1,6 @@
 /** Search and replace entry points using the shared text matching rules. */
 import { ChangeSet, Text } from "@codemirror/state";
-import { buildSearchRegExp, findSearchMatches, planTextReplacements, replaceInText, type SearchReplaceOptions } from "./manuscript-search-replace.js";
+import { buildSearchRegExp, findSearchMatches, planTextReplacements, replaceInText, type SearchReplaceOptions, type TextReplacement } from "./manuscript-search-replace.js";
 import type { Editor, TFile } from "obsidian";
 
 export type SearchEditor = Pick<Editor, "getValue" | "listSelections" | "posToOffset" | "offsetToPos" | "transaction">;
@@ -99,6 +99,12 @@ export class FeuilletsSearchEngine {
   static replaceInEditor(editor: SearchEditor, query: string, replacement: string, options: SearchOptions = {}) {
     const content = editor.getValue();
     const changes = planTextReplacements(content, query, replacement ?? "", textOptions(options));
+    return this.applyEditorChanges(editor, content, changes);
+  }
+
+  /** Apply a reviewed plan with the same selection mapping as local replacement. */
+  static applyEditorChanges(editor: SearchEditor, content: string, changes: readonly TextReplacement[]) {
+    if (editor.getValue() !== content) throw new Error("Editor changed since the replacement was planned");
     if (!changes.length) return { totalReplacements: 0, filesCount: 0 };
     const changeSet = ChangeSet.of(changes.map(({ from, to, text }) => ({ from, to, insert: text })), content.length);
     const updated = changeSet.apply(Text.of(content.split("\n")));
