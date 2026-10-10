@@ -356,6 +356,74 @@ export class GlobalSearchReplace {
     return value as RecoveryRecord;
   }
 
+  private async latestRecord(project: TFolder): Promise<{ file: TFile; record: RecoveryRecord }> {
+    const folder = this.app.vault.getAbstractFileByPath(`${getBackupsRoot(this.app, project)?.path ?? feuilletsAuxiliaryPath(project, "backups")}/SearchReplace`);
+    if (!(folder instanceof TFolder)) throw new GlobalReplaceError("noUndo");
+    const candidates = folder.children.filter((file): file is TFile => file instanceof TFile && file.extension === "json").sort((a, b) => b.name.localeCompare(a.name));
+    let latest: { file: TFile; record: RecoveryRecord } | undefined;
+    for (const file of candidates) {
+      const record = this.parseRecord(await this.read(file));
+      if (record.projectPath !== project.path) continue;
+      const status = this.app.vault.getAbstractFileByPath(`${file.path}.state`);
+      if (status instanceof TFile) {
+        const state = await this.read(status);
+        if (state === "complete" || state === "restored" || state === "conflicts") record.state = state;
+      }
+      if (record.state !== "restored") { latest = { file, record }; break; }
+    }
+    if (!latest) throw new GlobalReplaceError("noUndo");
+    return latest;
+  }
+
+  private async validateUndoRecord(project: TFolder, file: TFile, record: RecoveryRecord): Promise<Map<string, TFile>> {
+    // Resolve and validate all saved paths before restoring even the first one.
+    let allowed: Set<TFile>;
+    try { allowed = new Set(resolveSearchReplaceFiles(this.app, this.host, { type: "selection", projectRoot: project.path, paths: record.documents.map(({ path }) => path) })); }
+    catch { throw new GlobalReplaceError("conflict", record.documents.map(({ path }) => path), file.path); }
+    const conflicts: string[] = [];
+    const identities = new Map<string, TFile>();
+    for (const document of record.documents) {
+      const target = this.app.vault.getAbstractFileByPath(document.path);
+      if (!(target instanceof TFile) || !allowed.has(target)) { conflicts.push(document.path); continue; }
+      identities.set(document.path, target);
+      const editor = this.editorFor(target);
+      const disk = await this.read(target);
+      const content = editor?.getValue() ?? disk;
+      const recovering = record.state !== "complete";
+      if (content !== document.result && !(recovering && (content === document.original || !editor && content === document.disk)) || disk !== document.result && !(editor && (disk === document.disk || disk === document.original)) && !(recovering && (disk === document.disk || disk === document.original))) conflicts.push(document.path);
+    }
+    if (conflicts.length) throw new GlobalReplaceError("conflict", conflicts, file.path);
+    return identities;
+  }
+
+  /** Read and validate the existing durable record; never create UI-owned history. */
+  async getUndoStatus(): Promise<{ totalReplacements: number; filesCount: number; complete: boolean; error?: GlobalReplaceError } | null> {
+    if (this.busy) throw new GlobalReplaceError("busy");
+    const project = this.host.getProjectFolder();
+    const version = this.contextVersion;
+    if (!project) return null;
+    let latest: { file: TFile; record: RecoveryRecord };
+    try { latest = await this.latestRecord(project); }
+    catch (error) {
+      if (error instanceof GlobalReplaceError && error.reason === "noUndo") return null;
+      throw error;
+    }
+    const { file, record } = latest;
+    const status = {
+      totalReplacements: record.documents.reduce((count, document) => count + document.changes.length, 0),
+      filesCount: record.documents.length,
+      complete: record.state === "complete",
+    };
+    try {
+      await this.validateUndoRecord(project, file, record);
+      if (this.contextVersion !== version || this.host.getProjectFolder() !== project) throw new GlobalReplaceError("project");
+      return status;
+    } catch (error) {
+      if (!(error instanceof GlobalReplaceError)) throw error;
+      return { ...status, error };
+    }
+  }
+
   async undoLast(): Promise<number> {
     if (this.busy) throw new GlobalReplaceError("busy");
     this.busy = true;
@@ -363,39 +431,10 @@ export class GlobalSearchReplace {
       const project = this.host.getProjectFolder();
       const contextVersion = this.contextVersion;
       if (!project) throw new GlobalReplaceError("scope");
-      const folder = this.app.vault.getAbstractFileByPath(`${getBackupsRoot(this.app, project)?.path ?? feuilletsAuxiliaryPath(project, "backups")}/SearchReplace`);
-      if (!(folder instanceof TFolder)) throw new GlobalReplaceError("noUndo");
-      const candidates = folder.children.filter((file): file is TFile => file instanceof TFile && file.extension === "json").sort((a, b) => b.name.localeCompare(a.name));
-      let latest: { file: TFile; record: RecoveryRecord } | undefined;
-      for (const file of candidates) {
-        const record = this.parseRecord(await this.read(file));
-        if (record.projectPath !== project.path) continue;
-        const status = this.app.vault.getAbstractFileByPath(`${file.path}.state`);
-        if (status instanceof TFile) {
-          const state = await this.read(status);
-          if (state === "complete" || state === "restored" || state === "conflicts") record.state = state;
-        }
-        if (record.state !== "restored") { latest = { file, record }; break; }
-      }
-      if (!latest) throw new GlobalReplaceError("noUndo");
-      const { file, record } = latest;
-      // Resolve and validate all saved paths before restoring even the first one.
-      let allowed: Set<TFile>;
-      try { allowed = new Set(resolveSearchReplaceFiles(this.app, this.host, { type: "selection", projectRoot: project.path, paths: record.documents.map(({ path }) => path) })); }
-      catch { throw new GlobalReplaceError("conflict", record.documents.map(({ path }) => path), file.path); }
+      const { file, record } = await this.latestRecord(project);
+      const identities = await this.validateUndoRecord(project, file, record);
       const conflicts: string[] = [];
-      const identities = new Map<string, TFile>();
-      for (const document of record.documents) {
-        const target = this.app.vault.getAbstractFileByPath(document.path);
-        if (!(target instanceof TFile) || !allowed.has(target)) { conflicts.push(document.path); continue; }
-        identities.set(document.path, target);
-        const editor = this.editorFor(target);
-        const disk = await this.read(target);
-        const content = editor?.getValue() ?? disk;
-        const recovering = record.state !== "complete";
-        if (content !== document.result && !(recovering && (content === document.original || !editor && content === document.disk)) || disk !== document.result && !(editor && (disk === document.disk || disk === document.original)) && !(recovering && (disk === document.disk || disk === document.original))) conflicts.push(document.path);
-      }
-      if (conflicts.length) throw new GlobalReplaceError("conflict", conflicts, file.path);
+
       for (const document of record.documents) {
         try {
           if (this.contextVersion !== contextVersion || this.host.getProjectFolder() !== project) throw new GlobalReplaceError("project");

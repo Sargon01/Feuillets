@@ -98,7 +98,20 @@ export class FeuilletsSearchEngine {
   /** Use the current buffer and original coordinates for one undoable editor transaction. */
   static replaceInEditor(editor: SearchEditor, query: string, replacement: string, options: SearchOptions = {}) {
     const content = editor.getValue();
-    const changes = planTextReplacements(content, query, replacement ?? "", textOptions(options));
+    return this.applyEditorChanges(editor, content, this.planReplacements(content, query, replacement, options));
+  }
+
+  /** Expose the shared planner to presentation code without duplicating matching rules. */
+  static planReplacements(content: string, query: string, replacement: string, options: SearchOptions = {}): TextReplacement[] {
+    return planTextReplacements(content, query, replacement ?? "", textOptions(options));
+  }
+
+  /** Revalidate the current occurrence and apply only its existing planned change. */
+  static replaceOccurrenceInEditor(editor: SearchEditor, occurrence: SearchOccurrence, query: string, replacement: string, options: SearchOptions = {}) {
+    const content = editor.getValue();
+    if (content.slice(occurrence.index, occurrence.index + occurrence.length) !== occurrence.matchText) throw new Error("Search occurrence changed");
+    const changes = this.planReplacements(content, query, replacement, options)
+      .filter(({ from, to }) => from === occurrence.index && to === occurrence.index + occurrence.length);
     return this.applyEditorChanges(editor, content, changes);
   }
 

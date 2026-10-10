@@ -1614,6 +1614,7 @@ class FeuilletsPlugin extends Plugin {
           new Notice(t("searchReplace.undoSuccess", { files: String(count), s: count > 1 ? "s" : "" }));
           await this._searchReplaceBar?.runSearch(false);
         } catch (error) { new Notice(globalReplaceErrorMessage(error)); }
+        finally { await this._searchReplaceBar?.refreshUndoState(); }
       },
     });
   }

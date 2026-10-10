@@ -5515,9 +5515,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-sidebar-container .feuillets-compile-export-btn,
 .feuillets-sidebar-container button.feuillets-export-cta,
 .feuillets-sidebar-container .feuillets-preview-export-launch,
-.feuillets-search-bar button.feuillets-btn-replace-all,
-.feuillets-search-bar button.feuillets-replace-all-btn,
-.feuillets-search-bar button[class*="replace"],
 .modal .feuillets-btn-primary,
 .modal button.mod-cta,
 .modal .feuillets-modal-submit,
@@ -5536,7 +5533,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-tree-pane .is-selected:hover,
 .feuillets-sidebar-content .feuillets-preview-export-launch:hover,
 .feuillets-sidebar-container .feuillets-preview-export-launch:hover,
-.feuillets-search-bar button[class*="replace"]:hover,
 .modal .feuillets-btn-primary:hover,
 .modal button.mod-cta:hover {
   background: color-mix(in srgb, var(--interactive-accent) 30%, transparent);
@@ -5557,14 +5553,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   cursor: pointer;
 }
 
-/* Formatage structurel du bouton Tout remplacer */
-.feuillets-search-bar button.feuillets-btn-replace-all,
-.feuillets-search-bar button.feuillets-replace-all-btn,
-.feuillets-search-bar button[class*="replace"] {
-  padding: 6px var(--size-4-3);
-  cursor: pointer;
-}
-
 /* 2. NEUTRALISATION ET TRANSPARENCE TOTALE DES ICÔNES SECONDAIRES (Y COMPRIS AU SURVOL)
    Négation par classes EXPLICITES (Phase 2) : les seuls boutons CTA Export
    sont .feuillets-export-cta / .feuillets-compile-export-btn /
@@ -5576,10 +5564,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta),
 .feuillets-sidebar-container button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta),
 .feuillets-sidebar-content .clickable-icon,
-.feuillets-search-bar .feuillets-search-settings-btn,
-.feuillets-search-bar .feuillets-search-icon-btn,
-.feuillets-search-bar button:not([class*="replace"]),
-.feuillets-search-bar .clickable-icon,
 .feuillets-research-container button:not(.feuillets-btn-primary),
 .feuillets-research-container .clickable-icon,
 .modal button:not(.mod-cta):not(.feuillets-btn-primary):not([type="submit"]):not(.feuillets-modal-submit) {
@@ -5592,10 +5576,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .feuillets-sidebar-tab-bar .feuillets-tab-btn:hover,
 .feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta):hover,
 .feuillets-sidebar-content .clickable-icon:hover,
-.feuillets-search-bar .feuillets-search-settings-btn:hover,
-.feuillets-search-bar .feuillets-search-icon-btn:hover,
-.feuillets-search-bar button:not([class*="replace"]):hover,
-.feuillets-search-bar .clickable-icon:hover,
 .feuillets-research-container button:not(.feuillets-btn-primary):hover,
 .feuillets-research-container .clickable-icon:hover,
 .modal button:not(.mod-cta):not(.feuillets-btn-primary):hover {
@@ -5686,111 +5666,209 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   color: var(--text-normal);
 }
 
-/* 4. BARRE DE RECHERCHE FLOTTANTE (CHERCHER/REMPLACER) ET HAUTE VISIBILITÉ SOMBRE */
+/* Compact editor search panel. Native menus are hosted outside its scroll area. */
 .feuillets-search-bar {
   position: absolute;
-  top: 14px;
-  left: 50%;
-  transform: translateX(-50%);
+  top: var(--size-4-3);
+  right: var(--size-4-3);
   z-index: 100;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: var(--size-4-1) 10px var(--size-4-1) 6px;
-  border-radius: 20px;
-  background: var(--background-primary-alt);
+  gap: var(--size-4-2);
+  width: min(460px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: var(--size-4-2) var(--size-4-3);
   border: 1px solid var(--background-modifier-border);
-  box-shadow: var(--shadow-s);
-  backdrop-filter: blur(16px);
-}
-
-/* Couleurs Obsidian plutôt que des teintes sombres codées en dur : ces
-   dernières supposaient UN thème sombre précis (quasi-noir, #1e1e23) —
-   sur un thème sombre différent (souvent plus clair ou teinté), la barre
-   flottante jurait au lieu de s'harmoniser. --background-primary/
-   --text-normal s'adaptent, eux, à n'importe quel thème actif. */
-.theme-dark .feuillets-search-bar {
+  border-radius: var(--radius-m);
   background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border-hover);
-  box-shadow: var(--shadow-l);
-}
-
-.theme-dark .feuillets-search-bar input,
-.theme-dark .feuillets-search-input-wrapper {
-  background: var(--background-primary-alt);
-  border: 1px solid var(--background-modifier-border);
   color: var(--text-normal);
-  border-radius: var(--radius-l);
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
 }
 
-.theme-dark .feuillets-search-bar input::placeholder {
-  color: var(--text-faint);
-}
-
-/* =========================================================
-   FEUILLETS — POPOVER COMPACTE & COMPACT-GRID (Style macOS)
-   ========================================================= */
-
-.feuillets-search-popover {
-  position: absolute;
-  top: 100%;
-  left: 10px;
-  margin-top: 6px;
-  padding: var(--size-4-1);
-  border-radius: 10px;
-  background: var(--background-primary);
-  border: 1px solid var(--background-modifier-border);
-  box-shadow: var(--shadow-l);
-  min-width: 170px;
-  max-width: 200px;
-  z-index: 101;
-}
-
-.feuillets-search-popover-item {
-  display: grid;
-  grid-template-columns: 16px 1fr; /* Grille fixe : Symbole / Texte */
+.feuillets-search-header,
+.feuillets-search-scope-row,
+.feuillets-search-secondary,
+.feuillets-search-replace-actions,
+.feuillets-search-undo {
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  border-radius: 5px;
-  font-size: 11px; /* Taille compacte */
-  line-height: 1.3;
-  white-space: nowrap; /* Interdit le retour à la ligne */
+  gap: var(--size-4-2);
+  min-width: 0;
+}
+
+.feuillets-search-header {
+  font-weight: var(--font-medium);
+}
+
+.feuillets-search-header .feuillets-close-btn {
+  margin-left: auto;
+}
+
+.feuillets-search-header svg,
+.feuillets-search-secondary svg {
+  width: var(--icon-s);
+  height: var(--icon-s);
+}
+
+.feuillets-search-scope-row > span,
+.feuillets-search-field-label,
+.feuillets-search-counter,
+.feuillets-search-undo-summary,
+.feuillets-search-status {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.feuillets-search-scope {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.feuillets-search-main-row,
+.feuillets-search-replace-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-width: 0;
+}
+
+.feuillets-search-input-wrapper,
+.feuillets-replace-input-wrapper {
+  display: flex;
+  align-items: center;
+  flex: 1 1 140px;
+  min-width: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s);
+  background: var(--background-modifier-form-field);
+}
+
+.feuillets-search-input-wrapper:focus-within,
+.feuillets-replace-input-wrapper:focus-within {
+  outline: 1px solid var(--background-modifier-border-focus);
+}
+
+.feuillets-search-bar textarea {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  min-height: 30px;
+  padding: var(--size-4-1) var(--size-4-2);
+  resize: none;
+  border: none;
+  background: transparent;
   color: var(--text-normal);
-  cursor: pointer;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-small);
+  line-height: 20px;
+  box-shadow: none;
 }
 
-.feuillets-search-popover-item:hover {
-  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+.feuillets-search-bar textarea:focus {
+  box-shadow: none;
+  outline: none;
 }
 
-/* Colonne icône/coche */
-.feuillets-search-popover-item .popover-icon {
-  text-align: center;
-  font-size: 11px;
-  color: var(--interactive-accent);
-  font-weight: bold;
+.feuillets-search-counter {
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
-.feuillets-search-popover-divider {
-  height: 1px;
-  background: var(--background-modifier-border);
-  margin: 3px var(--size-4-1);
+.feuillets-search-bar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--size-4-1);
+  height: 26px;
+  padding: var(--size-4-1) var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-normal);
 }
 
-/* 3. MENU DÉROULANT (POPOVER RÉGLAGES) EN MODE SOMBRE */
-.theme-dark .feuillets-search-popover {
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border-hover);
-  box-shadow: var(--shadow-l);
+.feuillets-search-bar .feuillets-search-icon-btn {
+  flex: 0 0 26px;
+  width: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
 }
 
-.theme-dark .feuillets-search-popover-item {
+.feuillets-search-secondary button {
+  padding: var(--size-4-1);
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.feuillets-search-bar button:hover:enabled {
+  background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.theme-dark .feuillets-search-popover-item:hover {
-  background: color-mix(in srgb, var(--interactive-accent) 20%, transparent);
+.feuillets-search-bar button:disabled {
+  opacity: var(--icon-opacity-inactive);
+  cursor: default;
+}
+
+.feuillets-search-bar button:focus-visible {
+  outline: 2px solid var(--background-modifier-border-focus);
+  outline-offset: 1px;
+}
+
+.feuillets-search-options,
+.feuillets-search-replace-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--size-4-2);
+}
+
+.feuillets-search-checkbox,
+.feuillets-search-match-modes label {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  font-size: var(--font-ui-smaller);
+}
+
+.feuillets-search-match-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--size-4-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.feuillets-search-match-modes legend {
+  margin-bottom: var(--size-4-1);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+}
+
+.feuillets-search-replace-actions,
+.feuillets-search-undo {
+  flex-wrap: wrap;
+}
+
+.feuillets-search-undo-summary,
+.feuillets-search-status {
+  overflow-wrap: anywhere;
+}
+
+.feuillets-search-bar [hidden],
+.feuillets-search-status:empty {
+  display: none;
 }
 
 .theme-dark .feuillets-list-pane .feuillets-item.is-active {
@@ -5805,85 +5883,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 .theme-dark .feuillets-list-pane .feuillets-item.is-active .feuillets-cell-icon {
   color: var(--text-normal);
 }
-
-.feuillets-search-main-row,
-.feuillets-search-replace-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.feuillets-search-input,
-.feuillets-replace-input {
-  flex: 1;
-  min-width: 0;
-  font-size: var(--font-ui-small, 13px);
-  background: transparent;
-  border: none;
-  color: var(--text-normal);
-  padding: var(--size-4-1) 6px;
-  outline: none;
-  box-shadow: none;
-}
-
-.feuillets-search-input:focus,
-.feuillets-replace-input:focus {
-  outline: none;
-  box-shadow: none;
-}
-
-.feuillets-search-scope,
-.feuillets-search-protection {
-  font-size: var(--font-ui-smaller, 11px);
-  color: var(--text-muted);
-  overflow-wrap: anywhere;
-}
-
-.feuillets-search-protection {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.feuillets-search-counter {
-  font-size: var(--font-ui-smaller, 11px);
-  color: var(--text-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  padding: 0 var(--size-4-1);
-}
-
-.feuillets-search-icon-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  cursor: pointer;
-  color: var(--text-muted);
-  transition: background-color 0.15s ease, color 0.15s ease;
-  flex-shrink: 0;
-}
-
-.feuillets-search-icon-btn:hover {
-  background-color: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-
-.feuillets-search-icon-btn.is-active {
-  background-color: var(--interactive-accent);
-  color: var(--text-on-accent);
-}
-
-.feuillets-replace-all-btn {
-  font-size: var(--font-ui-smaller, 11px);
-  padding: 3px 10px;
-  border-radius: var(--radius-l);
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
 
 .feuillets-progression-history-total {
   margin-top: 6px;

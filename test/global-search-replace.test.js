@@ -530,3 +530,36 @@ test("concurrent confirmations cannot apply the same operation twice", async () 
   assert.equal(backups(f).length, 1);
   await assert.rejects(f.service.apply(plan), reason("changed"));
 });
+
+test("undo status reads the durable record after restart without writing and agrees with conflict validation", async () => {
+  const f = await fixture();
+  assert.equal(await f.service.getUndoStatus(), null);
+  await f.service.apply(await f.service.preview(f.scope, "ney", "word", options));
+  const restarted = new GlobalSearchReplace(f.app, f.host);
+  const before = [...f.files.values()].map((file) => [file.path, file.content]);
+  assert.deepEqual(await restarted.getUndoStatus(), { totalReplacements: 3, filesCount: 3, complete: true });
+  assert.deepEqual([...f.files.values()].map((file) => [file.path, file.content]), before);
+  const { editor } = f.open("Project/c.md");
+  editor.edit(0, 0, "later ");
+  const status = await restarted.getUndoStatus();
+  assert.equal(status.error.reason, "conflict");
+  assert.deepEqual(status.error.paths, ["Project/c.md"]);
+  await assert.rejects(restarted.undoLast(), reason("conflict"));
+  editor.undo();
+  assert.equal((await restarted.getUndoStatus()).error, undefined);
+  await restarted.undoLast();
+  assert.equal(await restarted.getUndoStatus(), null);
+});
+
+test("undo status refuses unreadable or invalid backups and does not advertise an operation from another project", async () => {
+  const f = await fixture();
+  await f.service.apply(await f.service.preview(f.scope, "ney", "word", options));
+  const record = backups(f)[0];
+  const original = record.content;
+  record.content = JSON.stringify({ version: 1 });
+  await assert.rejects(f.service.getUndoStatus(), reason("backup"));
+  record.content = original;
+  const elsewhere = await f.folder("Elsewhere");
+  f.switchProject(elsewhere);
+  assert.equal(await f.service.getUndoStatus(), null);
+});
