@@ -60,3 +60,16 @@ export function refreshSourceAnchor(anchor: SourceAnchor, content: string): Sour
   const range = resolveSourceAnchor(anchor, content);
   return range ? createSourceAnchor(content, range.start, range.end) : null;
 }
+
+/** Local paragraph formatting requires an exact quote. A missing quote is
+ * never reconstructed from neighbouring text; repeated quotes require unique
+ * context, even when one happens to occupy the old character offsets. */
+export function resolveParagraphSourceAnchor(anchor: SourceAnchor, content: string): ResolvedSourceRange | null {
+  const occurrences = findAll(content, anchor.quote);
+  if (occurrences.length === 1) return { start: occurrences[0], end: occurrences[0] + anchor.quote.length };
+  const matches = occurrences.filter((start) =>
+    (!anchor.prefix || content.slice(Math.max(0, start - anchor.prefix.length), start) === anchor.prefix) &&
+    (!anchor.suffix || content.slice(start + anchor.quote.length, start + anchor.quote.length + anchor.suffix.length) === anchor.suffix)
+  );
+  return matches.length === 1 ? { start: matches[0], end: matches[0] + anchor.quote.length } : null;
+}

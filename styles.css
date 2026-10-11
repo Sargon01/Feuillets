@@ -12016,3 +12016,25 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
   text-decoration: underline;
   text-decoration-color: var(--text-accent);
 }
+.feuillets-editor-page-break {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+  margin: var(--size-4-3) 0;
+  width: 100%;
+  font-family: var(--font-interface);
+  font-size: var(--font-ui-smaller);
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--text-faint);
+}
+
+.feuillets-editor-page-break-label {
+  flex: 0 0 auto;
+}
+
+.feuillets-editor-page-break-line {
+  flex: 1;
+  min-width: 0;
+  border-top: 1px solid var(--background-modifier-border);
+}

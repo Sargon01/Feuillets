@@ -47,3 +47,16 @@ test("document layout: a fenced code block is one complete pagination target", (
   assert.equal(markdown.slice(code.startOffset, code.endOffset), "```js\nconst answer = 42;\n```");
   assert.equal(paragraph.kind, "paragraph");
 });
+
+test("document layout: response overrides and a page break coexist without touching source bytes", () => {
+  const markdown = "---\ntitle: Lesson\n---\n\n> [!questions]\n> 1. Why?\n> 2. When?\n\nText.  \n";
+  const before = Buffer.from(markdown);
+  const overrides = [
+    { id: "answer", file: "Lesson.md", kind: "answer-lines", anchor: anchor(markdown, "> 2. When?"), lines: 4 },
+    { id: "break", file: "Lesson.md", kind: "page-break-before", anchor: anchor(markdown, "Text.  ") },
+  ];
+  const rendered = injectDocumentLayoutMarkers(markdown, overrides);
+  assert.match(rendered, /> 2\. When\? FEUILLETS_LAYOUT_ANSWER_LINES_4/);
+  assert.match(rendered, /FEUILLETS_LAYOUT_PAGE_BREAK_BEFORE\n\nText\.  /);
+  assert.deepEqual(Buffer.from(markdown), before);
+});

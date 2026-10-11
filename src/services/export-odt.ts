@@ -16,6 +16,8 @@ import type { ContentVariant } from "./content-variants.js";
 import type { BibliographyLayout } from "../api/citation-contract.js";
 import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
 import { readCslBibliographyLayout, cslBibliographyTabPositionPt } from "./csl-bibliography-layout.js";
+import { paragraphLayoutPropertiesOf } from "./document-layout.js";
+import { hasParagraphLayoutProperties, type ParagraphLayoutProperties } from "./layout-store.js";
 
 /** Premier nom de la liste `fontFamily` CSS du modèle (ex. "'Times New
  * Roman', Times, serif" -> "Times New Roman") : ODF ne connaît pas les
@@ -80,7 +82,24 @@ type OdtOptions = {
   bibliographyAlignment?: boolean;
   footnotes?: ReadonlyMap<string, RenderedFootnote>;
   emittedFootnotes?: Map<string, number>;
+  paragraphStyles?: Map<string, OdtParagraphLayoutStyle>;
 };
+
+export interface OdtParagraphLayoutStyle { parent: string; properties: ParagraphLayoutProperties; pageBreak: boolean; }
+
+export function paragraphLayoutStyleXml(name: string, style: OdtParagraphLayoutStyle): string {
+  const local = style.properties;
+  const front = style.parent === "FrontPage" || style.parent === "FrontPageFirst";
+  const first = style.parent === "FrontPageFirst";
+  const rules = [
+    local.alignment !== undefined ? `fo:text-align="${local.alignment}"` : front ? 'fo:text-align="center"' : "",
+    local.firstLineIndentPt !== undefined ? `fo:text-indent="${local.firstLineIndentPt}pt"` : "",
+    local.spacingBeforePt !== undefined ? `fo:margin-top="${local.spacingBeforePt}pt"` : first ? 'fo:margin-top="4cm"' : "",
+    local.spacingAfterPt !== undefined ? `fo:margin-bottom="${local.spacingAfterPt}pt"` : "",
+    style.pageBreak || first ? 'fo:break-before="page"' : "",
+  ].filter(Boolean).join(" ");
+  return `<style:style style:name="${escapeXml(name)}" style:family="paragraph" style:parent-style-name="Standard"><style:paragraph-properties ${rules}/></style:style>`;
+}
 
 export function cslBibliographyStyleXml(name: string, layout: BibliographyLayout, fontSizePt = 12): string {
   const indentPt = layout.secondFieldAlign ? cslBibliographyTabPositionPt(layout, fontSizePt) : layout.hangingIndent ? 2 * fontSizePt : 0;
@@ -191,7 +210,16 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
     return `<text:h text:style-name="Heading_20_${level}" text:outline-level="${level}"${manualBreak}>${styledChildren}</text:h>`;
   }
   if (tag === "p") {
-    return `<text:p text:style-name="${opts.frontStyle || "Standard"}"${manualBreak}>${styledChildren}</text:p>`;
+    const parent = opts.frontStyle || "Standard";
+    const properties = paragraphLayoutPropertiesOf(element);
+    if (opts.paragraphStyles && (hasParagraphLayoutProperties(properties) || manualBreak)) {
+      const style: OdtParagraphLayoutStyle = { parent, properties, pageBreak: !!manualBreak };
+      const existing = [...opts.paragraphStyles].find(([, value]) => JSON.stringify(value) === JSON.stringify(style));
+      const name = existing?.[0] ?? `FeuilletsParagraph${opts.paragraphStyles.size + 1}`;
+      if (!existing) opts.paragraphStyles.set(name, style);
+      return `<text:p text:style-name="${name}">${styledChildren}</text:p>`;
+    }
+    return `<text:p text:style-name="${parent}"${manualBreak}>${styledChildren}</text:p>`;
   }
   if (tag === "blockquote") {
     return `<text:p text:style-name="${opts.frontStyle || "Quotations"}">${styledChildren}</text:p>`;
@@ -266,7 +294,8 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   ].filter(Boolean).join(" ");
 
   const bibliographyStyles = new Map<string, BibliographyLayout>();
-  const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider, bibliographyStyles,
+  const paragraphStyles = new Map<string, OdtParagraphLayoutStyle>();
+  const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider, bibliographyStyles, paragraphStyles,
     footnotes: new Map(footnotes.map((note) => [note.id, note])), emittedFootnotes: new Map() };
   const bodyXml =
     Array.from(containerEl.childNodes).map((node) => domToOdtContent(node, sceneDividerOpts)).join("\n");
@@ -306,6 +335,7 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   const stylesXml = `<?xml version="1.0" encoding="UTF-8"?>
 <office:document-styles xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" office:version="1.2">
   <office:styles>
+    ${paragraphStyles.size ? '<style:style style:name="Standard" style:family="paragraph"/>' : ""}
     <style:default-style style:family="paragraph">
       <style:paragraph-properties fo:line-height="${Math.round(body.lineHeight * 100)}%" ${indentRule} ${paragraphSpacingRule} fo:text-align="${bodyAlign}"/>
       <style:text-properties fo:font-name="${fontName}" fo:font-size="${body.fontSizePt}pt" fo:color="#000000"/>
@@ -337,6 +367,7 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   </office:font-face-decls>
   <office:automatic-styles>
     ${[...bibliographyStyles].map(([name, layout]) => cslBibliographyStyleXml(name, layout, body.fontSizePt)).join("\n")}
+    ${[...paragraphStyles].map(([name, style]) => paragraphLayoutStyleXml(name, style)).join("\n")}
     <style:style style:name="Bold" style:family="text">
       <style:text-properties fo:font-weight="bold"/>
     </style:style>

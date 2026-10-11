@@ -184,11 +184,18 @@ export function applyFragmentPresentation(
   continues: boolean,
   textAlign?: string
 ) {
+  const local = /(?:^|\s)feuillets-paragraph-(?:alignment|indent|before|after)-/u.test(fragment.getAttribute?.("class") || "");
+  const style = (properties: Record<string, string>): void => {
+    if (local) {
+      // Preserve local geometry even when the host has no setCssProps helper.
+      for (const [key, value] of Object.entries(properties)) (fragment as HTMLElement).style.setProperty(key, value);
+    } else applyCss(fragment as HTMLElement, properties);
+  };
   fragment.classList.add(continuation ? FRAGMENT_CONTINUATION_CLASS : FRAGMENT_START_CLASS);
-  if (continuation) applyCss(fragment as HTMLElement, CONTINUATION_STYLE);
+  if (continuation) style(CONTINUATION_STYLE);
   if (continues) {
     fragment.classList.add(FRAGMENT_CONTINUES_CLASS);
-    if (textAlign === "justify") applyCss(fragment as HTMLElement, CONTINUES_JUSTIFY_STYLE);
+    if (textAlign === "justify") style(CONTINUES_JUSTIFY_STYLE);
   }
 }
 
@@ -504,13 +511,16 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
       }
 
       const total = textLength(source);
+      // Only the new local alignment class overrides the historical geometry.
+      // Cloned fragments keep this class and their pre-measurement inline style.
+      const paragraphAlignment = source.getAttribute("class")?.match(/(?:^|\s)feuillets-paragraph-alignment-(left|center|right|justify)(?:\s|$)/u)?.[1] ?? geometry.textAlign;
       let start = 0;
       while (start < total) {
         // The complete remaining paragraph is the first and authoritative
         // candidate. Its real composition box alone decides whether it fits.
         const candidate = cloneTextFragment(source, start, total);
         if (!candidate) break;
-        applyFragmentPresentation(candidate, start > 0, false, geometry.textAlign);
+        applyFragmentPresentation(candidate, start > 0, false, paragraphAlignment);
         page.content.appendChild(candidate);
         const candidateOverflows = overflowsWithReservedBottomArea(page.content, geometry, root);
         yield;
@@ -530,7 +540,7 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
           const end = start + prefixEnds[index];
           const prefix = cloneTextFragment(source, start, end);
           if (!prefix) continue;
-          applyFragmentPresentation(prefix, start > 0, true, geometry.textAlign);
+          applyFragmentPresentation(prefix, start > 0, true, paragraphAlignment);
           page.content.appendChild(prefix);
           const prefixOverflows = overflowsWithReservedBottomArea(page.content, geometry, root);
           yield;
@@ -552,7 +562,7 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
           // paragraph once, rather than splitting a word or looping forever.
           const oversized = cloneTextFragment(source, start, total);
           if (!oversized) break;
-          applyFragmentPresentation(oversized, start > 0, false, geometry.textAlign);
+          applyFragmentPresentation(oversized, start > 0, false, paragraphAlignment);
           oversized.setAttribute("data-pagination-oversized", "true");
           place(oversized);
           break;

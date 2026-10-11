@@ -35,6 +35,7 @@ import {
 import { readCslBibliographyLayout, cslBibliographyTabPositionPt } from "./csl-bibliography-layout.js";
 import { normalizeFootnoteFragment } from "./footnote-dom.js";
 import { CSL_BIBLIOGRAPHY_ANCHOR_ATTR } from "./csl-bibliography-anchor.js";
+import { paragraphLayoutPropertiesOf } from "./document-layout.js";
 import {
   FRONT_PAGE_LINE_SPACING,
   alignmentFor,
@@ -349,6 +350,9 @@ export function blockToParagraphs(
   if (!el || el.nodeType !== ELEMENT_NODE) return [];
   if (el.getAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR) !== null) return [];
   const tag = el.tagName;
+  const manualPageBreak = !!frontOverride?.manualPageBreak || el.classList.contains("feuillets-page-break-before");
+  // A manual body break is independent of title-page typography.
+  if (frontOverride && !("style" in frontOverride || "isTitleLine" in frontOverride)) frontOverride = null;
 
   if (el.classList.contains("feuillets-csl-bibliography-entry")) {
     const layout = readCslBibliographyLayout(el);
@@ -370,7 +374,7 @@ export function blockToParagraphs(
     return [
       new Paragraph({
         heading: HEADING_MAP[tag],
-        pageBreakBefore: !!frontOverride?.manualPageBreak || (frontOverride ? false : pageBreak),
+        pageBreakBefore: manualPageBreak || (frontOverride ? false : pageBreak),
         alignment: frontOverride ? frontAlignment(frontOverride) : undefined,
         spacing: frontOverride ? frontSpacing(frontOverride) : undefined,
         children: inlineChildren(
@@ -383,10 +387,15 @@ export function blockToParagraphs(
     ];
   }
   if (tag === "P") {
+    const local = paragraphLayoutPropertiesOf(el);
+    const baseSpacing = frontOverride ? frontSpacing(frontOverride)
+      : tpl.paragraphSpacingPt != null || tpl.paragraphSpacingAfterPt != null
+        ? { before: tpl.paragraphSpacingPt != null ? tpl.paragraphSpacingPt * 20 : undefined, after: tpl.paragraphSpacingAfterPt != null ? tpl.paragraphSpacingAfterPt * 20 : undefined }
+        : tpl.paragraphSpacing ? { after: 200 } : undefined;
     const paragraphs = [
       new Paragraph({
-        pageBreakBefore: !!frontOverride?.manualPageBreak,
-        alignment: frontOverride ? frontAlignment(frontOverride) : alignmentFor(tpl),
+        pageBreakBefore: manualPageBreak,
+        alignment: local.alignment !== undefined ? alignmentFor({ align: local.alignment }) : frontOverride ? frontAlignment(frontOverride) : alignmentFor(tpl),
         indent: frontOverride
           ? frontOverride.style && (frontOverride.style.marginLeftPt != null || frontOverride.style.marginRightPt != null)
             ? { left: frontOverride.style.marginLeftPt != null ? `${frontOverride.style.marginLeftPt}pt` : undefined, right: frontOverride.style.marginRightPt != null ? `${frontOverride.style.marginRightPt}pt` : undefined }
@@ -394,16 +403,16 @@ export function blockToParagraphs(
           : tpl.indent
           ? { firstLine: tpl.indentPt ? `${tpl.indentPt}pt` : "1.25cm" }
           : undefined,
-        spacing: frontOverride
-          ? frontSpacing(frontOverride)
-          : tpl.paragraphSpacingPt != null || tpl.paragraphSpacingAfterPt != null
-          ? {
-            before: tpl.paragraphSpacingPt != null ? tpl.paragraphSpacingPt * 20 : undefined,
-            after: tpl.paragraphSpacingAfterPt != null ? tpl.paragraphSpacingAfterPt * 20 : undefined,
-          }
-          : tpl.paragraphSpacing
-          ? { after: 200 }
-          : undefined,
+        ...(local.firstLineIndentPt !== undefined ? { indent: {
+          ...(frontOverride?.style?.marginLeftPt != null ? { left: `${frontOverride.style.marginLeftPt}pt` } : {}),
+          ...(frontOverride?.style?.marginRightPt != null ? { right: `${frontOverride.style.marginRightPt}pt` } : {}),
+          firstLine: local.firstLineIndentPt * 20,
+        } } : {}),
+        spacing: local.spacingBeforePt !== undefined || local.spacingAfterPt !== undefined ? {
+          ...baseSpacing,
+          ...(local.spacingBeforePt !== undefined ? { before: local.spacingBeforePt * 20 } : {}),
+          ...(local.spacingAfterPt !== undefined ? { after: local.spacingAfterPt * 20 } : {}),
+        } : baseSpacing,
         children: inlineChildren(
           el,
           footnoteIdByHref,
@@ -421,7 +430,7 @@ export function blockToParagraphs(
     const children = Array.from(el.children);
     return children.flatMap((child, index) => [
       new Paragraph({
-        pageBreakBefore: index === 0 && !!frontOverride?.manualPageBreak,
+        pageBreakBefore: index === 0 && manualPageBreak,
         style: "FeuilletsCitation",
         alignment: frontOverride ? AlignmentType.CENTER : undefined,
         spacing: frontOverride ? FRONT_PAGE_LINE_SPACING : quote && (quote.marginTopPt != null || quote.marginBottomPt != null)
@@ -444,7 +453,7 @@ export function blockToParagraphs(
     return Array.from(el.children).map((li, i) => {
       const prefix = tag === "UL" ? "• " : `${i + 1}. `;
       return new Paragraph({
-        pageBreakBefore: i === 0 && !!frontOverride?.manualPageBreak,
+        pageBreakBefore: i === 0 && manualPageBreak,
         spacing: frontOverride ? FRONT_PAGE_LINE_SPACING : undefined,
         alignment: frontOverride ? AlignmentType.CENTER : undefined,
         children: [new TextRun(prefix), ...inlineChildren(li, footnoteIdByHref, images)],
@@ -452,10 +461,10 @@ export function blockToParagraphs(
     });
   }
   if (tag === "HR") {
-    return [new Paragraph({ alignment: AlignmentType.CENTER, children: [new TextRun(tpl.sceneDivider || "* * *")] })];
+    return [new Paragraph({ ...(manualPageBreak ? { pageBreakBefore: true } : {}), alignment: AlignmentType.CENTER, children: [new TextRun(tpl.sceneDivider || "* * *")] })];
   }
   if (tag === "PRE" || tag === "CODE") {
-    return [new Paragraph({ children: [new TextRun({ text: el.textContent || "", font: "Courier New" })] })];
+    return [new Paragraph({ ...(manualPageBreak ? { pageBreakBefore: true } : {}), children: [new TextRun({ text: el.textContent || "", font: "Courier New" })] })];
   }
   return Array.from(el.children).flatMap((child) => blockToParagraphs(child, footnoteIdByHref, tpl, headings, images, frontOverride));
 }

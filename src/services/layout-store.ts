@@ -5,6 +5,8 @@ import { ensureFolder } from "./project-files.js";
 import { t } from "../i18n/index.js";
 import {
   refreshSourceAnchor,
+  createSourceAnchor,
+  resolveParagraphSourceAnchor,
   resolveSourceAnchor,
   type ResolvedSourceRange,
   type SourceAnchor,
@@ -14,14 +16,22 @@ export interface AnswerLinesOverride { id: string; file: string; kind: "answer-l
 export interface AnswerSpaceOverride { id: string; file: string; kind: "answer-space"; anchor: SourceAnchor; amount: number; unit: "lh" | "mm"; }
 export interface PageBreakBeforeOverride { id: string; file: string; kind: "page-break-before"; anchor: SourceAnchor; }
 export interface SlideLayoutOverride { id: string; file: string; kind: "slide-layout"; anchor: SourceAnchor; layout: "flow" | "columns" | "image-left" | "image-right"; }
-export type LayoutOverride = AnswerLinesOverride | AnswerSpaceOverride | PageBreakBeforeOverride | SlideLayoutOverride;
+export interface ParagraphLayoutProperties {
+  alignment?: "left" | "center" | "right" | "justify";
+  firstLineIndentPt?: number;
+  spacingBeforePt?: number;
+  spacingAfterPt?: number;
+}
+export interface ParagraphLayoutOverride extends ParagraphLayoutProperties { id: string; file: string; kind: "paragraph-layout"; anchor: SourceAnchor; }
+export type LayoutOverride = AnswerLinesOverride | AnswerSpaceOverride | PageBreakBeforeOverride | SlideLayoutOverride | ParagraphLayoutOverride;
 export interface LayoutStore { version: 2; overrides: LayoutOverride[]; }
 export type NewLayoutOverride = Omit<LayoutOverride, "id">;
 export type NewLayoutInput =
   | Omit<AnswerLinesOverride, "id">
   | Omit<AnswerSpaceOverride, "id">
   | Omit<PageBreakBeforeOverride, "id">
-  | Omit<SlideLayoutOverride, "id">;
+  | Omit<SlideLayoutOverride, "id">
+  | Omit<ParagraphLayoutOverride, "id">;
 
 const LAYOUT_FILE_NAME = "layout.json";
 const UNITS = ["lh", "mm"] as const;
@@ -55,6 +65,20 @@ function finitePositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && Number.isInteger(value) && value > 0;
 }
 
+export function validParagraphLayoutProperties(value: unknown): value is ParagraphLayoutProperties {
+  const properties = record(value);
+  if (!properties) return false;
+  if (properties.alignment !== undefined && (typeof properties.alignment !== "string" || !["left", "center", "right", "justify"].includes(properties.alignment))) return false;
+  return ["firstLineIndentPt", "spacingBeforePt", "spacingAfterPt"].every((key) => {
+    const amount = properties[key];
+    return amount === undefined || (typeof amount === "number" && Number.isSafeInteger(amount) && amount >= 0);
+  });
+}
+
+export function hasParagraphLayoutProperties(properties: ParagraphLayoutProperties): boolean {
+  return properties.alignment !== undefined || properties.firstLineIndentPt !== undefined || properties.spacingBeforePt !== undefined || properties.spacingAfterPt !== undefined;
+}
+
 function validOverride(value: unknown): value is LayoutOverride {
   const o = record(value);
   if (!o || typeof o.id !== "string" || !o.id || !validRelativeMarkdownPath(o.file) || typeof o.kind !== "string") return false;
@@ -63,6 +87,7 @@ function validOverride(value: unknown): value is LayoutOverride {
     case "answer-space": return validAnchor(o.anchor) && finitePositiveInteger(o.amount) && typeof o.unit === "string" && UNITS.includes(o.unit as AnswerSpaceOverride["unit"]);
     case "page-break-before": return validAnchor(o.anchor);
     case "slide-layout": return validAnchor(o.anchor) && typeof o.layout === "string" && SLIDE_LAYOUTS.includes(o.layout as SlideLayoutOverride["layout"]);
+    case "paragraph-layout": return validAnchor(o.anchor) && validParagraphLayoutProperties(o) && hasParagraphLayoutProperties(o);
     default: return false;
   }
 }
@@ -225,13 +250,14 @@ export async function deleteLayoutOverride(app: App, settings: FeuilletsSettings
 }
 
 export function resolveLayoutOverride(override: LayoutOverride, content: string): ResolvedSourceRange | null {
-  return resolveSourceAnchor(override.anchor, content);
+  return override.kind === "paragraph-layout" ? resolveParagraphSourceAnchor(override.anchor, content) : resolveSourceAnchor(override.anchor, content);
 }
 
 function refreshed(anchor: SourceAnchor, content: string): SourceAnchor | null { return refreshSourceAnchor(anchor, content); }
 
 export function refreshLayoutOverrideAnchors(override: LayoutOverride, content: string): LayoutOverride | null {
-  const anchor = refreshed(override.anchor, content);
+  const range = override.kind === "paragraph-layout" ? resolveLayoutOverride(override, content) : null;
+  const anchor = override.kind === "paragraph-layout" ? (range ? createSourceAnchor(content, range.start, range.end) : null) : refreshed(override.anchor, content);
   return anchor ? { ...override, anchor } : null;
 }
 

@@ -425,8 +425,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
         frontOverride = { isTitleLine };
       }
     }
-    const blockOverride = child.classList.contains("feuillets-page-break-before") ? { ...(frontOverride || {}), manualPageBreak: true } : frontOverride;
-    const paras = blockToParagraphs(child, footnoteIdByHref, tpl, headings, images, blockOverride);
+    const paras = blockToParagraphs(child, footnoteIdByHref, tpl, headings, images, frontOverride);
     (currentFrontBuffer || bodyParagraphs).push(...paras);
   }
   if (openBookmarkLinkId != null) {

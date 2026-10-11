@@ -1,16 +1,34 @@
-import { resolveLayoutOverride, type LayoutOverride } from "./layout-store.js";
+import { parser, Table } from "@lezer/markdown";
+import { resolveLayoutOverride, type LayoutOverride, type ParagraphLayoutProperties } from "./layout-store.js";
 import { SEMANTIC_ROLE_ALIASES, type SemanticRole } from "../utils/semantic-roles.js";
 
 export const DOCUMENT_LAYOUT_EXPORT_CSS = `
 .feuillets-page-break-before {
   break-before: page;
   page-break-before: always;
-}`;
+}` + ["left", "center", "right", "justify"].map((alignment) => `
+p.feuillets-paragraph-alignment-${alignment} { text-align: ${alignment}; }`).join("")
+  + [0, 6, 12, 18].map((amount) => `
+p.feuillets-paragraph-indent-${amount} { text-indent: ${amount}pt; }
+p.feuillets-paragraph-before-${amount} { margin-top: ${amount}pt; }
+p.feuillets-paragraph-after-${amount} { margin-bottom: ${amount}pt; }`).join("");
 
 const PREFIX = "FEUILLETS_LAYOUT_";
 const BLOCK_KINDS = new Set(["heading", "hr", "table", "image", "list", "blockquote", "paragraph", "code"]);
+const PARAGRAPH_PARSER = parser.configure([Table]);
 type BlockKind = "heading" | "hr" | "table" | "image" | "list" | "blockquote" | "paragraph" | "code";
 export interface DocumentLayoutBlock { kind: BlockKind; startOffset: number; endOffset: number; startLine: number; endLine: number; role?: SemanticRole | null; questionLineOffset?: number; }
+
+/** Only top-level Markdown paragraphs can receive typography overrides.
+ * The parser excludes lazy list continuations, HTML and indented code, which
+ * the existing line classifier deliberately does not fully interpret. */
+export function isOrdinaryLayoutParagraph(markdown: string, block: Pick<DocumentLayoutBlock, "kind" | "startOffset" | "endOffset">): boolean {
+  if (block.kind !== "paragraph" && block.kind !== "table") return false;
+  if (/^\s{0,3}(?:\[\^[^\]]+\]:|\$\$|%%)/u.test(markdown.slice(block.startOffset, block.endOffset))) return false;
+  return PARAGRAPH_PARSER.parse(markdown).topNode.getChildren("Paragraph").some((node) =>
+    node.from >= block.startOffset && /^ {0,3}$/u.test(markdown.slice(block.startOffset, node.from)) && node.to === block.endOffset
+  );
+}
 
 function lineRanges(markdown: string): Array<{ text: string; start: number; end: number }> {
   const result: Array<{ text: string; start: number; end: number }> = [];
@@ -85,6 +103,12 @@ function markerFor(override: LayoutOverride): string | null {
     case "answer-lines": return `${PREFIX}ANSWER_LINES_${override.lines}`;
     case "answer-space": return `${PREFIX}ANSWER_SPACE_${override.amount}_${override.unit.toUpperCase()}`;
     case "page-break-before": return `${PREFIX}PAGE_BREAK_BEFORE`;
+    case "paragraph-layout": return [
+      override.alignment !== undefined ? `${PREFIX}PARAGRAPH_ALIGNMENT_${override.alignment.toUpperCase()}` : "",
+      override.firstLineIndentPt !== undefined ? `${PREFIX}PARAGRAPH_INDENT_${override.firstLineIndentPt}` : "",
+      override.spacingBeforePt !== undefined ? `${PREFIX}PARAGRAPH_BEFORE_${override.spacingBeforePt}` : "",
+      override.spacingAfterPt !== undefined ? `${PREFIX}PARAGRAPH_AFTER_${override.spacingAfterPt}` : "",
+    ].filter(Boolean).join("\n\n");
     default: return null;
   }
 }
@@ -104,6 +128,7 @@ export function injectDocumentLayoutMarkers(markdown: string, overrides: LayoutO
     } else {
       const target = blockAt(blocks, resolved.start, resolved.end);
       if (!target || (override.kind === "page-break-before" && target.kind === "code" && target.startOffset < resolved.start)) continue;
+      if (override.kind === "paragraph-layout" && !isOrdinaryLayoutParagraph(markdown, target)) continue;
       insertions.push({ offset: target.startOffset, text: `${marker}\n\n`, order: override.kind === "page-break-before" ? 0 : 2 });
     }
   }
@@ -114,7 +139,33 @@ export function injectDocumentLayoutMarkers(markdown: string, overrides: LayoutO
 }
 
 /** The complete, deliberately punctuation-free in-memory protocol. */
-const DOCUMENT_MARKER = /FEUILLETS_LAYOUT_(?:ANSWER_LINES_\d+|ANSWER_SPACE_\d+_(?:LH|MM)|PAGE_BREAK_BEFORE)/gu;
+const DOCUMENT_MARKER = /FEUILLETS_LAYOUT_(?:ANSWER_LINES_\d+|ANSWER_SPACE_\d+_(?:LH|MM)|PAGE_BREAK_BEFORE|PARAGRAPH_ALIGNMENT_(?:LEFT|CENTER|RIGHT|JUSTIFY)|PARAGRAPH_(?:INDENT|BEFORE|AFTER)_\d+)/gu;
+
+const PARAGRAPH_CLASSES = {
+  alignment: "feuillets-paragraph-alignment-",
+  firstLineIndentPt: "feuillets-paragraph-indent-",
+  spacingBeforePt: "feuillets-paragraph-before-",
+  spacingAfterPt: "feuillets-paragraph-after-",
+} as const;
+
+/** Classes survive the common DOM cleanup and serialization into EPUB.
+ * Exporters read only the declared local properties, never computed defaults. */
+export function paragraphLayoutPropertiesOf(element: { getAttribute(name: string): string | null }): ParagraphLayoutProperties {
+  const result: ParagraphLayoutProperties = {};
+  for (const name of (element.getAttribute("class") || "").split(/\s+/u)) {
+    if (name.startsWith(PARAGRAPH_CLASSES.alignment)) {
+      const value = name.slice(PARAGRAPH_CLASSES.alignment.length);
+      if (value === "left" || value === "center" || value === "right" || value === "justify") result.alignment = value;
+    }
+    for (const key of ["firstLineIndentPt", "spacingBeforePt", "spacingAfterPt"] as const) {
+      if (!name.startsWith(PARAGRAPH_CLASSES[key])) continue;
+      const value = name.slice(PARAGRAPH_CLASSES[key].length);
+      const number = Number(value);
+      if (/^\d+$/u.test(value) && Number.isSafeInteger(number)) result[key] = number;
+    }
+  }
+  return result;
+}
 
 function markerTextNodes(root: Element): Array<{ node: Text; parent: HTMLElement; block: HTMLElement }> {
   const out: Array<{ node: Text; parent: HTMLElement; block: HTMLElement }> = [];
@@ -153,6 +204,18 @@ function nextQuestionItem(parent: HTMLElement): HTMLElement | null {
 }
 
 function applyToken(root: HTMLElement, block: HTMLElement, parent: HTMLElement, marker: string): void {
+  const paragraph = marker.match(/^FEUILLETS_LAYOUT_PARAGRAPH_(ALIGNMENT|INDENT|BEFORE|AFTER)_([A-Z]+|\d+)$/u);
+  if (paragraph) {
+    const target = nextRealLayoutBlock(root, block);
+    if (!(target instanceof HTMLElement) || target.tagName !== "P") return;
+    const keys = { ALIGNMENT: "alignment", INDENT: "firstLineIndentPt", BEFORE: "spacingBeforePt", AFTER: "spacingAfterPt" } as const;
+    const kind = paragraph[1] as keyof typeof keys;
+    const value = paragraph[2].toLowerCase();
+    target.classList.add(`${PARAGRAPH_CLASSES[keys[kind]]}${value}`);
+    const css = { ALIGNMENT: "text-align", INDENT: "text-indent", BEFORE: "margin-top", AFTER: "margin-bottom" } as const;
+    target.style.setProperty(css[kind], kind === "ALIGNMENT" ? value : `${value}pt`);
+    return;
+  }
   if (marker === `${PREFIX}PAGE_BREAK_BEFORE`) {
     nextRealLayoutBlock(root, block)?.classList.add("feuillets-page-break-before");
     return;

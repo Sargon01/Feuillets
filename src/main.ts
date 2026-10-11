@@ -190,7 +190,7 @@ import { FootnoteCheckModal } from "./ui/footnote-modals.js";
 import { FileStatsModal } from "./ui/stats-modal.js";
 import { AnnotationPopover } from "./ui/annotation-popover.js";
 import { LayoutDirectiveModal, type LayoutDirectiveValues } from "./ui/layout-directive-modal.js";
-import { resolveLayoutDirectiveContext } from "./utils/editor-layout-directives.js";
+import { resolveLayoutDirectiveContext, resolveLayoutDirectiveEditorContext } from "./utils/editor-layout-directives.js";
 import {
   toManuscriptRelativePath,
   remapAnnotationsAfterRename,
@@ -201,7 +201,9 @@ import { addWorkNote, deleteWorkNote, updateWorkNote, remapWorkNotesAfterRename 
 import { remapLayoutAfterRename, removeLayoutAfterDelete, LayoutFileCorruptedError } from "./services/layout-store.js";
 import { createSourceAnchor } from "./services/source-anchor.js";
 import { addCitationOccurrence, remapCitationRegistryAfterRename } from "./services/citation-registry.js";
-import { applyDocumentLayoutChanges, documentLayoutValuesForTarget, type DocumentLayoutTarget } from "./services/document-layout-actions.js";
+import { applyDocumentLayoutChanges, applyParagraphLayoutChange, documentLayoutValuesForTarget, toggleDocumentLayoutPageBreak, type DocumentLayoutTarget } from "./services/document-layout-actions.js";
+import { buildLayoutDirectiveMenu, waitForLayoutMenuState } from "./ui/layout-directive-menu.js";
+import { isOrdinaryLayoutParagraph } from "./services/document-layout.js";
 import { pageBreakAnchorsForFile } from "./services/document-layout-actions.js";
 import { documentLayoutPageBreakPlugin, setDocumentLayoutPageBreakAnchors } from "./utils/cm-document-layout.js";
 import {
@@ -2468,26 +2470,40 @@ class FeuilletsPlugin extends Plugin {
     if (!hasSubmenu) addActions(menu, actions.slice(1), true);
   }
 
-  /** Entrée « Disposition… » du menu contextuel éditeur. N'apparaît que dans
-   * une vraie MarkdownView appartenant
-   * à un projet Feuillets (même portée que `.feuillets-project-editor`,
-   * isFileInsideProject — jamais dupliquée, §3 du lot) et seulement si le
-   * bloc sous le curseur est compatible 3A ou 3B (resolveLayoutDirectiveContext,
-   * utils/editor-layout-directives.ts, moteur pur). Continu (Scrivenings)
-   * reste hors périmètre (§28) : seul l'editor-menu natif d'Obsidian est ciblé. */
+  private layoutDirectiveUpdate?: Promise<void>;
+
+  /** Editorial composition in the native project Markdown editor only.
+   * Continu keeps its existing context menu and editor behavior. */
   registerLayoutDirectiveContextMenu(): void {
     this.registerEvent(
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
-        if (!(view instanceof MarkdownView) || !view.file) return;
+        if (!(view instanceof MarkdownView) || !view.file || view.file.extension !== "md") return;
         if (!isFileInsideProject(view.file, this.getProjectFolder())) return;
-        const context = resolveLayoutDirectiveContext(editor.getValue(), editor.getCursor().line);
+        const context = resolveLayoutDirectiveEditorContext(editor, this._lastContextMenuCoords);
         if (!context) return;
-        menu.addItem((item) => {
-          item.setTitle(t("editorMenu.layoutDirective")).setIcon("layout-panel-left").onClick(() => {
-            const file = view.file;
-            if (file) void this.openLayoutDirectiveModal(editor, file, context);
-          });
+        const file = view.file;
+        const root = this.getProjectFolder();
+        if (!root) return;
+        const paragraph = isOrdinaryLayoutParagraph(editor.getValue(), context.block);
+        const target: DocumentLayoutTarget = { paginationAnchor: context.block.anchor, paragraphAnchor: paragraph ? context.block.anchor : undefined };
+        const apply = (mutation: () => Promise<boolean>): Promise<void> => {
+          this.layoutDirectiveUpdate = (this.layoutDirectiveUpdate ?? Promise.resolve()).then(async () => {
+            if (this.getProjectFolder()?.path !== root.path || !(await mutation())) return;
+            await this.refreshDocumentLayoutPageBreaks(file);
+            this.app.workspace.getLeavesOfType(VIEW_PREVIEW).forEach((leaf) => { if (leaf.view instanceof PreviewView) void leaf.view.refreshPreview(); });
+            update(await documentLayoutValuesForTarget(this.app, this.settings, root.path, file, editor.getValue(), target));
+          }).catch((error: unknown) => { new Notice(error instanceof Error ? error.message : String(error)); });
+          return this.layoutDirectiveUpdate;
+        };
+        const update = buildLayoutDirectiveMenu(menu, !!context.question, {
+          pageBreak: () => apply(() => toggleDocumentLayoutPageBreak(this.app, this.settings, root.path, file, editor.getValue(), context.block.anchor)),
+          property: (patch) => apply(() => applyParagraphLayoutChange(this.app, this.settings, root.path, file, editor.getValue(), context.block.anchor, patch)),
+          answer: () => { void this.openLayoutDirectiveModal(editor, file, context); },
+        }, paragraph);
+        const ready = documentLayoutValuesForTarget(this.app, this.settings, root.path, file, editor.getValue(), target).then(update).catch((error: unknown) => {
+          new Notice(error instanceof Error ? error.message : String(error));
         });
+        waitForLayoutMenuState(menu, ready);
       })
     );
   }

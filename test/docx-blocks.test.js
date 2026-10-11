@@ -22,6 +22,31 @@ const p = (children) => el("P", { childNodes: children, children });
 
 const TPL = { key: "classique", label: "Classique", align: "justify", indent: true };
 const noFootnotes = new Map();
+
+test("DOCX: an ordinary manual page break preserves body alignment, indentation and spacing", () => {
+  const [paragraph] = blockToParagraphs(p([texte("Body.")]), noFootnotes,
+    { ...TPL, indentPt: 18, paragraphSpacingPt: 6, paragraphSpacingAfterPt: 12 }, {}, new Map(), { manualPageBreak: true });
+  const json = JSON.stringify(paragraph);
+  assert.match(json, /w:pageBreakBefore/);
+  assert.ok(json.includes(`"${AlignmentType.JUSTIFIED}"`));
+  assert.match(json, /w:firstLine/);
+  assert.match(json, /"key":"w:before","value":120/);
+  assert.match(json, /"key":"w:after","value":240/);
+  assert.doesNotMatch(json, /"key":"w:lineRule","value"/);
+});
+
+test("DOCX: local paragraph properties reach OOXML without altering neighbours or footnotes", async () => {
+  const local = el("P", { attrs: { class: "feuillets-paragraph-alignment-center feuillets-paragraph-indent-0 feuillets-paragraph-before-0 feuillets-paragraph-after-12" }, classes: ["feuillets-page-break-before"], childNodes: [texte("Local"), el("A", { attrs: { href: "#fn-1" }, classes: ["footnote-ref"], childNodes: [texte("1")] })] });
+  const tpl = { ...TPL, indentPt: 18, paragraphSpacingPt: 6, paragraphSpacingAfterPt: 6 };
+  const paragraphs = [...blockToParagraphs(local, new Map([["1", 1]]), tpl), ...blockToParagraphs(p([texte("Neighbour")]), noFootnotes, tpl)];
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(new Document({ sections: [{ children: paragraphs }], footnotes: { 1: { children: blockToParagraphs(p([texte("Note")]), noFootnotes, tpl) } } })));
+  const xml = await zip.file("word/document.xml").async("string");
+  const [first, second] = xml.match(/<w:p>[\s\S]*?<\/w:p>/g);
+  for (const value of ['w:jc w:val="center"', 'w:firstLine="0"', 'w:before="0"', 'w:after="240"', "w:pageBreakBefore", "w:footnoteReference"]) assert.ok(first.includes(value), value);
+  for (const value of ['w:jc w:val="both"', 'w:before="120"', 'w:after="120"', 'w:firstLine="18pt"']) assert.ok(second.includes(value), value);
+  assert.doesNotMatch(first, /w:line="240"/);
+  assert.match(await zip.file("word/footnotes.xml").async("string"), />Note</);
+});
 const paragraphSpacingJson = (options = {}) => JSON.stringify(blockToParagraphs(
   p([texte("Texte")]),
   noFootnotes,
