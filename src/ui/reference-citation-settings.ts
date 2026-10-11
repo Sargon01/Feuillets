@@ -1,6 +1,6 @@
-import { type App, Modal, TFolder } from "obsidian";
+import { type App, Modal, TFile, TFolder } from "obsidian";
 import { t } from "../i18n/index.js";
-import type { ReferenceCitationContext } from "../services/research-reference-search.js";
+import { resolveReferenceContextRoot, type ReferenceCitationContext } from "../services/research-reference-search.js";
 import { resolveDocumentCitationStyleSetting } from "../services/document-citation-style.js";
 import type { CslCitationHost } from "../services/csl-citation-host.js";
 import {
@@ -13,13 +13,19 @@ type CitationSetting = "pandocCitationPreviewStyle" | "citekeyBibliographyPath" 
 type CitationSettingsPlugin = {
   cslCitationHost?: Pick<CslCitationHost, "getProvider"> | null;
   settings: FeuilletsSettings;
+  getWorkspaceFolder?(): TFolder | null;
   saveSettings(): Promise<void>;
-  refreshCitationRendering(): void;
+  refreshCitationRendering?(): void;
   renderAllViews(force?: boolean): void;
 };
 const FIELDS: readonly CitationSetting[] = ["pandocCitationPreviewStyle", "citekeyBibliographyPath", "citekeyCslPath"];
 const INHERIT = "__inherit__";
 const EFFECTIVE = "__effective__";
+const openControls = new WeakMap<CitationSettingsPlugin, Set<ReferenceCitationSettingsControls>>();
+
+export function refreshReferenceCitationSettings(plugin: CitationSettingsPlugin): void {
+  for (const controls of openControls.get(plugin) ?? []) controls.refresh();
+}
 
 export function renderCslCompanionNotice(
   container: HTMLElement,
@@ -57,36 +63,66 @@ function resourceDescription(resource: ResolvedWorkspaceCitationResource, projec
   return [provenance, detail].filter(Boolean).join(" — ");
 }
 
-/** Uses the existing resource resolver and exact project/workspace settings writers. */
 export class ReferenceCitationSettingsModal extends Modal {
-  private active = false;
-  private customize = false;
-  private saving = false;
+  private controls: ReferenceCitationSettingsControls | null = null;
+
+  get active(): boolean { return this.controls?.active ?? false; }
+  get saving(): boolean { return this.controls?.saving ?? false; }
 
   constructor(app: App, private plugin: CitationSettingsPlugin, private context: ReferenceCitationContext, private isCurrent: () => boolean) {
     super(app);
   }
 
   onOpen(): void {
-    this.active = true;
+    if (this.context.targetScope instanceof TFile) {
+      this.context = { ...this.context, scopeRoot: resolveReferenceContextRoot(this.app, this.plugin.settings,
+        this.context.projectRoot, this.context.targetScope, this.plugin.getWorkspaceFolder?.() ?? null) };
+    }
     this.modalEl.addClass("feuillets-reference-settings-modal");
     this.modalEl.setAttr("aria-label", t("shared.research.bibliographySettings"));
-    this.renderContent();
+    this.controls = new ReferenceCitationSettingsControls(this.app, this.plugin, this.context, this.isCurrent, this.contentEl, () => this.close());
+    this.controls.open();
   }
 
   onClose(): void {
+    this.controls?.destroy();
+  }
+}
+
+/** Shared inline controls use the current citation resolvers and exact settings writers. */
+export class ReferenceCitationSettingsControls {
+  active = false;
+  saving = false;
+  private customize = false;
+
+  constructor(private app: App, private plugin: CitationSettingsPlugin, private context: ReferenceCitationContext,
+    private isCurrent: () => boolean, private contentEl: HTMLElement, private closeOwner: () => void = () => this.destroy(),
+    private showHeading = true, private onSaved?: () => void) {}
+
+  open(): void {
+    this.active = true;
+    let controls = openControls.get(this.plugin);
+    if (!controls) { controls = new Set(); openControls.set(this.plugin, controls); }
+    controls.add(this);
+    this.renderContent();
+  }
+
+  destroy(): void {
     this.active = false;
+    openControls.get(this.plugin)?.delete(this);
     this.contentEl.empty();
   }
+
+  refresh(): void { if (this.active) this.renderContent(); }
 
   private renderContent(): void {
     const { contentEl, context: { projectRoot, scopeRoot, targetScope } } = this;
     contentEl.empty();
-    if (!this.active || !this.isCurrent()) { this.close(); return; }
-    contentEl.createEl("h3", { text: t("shared.research.bibliographySettings") });
+    if (!this.active || !this.isCurrent()) { this.closeOwner(); return; }
+    if (this.showHeading) contentEl.createEl("h3", { text: t("shared.research.bibliographySettings") });
     const workspace = scopeRoot.path !== projectRoot.path;
     const relativeScope = workspace ? folderPathToWorkspaceScope(projectRoot.path, scopeRoot.path) : null;
-    if (workspace && !relativeScope) { this.close(); return; }
+    if (workspace && !relativeScope) { this.closeOwner(); return; }
     const meta = this.plugin.settings.projectMeta?.[projectRoot.path];
     const local = relativeScope ? getFolderWorkspaceConfig(meta, relativeScope) : meta;
     const hasLocal = workspace && FIELDS.some((field) => local?.[field] !== undefined);
@@ -128,7 +164,8 @@ export class ReferenceCitationSettingsModal extends Modal {
     };
     const modeInherited = workspace && local?.pandocCitationPreviewStyle === undefined;
     const modeDescription = modeInherited ? modeOwner instanceof TFolder && modeOwner.path !== projectRoot.path
-      ? t("modal.folderWorkspace.inheritedFromParent", { name: modeOwner.name }) : t("modal.folderWorkspace.inheritedFromProject") : "";
+      ? t("modal.folderWorkspace.inheritedFromParent", { name: modeOwner.name }) : t("modal.folderWorkspace.inheritedFromProject")
+      : t("modal.folderWorkspace.local");
     addSelect("pandocCitationPreviewStyle", t("shared.research.citationRendering"), modes, mode.value || "off", modes.find(([value]) => value === mode.value)?.[1] || modes[0][1], modeInherited, modeDescription);
     renderCslCompanionNotice(block.createDiv(), this.plugin, mode.value || "off");
     for (const [field, extension, resource, label] of [
@@ -184,19 +221,21 @@ export class ReferenceCitationSettingsModal extends Modal {
     }
     this.saving = true;
     this.renderContent();
-    this.plugin.refreshCitationRendering();
+    refreshReferenceCitationSettings(this.plugin);
+    this.plugin.refreshCitationRendering?.();
     try {
       await this.plugin.saveSettings();
       this.plugin.renderAllViews(true);
+      this.onSaved?.();
     } finally {
       this.saving = false;
-      if (this.active) this.renderContent();
+      refreshReferenceCitationSettings(this.plugin);
     }
   }
 }
 
 export function renderReferenceCitationWarnings(container: HTMLElement, app: App, settings: FeuilletsSettings, context: ReferenceCitationContext): void {
-  const mode = resolveDocumentCitationStyleSetting(settings, context.projectRoot.path, context.scopeRoot.path).value;
+  const mode = resolveDocumentCitationStyleSetting(settings, context.projectRoot.path, (context.targetScope instanceof TFile ? context.targetScope.parent ?? context.scopeRoot : context.targetScope).path).value;
   if (!mode || mode === "off") return;
   const resources = resolveWorkspaceCitationResources(app, settings, context.projectRoot, context.targetScope);
   const warnings = [

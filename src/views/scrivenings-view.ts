@@ -148,6 +148,7 @@ export type ScriveningsViewPlugin = {
    * (~850 ms, voir PreviewView.onContinuDocumentChanged). Ne sauvegarde
    * rien, ne compile rien ici. */
   notifyContinuDocumentChanged?: (paths: readonly string[]) => void;
+  notifyReferenceContextChanged?(): void;
   /** LOT 1.4 — menu contextuel Continu (main.ts#showScriveningsContextMenu) :
    * construit et affiche le `Menu` Obsidian propre à Continu (Couper/Copier/
    * Coller, Note de bas de page, Annotation, Noter une idée, Réorganiser le
@@ -361,7 +362,7 @@ interface EditorStateInstance {
      §9) et par ScriveningsSegmentEditorAdapter — jamais un second système de
      sélection : `main` est le SEUL curseur/plage réellement pertinent, une
      multi-sélection composite n'existe pas dans Continu. */
-  readonly selection: { readonly main: { readonly from: number; readonly to: number; readonly empty: boolean } };
+  readonly selection: { readonly main: { readonly from: number; readonly to: number; readonly empty: boolean; readonly head?: number } };
   /* API PUBLIQUE CodeMirror — lit un StateField, ici uniquement
      `paragraphReorderModeField` (main.ts#showScriveningsContextMenu, pour
      cocher l'entrée « Réorganiser le texte » selon l'état déjà actif). */
@@ -403,6 +404,7 @@ interface EditorViewInstance {
 }
 interface EditorViewCtor {
   new (config: { state: EditorStateInstance; parent: HTMLElement }): EditorViewInstance;
+  updateListener: { of(callback: (update: { selectionSet: boolean; docChanged: boolean }) => void): unknown };
   /* API STATIQUE (LOT « clic Preview → Continu », focusSourcePosition) :
      centre le passage cliqué dans le viewport Continu. Même principe que
      le reste de ce typage manuel — pas un nouveau membre du module
@@ -494,6 +496,13 @@ export class ScriveningsView extends ItemView {
    * module. */
   get editorView(): EditorViewInstance | null {
     return this.cm;
+  }
+
+  /** Reads the actual cursor segment without changing selection or document content. */
+  getReferenceFile(): TFile | null {
+    const selection = this.cm?.state.selection.main;
+    const document = this.session?.document;
+    return selection && document ? segmentAt(document, selection.head ?? selection.from)?.file ?? null : null;
   }
 
   requestGrammarCheck(paths?: readonly string[]): void {
@@ -591,6 +600,7 @@ export class ScriveningsView extends ItemView {
     }
 
     void this.plugin.updateStatusBar?.();
+    this.plugin.notifyReferenceContextChanged?.();
     // LOT 3 — pont Continu → Preview : transmet ce MÊME scope, avec la MÊME
     // ancre de restauration que celle que Continu vient d'appliquer — jamais
     // une seconde logique next/previous côté Preview (voir
@@ -673,6 +683,7 @@ export class ScriveningsView extends ItemView {
 
     const citationFiles = document.segments.map((segment) => segment.file);
 
+    let referencePath: string | null = document.segments[0]?.path ?? null;
     const extensions = [
       ...createScriveningsExtensions(imageResolver),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
@@ -690,6 +701,13 @@ export class ScriveningsView extends ItemView {
           : undefined
       ),
       scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
+      EditorViewCtorTyped.updateListener.of((update) => {
+        if (!update.selectionSet && !update.docChanged) return;
+        const path = this.getReferenceFile()?.path ?? null;
+        if (path === referencePath) return;
+        referencePath = path;
+        this.plugin.notifyReferenceContextChanged?.();
+      }),
       createScriveningsCopyExtension((from, to) => this.clipboardTextForRange(from, to)),
       ...(this.grammarChecker?.extensions() ?? []),
       // LOT 1.4 (§33) : Continu possède son propre EditorState — jamais

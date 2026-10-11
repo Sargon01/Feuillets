@@ -2506,6 +2506,7 @@ export const fr = {
   "modal.newProject.createAndActivate": "Créer et activer",
   "modal.folderWorkspace.title": "Espace de travail — {name}",
   "modal.folderWorkspace.path": "Chemin relatif : {path}",
+  "modal.folderWorkspace.references": "Références",
   "modal.folderWorkspace.defineAsWorkspace": "Définir ce dossier comme espace de travail",
   "modal.folderWorkspace.defineAsOuvrage": "Définir ce dossier comme ouvrage",
   "modal.folderWorkspace.inheritedFromParent": "Hérité de « {name} »",

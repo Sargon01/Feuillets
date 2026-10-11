@@ -34,8 +34,12 @@ import {
 } from "../services/folder-workspaces.js";
 import { t, getLocale } from "../i18n/index.js";
 import { statusDisplayLabel, labelDisplayLabel } from "../services/project-taxonomy.js";
+import { ReferenceCitationSettingsControls, refreshReferenceCitationSettings } from "./reference-citation-settings.js";
+import type { CslCitationHost } from "../services/csl-citation-host.js";
 
 type FolderWorkspacePlugin = {
+  cslCitationHost?: Pick<CslCitationHost, "getProvider"> | null;
+  refreshCitationRendering?(): void;
   settings: FeuilletsSettings;
   getProjectFolder(): TFolder | null;
   saveSettings(): Promise<void>;
@@ -51,6 +55,7 @@ function isFolderWorkspacePreset(value: string): value is FolderWorkspacePreset 
 export class FolderWorkspaceModal extends Modal {
   private readonly plugin: FolderWorkspacePlugin;
   private readonly folder: TFolder;
+  private citationControls: ReferenceCitationSettingsControls | null = null;
 
   constructor(app: App, plugin: FolderWorkspacePlugin, folder: TFolder) {
     super(app);
@@ -64,6 +69,8 @@ export class FolderWorkspaceModal extends Modal {
 
   private renderContent(): void {
     const { contentEl } = this;
+    this.citationControls?.destroy();
+    this.citationControls = null;
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
 
@@ -153,6 +160,14 @@ export class FolderWorkspaceModal extends Modal {
     const typography = contentEl.createDiv({ cls: "feuillets-notes-section" });
     typography.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.typography") });
     this.renderTypography(typography, projectRoot.path, relativeScope);
+
+    const references = contentEl.createDiv({ cls: "feuillets-notes-section" });
+    references.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.references") });
+    this.citationControls = new ReferenceCitationSettingsControls(this.app, this.plugin,
+      { projectRoot, scopeRoot: this.folder, targetScope: this.folder },
+      () => this.plugin.getProjectFolder()?.path === projectRoot.path && this.app.vault.getAbstractFileByPath(this.folder.path) === this.folder,
+      references.createDiv(), undefined, false, () => this.rerenderContent());
+    this.citationControls.open();
   }
 
   /** Independent structural identities use the historical folder exclusions.
@@ -263,6 +278,8 @@ export class FolderWorkspaceModal extends Modal {
   }
 
   onClose(): void {
+    this.citationControls?.destroy();
+    this.citationControls = null;
     this.contentEl.empty();
   }
 
@@ -662,6 +679,8 @@ export class FolderWorkspaceModal extends Modal {
     else next[relativeScope] = identity;
     if (Object.keys(next).length === 0) delete meta.folderWorkspaces;
     else meta.folderWorkspaces = next;
+    this.plugin.refreshCitationRendering?.();
+    refreshReferenceCitationSettings(this.plugin);
     await this.plugin.saveSettings();
     this.plugin.renderAllViews(true);
     this.rerenderContent();

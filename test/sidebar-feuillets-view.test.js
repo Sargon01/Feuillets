@@ -700,7 +700,7 @@ test("SidebarFeuilletsView : la sidebar Projet ne remonte aucun composant Éditi
   }
 });
 
-test("SidebarFeuilletsView ne rafraîchit au file-open que Notes, Statistiques et Analyse du texte, jamais l'accueil Relecture ni Révision DOCX", async () => {
+test("SidebarFeuilletsView conserve les rafraîchissements file-open des autres onglets et relie la navigation Références", async () => {
   const { sidebar, listeners, calls } = createSidebar();
   const registered = [];
   sidebar.registerEvent = (event) => registered.push(event);
@@ -725,7 +725,7 @@ test("SidebarFeuilletsView ne rafraîchit au file-open que Notes, Statistiques e
     await Promise.resolve();
     assert.deepEqual(calls.map((call) => call.name), expected, `${tab}/${page}`);
   }
-  assert.equal(registered.length, 2);
+  assert.deepEqual(registered.map((event) => event.name).sort(), ["active-leaf-change", "file-open", "layout-change", "modify"]);
 });
 
 test("SidebarFeuilletsView invalide les caches Analyse à la modification", async () => {

@@ -1060,6 +1060,27 @@ test("Continu CSL: style off triggers zero CSL calls", async () => {
   f.host.dispose();
 });
 
+for (const [projectStyle, workspaceStyle] of [["csl", "off"], ["off", "csl"]]) {
+  test(`Continu persistent workspace style ${workspaceStyle} overrides project ${projectStyle} without isolation`, async () => {
+    const f = createCslContinuFixture({ previewStyle: projectStyle });
+    const workspace = await f.app.vault.createFolder(`${f.manuscript.path}/Article`);
+    const scene = await f.app.vault.create(`${workspace.path}/Scene.md`, "Body [@smith2024].");
+    f.settings.projectMeta[f.project.path].folderWorkspaces = {
+      "Manuscript/Article": { version: 1, workspaceRoot: true, pandocCitationPreviewStyle: workspaceStyle },
+    };
+    const { instance, view } = mountCslContinu(f, [scene, f.docB]);
+    await flush(10);
+    instance.update({ view });
+    const decorations = Array.isArray(instance.decorations) ? instance.decorations : [];
+    assert.equal(decorations.length, 1);
+    const visibleKey = workspaceStyle === "csl" ? "smith2024" : "doe2023";
+    assert.ok(decorations[0].widget.citation.plainText.includes(visibleKey));
+    assert.equal(view.state.doc.toString().includes("[@smith2024]"), true);
+    instance.destroy();
+    f.host.dispose();
+  });
+}
+
 test("ScriveningsView Integration: mountEditor passes mounted document, projectRoot, and host access", async () => {
   let capturedRequest = null;
   const f = createCslContinuFixture({
@@ -1624,4 +1645,39 @@ test("CSL Continu: global note indices include non-citing notes and scrolling re
   assert.equal(requests.length, 1);
   assert.equal(mounted.instance.decorations.length, 1);
   assert.equal(mounted.instance.decorations[0].widget.citation.plainText, "Note 3");
+});
+
+
+test("Continu reference context reads the real cursor segment and signals only sheet changes", async () => {
+  const f = createCslContinuFixture({ previewStyle: "off" });
+  const files = [f.docA, f.docB];
+  const document = buildScriveningsDocument(files.map((file) => ({ file, content: file.content })));
+  const original = files.map((file) => Buffer.from(file.content));
+  const changes = [];
+  const plugin = { app: f.app, settings: f.settings, cslCitationHost: f.host,
+    updateStatusBar() {}, notifyReferenceContextChanged: () => changes.push(view.getReferenceFile()?.path) };
+  const view = new ScriveningsView({ app: f.app, contentEl: new FakeWidgetElement("div") }, plugin);
+  assert.equal(view.getReferenceFile(), null);
+  view._compileScope = { type: "project", projectRoot: f.project.path };
+  view.session.load(document);
+  view.mountEditor();
+  assert.equal(view.getReferenceFile(), f.docA);
+  const listeners = view.cm.state.extensions.flat(Infinity).filter((extension) => extension?.facet === "updateListener");
+  const select = (anchor) => {
+    view.cm.dispatch({ selection: { anchor } });
+    // The CodeMirror test runtime does not dispatch update-listener facets itself.
+    for (const listener of listeners) listener.fn({ view: view.cm, state: view.cm.state, selectionSet: true, docChanged: false });
+  };
+  select(document.segments[1].from);
+  assert.equal(view.getReferenceFile(), f.docB);
+  assert.deepEqual(changes, [f.docB.path]);
+  select(document.segments[1].from + 2);
+  assert.deepEqual(changes, [f.docB.path]);
+  select(document.segments[0].from);
+  assert.equal(view.getReferenceFile(), f.docA);
+  assert.deepEqual(changes, [f.docB.path, f.docA.path]);
+  assert.equal(view.cm.state.doc.toString(), document.text);
+  files.forEach((file, index) => assert.deepEqual(Buffer.from(file.content), original[index]));
+  view.destroyEditor();
+  f.host.dispose();
 });

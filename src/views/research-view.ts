@@ -5,6 +5,7 @@ import { isEditing } from "../utils/dom.js";
 import { BaseFeuilletsView, type ResearchScopeMode, type ResearchSubTab } from "./base-feuillets-view.js";
 import { resolveActiveFileResearchFolders, resolveWorkspaceResearchFolder } from "../services/workspace-research.js";
 import { resolveResearchDocumentContext } from "../services/research-document-context.js";
+import { resolveReferenceTarget } from "../services/research-reference-search.js";
 
 type ResearchViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
 type ResearchContainer = HTMLElement & { find?: <T extends HTMLElement>(selector: string) => T | null };
@@ -33,6 +34,7 @@ export class ResearchView extends BaseFeuilletsView {
   protected _bibliographyDebounceTimer: number | null = null;
   protected _bibliographyListenersSetup = false;
   protected _isClosed = false;
+  private referenceTargetKey: string | undefined;
 
   constructor(leaf: WorkspaceLeaf, plugin: ResearchViewPlugin) {
     super(leaf, plugin);
@@ -48,6 +50,16 @@ export class ResearchView extends BaseFeuilletsView {
 
   getIcon(): string {
     return "book-marked";
+  }
+
+  async refreshReferencesOnActiveDocumentChange(): Promise<void> {
+    if (this._isClosed || this.researchActiveSubTab !== "references" || this.viewingFile) return;
+    const root = this.plugin.getProjectFolder();
+    if (!root) return;
+    const target = resolveReferenceTarget(this.app, root, this.plugin.getReferenceCitationTarget?.()?.file ?? null,
+      this.plugin.getCentralContinuView?.()?.compileScope ?? null, this.plugin.getCentralContinuView?.()?.getReferenceFile?.() ?? null);
+    if (target.key === this.referenceTargetKey) return;
+    await this.render(true);
   }
 
   setupBibliographyLifecycleListeners(): void {
@@ -69,8 +81,13 @@ export class ResearchView extends BaseFeuilletsView {
     };
 
     if (this.app?.workspace) {
-      this.registerEvent(this.app.workspace.on("active-leaf-change", debouncedRefresh));
-      this.registerEvent(this.app.workspace.on("file-open", debouncedRefresh));
+      const documentChanged = () => {
+        if (this.researchActiveSubTab === "references") void this.refreshReferencesOnActiveDocumentChange();
+        else debouncedRefresh();
+      };
+      this.registerEvent(this.app.workspace.on("active-leaf-change", documentChanged));
+      this.registerEvent(this.app.workspace.on("file-open", documentChanged));
+      this.registerEvent(this.app.workspace.on("layout-change", () => { void this.refreshReferencesOnActiveDocumentChange(); }));
       this.registerEvent(this.app.workspace.on("editor-change", debouncedRefresh));
     }
     if (this.app?.vault) {
@@ -160,6 +177,11 @@ export class ResearchView extends BaseFeuilletsView {
         return;
       }
       this.viewingFile = null;
+    }
+
+    if (this.researchActiveSubTab === "references") {
+      this.referenceTargetKey = resolveReferenceTarget(this.app, root,
+        this.plugin.getReferenceCitationTarget?.()?.file ?? null, this.plugin.getCentralContinuView?.()?.compileScope ?? null, this.plugin.getCentralContinuView?.()?.getReferenceFile?.() ?? null).key;
     }
 
     const workspaceFolder = typeof this.plugin.getWorkspaceFolder === "function"

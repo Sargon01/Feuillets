@@ -3,10 +3,19 @@ import test from "node:test";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { ResearchView } from "../src/views/research-view.js";
+import FeuilletsPlugin from "../src/main.js";
+import { SidebarFeuilletsView } from "../src/views/sidebar-feuillets-view.js";
+import { ReferenceCitationSettingsModal } from "../src/ui/reference-citation-settings.js";
+import { ScriveningsView } from "../src/views/scrivenings-view.js";
+import { createFolderScope, createFileScope, createProjectScope, createSelectionScope } from "../src/services/compile-scope.js";
 import { t, getLocale, setLocale } from "../src/i18n/index.js";
 import { RESEARCH_FOLDERS, researchFolderLabel, researchFolderNewName } from "../src/utils/project-modes.js";
 import { NewResearchFileModal } from "../src/ui/basic-modals.js";
 import { clearCitekeyAnalysisCache } from "../src/services/citekey-bibliography.js";
+import { registerDeclaredWorkspaceRoot } from "../src/services/folder-workspaces.js";
+import { referenceSourceFolders, referenceBibliographyFile, resolveReferenceTarget, resolveReferenceCitationContext } from "../src/services/research-reference-search.js";
+import { resolveWorkspaceCitationResources } from "../src/services/workspace-citations.js";
+import { resolveDocumentCitationStyleSetting } from "../src/services/document-citation-style.js";
 
 /** Bypasses NewResearchFileModal's real DOM (the shared Modal test stub's
  * contentEl, not this file's own FakeElement — see research-view.test.js's
@@ -235,14 +244,14 @@ function makeFixture({ includeSources = true } = {}) {
   };
 }
 
-function createView(fixture, { workspace = null, scopeMode = "project", ensureFolderSpy, cachedReadSpy } = {}) {
+function createView(fixture, { workspace = null, scopeMode = "project", activeFile = null, ensureFolderSpy, cachedReadSpy } = {}) {
   const contentEl = new FakeElement();
   const app = {
     vault: cachedReadSpy
       ? { ...fixture.vault, cachedRead: async (file) => { cachedReadSpy(file.path); return fixture.vault.cachedRead(file); } }
       : fixture.vault,
     workspace: {
-      getActiveFile: () => null,
+      getActiveFile: () => activeFile,
       getLeaf: () => ({ openFile: async () => {} }),
       setActiveLeaf: () => {},
     },
@@ -328,6 +337,444 @@ async function renderWithDocument(fixture, options) {
 const SOURCES_TITLE = researchFolderLabel(RESEARCH_FOLDERS, "sources");
 const FOOTNOTES_TITLE = t("shared.footnotes.title");
 const BIBLIOGRAPHY_TITLE = t("shared.research.citedReferences");
+
+async function persistentReferenceFixture() {
+  const f = makeFixture();
+  registerDeclaredWorkspaceRoot(f.settings, f.projectRoot, f.workA);
+  registerDeclaredWorkspaceRoot(f.settings, f.projectRoot, f.workAExtra);
+  f.settings.workspaceFolderPath = "";
+  const sources = await f.vault.createFolder(`${f.workAResearch.path}/Sources`);
+  await f.vault.create(`${sources.path}/Local source.md`, "Local source");
+  const bib = await f.vault.create(`${f.workAResearch.path}/local.bib`,
+    "@article{knuth1968, title={Local Algorithms}, author={Local Author}, year={2024}}\n@article{unused, title={Uncited local reference}}");
+  const csl = await f.vault.create(`${f.workAResearch.path}/local.csl`, "<style/>");
+  Object.assign(f.settings.projectMeta.PROJECT.folderWorkspaces["Work-A"], {
+    pandocCitationPreviewStyle: "off", citekeyBibliographyPath: "local.bib", citekeyCslPath: "local.csl",
+  });
+  f.sceneAExtra.content = "Sibling cites [@foreign].";
+  return { ...f, sources, bib, csl };
+}
+
+async function referencePanelSnapshot(f, { workspace = null, editorFile = f.sceneA, activeFile = f.sceneA } = {}) {
+  const { view, contentEl } = createView(f, { workspace, scopeMode: "workspace", activeFile });
+  view.researchActiveSubTab = "references";
+  let receivedContext;
+  let generationContext;
+  let generationInput;
+  let sourceTarget;
+  const editor = {
+    getCursor: () => ({ line: 0, ch: editorFile.content.length }),
+    replaceRange: (text) => { editorFile.content += text; },
+    focus() {},
+  };
+  view.plugin.getReferenceCitationTarget = () => ({ file: editorFile, editor });
+  const references = view.renderReferencesTab;
+  view.renderReferencesTab = function (container, context, ...args) {
+    receivedContext = context;
+    return references.call(this, container, context, ...args);
+  };
+  const bibliography = view.renderBibliographySection;
+  view.renderBibliographySection = function (container, context, ...args) {
+    generationContext = context;
+    return bibliography.call(this, container, context, ...args);
+  };
+  view.plugin.generateBibliographyFile = async (input) => { generationInput = input; };
+  view.promptCreateSourceSheetLazily = (target) => { sourceTarget = target; };
+  await view.render(true);
+  newSourceSheetButton(contentEl).dispatchClick();
+  const exportButton = contentEl.find(".feuillets-bibliography-export-row");
+  exportButton?.dispatchClick();
+  const resources = resolveWorkspaceCitationResources(view.app, f.settings, f.projectRoot, activeFile);
+  view.referenceSearchQuery = "local";
+  await view.render(true);
+  return {
+    root: receivedContext.scopeRoot.path,
+    workspace: receivedContext.workspaceRoot?.path ?? null,
+    mode: receivedContext.mode,
+    files: receivedContext.files.map((file) => file.path),
+    caption: contentEl.find(".feuillets-reference-setting-scope")?.text,
+    sourceTarget,
+    sourceFolders: referenceSourceFolders(view.app, f.settings, receivedContext).map((folder) => folder.path),
+    insertionFolders: FeuilletsPlugin.prototype.getCitationFolders.call(view.plugin).map((folder) => folder.path),
+    bibliography: referenceBibliographyFile(view.app, f.settings, receivedContext, activeFile)?.path,
+    csl: resources.csl.file?.path,
+    style: resolveDocumentCitationStyleSetting(f.settings, f.projectRoot.path, receivedContext.scopeRoot.path).value,
+    references: contentEl.querySelectorAll(".feuillets-research-item-name").map((element) => element.text),
+    generationRoot: generationContext.scopeRoot.path,
+    generationFiles: generationContext.files.map((file) => file.path),
+    generationLabel: exportButton?.getAttr("aria-label"),
+    generatedKeys: generationInput?.bibtexEntries.map((entry) => entry.citekey),
+    warnings: contentEl.querySelectorAll(".feuillets-citekey-warning").map((element) => element.text),
+    searchResults: contentEl.querySelectorAll(".feuillets-reference-title").map((element) => element.text),
+    insertionAvailable: contentEl.querySelectorAll(".feuillets-reference-cite").map((element) => !element.disabled),
+  };
+}
+
+for (const staleEditor of [false, true]) {
+  test(`full References panel: persistent workspace equals the same isolation (stale editor: ${staleEditor})`, async () => {
+    const f = await persistentReferenceFixture();
+    const before = structuredClone(f.settings);
+    const editorFile = staleEditor ? f.sceneAExtra : f.sceneA;
+    const plain = await referencePanelSnapshot(f, { editorFile });
+    const isolated = await referencePanelSnapshot(f, { workspace: f.workA, editorFile });
+    assert.deepEqual(plain, isolated);
+    assert.equal(plain.root, f.workA.path);
+    assert.equal(plain.workspace, f.workA.path);
+    assert.equal(plain.mode, "workspace");
+    assert.equal(plain.caption, t("shared.research.citationWorkspaceScope", { name: f.workA.name }));
+    assert.equal(plain.sourceTarget, f.workAResearch.path);
+    assert.ok(plain.sourceFolders.includes(f.sources.path));
+    assert.deepEqual(plain.insertionFolders, plain.sourceFolders);
+    assert.ok(!plain.sourceFolders.some((path) => path.startsWith(f.workAExtraResearch.path + "/")));
+    assert.equal(plain.bibliography, f.bib.path);
+    assert.equal(plain.csl, f.csl.path);
+    assert.equal(plain.style, "off");
+    assert.ok(plain.references.some((text) => text.includes("Local Algorithms")));
+    assert.ok(plain.references.every((text) => !text.includes("foreign") && !text.includes("Uncited")));
+    assert.equal(plain.generationRoot, f.workA.path);
+    assert.deepEqual(plain.generationFiles, [f.sceneA.path]);
+    assert.equal(plain.generationLabel, t("shared.bibliography.generateWorkspace"));
+    assert.deepEqual(plain.generatedKeys, ["knuth1968"]);
+    assert.deepEqual(plain.warnings, []);
+    assert.deepEqual(plain.searchResults, ["Local source", "Local Algorithms", "Uncited local reference"]);
+    assert.ok(plain.insertionAvailable.every((available) => available === !staleEditor));
+    assert.deepEqual(f.settings, before, "reference normalization must not change isolation or persisted settings");
+  });
+}
+
+test("full References panel: ordinary overrides do not declare a context boundary", async () => {
+  const f = await persistentReferenceFixture();
+  delete f.settings.projectMeta.PROJECT.folderWorkspaces["Work-A"].workspaceRoot;
+  const panel = await referencePanelSnapshot(f);
+  assert.equal(panel.root, f.projectRoot.path);
+  assert.equal(panel.caption, t("shared.research.citationProjectScope", { name: f.projectRoot.name }));
+  assert.equal(panel.bibliography, f.bib.path, "ordinary overrides still affect document resources");
+  assert.ok(panel.references.some((text) => text.includes("foreign")));
+});
+
+test("full References panel: nested workspaces and wider/narrower isolation share the same root resolver", async () => {
+  const f = await persistentReferenceFixture();
+  const nested = await f.vault.createFolder(`${f.workA.path}/Nested`);
+  const part = await f.vault.createFolder(`${nested.path}/Part`);
+  const scene = await f.vault.create(`${part.path}/Scene.md`, "See [@knuth1968].");
+  registerDeclaredWorkspaceRoot(f.settings, f.projectRoot, nested);
+  const before = structuredClone(f.settings);
+  for (const [activeFile, workspace, expected] of [
+    [f.sceneA, null, f.workA],
+    [scene, null, nested],
+    [scene, f.workA, nested],
+    [scene, part, part],
+    [scene, f.workAExtra, nested],
+  ]) {
+    const panel = await referencePanelSnapshot(f, { activeFile, editorFile: activeFile, workspace });
+    assert.equal(panel.root, expected.path);
+    assert.equal(panel.workspace, expected.path);
+    assert.equal(panel.generationRoot, expected.path);
+    assert.ok(panel.files.includes(activeFile.path));
+    assert.ok(!panel.files.includes(f.sceneAExtra.path));
+    assert.equal(panel.sourceTarget, f.workAResearch.path, "existing ancestor Research association is preserved");
+    assert.equal(panel.bibliography, f.bib.path);
+    assert.equal(panel.csl, f.csl.path);
+    assert.equal(panel.style, "off");
+  }
+  assert.deepEqual(f.settings, before);
+});
+
+async function referenceNavigationHarness({ embedded = true } = {}) {
+  const f = await persistentReferenceFixture();
+  const projectFile = await f.vault.create("PROJECT/Project.md", "See [@knuth1968].");
+  const otherSources = await f.vault.createFolder(`${f.workAExtraResearch.path}/Sources`);
+  await f.vault.create(`${otherSources.path}/Other source.md`, "Other source");
+  await f.vault.create(`${f.workAExtraResearch.path}/other.bib`, "@article{foreign,title={Other Algorithms}}");
+  Object.assign(f.settings.projectMeta.PROJECT.folderWorkspaces["Work-A-Extra"], {
+    citekeyBibliographyPath: "other.bib", citekeyCslPath: "missing.csl", pandocCitationPreviewStyle: "csl",
+  });
+  let activeFile = f.sceneA;
+  let editorFile = f.sceneA;
+  let isolation = null;
+  const { view, contentEl } = createView(f, { activeFile });
+  view.app.workspace.getActiveFile = () => activeFile;
+  view.plugin.getWorkspaceFolder = () => isolation;
+  view.plugin.getReferenceCitationTarget = () => ({ file: editorFile, editor: {} });
+  const rootSplit = {};
+  let centralView = { file: activeFile };
+  view.app.workspace.rootSplit = rootSplit;
+  view.app.workspace.getMostRecentLeaf = () => ({ view: centralView, getRoot: () => rootSplit });
+  view.plugin.isValidEditorialRootPath = FeuilletsPlugin.prototype.isValidEditorialRootPath;
+  view.plugin.getCentralContinuView = FeuilletsPlugin.prototype.getCentralContinuView;
+  const events = new Map();
+  view.app.workspace.on = (name, callback) => { events.set(name, callback); return { name }; };
+  view.app.vault.on = () => ({});
+  view.researchActiveSubTab = "references";
+  let pending;
+  let renders = 0;
+  const render = view.render.bind(view);
+  view.render = (force) => { renders++; pending = render(force); return pending; };
+  let context;
+  const references = view.renderReferencesTab;
+  view.renderReferencesTab = function (container, current, ...args) {
+    context = current;
+    return references.call(this, container, current, ...args);
+  };
+  const host = embedded ? new SidebarFeuilletsView({ app: view.app, contentEl: new FakeElement() }, view.plugin) : view;
+  if (embedded) {
+    host.activeTab = "research";
+    host.subViews.research = view;
+  }
+  let generated;
+  view.plugin.generateBibliographyFile = async (input) => { generated = input; };
+  let sourceTarget;
+  view.promptCreateSourceSheetLazily = (target) => { sourceTarget = target; };
+  const previousDocument = globalThis.document;
+  globalThis.document = { activeElement: null };
+  try { await host.onOpen(); }
+  finally { globalThis.document = previousDocument; }
+  const container = () => view.targetContainer ?? contentEl;
+  return { ...f, projectFile, view, host, events, container,
+    count: () => renders, context: () => context, generated: () => generated, sourceTarget: () => sourceTarget,
+    setIsolation: (folder) => { isolation = folder; },
+    async navigate(file, event = "file-open", staleEditor = false) {
+      activeFile = file;
+      centralView = { file };
+      if (!staleEditor) editorFile = file;
+      events.get(event)?.(file);
+      await pending;
+    },
+    async openContinu(scope, { staleActiveFile = null, event = "active-leaf-change" } = {}) {
+      const continuous = Object.create(ScriveningsView.prototype);
+      continuous._compileScope = scope;
+      centralView = continuous;
+      activeFile = staleActiveFile;
+      events.get(event)?.();
+      await pending;
+    },
+    async focusContinuFile(file) {
+      centralView.getReferenceFile = () => file;
+      await view.refreshReferencesOnActiveDocumentChange();
+      await pending;
+    },
+    async emit(event) { events.get(event)?.(); await pending; },
+    openSettings() {
+      let modal;
+      const original = ReferenceCitationSettingsModal.prototype.open;
+      ReferenceCitationSettingsModal.prototype.open = function () {
+        modal = this;
+        this.contentEl = new FakeElement();
+        this.modalEl = new FakeElement();
+        this.close = () => this.onClose();
+        this.onOpen();
+      };
+      try { container().find(".feuillets-reference-settings-button").dispatchClick(); }
+      finally { ReferenceCitationSettingsModal.prototype.open = original; }
+      return modal;
+    },
+  };
+}
+
+for (const embedded of [true, false]) {
+  test(`References navigation refreshes A → B → project → A without switching subtabs (embedded: ${embedded})`, async () => {
+    const f = await referenceNavigationHarness({ embedded });
+    const before = structuredClone(f.settings);
+    const assertPanel = (root, reference, bib, sourceFolder) => {
+      assert.equal(f.context().scopeRoot.path, root.path);
+      assert.equal(f.view.researchActiveSubTab, "references");
+      assert.equal(f.container().find(".feuillets-reference-setting-scope").text,
+        t(root === f.projectRoot ? "shared.research.citationProjectScope" : "shared.research.citationWorkspaceScope", { name: root.name }));
+      assert.ok(f.container().textContent.includes(reference));
+      assert.equal(referenceBibliographyFile(f.view.app, f.settings, f.context(), f.view.app.workspace.getActiveFile()).name, bib);
+      assert.ok(referenceSourceFolders(f.view.app, f.settings, f.context()).some((folder) => folder.path === sourceFolder));
+    };
+    assertPanel(f.workA, "Local Algorithms", "local.bib", f.sources.path);
+    f.view.referenceSearchQuery = "Local source";
+    const oldSearch = f.container().find(".feuillets-reference-search");
+    oldSearch.tagName = "INPUT";
+    f.container().contains = (element) => element === oldSearch;
+    const previousDocument = globalThis.document;
+    globalThis.document = { activeElement: oldSearch };
+    try { await f.navigate(f.sceneAExtra, "file-open", true); }
+    finally { globalThis.document = previousDocument; }
+    assertPanel(f.workAExtra, "Other Algorithms", "other.bib", `${f.workAExtraResearch.path}/Sources`);
+    assert.equal(f.count(), 2);
+    assert.equal(f.container().find(".feuillets-reference-search").value, "");
+    assert.ok(!f.container().textContent.includes("Local Algorithms"));
+    assert.ok(f.container().find(".feuillets-reference-warning"), "new workspace resource warnings replace the previous state");
+    assert.ok(f.container().querySelectorAll(".feuillets-reference-cite").every((button) => button.disabled), "a remembered A editor must not receive B citations");
+    newSourceSheetButton(f.container()).dispatchClick();
+    assert.equal(f.sourceTarget(), f.workAExtraResearch.path);
+    const modal = f.openSettings();
+    assert.equal(modal.context.scopeRoot.path, f.workAExtra.path);
+    const generate = f.container().find(".feuillets-bibliography-export-row");
+    assert.equal(generate.getAttr("aria-label"), t("shared.bibliography.generateWorkspace"));
+    generate.dispatchClick();
+    assert.deepEqual(f.generated().bibtexEntries.map((entry) => entry.citekey), ["foreign"]);
+    await f.navigate(f.projectFile, "active-leaf-change");
+    assert.equal(f.context().scopeRoot, f.projectRoot);
+    assert.equal(f.container().find(".feuillets-bibliography-export-row").getAttr("aria-label"), t("shared.bibliography.generateProject"));
+    await f.navigate(f.sceneA, "layout-change");
+    assertPanel(f.workA, "Local Algorithms", "local.bib", f.sources.path);
+    assert.equal(f.container().find(".feuillets-reference-warning"), null);
+    assert.equal(f.count(), 4);
+    assert.deepEqual(f.settings, before);
+  });
+}
+
+test("References repeated leaf/layout/file events in the same document do not rerender; Dossiers stays unchanged", async () => {
+  const f = await referenceNavigationHarness();
+  for (const event of ["file-open", "active-leaf-change", "layout-change", "active-leaf-change"]) await f.emit(event);
+  assert.equal(f.count(), 1, "same-file navigation and cursor-only focus events do not rebuild References");
+  f.view.researchActiveSubTab = "dossiers";
+  await f.navigate(f.sceneAExtra);
+  await f.emit("active-leaf-change");
+  assert.equal(f.count(), 1, "embedded Dossiers retains its existing navigation behavior");
+  f.host.activeTab = "notes";
+  f.view.researchActiveSubTab = "references";
+  await f.emit("active-leaf-change");
+  assert.equal(f.count(), 1, "hidden References is not refreshed");
+});
+
+test("References navigation recomputes applicable isolation without changing session scope", async () => {
+  const f = await referenceNavigationHarness();
+  const part = await f.vault.createFolder(`${f.workA.path}/Part I`);
+  const scene = await f.vault.create(`${part.path}/Scene.md`, "See [@knuth1968].");
+  f.setIsolation(part);
+  await f.navigate(scene);
+  assert.equal(f.context().scopeRoot, part);
+  await f.navigate(f.sceneAExtra);
+  assert.equal(f.context().scopeRoot, f.workAExtra);
+  assert.equal(f.view.plugin.getWorkspaceFolder(), part);
+});
+
+test("References refreshes a different document inside the same workspace, without duplicating navigation events", async () => {
+  const f = await referenceNavigationHarness();
+  const second = await f.vault.create(`${f.workA.path}/Second.md`, "See [@knuth1968].");
+  await f.navigate(second, "active-leaf-change");
+  await f.emit("file-open");
+  await f.emit("layout-change");
+  assert.equal(f.count(), 2);
+  assert.equal(f.context().scopeRoot, f.workA);
+  assert.equal(f.openSettings().context.targetScope, second);
+});
+
+test("References modal opened before navigation cannot write after automatic context refresh", async () => {
+  const f = await referenceNavigationHarness();
+  const modal = f.openSettings();
+  const select = modal.contentEl.querySelectorAll(".feuillets-reference-setting-select")
+    .find((element) => element.getAttr("data-citation-setting") === "pandocCitationPreviewStyle");
+  const before = structuredClone(f.settings);
+  await f.navigate(f.sceneAExtra);
+  select.value = "author-date";
+  select.events.get("change")();
+  assert.deepEqual(f.settings, before);
+  assert.equal(f.context().scopeRoot, f.workAExtra);
+});
+
+for (const embedded of [true, false]) {
+  test(`References preserves the workspace from Markdown to Continu and follows Continu A → B → Markdown (embedded: ${embedded})`, async () => {
+    const f = await referenceNavigationHarness({ embedded });
+    const before = structuredClone(f.settings);
+    assert.equal(f.context().scopeRoot, f.workA);
+    const previousModal = f.openSettings();
+    await f.openContinu(createFolderScope(f.projectRoot.path, f.workA.path));
+    assert.equal(f.count(), 2, "the same workspace's file → continuous transition still refreshes its target identity");
+    assert.equal(f.context().scopeRoot, f.workA);
+    assert.equal(f.view.app.workspace.getActiveFile(), null);
+    assert.equal(f.view.plugin.getCentralContinuView().compileScope.path, f.workA.path);
+    const target = resolveReferenceTarget(f.view.app, f.projectRoot, f.sceneA, f.view.plugin.getCentralContinuView().compileScope);
+    assert.equal(target.target, f.workA);
+    const citation = resolveReferenceCitationContext(f.view.app, f.settings, f.context(), target.target);
+    assert.equal(citation.scopeRoot, f.workA);
+    assert.equal(citation.targetScope, f.workA);
+    const resources = resolveWorkspaceCitationResources(f.view.app, f.settings, f.projectRoot, citation.targetScope);
+    assert.equal(referenceBibliographyFile(f.view.app, f.settings, f.context(), target.target), f.bib);
+    assert.equal(resources.csl.file, f.csl);
+    assert.deepEqual(FeuilletsPlugin.prototype.getCitationFolders.call(f.view.plugin).map((folder) => folder.path),
+      referenceSourceFolders(f.view.app, f.settings, f.context()).map((folder) => folder.path));
+    assert.ok(referenceSourceFolders(f.view.app, f.settings, f.context()).includes(f.sources));
+    assert.ok(f.container().textContent.includes("Local Algorithms"));
+    assert.ok(!f.container().textContent.includes("Other Algorithms"));
+    assert.equal(f.container().find(".feuillets-reference-warning"), null);
+    assert.ok(f.container().querySelectorAll(".feuillets-reference-cite").every((button) => button.disabled), "Continu must not insert through the old native editor");
+    const selectMode = (modal) => modal.contentEl.querySelectorAll(".feuillets-reference-setting-select")
+      .find((element) => element.getAttr("data-citation-setting") === "pandocCitationPreviewStyle");
+    assert.equal(selectMode(f.openSettings()).getAttr("data-effective-value"), "off");
+    selectMode(previousModal).value = "author-date";
+    selectMode(previousModal).events.get("change")();
+    assert.deepEqual(f.settings, before, "the previous Markdown modal cannot silently become a continuous modal");
+    newSourceSheetButton(f.container()).dispatchClick();
+    assert.equal(f.sourceTarget(), f.workAResearch.path);
+    const generate = f.container().find(".feuillets-bibliography-export-row");
+    assert.equal(generate.getAttr("aria-label"), t("shared.bibliography.generateWorkspace"));
+    generate.dispatchClick();
+    assert.deepEqual(f.generated().bibtexEntries.map((entry) => entry.citekey), ["knuth1968"]);
+    f.view.referenceSearchQuery = "local";
+    await f.view.render(true);
+    assert.deepEqual(f.container().querySelectorAll(".feuillets-reference-title").map((element) => element.text),
+      ["Local source", "Local Algorithms", "Uncited local reference"]);
+    const beforeB = f.count();
+    await f.openContinu(createFolderScope(f.projectRoot.path, f.workAExtra.path), { staleActiveFile: f.sceneA });
+    assert.equal(f.count(), beforeB + 1);
+    assert.equal(f.context().scopeRoot, f.workAExtra, "active Continu B wins over the cached Markdown A file and editor");
+    assert.equal(f.container().find(".feuillets-reference-search").value, "");
+    assert.ok(f.container().textContent.includes("Other Algorithms"));
+    assert.ok(!f.container().textContent.includes("Local Algorithms"));
+    const modalB = f.openSettings();
+    assert.equal(modalB.context.scopeRoot, f.workAExtra);
+    assert.equal(modalB.context.targetScope, f.workAExtra);
+    assert.equal(selectMode(modalB).getAttr("data-effective-value"), "csl");
+    assert.ok(f.container().find(".feuillets-reference-warning"));
+    await f.emit("layout-change");
+    assert.equal(f.count(), beforeB + 1, "unchanged Continu context does not rebuild the panel");
+    await f.navigate(f.sceneA);
+    assert.equal(f.context().scopeRoot, f.workA);
+    assert.equal(f.openSettings().context.targetScope, f.sceneA);
+    assert.deepEqual(f.settings, before, "Continu context reads never declare a workspace or change session isolation");
+  });
+}
+
+test("Continu reference points honor nested workspaces, ordinary folders and existing isolation", async () => {
+  const f = await referenceNavigationHarness();
+  const nested = await f.vault.createFolder(`${f.workA.path}/Nested`);
+  const ordinary = await f.vault.createFolder(`${f.workA.path}/Ordinary`);
+  const projectOrdinary = await f.vault.createFolder(`${f.projectRoot.path}/Ordinary`);
+  const part = await f.vault.createFolder(`${nested.path}/Part I`);
+  await f.vault.create(`${nested.path}/Scene.md`, "See [@knuth1968].");
+  await f.vault.create(`${ordinary.path}/Scene.md`, "See [@knuth1968].");
+  await f.vault.create(`${part.path}/Scene.md`, "See [@knuth1968].");
+  registerDeclaredWorkspaceRoot(f.settings, f.projectRoot, nested);
+  const before = structuredClone(f.settings);
+  for (const [point, isolation, expected] of [
+    [nested, null, nested], [f.workA, null, f.workA],
+    [ordinary, null, f.workA], [projectOrdinary, null, f.projectRoot],
+    [part, part, part], [nested, f.workA, nested],
+  ]) {
+    f.setIsolation(isolation);
+    const scope = createFolderScope(f.projectRoot.path, point.path);
+    const scopeSnapshot = structuredClone(scope);
+    await f.openContinu(scope);
+    assert.equal(f.context().scopeRoot, expected);
+    assert.equal(f.view.plugin.getWorkspaceFolder(), isolation);
+    assert.equal(f.container().find(".feuillets-reference-setting-scope").text,
+      t(expected === f.projectRoot ? "shared.research.citationProjectScope" : "shared.research.citationWorkspaceScope", { name: expected.name }));
+    assert.deepEqual(scope, scopeSnapshot);
+  }
+  assert.deepEqual(f.settings, before);
+  assert.equal(f.settings.projectMeta.PROJECT.folderWorkspaces.Ordinary, undefined);
+  assert.equal(f.settings.projectMeta.PROJECT.folderWorkspaces["Work-A/Ordinary"], undefined);
+});
+
+test("Continu file/project/selection scopes provide explicit reference locations, never an arbitrary first member", async () => {
+  const f = await referenceNavigationHarness();
+  const before = structuredClone(f.settings);
+  await f.openContinu(createFileScope(f.projectRoot.path, f.sceneAExtra.path), { staleActiveFile: f.sceneA });
+  assert.equal(f.context().scopeRoot, f.workAExtra);
+  assert.ok(f.container().querySelectorAll(".feuillets-reference-cite").every((button) => button.disabled));
+  await f.openContinu(createProjectScope(f.projectRoot.path));
+  assert.equal(f.context().scopeRoot, f.projectRoot);
+  const selection = createSelectionScope(f.projectRoot.path, [f.sceneAExtra.path, f.sceneA.path]);
+  await f.openContinu(selection);
+  assert.equal(f.context().scopeRoot, f.projectRoot, "the explicit scope root, not the first selected file, supplies the location");
+  assert.deepEqual(f.settings, before);
+});
 
 function sectionTitles(contentEl) {
   return contentEl.querySelectorAll(".feuillets-notes-section-title").map((el) => el.text);
@@ -822,3 +1269,25 @@ test("Custom research folder creation localizes only the generic prefix, never t
     setLocale(initial);
   }
 });
+
+for (const embedded of [true, false]) {
+  test(`References follows the focused sheet in a mixed Continu composition (embedded: ${embedded})`, async () => {
+    const f = await referenceNavigationHarness({ embedded });
+    const siblingBib = await f.vault.create(`${f.workAExtraResearch.path}/sibling.bib`, "@article{foreign,title={Sibling}}");
+    f.settings.projectMeta.PROJECT.folderWorkspaces["Work-A-Extra"].citekeyBibliographyPath = "sibling.bib";
+    await f.openContinu(createSelectionScope(f.projectRoot.path, [f.sceneA.path, f.sceneAExtra.path]));
+    await f.focusContinuFile(f.sceneA);
+    assert.equal(f.context().scopeRoot, f.workA);
+    let target = resolveReferenceTarget(f.view.app, f.projectRoot, f.sceneAExtra,
+      f.view.plugin.getCentralContinuView().compileScope, f.sceneA);
+    assert.equal(referenceBibliographyFile(f.view.app, f.settings, f.context(), target.target), f.bib);
+    const previous = f.openSettings();
+    await f.focusContinuFile(f.sceneAExtra);
+    assert.equal(f.context().scopeRoot, f.workAExtra);
+    assert.equal(previous.isCurrent(), false);
+    target = resolveReferenceTarget(f.view.app, f.projectRoot, f.sceneA,
+      f.view.plugin.getCentralContinuView().compileScope, f.sceneAExtra);
+    assert.equal(referenceBibliographyFile(f.view.app, f.settings, f.context(), target.target), siblingBib);
+    assert.equal(f.container().querySelectorAll(".feuillets-reference-cite").every((button) => button.disabled), true);
+  });
+}

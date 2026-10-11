@@ -11,7 +11,7 @@ import { PreviewView } from "../src/views/preview-view.js";
 import { VIEW_PREVIEW } from "../src/constants.js";
 import FeuilletsPlugin from "../src/main.js";
 import { TextInputModal } from "../src/scenes-editor.js";
-import { referenceSourceRecords, referenceBibliographyFile, searchReferenceRecords } from "../src/services/research-reference-search.js";
+import { referenceSourceRecords, referenceBibliographyFile, searchReferenceRecords, resolveReferenceCitationContext } from "../src/services/research-reference-search.js";
 import { clearBibtexCatalogCache } from "../src/services/bibtex-catalog.js";
 import { clearCitekeyAnalysisCache } from "../src/services/citekey-bibliography.js";
 import { analyzeResearchCitations } from "../src/services/research-citation-analysis.js";
@@ -396,14 +396,15 @@ test("stale controls and forged foreign candidates cannot change citation config
   }
 });
 
-test("non-isolated project aggregation uses the active workspace's CSL context without editing project settings", async () => {
+test("non-isolated declared workspace uses its CSL context without editing project settings", async () => {
   const f = await workspaceFixture();
   const meta = f.settings.projectMeta[f.root.path];
   await f.app.vault.create("Project/_Research/local.bib", "@article{local,title={Local}}");
-  meta.folderWorkspaces = { Article: { version: 1, pandocCitationPreviewStyle: "csl", citekeyBibliographyPath: "local.bib", citekeyCslPath: "chicago-notes.csl" } };
+  meta.folderWorkspaces = { Article: { version: 1, workspaceRoot: true, pandocCitationPreviewStyle: "csl", citekeyBibliographyPath: "local.bib", citekeyCslPath: "chicago-notes.csl" } };
   Object.assign(f.context, { mode: "project", scopeRoot: f.root, workspaceRoot: null });
   f.plugin.getWorkspaceFolder = () => null;
-  f.analysis.citekeyCounts.set("local", 1);
+  f.workspaceScene.content = "Body [@local]";
+  f.setTarget({ file: f.workspaceScene, editor: editorFor(f.workspaceScene) });
   await f.render();
   const resolved = resolvePandocCitationPreviewForFile(f.app, f.settings, f.workspaceScene);
   assert.equal(settingFor(f, "pandocCitationPreviewStyle").value, resolved.style);
@@ -415,7 +416,7 @@ test("non-isolated project aggregation uses the active workspace's CSL context w
   await query(f, "local");
   assert.equal(resultsFor(f).length, 1);
   resultsFor(f)[0].findAll("feuillets-reference-cite")[0].click();
-  assert.equal(f.workspaceScene.content, "Body [@local]");
+  assert.equal(f.workspaceScene.content, "Body [@local][@local]");
   await changeSetting(f, "pandocCitationPreviewStyle", "off");
   assert.equal(meta.pandocCitationPreviewStyle, "author-date");
   assert.equal(meta.folderWorkspaces.Article.pandocCitationPreviewStyle, "off");
@@ -1016,6 +1017,7 @@ test("an active-file context change while a settings modal is open cannot write 
 
 test("isolated References settings ignore an out-of-scope editor and retain the displayed workspace", async () => {
   const f = await workspaceFixture();
+  f.app.workspace.getActiveFile = () => f.workspaceScene;
   const meta = f.settings.projectMeta[f.root.path];
   meta.folderWorkspaces = { Article: { version: 1, pandocCitationPreviewStyle: "off" } };
   f.setTarget({ file: f.scene, editor: editorFor(f.scene) });
@@ -1089,4 +1091,277 @@ test("References only shows compact resource warnings for a rendering mode that 
   assert.deepEqual(f.container.findAll("feuillets-reference-warning").map((row) => row.text), [t("shared.research.citationBibliographyMissing"), t("shared.research.citationStyleMissing")]);
   await query(f, "smith");
   assert.equal(resultsFor(f).length, 1);
+});
+
+async function declaredReferenceFixture() {
+  const f = await workspaceFixture();
+  f.settings.folderPositions = {};
+  const local = await f.app.vault.createFolder("ArticleResearch");
+  const sources = await f.app.vault.createFolder("ArticleResearch/Sources");
+  const source = await f.app.vault.create("ArticleResearch/Sources/Local.md", "");
+  source.frontmatter = { author: "Local Scholar", title: "Local archive" };
+  const bib = await f.app.vault.create("ArticleResearch/article.bib", "@article{local,title={Local result},author={Scholar},year={2025}}");
+  await f.app.vault.create("ArticleResearch/article.csl", "<style/>");
+  const meta = f.settings.projectMeta[f.root.path];
+  meta.researchFolderLinks[f.workspace.path] = local.path;
+  meta.folderWorkspaces = { Article: { version: 1, workspaceRoot: true, pandocCitationPreviewStyle: "csl", citekeyBibliographyPath: "article.bib", citekeyCslPath: "article.csl" } };
+  f.workspaceScene.content = "Body [@local].";
+  f.setTarget({ file: f.workspaceScene, editor: editorFor(f.workspaceScene) });
+  Object.assign(f.context, { mode: "project", scopeRoot: f.root, workspaceRoot: null, files: [f.scene, f.workspaceScene] });
+  f.plugin.getWorkspaceFolder = () => null;
+  return { ...f, local, localSource: source, localSources: sources, localBib: bib };
+}
+
+test("References uses declared workspace without isolation for settings, search, insertion and bibliography generation", async () => {
+  const f = await declaredReferenceFixture();
+  const before = structuredClone(f.settings);
+  await f.render();
+  const modal = f.openSettings();
+  assert.equal(modal.contentEl.findAll("feuillets-reference-setting-scope")[0].text,
+    t("shared.research.citationWorkspaceScope", { name: f.workspace.name }));
+  assert.equal(settingFor(f, "pandocCitationPreviewStyle").value, "csl");
+  assert.equal(settingFor(f, "citekeyBibliographyPath").value, "article.bib");
+  assert.equal(settingFor(f, "citekeyCslPath").value, "article.csl");
+  const generate = f.container.findAll("feuillets-bibliography-export-row")[0];
+  assert.equal(generate.getAttr("aria-label"), t("shared.bibliography.generateWorkspace"));
+  generate.click();
+  assert.deepEqual(f.generated[0].bibtexEntries.map((entry) => entry.citekey), ["local"]);
+  assert.equal(f.view.referenceRefreshPaths.has(f.scene.path), false, "project sibling documents do not enter citation analysis");
+  assert.equal(f.view.referenceRefreshPaths.has(f.workspaceScene.path), true);
+  await query(f, "local");
+  assert.equal(resultsFor(f).length, 2);
+  resultsFor(f).find((row) => row.textContent.includes("Local result")).findAll("feuillets-reference-cite")[0].click();
+  assert.equal(f.workspaceScene.content, "Body [@local].[@local]");
+  assert.equal(f.plugin.getWorkspaceFolder(), null);
+  assert.deepEqual(f.settings, before);
+});
+
+test("persistent References search and source insertion exclude sibling workspace resources", async () => {
+  const f = await declaredReferenceFixture();
+  const sibling = await f.app.vault.createFolder("Project/Article-Extra");
+  const foreign = await f.app.vault.createFolder("ForeignResearch");
+  await f.app.vault.createFolder("ForeignResearch/Sources");
+  const foreignSource = await f.app.vault.create("ForeignResearch/Sources/Foreign.md", "");
+  foreignSource.frontmatter = { author: "Local Foreign Scholar" };
+  await f.app.vault.create("ForeignResearch/foreign.bib", "@article{foreign,title={Local foreign work}}");
+  await f.app.vault.create("Project/Article-Extra/Scene.md", "See [@foreign].");
+  const meta = f.settings.projectMeta[f.root.path];
+  meta.researchFolderLinks[sibling.path] = foreign.path;
+  meta.folderWorkspaces["Article-Extra"] = { version: 1, workspaceRoot: true, citekeyBibliographyPath: "foreign.bib" };
+  const folders = FeuilletsPlugin.prototype.getCitationFolders.call(f.plugin);
+  assert.ok(folders.includes(f.localSources));
+  assert.equal(folders.some((folder) => folder.path.startsWith(foreign.path)), false);
+  await f.render();
+  await query(f, "local");
+  assert.equal(resultsFor(f).length, 2);
+  assert.doesNotMatch(f.container.findAll("feuillets-reference-results")[0].textContent, /Foreign|foreign/);
+  assert.equal(f.reads.includes("ForeignResearch/foreign.bib"), false);
+  assert.equal(f.reads.includes("Project/Article-Extra/Scene.md"), false);
+});
+
+test("persistent References return to parent inheritance without removing identity or changing project settings", async () => {
+  const f = await declaredReferenceFixture();
+  await f.render();
+  f.openSettings().contentEl.findAll("feuillets-reference-settings-inheritance")[0].click();
+  await settle();
+  assert.deepEqual(f.settings.projectMeta[f.root.path].folderWorkspaces.Article, { version: 1, workspaceRoot: true });
+  for (const [field, value] of [["pandocCitationPreviewStyle", "author-date"], ["citekeyBibliographyPath", "references.bib"], ["citekeyCslPath", "chicago-notes.csl"]]) {
+    assert.equal(settingFor(f, field).getAttr("data-effective-value"), value);
+  }
+  assert.equal(resolvePandocCitationPreviewForFile(f.app, f.settings, f.workspaceScene).style, "author-date");
+  assert.equal(f.plugin.getWorkspaceFolder(), null);
+});
+
+test("persistent References edits its context style while document warnings retain ordinary descendant overrides", async () => {
+  const f = await declaredReferenceFixture();
+  const child = await f.app.vault.createFolder("Project/Article/Chapter");
+  const scene = await f.app.vault.create(`${child.path}/Scene.md`, "Body");
+  f.settings.projectMeta[f.root.path].folderWorkspaces["Article/Chapter"] = {
+    version: 1, pandocCitationPreviewStyle: "off", citekeyBibliographyPath: "", citekeyCslPath: "",
+  };
+  f.setTarget({ file: scene, editor: editorFor(scene) });
+  await f.render();
+  assert.equal(f.openSettings().contentEl.findAll("feuillets-reference-setting-scope")[0].text,
+    t("shared.research.citationWorkspaceScope", { name: f.workspace.name }));
+  assert.equal(settingFor(f, "pandocCitationPreviewStyle").getAttr("data-effective-value"), "csl");
+  assert.equal(settingFor(f, "citekeyBibliographyPath").getAttr("data-effective-value"), "");
+  assert.equal(f.container.findAll("feuillets-reference-warning").length, 0);
+  assert.equal(resolvePandocCitationPreviewForFile(f.app, f.settings, scene).style, "off");
+});
+
+function renderingScopeFixture(style = "off") {
+  const root = new TFolder("TEXTES");
+  const article = new TFolder("TEXTES/Article test");
+  const scene = new TFile("TEXTES/Article test/test.md", "Body [@local].");
+  const research = new TFolder("ArticleResearch");
+  const bib = new TFile("ArticleResearch/article.bib", "@article{local,title={Local}}");
+  const csl = new TFile("ArticleResearch/article.csl", "<style/>");
+  root.children = [article]; article.parent = root;
+  article.children = [scene]; scene.parent = article;
+  research.children = [bib, csl]; bib.parent = research; csl.parent = research;
+  const { vault } = createFakeVault([root, article, scene, research, bib, csl]);
+  const config = { version: 1, workspaceRoot: true, ouvrage: { version: 1 },
+    citekeyBibliographyPath: "article.bib", citekeyCslPath: "article.csl",
+    pandocCitationPreviewStyle: style };
+  const settings = { projectFolder: root.path, workspaceFolderPath: "", projectMeta: { TEXTES: {
+    pandocCitationPreviewStyle: "csl", researchFolderLinks: { [root.path]: research.path },
+    folderWorkspaces: { "Article test": config },
+  } } };
+  const app = { vault };
+  let isolation = null;
+  const plugin = { settings, getWorkspaceFolder: () => isolation,
+    saveSettings: async () => {}, renderAllViews() {}, refreshCitationRendering() {} };
+  const incoming = { projectRoot: root, scopeRoot: root, targetScope: scene };
+  const modal = new ReferenceCitationSettingsModal(app, plugin, incoming, () => true);
+  modal.contentEl = new Element(); modal.modalEl = new Element(); modal.close = () => modal.onClose();
+  const open = () => { modal.onOpen(); return modal; };
+  const select = (field) => modal.contentEl.findAll("feuillets-reference-setting-select").find((item) => item.getAttr("data-citation-setting") === field);
+  const change = async (value) => {
+    if (select("pandocCitationPreviewStyle").disabled) modal.contentEl.findAll("feuillets-reference-settings-inheritance")[0].click();
+    const control = select("pandocCitationPreviewStyle");
+    control.value = value; control.events.get("change")(); await settle();
+  };
+  const scopeText = () => modal.contentEl.findAll("feuillets-reference-setting-scope")[0].text;
+  const assertResources = () => {
+    const resolution = resolveWorkspaceCitationResources(app, settings, root, scene);
+    assert.equal(resolution.bibliography.file, bib);
+    assert.equal(resolution.csl.file, csl);
+    assert.equal(select("citekeyBibliographyPath").getAttr("data-effective-value"), "article.bib");
+    assert.equal(select("citekeyCslPath").getAttr("data-effective-value"), "article.csl");
+    assert.equal(config.citekeyBibliographyPath, "article.bib");
+    assert.equal(config.citekeyCslPath, "article.csl");
+  };
+  return { app, settings, plugin, root, article, scene, config, incoming, modal, open, select, change, scopeText, assertResources,
+    setIsolation(folder) { isolation = folder; } };
+}
+
+for (const [style, label] of [["off", "styleOff"], ["author-date", "styleAuthorDate"], ["csl", "styleCsl"]]) {
+  test(`Reference settings correct incoming project scope for Article test ${style} without isolation`, () => {
+    const f = renderingScopeFixture(style);
+    const before = structuredClone(f.settings);
+    assert.equal(f.incoming.scopeRoot.path, "TEXTES");
+    assert.equal(f.incoming.targetScope.path, "TEXTES/Article test/test.md");
+    f.open();
+    assert.equal(f.modal.context.scopeRoot, f.article);
+    assert.equal(f.modal.context.targetScope, f.scene);
+    assert.equal(f.scopeText(), t("shared.research.citationWorkspaceScope", { name: "Article test" }));
+    const mode = f.select("pandocCitationPreviewStyle");
+    assert.equal(mode.value, style);
+    assert.equal(mode.getAttr("data-effective-value"), style);
+    assert.equal(mode.children.find((option) => option.getAttr("value") === mode.value).text,
+      t(`project.pandocCitationPreview.${label}`));
+    f.assertResources();
+    assert.deepEqual(f.settings, before);
+    assert.equal(f.incoming.scopeRoot, f.root, "caller context is not mutated");
+    f.modal.onClose();
+  });
+}
+
+test("Reference rendering mode inherits the project when its workspace override is absent", () => {
+  const f = renderingScopeFixture();
+  delete f.config.pandocCitationPreviewStyle;
+  f.open();
+  assert.equal(f.modal.context.scopeRoot, f.article);
+  const mode = f.select("pandocCitationPreviewStyle");
+  assert.equal(mode.value, "__effective__");
+  assert.equal(mode.getAttr("data-effective-value"), "csl");
+  assert.equal(mode.getAttr("data-inherited"), "true");
+  assert.ok(mode.children.find((option) => option.getAttr("value") === mode.value).text.includes(t("modal.layout.inherited")));
+  f.assertResources(); f.modal.onClose();
+});
+
+test("Reference rendering writes all three modes into the displayed workspace, never the project", async () => {
+  const f = renderingScopeFixture(); f.open();
+  const meta = f.settings.projectMeta.TEXTES;
+  const projectBefore = { ...meta, folderWorkspaces: undefined };
+  for (const style of ["author-date", "csl", "off"]) {
+    await f.change(style);
+    assert.equal(f.config.pandocCitationPreviewStyle, style);
+    assert.equal(meta.pandocCitationPreviewStyle, "csl");
+    assert.deepEqual({ ...meta, folderWorkspaces: undefined }, projectBefore);
+    f.assertResources();
+  }
+  assert.equal(f.settings.workspaceFolderPath, ""); f.modal.onClose();
+});
+
+test("Reference rendering returns to inheritance by removing only its own field", async () => {
+  const f = renderingScopeFixture(); f.open();
+  const before = structuredClone(f.config);
+  await f.change("__inherit__");
+  delete before.pandocCitationPreviewStyle;
+  assert.deepEqual(f.config, before);
+  assert.equal(f.config.workspaceRoot, true);
+  assert.deepEqual(f.config.ouvrage, { version: 1 });
+  assert.equal(f.select("pandocCitationPreviewStyle").getAttr("data-effective-value"), "csl");
+  assert.equal(f.select("pandocCitationPreviewStyle").getAttr("data-inherited"), "true");
+  assert.equal(f.settings.projectMeta.TEXTES.pandocCitationPreviewStyle, "csl");
+  f.assertResources(); f.modal.onClose();
+});
+
+test("Reference scope alignment preserves bibliography and CSL resolution through rendering edits", async () => {
+  const f = renderingScopeFixture();
+  const resourcesBefore = resolveWorkspaceCitationResources(f.app, f.settings, f.root, f.scene);
+  f.open(); f.assertResources();
+  assert.equal(f.modal.context.targetScope, f.scene);
+  for (const style of ["author-date", "csl", "__inherit__"]) {
+    await f.change(style);
+    f.assertResources();
+    assert.deepEqual(resolveWorkspaceCitationResources(f.app, f.settings, f.root, f.scene), resourcesBefore);
+  }
+  f.modal.onClose();
+});
+
+test("Reference rendering chooses NEFES in nested workspaces and inherits WARPI's mode", async () => {
+  const f = renderingScopeFixture();
+  const warpi = await f.app.vault.createFolder("TEXTES/WARPI");
+  const nefes = await f.app.vault.createFolder("TEXTES/WARPI/NEFES");
+  const scene = await f.app.vault.create(`${nefes.path}/file.md`, "Body");
+  f.settings.projectMeta.TEXTES.folderWorkspaces.WARPI = { version: 1, workspaceRoot: true, pandocCitationPreviewStyle: "author-date" };
+  const config = f.settings.projectMeta.TEXTES.folderWorkspaces["WARPI/NEFES"] = { version: 1, workspaceRoot: true };
+  f.incoming.targetScope = scene;
+  f.open();
+  assert.equal(f.modal.context.scopeRoot, nefes);
+  assert.equal(f.scopeText(), t("shared.research.citationWorkspaceScope", { name: nefes.name }));
+  assert.equal(f.select("pandocCitationPreviewStyle").getAttr("data-effective-value"), "author-date");
+  assert.equal(f.select("pandocCitationPreviewStyle").getAttr("data-inherited"), "true");
+  await f.change("off");
+  assert.equal(config.pandocCitationPreviewStyle, "off");
+  await f.change("__inherit__");
+  assert.deepEqual(config, { version: 1, workspaceRoot: true });
+  assert.equal(f.select("pandocCitationPreviewStyle").getAttr("data-effective-value"), "author-date");
+  assert.equal(f.settings.projectMeta.TEXTES.folderWorkspaces.WARPI.pandocCitationPreviewStyle, "author-date");
+  assert.equal(warpi.path, "TEXTES/WARPI"); f.modal.onClose();
+});
+
+test("Reference rendering keeps a deeper applicable isolation as its read and write scope", async () => {
+  const f = renderingScopeFixture();
+  const part = await f.app.vault.createFolder("TEXTES/Article test/Partie I");
+  const scene = await f.app.vault.create(`${part.path}/file.md`, "Body");
+  f.incoming.targetScope = scene;
+  f.setIsolation(part);
+  f.open();
+  assert.equal(f.modal.context.scopeRoot, part);
+  assert.equal(f.select("pandocCitationPreviewStyle").getAttr("data-effective-value"), "off");
+  await f.change("author-date");
+  assert.equal(f.settings.projectMeta.TEXTES.folderWorkspaces["Article test/Partie I"].pandocCitationPreviewStyle, "author-date");
+  assert.equal(f.config.pandocCitationPreviewStyle, "off");
+  assert.equal(f.settings.projectMeta.TEXTES.pandocCitationPreviewStyle, "csl"); f.modal.onClose();
+});
+
+test("Reference rendering without declarations or isolation retains project scope, not the physical parent", async () => {
+  const f = renderingScopeFixture();
+  delete f.config.workspaceRoot;
+  const context = resolveReferenceCitationContext(f.app, f.settings, {
+    projectRoot: f.root, scopeRoot: f.root, workspaceRoot: null, mode: "project", files: [f.scene],
+  }, f.scene);
+  assert.equal(context.scopeRoot, f.root);
+  assert.equal(context.targetScope, f.scene);
+  f.open();
+  assert.equal(f.modal.context.scopeRoot, f.root);
+  assert.equal(f.scopeText(), t("shared.research.citationProjectScope", { name: "TEXTES" }));
+  assert.equal(f.select("pandocCitationPreviewStyle").value, "csl");
+  await f.change("author-date");
+  assert.equal(f.settings.projectMeta.TEXTES.pandocCitationPreviewStyle, "author-date");
+  assert.equal(f.config.pandocCitationPreviewStyle, "off", "ordinary overrides remain untouched");
+  f.assertResources(); f.modal.onClose();
 });

@@ -103,6 +103,7 @@ import { folderNoteFor, getOrCreateFolderNote } from "./services/folder-notes.js
 import { fmOf, rawFrontmatterOf, titleFor, shortTitleFor, compiledTitleFor, tagsOf, labelOf, labelsOf, folderGoal } from "./services/frontmatter.js";
 import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontMatter, roleOfFolder, roleOfFile, getOrderedChildren, flattenFiles, chapterCount, getChapters, detectProjectStructureLocale } from "./services/folder-structure.js";
 import { resolveEditorialRoot, isOuvrageRoot } from "./services/editorial-roots.js";
+import { resolveReferenceContextRoot, resolveReferenceTarget } from "./services/research-reference-search.js";
 import { effectiveComposition } from "./services/ouvrage-composition.js";
 import { prepareSubmission } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
@@ -4143,13 +4144,24 @@ class FeuilletsPlugin extends Plugin {
     const workspace = this.app.workspace;
     const active = workspace.activeEditor;
     if (active?.editor && active.file?.extension === "md") return { editor: active.editor, file: active.file };
-    const activeView = workspace.getActiveViewOfType(MarkdownView);
-    const recent = workspace.getMostRecentLeaf()?.view;
+    const activeView = workspace.getActiveViewOfType?.(MarkdownView);
+    const recent = workspace.getMostRecentLeaf?.()?.view;
     const last = this._lastMarkdownLeaf?.view;
     for (const view of [activeView, recent, last]) {
       if (view instanceof MarkdownView && view.file?.extension === "md") return { editor: view.editor, file: view.file };
     }
     return null;
+  }
+
+  /** Refreshes only reference panels when the continuous cursor changes sheets. */
+  notifyReferenceContextChanged(): void {
+    for (const type of [VIEW_RESEARCH, VIEW_SIDEBAR_FEUILLETS]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+        if (leaf.view instanceof ResearchView || leaf.view instanceof SidebarFeuilletsView) {
+          void leaf.view.refreshReferencesOnActiveDocumentChange();
+        }
+      }
+    }
   }
 
   /** Dossier(s) proposés par « Insérer une citation ». Réutilise
@@ -4158,7 +4170,14 @@ class FeuilletsPlugin extends Plugin {
    * sinon repli Bibliographie/Bibliography legacy, jamais les deux à la
    * fois — même règle que la bibliographie générée. */
   getCitationFolders(): TFolder[] {
-    const workspace = this.getWorkspaceFolder();
+    const projectRoot = getProjectFolder(this.app, this.settings);
+    const target = projectRoot
+      ? resolveReferenceTarget(this.app, projectRoot, this.getReferenceCitationTarget?.()?.file ?? null,
+        this.getCentralContinuView?.()?.compileScope ?? null, this.getCentralContinuView?.()?.getReferenceFile?.() ?? null).target : null;
+    const isolation = this.getWorkspaceFolder();
+    const contextRoot = projectRoot && target
+      ? resolveReferenceContextRoot(this.app, this.settings, projectRoot, target, isolation) : isolation;
+    const workspace = contextRoot?.path === projectRoot?.path ? null : contextRoot;
     if (!workspace) {
       const resolved = resolveBibliographySource(this.app, this.settings);
       return resolved ? [resolved.folder] : [];
