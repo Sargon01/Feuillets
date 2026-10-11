@@ -19,8 +19,12 @@ import {
   workspacePlanningField,
   workspaceReadingFontSize,
   workspaceSessionGoal,
-  folderWorkspaceScopeChain,
   getFolderWorkspaceConfig,
+  isDeclaredWorkspaceRoot,
+  registerDeclaredWorkspaceRoot,
+  unregisterDeclaredWorkspaceRoot,
+  isFolderWorkspaceConfigEmpty,
+  resolveFolderWorkspaceValue,
   workspaceStatuses,
   workspaceTolerance,
   workspaceTotalWordGoal,
@@ -71,9 +75,7 @@ export class FolderWorkspaceModal extends Modal {
 
     const meta = this.plugin.settings.projectMeta[projectRoot.path];
     const localConfig = getFolderWorkspaceConfig(meta, relativeScope);
-    const inherited = this.findInheritedConfig(meta, projectRoot.path, this.folder.path);
-    const effectiveConfig = localConfig || inherited.config;
-    const selectedPreset = effectiveConfig?.preset || "free";
+    const selectedPreset = resolveFolderWorkspaceValue(meta, projectRoot.path, this.folder.path, "preset", "free").value || "free";
 
     const titleRow = contentEl.createDiv({ cls: "feuillets-modal-title-row" });
     setIcon(titleRow.createDiv({ cls: "feuillets-cell-icon" }), "folder-cog");
@@ -85,15 +87,11 @@ export class FolderWorkspaceModal extends Modal {
       cls: "feuillets-notes-sub",
     });
     contentEl.createDiv({
-      text: localConfig
-        ? t("modal.folderWorkspace.local")
-        : inherited.scope
-          ? t("modal.folderWorkspace.inheritedFromParent", { name: inherited.name })
-          : t("modal.folderWorkspace.inheritedFromProject"),
+      text: this.sourceDescription(projectRoot.path, relativeScope, "preset"),
       cls: "feuillets-notes-sub",
     });
 
-    this.renderOuvrageOption(contentEl, projectRoot);
+    this.renderContext(contentEl, projectRoot);
 
     const saveLocalPreset = async (preset: FolderWorkspacePreset): Promise<void> => {
       const boardDefaults = projectBoardDefaults(preset);
@@ -157,16 +155,9 @@ export class FolderWorkspaceModal extends Modal {
     this.renderTypography(typography, projectRoot.path, relativeScope);
   }
 
-  /** Option « Définir ce dossier comme ouvrage » — statut lu et écrit via
-   *  services/editorial-roots.ts (isOuvrageRoot/registerOuvrage/
-   *  unregisterOuvrage), seuls points d'accès légitimes à
-   *  folderWorkspaces[relatif].ouvrage. Absente pour la racine globale, pour
-   *  Front et ses descendants, et pour un dossier préfixé par "_" — mêmes
-   *  exclusions que l'ancienne entrée de menu contextuel du Binder.
-   *  Applique le changement immédiatement, comme tous les autres champs de
-   *  cette modale (voir saveLocalField, renderTypographyToggle…) : pas
-   *  d'état local ni de validation séparée. */
-  private renderOuvrageOption(container: HTMLElement, projectRoot: TFolder): void {
+  /** Independent structural identities use the historical folder exclusions.
+   * Neither toggle changes the active folder or session isolation. */
+  private renderContext(container: HTMLElement, projectRoot: TFolder): void {
     const rel = ouvrageRelativePath(projectRoot.path, this.folder.path);
     if (!rel) return;
     if (this.folder.name.startsWith("_")) return;
@@ -174,6 +165,25 @@ export class FolderWorkspaceModal extends Modal {
     if (this.folder.path === frontPath || this.folder.path.startsWith(`${frontPath}/`)) return;
     if (this.folder.name === "Front" || this.folder.path.split("/").includes("Front")) return;
 
+    new Setting(container)
+      .setName(t("modal.folderWorkspace.defineAsWorkspace"))
+      .addToggle((toggle) => toggle
+        .setValue(isDeclaredWorkspaceRoot(this.app, this.plugin.settings, projectRoot, this.folder))
+        .onChange(async (value) => {
+          const changed = value
+            ? registerDeclaredWorkspaceRoot(this.plugin.settings, projectRoot, this.folder)
+            : unregisterDeclaredWorkspaceRoot(this.plugin.settings, projectRoot, this.folder);
+          if (changed) {
+            await this.plugin.saveSettings();
+            this.plugin.renderAllViews(true);
+            this.rerenderContent();
+          }
+        }));
+    this.renderOuvrageOption(container, projectRoot);
+  }
+
+  /** Editorial identity retains its existing readers, writers and immediate save. */
+  private renderOuvrageOption(container: HTMLElement, projectRoot: TFolder): void {
     new Setting(container)
       .setName(t("modal.folderWorkspace.defineAsOuvrage"))
       .addToggle((toggle) => toggle
@@ -306,6 +316,7 @@ export class FolderWorkspaceModal extends Modal {
     key: K,
     refresh?: () => void,
   ): Promise<void> {
+    if (key === "workspaceRoot" || key === "ouvrage") return;
     const meta = this.plugin.settings.projectMeta[projectRootPath];
     const workspaces = meta?.folderWorkspaces;
     const config = workspaces?.[relativeScope];
@@ -639,33 +650,16 @@ export class FolderWorkspaceModal extends Modal {
       .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, key, refresh); }));
   }
 
-  private findInheritedConfig(
-    meta: ProjectMeta | undefined,
-    projectRootPath: string,
-    folderPath: string,
-  ): { config: FolderWorkspaceConfig | undefined; scope: string | null; name: string } {
-    const chain = folderWorkspaceScopeChain(projectRootPath, folderPath);
-    for (const scope of chain.slice(1)) {
-      const config = getFolderWorkspaceConfig(meta, scope);
-      if (!config) continue;
-      const inheritedPath = workspaceScopeToFolderPath(projectRootPath, scope);
-      const inheritedFolder = inheritedPath
-        ? this.app.vault.getAbstractFileByPath(inheritedPath)
-        : null;
-      return {
-        config,
-        scope,
-        name: inheritedFolder instanceof TFolder ? inheritedFolder.name : scope.split("/").pop() || scope,
-      };
-    }
-    return { config: undefined, scope: null, name: "" };
-  }
-
   private async resetLocalConfig(projectRootPath: string, relativeScope: string): Promise<void> {
     const meta = this.plugin.settings.projectMeta[projectRootPath];
     if (!meta?.folderWorkspaces || !Object.prototype.hasOwnProperty.call(meta.folderWorkspaces, relativeScope)) return;
     const next = { ...meta.folderWorkspaces };
-    delete next[relativeScope];
+    const config = next[relativeScope];
+    const identity: FolderWorkspaceConfig = { version: 1 };
+    if (config.workspaceRoot === true) identity.workspaceRoot = true;
+    if (config.ouvrage !== undefined) identity.ouvrage = config.ouvrage;
+    if (isFolderWorkspaceConfigEmpty(identity)) delete next[relativeScope];
+    else next[relativeScope] = identity;
     if (Object.keys(next).length === 0) delete meta.folderWorkspaces;
     else meta.folderWorkspaces = next;
     await this.plugin.saveSettings();

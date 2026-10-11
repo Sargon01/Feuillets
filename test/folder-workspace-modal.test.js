@@ -6,6 +6,7 @@ import { ReferenceCitationSettingsModal } from "../src/ui/reference-citation-set
 import { FolderWorkspaceModal } from "../src/ui/folder-workspace-modal.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { fr } from "../src/i18n/fr.js";
+import { setImmediate } from "node:timers/promises";
 
 
 const modalSource = readFileSync("src/ui/folder-workspace-modal.ts", "utf8");
@@ -20,10 +21,10 @@ test("workspace folder context menu opens the local configuration modal only for
 });
 
 test("workspace modal reads provenance without creating settings and applies only preset fields", () => {
-  assert.match(modalSource, /folderWorkspaceScopeChain/);
+  assert.match(modalSource, /resolveFolderWorkspaceValue/);
   assert.match(modalSource, /getFolderWorkspaceConfig/);
   assert.match(modalSource, /workspaceScopeToFolderPath/);
-  assert.match(modalSource, /localConfig\s*\?/);
+  assert.match(modalSource, /sourceDescription/);
   assert.match(modalSource, /inheritedFromParent/);
   assert.match(modalSource, /inheritedFromProject/);
   assert.match(modalSource, /preset,/);
@@ -470,4 +471,106 @@ test("References settings: reset removes local override and restores inheritance
   } finally {
     restore();
   }
+});
+
+function findFolderSetting(root, name) {
+  return root.querySelectorAll(".setting-item-name").find((element) => element.textContent === name)?.parentNode.parentNode ?? null;
+}
+
+for (const identity of [{ workspaceRoot: true }, { ouvrage: { version: 1 } }, { workspaceRoot: true, ouvrage: { version: 1 } }]) {
+  test(`folder reset preserves structural identities ${Object.keys(identity).join(" + ")}`, async () => {
+    const restore = installWindowStub();
+    try {
+      const composition = { version: 1, composition: { outputBasename: "Independent work" } };
+      const identities = { ...identity, ...(identity.ouvrage ? { ouvrage: composition } : {}) };
+      const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, ...identities, wordGoal: 5000,
+        preset: "fiction", liveJustify: false, favoriteTags: ["tag"], statuses: [], labels: [],
+        citekeyBibliographyPath: "articleA.bib", futureLocalOverride: "remove" },
+      "Article-A/Section-1": { version: 1, wordGoal: 1000 } });
+      const descendant = structuredClone(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A/Section-1"]);
+      const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+      const button = modal.contentEl.querySelectorAll("button").find((element) => element.textContent === fr["modal.folderWorkspace.reset"]);
+      assert.ok(button);
+      button.click(); await setImmediate();
+      assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], { version: 1, ...identities });
+      assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A/Section-1"], descendant);
+      assert.equal(f.saveCount(), 1); assert.equal(f.renderCount(), 1);
+      for (const [key, active] of [["defineAsWorkspace", !!identity.workspaceRoot], ["defineAsOuvrage", !!identity.ouvrage]]) {
+        assert.equal(findFolderSetting(modal.contentEl, fr[`modal.folderWorkspace.${key}`]).querySelector(".checkbox-container").hasClass("is-enabled"), active);
+      }
+    } finally { restore(); }
+  });
+}
+
+test("folder reset removes only an override-only entry and retains its declared descendants", async () => {
+  const restore = installWindowStub();
+  try {
+    const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, wordGoal: 2000 },
+      "Article-A/Section-1": { version: 1, workspaceRoot: true } });
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    await modal.resetLocalConfig(f.project.path, "Article-A");
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces, { "Article-A/Section-1": { version: 1, workspaceRoot: true } });
+  } finally { restore(); }
+});
+
+test("folder identity-only configuration inherits its parent's preset and goal in the actual modal", () => {
+  const f = buildWorkspaceCitationFixture({
+    "Article-A": { version: 1, preset: "nonfiction", wordGoal: 2000 },
+    "Article-A/Section-1": { version: 1, workspaceRoot: true, ouvrage: { version: 1 } },
+  });
+  const before = structuredClone(f.settings);
+  const modal = openWorkspaceModal(f.app, f.plugin, f.section1);
+  assert.equal(findFolderSetting(modal.contentEl, fr["modal.folderWorkspace.preset"]).querySelector("select").value, "nonfiction");
+  assert.equal(findFolderSetting(modal.contentEl, fr["settings.wordGoal.name"]).querySelector("input").value, "2000");
+  assert.ok(modal.contentEl.textContent.includes(fr["modal.folderWorkspace.inheritedFromParent"].replace("{name}", "Article-A")));
+  assert.deepEqual(f.settings, before);
+});
+
+test("folder context toggles persist all four states independently and never change isolation", async () => {
+  const restore = installWindowStub();
+  try {
+    const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, wordGoal: 2000, preset: "fiction", citekeyBibliographyPath: "articleA.bib" } });
+    const preferences = structuredClone(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"]);
+    const before = structuredClone(f.settings);
+    f.plugin.workspaceFolderPath = f.section1.path;
+    f.plugin.setWorkspaceFolder = () => assert.fail("Declaration must not isolate a folder");
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    const names = modal.contentEl.querySelectorAll(".setting-item-name").map((element) => element.textContent);
+    assert.deepEqual(names.slice(0, 2), [fr["modal.folderWorkspace.defineAsWorkspace"], fr["modal.folderWorkspace.defineAsOuvrage"]]);
+    const change = async (key) => {
+      const control = findFolderSetting(modal.contentEl, fr[`modal.folderWorkspace.${key}`]).querySelector(".checkbox-container");
+      control.click(); await setImmediate();
+    };
+    const check = (identities) => {
+      assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], { ...preferences, ...identities });
+      for (const [key, active] of [["defineAsWorkspace", !!identities.workspaceRoot], ["defineAsOuvrage", !!identities.ouvrage]]) {
+        assert.equal(findFolderSetting(modal.contentEl, fr[`modal.folderWorkspace.${key}`]).querySelector(".checkbox-container").hasClass("is-enabled"), active);
+      }
+    };
+    check({});
+    await change("defineAsWorkspace"); check({ workspaceRoot: true });
+    await change("defineAsOuvrage"); check({ workspaceRoot: true, ouvrage: { version: 1 } });
+    await change("defineAsWorkspace"); check({ ouvrage: { version: 1 } });
+    await change("defineAsWorkspace"); check({ workspaceRoot: true, ouvrage: { version: 1 } });
+    await change("defineAsOuvrage"); check({ workspaceRoot: true });
+    await change("defineAsWorkspace"); check({});
+    assert.equal(f.saveCount(), 6); assert.equal(f.renderCount(), 6);
+    assert.equal(f.plugin.workspaceFolderPath, f.section1.path);
+    assert.deepEqual(f.settings, before);
+  } finally { restore(); }
+});
+
+test("individual preference resets preserve both structural identities and work composition", async () => {
+  const restore = installWindowStub();
+  try {
+    const identities = { version: 1, workspaceRoot: true, ouvrage: { version: 1, composition: { outputBasename: "My work" } } };
+    const f = buildWorkspaceCitationFixture({ "Article-A": { ...identities, wordGoal: 2000 } });
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    await modal.resetLocalField(f.project.path, "Article-A", "wordGoal");
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], identities);
+    await modal.resetLocalField(f.project.path, "Article-A", "workspaceRoot");
+    await modal.resetLocalField(f.project.path, "Article-A", "ouvrage");
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], identities);
+    assert.equal(f.saveCount(), 1);
+  } finally { restore(); }
 });

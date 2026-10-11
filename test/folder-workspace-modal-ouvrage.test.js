@@ -4,6 +4,7 @@ import { TFolder } from "obsidian";
 import { FolderWorkspaceModal } from "../src/ui/folder-workspace-modal.js";
 import { isOuvrageRoot } from "../src/services/editorial-roots.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { fr } from "../src/i18n/fr.js";
 
 /* RECTIFICATION — ALIGNER OUVRAGE SUR LA MODALE EXISTANTE : l'option ouvrage
  * applique chaque changement immédiatement, comme tout le reste de cette
@@ -195,7 +196,7 @@ test("désactiver le toggle Ouvrage retire le statut immédiatement et préserve
   }
 });
 
-test("l'option ouvrage est absente pour la racine globale, Front et ses descendants, et les dossiers préfixés par _", () => {
+test("both identities are excluded for the global root, Front descendants and folders prefixed with underscore", () => {
   const restore = installWindowStub();
   try {
     const root = new TFolder("WARPI");
@@ -203,8 +204,12 @@ test("l'option ouvrage est absente pour la racine globale, Front et ses descenda
     front.parent = root;
     const hidden = new TFolder("WARPI/_Feuillets");
     hidden.parent = root;
+    const frontChild = new TFolder("WARPI/Front/Chapters"); frontChild.parent = front;
+    const nestedFront = new TFolder("WARPI/Collection/Front/Chapter");
+    const nestedHidden = new TFolder("WARPI/Collection/_Hidden");
+    const outside = new TFolder("OTHER/Folder");
     root.children = [front, hidden];
-    const { vault } = createFakeVault([root, front, hidden]);
+    const { vault } = createFakeVault([root, front, hidden, frontChild, nestedFront, nestedHidden, outside]);
     const app = { vault };
     const settings = { projectFolder: "WARPI", projectMeta: {} };
     const plugin = {
@@ -217,6 +222,13 @@ test("l'option ouvrage est absente pour la racine globale, Front et ses descenda
     assert.equal(findSettingByName(openModal(app, plugin, root).contentEl, OUVRAGE_LABEL), null, "racine globale");
     assert.equal(findSettingByName(openModal(app, plugin, front).contentEl, OUVRAGE_LABEL), null, "Front");
     assert.equal(findSettingByName(openModal(app, plugin, hidden).contentEl, OUVRAGE_LABEL), null, "dossier préfixé par _");
+    for (const folder of [root, front, hidden, frontChild, nestedFront, nestedHidden, outside]) {
+      const modal = openModal(app, plugin, folder);
+      for (const key of ["defineAsWorkspace", "defineAsOuvrage"]) {
+        assert.equal(findSettingByName(modal.contentEl, fr[`modal.folderWorkspace.${key}`]), null, folder.path);
+      }
+    }
+    assert.deepEqual(settings.projectMeta, {});
   } finally {
     restore();
   }
