@@ -129,7 +129,7 @@ test("folder-workspace-modal.ts's status/label rename rows display the translate
   const source = readSource("src/ui/folder-workspace-modal.ts");
   assert.match(source, /statusDisplayLabel\(status, getLocale\(\)\)/);
   assert.match(source, /labelDisplayLabel\(label, getLocale\(\)\)/);
-  const forkOccurrences = source.match(/delete next\[index\]\.id;/g) || [];
+  const forkOccurrences = source.match(/delete next\[row\.index\]\.id;/g) || [];
   assert.equal(forkOccurrences.length, 2, "once for the status rows, once for the label rows");
   assert.doesNotMatch(source, /text\.setValue\(status\.name/, "no remaining raw .name used as the displayed value");
   assert.doesNotMatch(source, /text\.setValue\(label\.name\)/, "no remaining raw .name used as the displayed value");

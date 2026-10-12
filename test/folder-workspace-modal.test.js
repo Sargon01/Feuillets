@@ -662,3 +662,288 @@ test("folder reference writes reject invalid paths, sibling resources and invali
     assert.deepEqual(f.settings, before); assert.equal(f.saveCount(), 0); modal.onClose();
   } finally { restore(); }
 });
+
+const sectionDefaults = { views: false, workflow: false, goals: false, typography: false, references: false };
+
+function workspaceSection(modal, key) {
+  const section = modal.contentEl.querySelectorAll(".feuillets-workspace-section")
+    .find((element) => element.getAttribute("data-workspace-section") === key);
+  assert.ok(section, key);
+  return { section, header: section.querySelector(".feuillets-workspace-section-toggle"),
+    content: section.querySelector(".feuillets-workspace-section-content") };
+}
+
+function assertSectionStates(modal, expected) {
+  for (const [key, expanded] of Object.entries(expected)) {
+    const { header, content } = workspaceSection(modal, key);
+    assert.equal(header.getAttribute("aria-expanded"), String(expanded), key);
+    assert.equal(content.hidden, !expanded, key);
+  }
+}
+
+test("workspace sections expose all existing groups with accessible headers and expected defaults", () => {
+  const f = buildWorkspaceCitationFixture();
+  const before = structuredClone(f.settings);
+  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  assert.deepEqual(modal.contentEl.querySelectorAll(".feuillets-workspace-section")
+    .map((element) => element.getAttribute("data-workspace-section")), Object.keys(sectionDefaults));
+  assertSectionStates(modal, sectionDefaults);
+  const essentials = modal.contentEl.querySelector(".feuillets-workspace-essentials");
+  assert.ok(essentials);
+  assert.equal(essentials.querySelectorAll(".feuillets-workspace-section").length, 0);
+  assert.equal(essentials.querySelectorAll(".setting-item").length, 4);
+  for (const key of ["defineAsWorkspace", "defineAsOuvrage", "preset"]) {
+    assert.equal(findFolderSetting(essentials, fr[`modal.folderWorkspace.${key}`]).parentNode, essentials);
+  }
+  assert.equal(modal.contentEl.querySelectorAll(".setting-item-name")
+    .filter((element) => element.textContent === fr["modal.folderWorkspace.preset"]).length, 1);
+  const ids = new Set();
+  for (const [key, expanded] of Object.entries(sectionDefaults)) {
+    const { section, header, content } = workspaceSection(modal, key);
+    assert.equal(header.tagName, "BUTTON");
+    assert.equal(header.getAttribute("type"), "button");
+    assert.equal(header.textContent, fr[`modal.folderWorkspace.${key}`]);
+    assert.equal(header.getAttribute("aria-controls"), content.getAttribute("id"));
+    assert.ok(!ids.has(content.getAttribute("id"))); ids.add(content.getAttribute("id"));
+    const chevron = section.querySelector(".feuillets-workspace-section-chevron");
+    assert.equal(chevron.getAttribute("aria-hidden"), "true");
+    assert.equal(chevron.icon, expanded ? "chevron-down" : "chevron-right");
+  }
+  assert.deepEqual(f.settings, before); assert.equal(f.saveCount(), 0); modal.onClose();
+});
+
+test("workspace folding is independent and keeps controls mounted without saves, renders or vault writes", () => {
+  const f = buildWorkspaceCitationFixture(); const before = structuredClone(f.settings);
+  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const controls = modal.citationControls;
+  const dropdown = citationSelect(modal, "citekeyBibliographyPath");
+  const identity = findFolderSetting(modal.contentEl, fr["modal.folderWorkspace.defineAsWorkspace"]);
+  modal.renderContent = () => assert.fail("Folding must not rebuild the modal");
+  f.plugin.refreshCitationRendering = () => assert.fail("Folding must not refresh citations");
+  for (const method of ["modify", "create", "createFolder", "delete", "rename"]) {
+    f.app.vault[method] = () => assert.fail(`Folding must not ${method} in the vault`);
+  }
+  const expected = { ...sectionDefaults };
+  for (const key of ["views", "workflow", "goals", "typography", "references", "views"]) {
+    workspaceSection(modal, key).header.click(); expected[key] = !expected[key];
+    assertSectionStates(modal, expected);
+  }
+  assert.equal(expected.workflow, true); assert.equal(expected.goals, true); assert.equal(expected.typography, true);
+  assert.equal(modal.citationControls, controls); assert.equal(controls.active, true);
+  assert.equal(citationSelect(modal, "citekeyBibliographyPath"), dropdown);
+  assert.equal(findFolderSetting(modal.contentEl, fr["modal.folderWorkspace.defineAsWorkspace"]), identity);
+  assert.deepEqual(f.settings, before); assert.equal(f.saveCount(), 0); assert.equal(f.renderCount(), 0);
+  modal.onClose();
+});
+
+for (const action of ["workspace", "ouvrage", "views", "preset", "references", "reset", "workflow", "goals", "typography"]) {
+  test(`workspace section state and controls survive a ${action} setting change`, async () => {
+    const restore = installWindowStub();
+    try {
+      const identities = { workspaceRoot: true, ouvrage: { version: 1, composition: { outputBasename: "Local work" } } };
+      const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, ...identities, wordGoal: 2000 } });
+      const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+      const expected = { ...sectionDefaults, views: true, workflow: true, goals: true, typography: true };
+      for (const key of ["views", "workflow", "goals", "typography"]) workspaceSection(modal, key).header.click();
+      if (action === "references") {
+        workspaceSection(modal, "references").header.click(); expected.references = true;
+      }
+      modal.contentEl.scrollTop = 210;
+      const config = () => f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"];
+      if (action === "workspace" || action === "ouvrage") {
+        const key = action === "workspace" ? "defineAsWorkspace" : "defineAsOuvrage";
+        findFolderSetting(modal.contentEl, fr[`modal.folderWorkspace.${key}`]).querySelector(".checkbox-container").click();
+        await settle();
+        assert.equal(config().workspaceRoot, action === "workspace" ? undefined : true);
+        assert.deepEqual(config().ouvrage, action === "ouvrage" ? undefined : identities.ouvrage);
+      } else if (action === "views") {
+        const toggle = findFolderSetting(modal.contentEl, fr["board.mode.board"]).querySelector(".checkbox-container");
+        const wasVisible = toggle.hasClass("is-enabled"); toggle.click(); await settle();
+        assert.equal(config().hiddenBoardModes.includes("board"), wasVisible);
+      } else if (action === "preset") {
+        const select = findFolderSetting(modal.contentEl, fr["modal.folderWorkspace.preset"]).querySelector("select");
+        select.value = "fiction"; select.dispatch("change"); await settle();
+        assert.equal(config().preset, "fiction"); assert.deepEqual(config().ouvrage, identities.ouvrage);
+      } else if (action === "references") {
+        await changeCitation(modal, "pandocCitationPreviewStyle", "author-date");
+        assert.equal(config().pandocCitationPreviewStyle, "author-date");
+      } else if (action === "reset") {
+        const reset = modal.contentEl.querySelector(".feuillets-workspace-essentials").querySelectorAll("button")
+          .find((element) => element.textContent === fr["modal.folderWorkspace.reset"]);
+        reset.click(); await settle(); assert.deepEqual(config(), { version: 1, ...identities });
+      } else if (action === "workflow") {
+        findFolderSetting(modal.contentEl, fr["modal.folderWorkspace.statuses"]).querySelector("button").click();
+        await settle(); assert.ok(Array.isArray(config().statuses));
+      } else {
+        const label = action === "goals" ? fr["settings.wordGoal.name"] : fr["settings.readingFontSize.name"];
+        const input = findFolderSetting(modal.contentEl, label).querySelector("input");
+        input.value = action === "goals" ? "3456" : "20"; input.dispatch("input"); await settle();
+        assert.equal(config()[action === "goals" ? "wordGoal" : "readingFontSize"], action === "goals" ? 3456 : 20);
+      }
+      assertSectionStates(modal, expected);
+      // Also exercise the common rebuild path after controls with a partial refresh.
+      modal.rerenderContent(); assertSectionStates(modal, expected);
+      assert.equal(modal.contentEl.scrollTop, 210);
+      assert.equal(f.saveCount(), 1); modal.onClose();
+    } finally { restore(); }
+  });
+}
+
+test("workspace sections use instance-only defaults and unique control IDs on reopening", () => {
+  const f = buildWorkspaceCitationFixture();
+  const first = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const firstId = workspaceSection(first, "views").content.getAttribute("id");
+  for (const key of Object.keys(sectionDefaults)) workspaceSection(first, key).header.click();
+  first.onClose();
+  const second = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  assertSectionStates(second, sectionDefaults);
+  assert.notEqual(workspaceSection(second, "views").content.getAttribute("id"), firstId);
+  assert.equal(f.saveCount(), 0); second.onClose();
+});
+
+test("folded References retain shared controls and receive autonomous settings updates", async () => {
+  const restore = installWindowStub();
+  try {
+    const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, workspaceRoot: true,
+      ouvrage: { version: 1, composition: { outputBasename: "Local work" } } } });
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    const autonomous = openReferenceModal(f.app, f.plugin, f.articleA);
+    assert.equal(workspaceSection(modal, "references").content.hidden, true);
+    await changeCitation(autonomous, "citekeyBibliographyPath", "articleA.bib");
+    await changeCitation(autonomous, "citekeyCslPath", "articleA.csl");
+    assert.equal(workspaceSection(modal, "references").content.hidden, true);
+    workspaceSection(modal, "references").header.click();
+    assert.equal(citationSelect(modal, "citekeyBibliographyPath").value, "articleA.bib");
+    assert.equal(citationSelect(modal, "citekeyCslPath").value, "articleA.csl");
+    assert.equal(f.saveCount(), 2);
+    modal.contentEl.querySelector(".feuillets-reference-settings-inheritance").click(); await settle();
+    assert.equal(workspaceSection(modal, "references").content.hidden, false);
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], {
+      version: 1, workspaceRoot: true, ouvrage: { version: 1, composition: { outputBasename: "Local work" } },
+    });
+    modal.onClose(); autonomous.onClose();
+  } finally { restore(); }
+});
+
+function connectedTo(element, root) {
+  for (let node = element; node; node = node.parentNode) if (node === root) return true;
+  return false;
+}
+
+for (const field of ["statuses", "labels"]) {
+  test(`a delayed ${field} addition cannot detach a color picker used after the click`, async () => {
+    const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1,
+      statuses: [{ name: "Draft", color: "#123456" }], labels: [{ name: "Scene", color: "#654321" }] } });
+    let complete;
+    f.plugin.saveSettings = () => new Promise((resolveSave) => { complete = resolveSave; });
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    workspaceSection(modal, "workflow").header.click();
+    workspaceSection(modal, "typography").header.click();
+    const add = modal.contentEl.querySelectorAll("button").find((button) => button.textContent === fr[`settings.${field}.add`]);
+    add.click();
+    const finishAdd = complete;
+    const list = modal.contentEl.querySelector(field === "statuses" ? ".feuillets-workspace-status-list" : ".feuillets-workspace-label-list");
+    const color = list.querySelectorAll("input")[1];
+    color.value = "#abcdef"; color.dispatch("change");
+    finishAdd(); await settle();
+    assert.equal(connectedTo(color, modal.contentEl), true);
+    assert.equal(workspaceSection(modal, "workflow").content.hidden, false);
+    assert.equal(workspaceSection(modal, "typography").content.hidden, false);
+    complete(); await settle(); modal.onClose();
+  });
+}
+
+test("bibliographic saves retain the shared controls and all three select nodes", async () => {
+  const restore = installWindowStub();
+  try {
+    const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, pandocCitationPreviewStyle: "off" } });
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    const autonomous = openReferenceModal(f.app, f.plugin, f.articleA);
+    workspaceSection(modal, "references").header.click();
+    const controls = modal.citationControls;
+    const selects = modal.contentEl.querySelectorAll("select").slice(-3);
+    const autonomousSelects = autonomous.contentEl.querySelectorAll("select");
+    await changeCitation(modal, "pandocCitationPreviewStyle", "csl");
+    assert.ok(modal.citationControls === controls);
+    assert.ok(modal.contentEl.querySelectorAll("select").slice(-3).every((select, index) => select === selects[index]));
+    assert.ok(autonomous.contentEl.querySelectorAll("select").every((select, index) => select === autonomousSelects[index]));
+    assert.equal(workspaceSection(modal, "references").content.hidden, false);
+    autonomous.onClose(); modal.onClose();
+  } finally { restore(); }
+});
+
+for (const field of ["statuses", "labels"]) {
+  test(`${field} structural changes retain surviving rows and reset only that local list`, async () => {
+    const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, workspaceRoot: true,
+      ouvrage: { version: 1, composition: { outputBasename: "Work" } }, wordGoal: 1200,
+      [field]: [{ name: "First", color: "#123456" }, { name: "Second", color: "#654321" }] } });
+    f.settings.projectMeta[f.project.path][field] = [{ name: "Inherited", color: "#888888" }];
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    workspaceSection(modal, "workflow").header.click();
+    const list = modal.contentEl.querySelector(field === "statuses" ? ".feuillets-workspace-status-list" : ".feuillets-workspace-label-list");
+    const survivingName = list.querySelectorAll("input")[2];
+    list.querySelector(".extra-setting-button").click(); await settle();
+    assert.equal(connectedTo(survivingName, modal.contentEl), true);
+    survivingName.value = "Renamed"; survivingName.dispatch("input"); await settle();
+    const config = f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"];
+    assert.deepEqual(config[field], [{ name: "Renamed", color: "#654321" }]);
+    const reset = workspaceSection(modal, "workflow").content.querySelectorAll(".setting-item-name")
+      .find((element) => element.textContent === fr["modal.folderWorkspace.resetField"]);
+    reset.parentNode.parentNode.querySelector(".extra-setting-button").click(); await settle();
+    assert.equal(list.querySelector("input").value, "Inherited");
+    const restored = f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"];
+    assert.equal(restored[field], undefined);
+    assert.equal(restored.workspaceRoot, true); assert.equal(restored.wordGoal, 1200);
+    assert.equal(restored.ouvrage.composition.outputBasename, "Work");
+    assert.equal(workspaceSection(modal, "workflow").content.hidden, false); modal.onClose();
+  });
+}
+
+test("rapid bibliography edits in both windows serialize writes without dropping a value", async () => {
+  const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, workspaceRoot: true,
+    ouvrage: { version: 1 }, pandocCitationPreviewStyle: "off" } });
+  const pending = []; let active = 0; let maxActive = 0; let persisted;
+  f.plugin.saveSettings = () => {
+    const snapshot = structuredClone(f.settings);
+    maxActive = Math.max(maxActive, ++active);
+    return new Promise((resolveSave) => pending.push(() => { active--; persisted = snapshot; resolveSave(); }));
+  };
+  const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+  const autonomous = openReferenceModal(f.app, f.plugin, f.articleA);
+  workspaceSection(modal, "references").header.click();
+  for (const [owner, field, value] of [[modal, "pandocCitationPreviewStyle", "csl"],
+    [autonomous, "citekeyBibliographyPath", "articleA.bib"], [modal, "citekeyCslPath", "articleA.csl"]]) {
+    const select = citationSelect(owner, field);
+    assert.equal(select.disabled, false); select.value = value; select.dispatch("change");
+  }
+  for (let count = 0; count < 3; count++) { assert.equal(pending.length, 1); pending.shift()(); await settle(); }
+  assert.equal(maxActive, 1); assert.deepEqual(persisted, f.settings);
+  const config = persisted.projectMeta[f.project.path].folderWorkspaces["Article-A"];
+  assert.equal(config.pandocCitationPreviewStyle, "csl"); assert.equal(config.citekeyBibliographyPath, "articleA.bib");
+  assert.equal(config.citekeyCslPath, "articleA.csl"); assert.equal(config.workspaceRoot, true); assert.ok(config.ouvrage);
+  assert.equal(modal.citationControls.saving, false); assert.equal(autonomous.saving, false);
+  assert.equal(workspaceSection(modal, "references").content.hidden, false);
+  modal.onClose(); autonomous.onClose();
+});
+
+for (const field of ["statuses", "labels"]) {
+  test(`forking inherited ${field} keeps existing inputs through subsequent additions`, async () => {
+    const f = buildWorkspaceCitationFixture();
+    const inherited = { id: field === "statuses" ? "draft" : "red", name: "Inherited", color: "#123456" };
+    f.settings.projectMeta[f.project.path][field] = [inherited];
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    workspaceSection(modal, "workflow").header.click();
+    const list = modal.contentEl.querySelector(field === "statuses" ? ".feuillets-workspace-status-list" : ".feuillets-workspace-label-list");
+    const [name, color] = list.querySelectorAll("input");
+    color.value = "#abcdef"; color.dispatch("change"); await settle();
+    assert.equal(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"][field][0].id, inherited.id);
+    const add = modal.contentEl.querySelectorAll("button").find((button) => button.textContent === fr[`settings.${field}.add`]);
+    add.click(); await settle();
+    assert.equal(list.querySelector("input") === name, true);
+    assert.equal(connectedTo(color, modal.contentEl), true);
+    name.value = "Local"; name.dispatch("input"); await settle();
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"][field][0], { name: "Local", color: "#abcdef" });
+    assert.deepEqual(f.settings.projectMeta[f.project.path][field], [inherited]);
+    modal.onClose();
+  });
+}

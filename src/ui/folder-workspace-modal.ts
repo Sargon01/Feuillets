@@ -1,4 +1,4 @@
-import { App, Modal, Setting, TFolder, normalizePath, setIcon } from "obsidian";
+import { App, Modal, Setting, TFolder, normalizePath, setIcon, type ButtonComponent } from "obsidian";
 import { PROJECT_MODES, projectBoardDefaults } from "../utils/project-modes.js";
 import { newSheetIncludeSourcesForProjectType, planningFieldForProjectType } from "../services/project-settings.js";
 import { isOuvrageRoot, ouvrageRelativePath, registerOuvrage, unregisterOuvrage } from "../services/editorial-roots.js";
@@ -34,7 +34,7 @@ import {
 } from "../services/folder-workspaces.js";
 import { t, getLocale } from "../i18n/index.js";
 import { statusDisplayLabel, labelDisplayLabel } from "../services/project-taxonomy.js";
-import { ReferenceCitationSettingsControls, refreshReferenceCitationSettings } from "./reference-citation-settings.js";
+import { ReferenceCitationSettingsControls, refreshReferenceCitationSettings, saveWorkspaceSettings } from "./reference-citation-settings.js";
 import type { CslCitationHost } from "../services/csl-citation-host.js";
 
 type FolderWorkspacePlugin = {
@@ -47,6 +47,9 @@ type FolderWorkspacePlugin = {
 };
 
 const PRESETS: FolderWorkspacePreset[] = ["free", "fiction", "nonfiction"];
+type WorkspaceSection = "views" | "workflow" | "goals" | "typography" | "references";
+type WorkspaceListRow = { setting: Setting; index: number };
+let nextWorkspaceModalId = 0;
 
 function isFolderWorkspacePreset(value: string): value is FolderWorkspacePreset {
   return PRESETS.includes(value as FolderWorkspacePreset);
@@ -56,6 +59,13 @@ export class FolderWorkspaceModal extends Modal {
   private readonly plugin: FolderWorkspacePlugin;
   private readonly folder: TFolder;
   private citationControls: ReferenceCitationSettingsControls | null = null;
+  private resetButton: ButtonComponent | null = null;
+  private viewsEl: HTMLElement | null = null;
+  private readonly fieldRefreshers = new Map<keyof FolderWorkspaceConfig, Set<() => void>>();
+  private readonly sectionId = ++nextWorkspaceModalId;
+  private readonly sectionStates: Record<WorkspaceSection, boolean> = {
+    views: false, workflow: false, goals: false, typography: false, references: false,
+  };
 
   constructor(app: App, plugin: FolderWorkspacePlugin, folder: TFolder) {
     super(app);
@@ -71,8 +81,10 @@ export class FolderWorkspaceModal extends Modal {
     const { contentEl } = this;
     this.citationControls?.destroy();
     this.citationControls = null;
+    this.fieldRefreshers.clear();
     contentEl.empty();
     contentEl.addClass("feuillets-project-modal");
+    contentEl.addClass("feuillets-workspace-modal");
 
     const projectRoot = this.plugin.getProjectFolder();
     const relativeScope = projectRoot
@@ -89,16 +101,18 @@ export class FolderWorkspaceModal extends Modal {
     titleRow.createEl("h3", {
       text: t("modal.folderWorkspace.title", { name: this.folder.name }),
     });
-    contentEl.createDiv({
+    const context = contentEl.createDiv({ cls: "feuillets-workspace-context" });
+    context.createDiv({
       text: t("modal.folderWorkspace.path", { path: relativeScope }),
       cls: "feuillets-notes-sub",
     });
-    contentEl.createDiv({
+    const presetSource = context.createDiv({
       text: this.sourceDescription(projectRoot.path, relativeScope, "preset"),
       cls: "feuillets-notes-sub",
     });
 
-    this.renderContext(contentEl, projectRoot);
+    const essentials = contentEl.createDiv({ cls: "feuillets-workspace-essentials" });
+    this.renderContext(essentials, projectRoot);
 
     const saveLocalPreset = async (preset: FolderWorkspacePreset): Promise<void> => {
       const boardDefaults = projectBoardDefaults(preset);
@@ -118,14 +132,14 @@ export class FolderWorkspaceModal extends Modal {
         ...(projectMeta.folderWorkspaces || {}),
         [relativeScope]: config,
       };
-      await this.plugin.saveSettings();
+      presetSource.setText(this.sourceDescription(projectRoot.path, relativeScope, "preset"));
+      this.refreshViews(projectRoot.path, relativeScope);
+      this.refreshResetAvailability();
+      await saveWorkspaceSettings(this.plugin);
       this.plugin.renderAllViews(true);
-      this.rerenderContent();
     };
 
-    const presetSection = contentEl.createDiv({ cls: "feuillets-notes-section" });
-    presetSection.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.preset") });
-    new Setting(presetSection)
+    new Setting(essentials)
       .setName(t("modal.folderWorkspace.preset"))
       .addDropdown((dropdown) => {
         dropdown.addOption("free", t("modal.folderWorkspace.free"));
@@ -137,37 +151,61 @@ export class FolderWorkspaceModal extends Modal {
         });
       });
 
-    new Setting(presetSection)
-      .addButton((button) => button
-        .setButtonText(t("modal.folderWorkspace.reset"))
-        .setDisabled(!localConfig)
-        .onClick(() => { void this.resetLocalConfig(projectRoot.path, relativeScope); }));
+    new Setting(essentials)
+      .setClass("feuillets-workspace-reset")
+      .addButton((button) => {
+        this.resetButton = button;
+        button.setButtonText(t("modal.folderWorkspace.reset"))
+          .setDisabled(!localConfig)
+          .onClick(() => { void this.resetLocalConfig(projectRoot.path, relativeScope); });
+      });
 
-    const views = contentEl.createDiv({ cls: "feuillets-notes-section" });
-    views.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.views") });
+    const advanced = contentEl.createDiv({ cls: "feuillets-workspace-advanced" });
+    const views = this.createSection(advanced, "views", t("modal.folderWorkspace.views"));
+    this.viewsEl = views;
     this.renderViews(views, projectRoot.path, relativeScope);
 
-    const workflow = contentEl.createDiv({ cls: "feuillets-notes-section" });
-    workflow.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.workflow") });
+    const workflow = this.createSection(advanced, "workflow", t("modal.folderWorkspace.workflow"));
     this.renderStatuses(workflow, projectRoot.path, relativeScope);
     this.renderLabels(workflow, projectRoot.path, relativeScope);
     this.renderFavoriteTags(workflow, projectRoot.path, relativeScope);
 
-    const goals = contentEl.createDiv({ cls: "feuillets-notes-section" });
-    goals.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.goals") });
+    const goals = this.createSection(advanced, "goals", t("modal.folderWorkspace.goals"));
     this.renderGoals(goals, projectRoot.path, relativeScope);
 
-    const typography = contentEl.createDiv({ cls: "feuillets-notes-section" });
-    typography.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.typography") });
+    const typography = this.createSection(advanced, "typography", t("modal.folderWorkspace.typography"));
     this.renderTypography(typography, projectRoot.path, relativeScope);
 
-    const references = contentEl.createDiv({ cls: "feuillets-notes-section" });
-    references.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.references") });
+    const references = this.createSection(advanced, "references", t("modal.folderWorkspace.references"));
     this.citationControls = new ReferenceCitationSettingsControls(this.app, this.plugin,
       { projectRoot, scopeRoot: this.folder, targetScope: this.folder },
       () => this.plugin.getProjectFolder()?.path === projectRoot.path && this.app.vault.getAbstractFileByPath(this.folder.path) === this.folder,
-      references.createDiv(), undefined, false, () => this.rerenderContent());
+      references.createDiv(), undefined, false, () => this.refreshResetAvailability());
     this.citationControls.open();
+  }
+
+  /** Folding changes only instance UI state; existing controls remain mounted. */
+  private createSection(container: HTMLElement, key: WorkspaceSection, title: string): HTMLElement {
+    const section = container.createDiv({ cls: "feuillets-workspace-section",
+      attr: { "data-workspace-section": key } });
+    const contentId = `feuillets-workspace-${this.sectionId}-${key}`;
+    const header = section.createEl("button", { cls: "feuillets-workspace-section-toggle",
+      attr: { type: "button", "aria-controls": contentId } });
+    header.createSpan({ text: title });
+    const chevron = header.createSpan({ cls: "feuillets-workspace-section-chevron", attr: { "aria-hidden": "true" } });
+    const content = section.createDiv({ cls: "feuillets-workspace-section-content", attr: { id: contentId } });
+    const update = (): void => {
+      const expanded = this.sectionStates[key];
+      header.setAttr("aria-expanded", String(expanded));
+      content.hidden = !expanded;
+      setIcon(chevron, expanded ? "chevron-down" : "chevron-right");
+    };
+    header.addEventListener("click", () => {
+      this.sectionStates[key] = !this.sectionStates[key];
+      update();
+    });
+    update();
+    return content;
   }
 
   /** Independent structural identities use the historical folder exclusions.
@@ -189,9 +227,9 @@ export class FolderWorkspaceModal extends Modal {
             ? registerDeclaredWorkspaceRoot(this.plugin.settings, projectRoot, this.folder)
             : unregisterDeclaredWorkspaceRoot(this.plugin.settings, projectRoot, this.folder);
           if (changed) {
-            await this.plugin.saveSettings();
+            this.refreshResetAvailability();
+            await saveWorkspaceSettings(this.plugin);
             this.plugin.renderAllViews(true);
-            this.rerenderContent();
           }
         }));
     this.renderOuvrageOption(container, projectRoot);
@@ -208,9 +246,9 @@ export class FolderWorkspaceModal extends Modal {
             ? registerOuvrage(this.plugin.settings, projectRoot, this.folder)
             : unregisterOuvrage(this.plugin.settings, projectRoot, this.folder);
           if (changed) {
-            await this.plugin.saveSettings();
+            this.refreshResetAvailability();
+            await saveWorkspaceSettings(this.plugin);
             this.plugin.renderAllViews(true);
-            this.rerenderContent();
           }
         }));
   }
@@ -232,7 +270,7 @@ export class FolderWorkspaceModal extends Modal {
           void this.saveLocalField(projectRootPath, relativeScope, "hiddenBoardModes", next, true);
         }));
     }
-    this.addFieldReset(container, projectRootPath, relativeScope, "hiddenBoardModes");
+    this.addFieldReset(container, projectRootPath, relativeScope, "hiddenBoardModes", () => this.refreshViews(projectRootPath, relativeScope));
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("modal.folderWorkspace.planColumns") });
     const planningField = workspacePlanningField(this.app, this.plugin.settings, this.folder);
@@ -261,7 +299,7 @@ export class FolderWorkspaceModal extends Modal {
           void this.saveLocalField(projectRootPath, relativeScope, "outlineCols", next, true);
         }));
     }
-    this.addFieldReset(container, projectRootPath, relativeScope, "outlineCols");
+    this.addFieldReset(container, projectRootPath, relativeScope, "outlineCols", () => this.refreshViews(projectRootPath, relativeScope));
 
     new Setting(container)
       .setName(t("modal.folderWorkspace.cardContent"))
@@ -274,12 +312,13 @@ export class FolderWorkspaceModal extends Modal {
           if (value === planningField || value === "extrait") void this.saveLocalField(projectRootPath, relativeScope, "cardContent", value, true);
         });
       });
-    this.addFieldReset(container, projectRootPath, relativeScope, "cardContent");
+    this.addFieldReset(container, projectRootPath, relativeScope, "cardContent", () => this.refreshViews(projectRootPath, relativeScope));
   }
 
   onClose(): void {
     this.citationControls?.destroy();
     this.citationControls = null;
+    this.fieldRefreshers.clear();
     this.contentEl.empty();
   }
 
@@ -288,6 +327,40 @@ export class FolderWorkspaceModal extends Modal {
     this.renderContent();
     this.contentEl.scrollTop = scrollTop;
     window.requestAnimationFrame(() => { this.contentEl.scrollTop = scrollTop; });
+  }
+
+  private refreshResetAvailability(): void {
+    const root = this.plugin.getProjectFolder();
+    const scope = root ? folderPathToWorkspaceScope(root.path, this.folder.path) : null;
+    if (root && scope) this.resetButton?.setDisabled(!getFolderWorkspaceConfig(this.plugin.settings.projectMeta[root.path], scope));
+  }
+
+  private refreshViews(projectRootPath: string, relativeScope: string): void {
+    if (!this.viewsEl) return;
+    for (const key of ["hiddenBoardModes", "outlineCols", "cardContent"] as const) this.fieldRefreshers.delete(key);
+    this.viewsEl.empty();
+    this.renderViews(this.viewsEl, projectRootPath, relativeScope);
+  }
+
+  private registerFieldRefresh(key: keyof FolderWorkspaceConfig, refresh: () => void): void {
+    let callbacks = this.fieldRefreshers.get(key);
+    if (!callbacks) { callbacks = new Set(); this.fieldRefreshers.set(key, callbacks); }
+    callbacks.add(refresh);
+  }
+
+  private refreshLocalField(key: keyof FolderWorkspaceConfig): void {
+    for (const refresh of this.fieldRefreshers.get(key) ?? []) refresh();
+    this.refreshResetAvailability();
+  }
+
+  private rebindListRows<Entry>(rows: Map<Entry, WorkspaceListRow>, entries: Entry[]): void {
+    for (const [entry, row] of Array.from(rows)) {
+      const replacement = entries[row.index];
+      if (replacement !== undefined && replacement !== entry) {
+        rows.delete(entry);
+        rows.set(replacement, row);
+      }
+    }
   }
 
   private localConfig(projectRootPath: string, relativeScope: string): FolderWorkspaceConfig {
@@ -308,10 +381,10 @@ export class FolderWorkspaceModal extends Modal {
   ): Promise<void> {
     const config = this.localConfig(projectRootPath, relativeScope);
     config[key] = value;
-    await this.plugin.saveSettings();
+    this.refreshLocalField(key);
+    await saveWorkspaceSettings(this.plugin);
     if (structural) {
       this.plugin.renderAllViews(true);
-      this.rerenderContent();
     }
   }
 
@@ -322,9 +395,11 @@ export class FolderWorkspaceModal extends Modal {
     value: FolderWorkspaceConfig[K],
     refresh: () => void,
   ): Promise<void> {
-    await this.saveLocalField(projectRootPath, relativeScope, key, value);
-    this.plugin.renderAllViews(true);
+    const saved = this.saveLocalField(projectRootPath, relativeScope, key, value);
+    // Rebuild at the structural click, never at a later save completion.
     refresh();
+    await saved;
+    this.plugin.renderAllViews(true);
   }
 
   private async resetLocalField<K extends keyof FolderWorkspaceConfig>(
@@ -343,10 +418,10 @@ export class FolderWorkspaceModal extends Modal {
     if (Object.keys(next).some((name) => name !== "version")) workspaces[relativeScope] = next;
     else delete workspaces[relativeScope];
     if (Object.keys(workspaces).length === 0) delete meta.folderWorkspaces;
-    await this.plugin.saveSettings();
-    this.plugin.renderAllViews(true);
     if (refresh) refresh();
-    else this.rerenderContent();
+    this.refreshLocalField(key);
+    await saveWorkspaceSettings(this.plugin);
+    this.plugin.renderAllViews(true);
   }
 
   private hasLocalField<K extends keyof FolderWorkspaceConfig>(config: FolderWorkspaceConfig | undefined, key: K): boolean {
@@ -370,30 +445,36 @@ export class FolderWorkspaceModal extends Modal {
   private renderStatuses(container: HTMLElement, projectRootPath: string, relativeScope: string): void {
     const meta = this.plugin.settings.projectMeta[projectRootPath];
     const local = getFolderWorkspaceConfig(meta, relativeScope);
-    const list = workspaceStatuses(this.app, this.plugin.settings, this.folder);
     const source = this.sourceDescription(projectRootPath, relativeScope, "statuses");
-    new Setting(container)
+    const setting = new Setting(container)
       .setName(t("modal.folderWorkspace.statuses"))
       .setDesc(source)
-      .addButton((button) => button
-        .setButtonText(t("modal.folderWorkspace.customize"))
-        .setDisabled(this.hasLocalField(local, "statuses"))
-        .onClick(() => {
-          const clone = list.map((status) => ({ ...status }));
-          void this.saveLocalField(projectRootPath, relativeScope, "statuses", clone, true);
-        }));
+      .addButton((button) => {
+        this.registerFieldRefresh("statuses", () => {
+          button.setDisabled(this.hasLocalField(getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope), "statuses"));
+          setting.setDesc(this.sourceDescription(projectRootPath, relativeScope, "statuses"));
+        });
+        button.setButtonText(t("modal.folderWorkspace.customize"))
+          .setDisabled(this.hasLocalField(local, "statuses"))
+          .onClick(() => {
+            const clone = workspaceStatuses(this.app, this.plugin.settings, this.folder).map((status) => ({ ...status }));
+            this.rebindListRows(rows, clone);
+            void this.saveLocalListField(projectRootPath, relativeScope, "statuses", clone, refresh);
+          });
+      });
 
     const listContainer = container.createDiv({ cls: "feuillets-workspace-status-list" });
+    const rows = new Map<ProjectStatusEntry, WorkspaceListRow>();
     const refresh = (): void => {
-      listContainer.empty();
-      this.renderStatusRows(listContainer, projectRootPath, relativeScope, refresh);
+      this.renderStatusRows(listContainer, projectRootPath, relativeScope, refresh, rows);
     };
-    this.renderStatusRows(listContainer, projectRootPath, relativeScope, refresh);
+    refresh();
 
     new Setting(container).addButton((button) => button
       .setButtonText(t("settings.statuses.add"))
       .onClick(() => {
         const next = this.localStatuses(projectRootPath, relativeScope, workspaceStatuses(this.app, this.plugin.settings, this.folder));
+        this.rebindListRows(rows, next);
         next.push({ name: t("settings.statuses.item", { n: String(next.length + 1) }), color: "#888888" });
         void this.saveLocalListField(projectRootPath, relativeScope, "statuses", next, refresh);
       }));
@@ -405,11 +486,17 @@ export class FolderWorkspaceModal extends Modal {
     projectRootPath: string,
     relativeScope: string,
     refresh: () => void,
+    rows: Map<ProjectStatusEntry, WorkspaceListRow>,
   ): void {
     const list = workspaceStatuses(this.app, this.plugin.settings, this.folder);
     const source = this.sourceDescription(projectRootPath, relativeScope, "statuses");
+    for (const [entry, row] of rows) if (!list.includes(entry)) { row.setting.settingEl.remove(); rows.delete(entry); }
     list.forEach((status, index) => {
-      new Setting(container)
+      const existing = rows.get(status);
+      if (existing) { existing.index = index; existing.setting.setName(String(index + 1)).setDesc(source); return; }
+      const row: WorkspaceListRow = { setting: new Setting(container), index };
+      rows.set(status, row);
+      row.setting
         .setName(String(index + 1))
         .setDesc(source)
         /* A built-in entry shows its translated name (statusDisplayLabel);
@@ -418,13 +505,15 @@ export class FolderWorkspaceModal extends Modal {
            identical contract applied to the global statuses page. */
         .addText((text) => text.setValue(statusDisplayLabel(status, getLocale())).onChange((value) => {
           const next = this.localStatuses(projectRootPath, relativeScope, list);
-          delete next[index].id;
-          next[index].name = value;
+          this.rebindListRows(rows, next);
+          delete next[row.index].id;
+          next[row.index].name = value;
           void this.saveLocalField(projectRootPath, relativeScope, "statuses", next);
         }))
         .addColorPicker((color) => color.setValue(status.color || "#888888").onChange((value) => {
           const next = this.localStatuses(projectRootPath, relativeScope, list);
-          next[index].color = value;
+          this.rebindListRows(rows, next);
+          next[row.index].color = value;
           void this.saveLocalField(projectRootPath, relativeScope, "statuses", next);
         }))
         .addExtraButton((button) => button
@@ -432,7 +521,8 @@ export class FolderWorkspaceModal extends Modal {
           .setTooltip(t("settings.statuses.deleteTooltip"))
           .onClick(() => {
             const next = this.localStatuses(projectRootPath, relativeScope, list);
-            next.splice(index, 1);
+            this.rebindListRows(rows, next);
+            next.splice(row.index, 1);
             void this.saveLocalListField(projectRootPath, relativeScope, "statuses", next, refresh);
           }));
     });
@@ -446,29 +536,35 @@ export class FolderWorkspaceModal extends Modal {
   private renderLabels(container: HTMLElement, projectRootPath: string, relativeScope: string): void {
     const meta = this.plugin.settings.projectMeta[projectRootPath];
     const local = getFolderWorkspaceConfig(meta, relativeScope);
-    const list = workspaceLabels(this.app, this.plugin.settings, this.folder);
     const source = this.sourceDescription(projectRootPath, relativeScope, "labels");
-    new Setting(container)
+    const setting = new Setting(container)
       .setName(t("modal.folderWorkspace.labels"))
       .setDesc(source)
-      .addButton((button) => button
-        .setButtonText(t("modal.folderWorkspace.customize"))
-        .setDisabled(this.hasLocalField(local, "labels"))
-        .onClick(() => {
-          const clone = list.map((label) => ({ ...label }));
-          void this.saveLocalField(projectRootPath, relativeScope, "labels", clone, true);
-        }));
+      .addButton((button) => {
+        this.registerFieldRefresh("labels", () => {
+          button.setDisabled(this.hasLocalField(getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope), "labels"));
+          setting.setDesc(this.sourceDescription(projectRootPath, relativeScope, "labels"));
+        });
+        button.setButtonText(t("modal.folderWorkspace.customize"))
+          .setDisabled(this.hasLocalField(local, "labels"))
+          .onClick(() => {
+            const clone = workspaceLabels(this.app, this.plugin.settings, this.folder).map((label) => ({ ...label }));
+            this.rebindListRows(rows, clone);
+            void this.saveLocalListField(projectRootPath, relativeScope, "labels", clone, refresh);
+          });
+      });
     const listContainer = container.createDiv({ cls: "feuillets-workspace-label-list" });
+    const rows = new Map<Label, WorkspaceListRow>();
     const refresh = (): void => {
-      listContainer.empty();
-      this.renderLabelRows(listContainer, projectRootPath, relativeScope, refresh);
+      this.renderLabelRows(listContainer, projectRootPath, relativeScope, refresh, rows);
     };
-    this.renderLabelRows(listContainer, projectRootPath, relativeScope, refresh);
+    refresh();
 
     new Setting(container).addButton((button) => button
       .setButtonText(t("settings.labels.add"))
       .onClick(() => {
         const next = this.localLabels(projectRootPath, relativeScope, workspaceLabels(this.app, this.plugin.settings, this.folder));
+        this.rebindListRows(rows, next);
         next.push({ name: t("settings.labels.item", { n: String(next.length + 1) }), color: "#888888" });
         void this.saveLocalListField(projectRootPath, relativeScope, "labels", next, refresh);
       }));
@@ -480,11 +576,17 @@ export class FolderWorkspaceModal extends Modal {
     projectRootPath: string,
     relativeScope: string,
     refresh: () => void,
+    rows: Map<Label, WorkspaceListRow>,
   ): void {
     const list = workspaceLabels(this.app, this.plugin.settings, this.folder);
     const source = this.sourceDescription(projectRootPath, relativeScope, "labels");
+    for (const [entry, row] of rows) if (!list.includes(entry)) { row.setting.settingEl.remove(); rows.delete(entry); }
     list.forEach((label, index) => {
-      new Setting(container)
+      const existing = rows.get(label);
+      if (existing) { existing.index = index; existing.setting.setName(String(index + 1)).setDesc(source); return; }
+      const row: WorkspaceListRow = { setting: new Setting(container), index };
+      rows.set(label, row);
+      row.setting
         .setName(String(index + 1))
         .setDesc(source)
         /* Same contract as renderStatusRows above: a built-in entry shows
@@ -492,13 +594,15 @@ export class FolderWorkspaceModal extends Modal {
            legacy/custom entry. */
         .addText((text) => text.setValue(labelDisplayLabel(label, getLocale())).onChange((value) => {
           const next = this.localLabels(projectRootPath, relativeScope, list);
-          delete next[index].id;
-          next[index].name = value;
+          this.rebindListRows(rows, next);
+          delete next[row.index].id;
+          next[row.index].name = value;
           void this.saveLocalField(projectRootPath, relativeScope, "labels", next);
         }))
         .addColorPicker((color) => color.setValue(label.color).onChange((value) => {
           const next = this.localLabels(projectRootPath, relativeScope, list);
-          next[index].color = value;
+          this.rebindListRows(rows, next);
+          next[row.index].color = value;
           void this.saveLocalField(projectRootPath, relativeScope, "labels", next);
         }))
         .addExtraButton((button) => button
@@ -506,7 +610,8 @@ export class FolderWorkspaceModal extends Modal {
           .setTooltip(t("settings.labels.deleteTooltip"))
           .onClick(() => {
             const next = this.localLabels(projectRootPath, relativeScope, list);
-            next.splice(index, 1);
+            this.rebindListRows(rows, next);
+            next.splice(row.index, 1);
             void this.saveLocalListField(projectRootPath, relativeScope, "labels", next, refresh);
           }));
     });
@@ -523,20 +628,31 @@ export class FolderWorkspaceModal extends Modal {
     const setting = new Setting(container)
       .setName(t("settings.favoriteTags.name"))
       .setDesc(source)
-      .addTextArea((text) => text
-        .setPlaceholder(t("settings.favoriteTags.placeholder"))
+      .addTextArea((text) => {
+        this.registerFieldRefresh("favoriteTags", () => {
+          if (!this.hasLocalField(getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope), "favoriteTags")) {
+            text.setValue(workspaceFavoriteTags(this.app, this.plugin.settings, this.folder).join(", "));
+          }
+        });
+        text.setPlaceholder(t("settings.favoriteTags.placeholder"))
         .setValue(workspaceFavoriteTags(this.app, this.plugin.settings, this.folder).join(", "))
         .onChange((value) => {
           const tags = [...new Set(value.split(/[,\n]+/).map((item) => item.replace(/^#/, "").trim()).filter(Boolean))];
           void this.saveLocalField(projectRootPath, relativeScope, "favoriteTags", tags);
-        }));
-    setting.addButton((button) => button
-      .setButtonText(t("modal.folderWorkspace.customize"))
-      .setDisabled(this.hasLocalField(local, "favoriteTags"))
-      .onClick(() => {
+        });
+      });
+    setting.addButton((button) => {
+      this.registerFieldRefresh("favoriteTags", () => {
+        button.setDisabled(this.hasLocalField(getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope), "favoriteTags"));
+        setting.setDesc(this.sourceDescription(projectRootPath, relativeScope, "favoriteTags"));
+      });
+      button.setButtonText(t("modal.folderWorkspace.customize"))
+        .setDisabled(this.hasLocalField(local, "favoriteTags"))
+        .onClick(() => {
         const clone = [...workspaceFavoriteTags(this.app, this.plugin.settings, this.folder)];
         void this.saveLocalField(projectRootPath, relativeScope, "favoriteTags", clone, true);
-      }));
+      });
+    });
     this.addFieldReset(container, projectRootPath, relativeScope, "favoriteTags");
   }
 
@@ -546,18 +662,17 @@ export class FolderWorkspaceModal extends Modal {
     this.renderNumberGoal(container, projectRootPath, relativeScope, "projectWordGoal", t("modal.folderWorkspace.totalWordGoal"), workspaceTotalWordGoal(this.app, this.plugin.settings, this.folder));
     this.renderNumberGoal(container, projectRootPath, relativeScope, "sessionGoal", t("settings.sessionGoal.name"), workspaceSessionGoal(this.app, this.plugin.settings, this.folder));
 
-    const local = getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope);
+    let restoreDeadline = (): void => {};
     const deadline = new Setting(container)
       .setName(t("settings.deadline.name"))
       .setDesc(this.sourceDescription(projectRootPath, relativeScope, "deadlineDate"))
-      .addText((text) => text
-        .setPlaceholder(t("settings.deadline.placeholder"))
+      .addText((text) => {
+        restoreDeadline = () => { text.setValue(workspaceDeadline(this.app, this.plugin.settings, this.folder)); };
+        text.setPlaceholder(t("settings.deadline.placeholder"))
         .setValue(workspaceDeadline(this.app, this.plugin.settings, this.folder))
-        .onChange((value) => { void this.saveLocalField(projectRootPath, relativeScope, "deadlineDate", value.trim()); }));
-    if (this.hasLocalField(local, "deadlineDate")) deadline.addExtraButton((button) => button
-      .setIcon("rotate-ccw")
-      .setTooltip(t("modal.folderWorkspace.resetField"))
-      .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, "deadlineDate"); }));
+        .onChange((value) => { void this.saveLocalField(projectRootPath, relativeScope, "deadlineDate", value.trim()); });
+      });
+    this.addResetButton(deadline, projectRootPath, relativeScope, "deadlineDate", restoreDeadline);
   }
 
   private renderTypography(container: HTMLElement, projectRootPath: string, relativeScope: string): void {
@@ -565,18 +680,21 @@ export class FolderWorkspaceModal extends Modal {
     this.renderTypographyToggle(container, projectRootPath, relativeScope, "liveJustify", t("settings.liveJustify.name"), workspaceLiveJustify(this.app, this.plugin.settings, this.folder));
 
     const emptyLines = workspaceLiveEmptyLines(this.app, this.plugin.settings, this.folder);
+    let restoreEmptyLines = (): void => {};
     const emptySetting = new Setting(container)
       .setName(t("settings.liveEmptyLines.name"))
       .setDesc(this.sourceDescription(projectRootPath, relativeScope, "liveEmptyLines"))
-      .addDropdown((dropdown) => dropdown
-        .addOption("normal", t("settings.liveEmptyLines.normal"))
+      .addDropdown((dropdown) => {
+        restoreEmptyLines = () => { dropdown.setValue(workspaceLiveEmptyLines(this.app, this.plugin.settings, this.folder)); };
+        dropdown.addOption("normal", t("settings.liveEmptyLines.normal"))
         .addOption("reduit", t("settings.liveEmptyLines.reduced"))
         .addOption("invisible", t("settings.liveEmptyLines.invisible"))
         .setValue(emptyLines)
         .onChange((value) => {
           if (value === "normal" || value === "reduit" || value === "invisible") void this.saveLocalField(projectRootPath, relativeScope, "liveEmptyLines", value);
-        }));
-    this.addResetButton(emptySetting, projectRootPath, relativeScope, "liveEmptyLines");
+        });
+      });
+    this.addResetButton(emptySetting, projectRootPath, relativeScope, "liveEmptyLines", restoreEmptyLines);
 
     this.renderTypographyToggle(container, projectRootPath, relativeScope, "liveHyphenation", t("settings.liveHyphenation.name"), workspaceLiveHyphenation(this.app, this.plugin.settings, this.folder));
     this.renderTypographyNumber(container, projectRootPath, relativeScope, "readingFontSize", t("settings.readingFontSize.name"), workspaceReadingFontSize(this.app, this.plugin.settings, this.folder));
@@ -592,11 +710,16 @@ export class FolderWorkspaceModal extends Modal {
     label: string,
     value: boolean,
   ): void {
+    let restoreInherited = (): void => {};
     const setting = new Setting(container)
       .setName(label)
       .setDesc(this.sourceDescription(projectRootPath, relativeScope, key))
-      .addToggle((toggle) => toggle.setValue(value).onChange((next) => { void this.saveLocalField(projectRootPath, relativeScope, key, next); }));
-    this.addResetButton(setting, projectRootPath, relativeScope, key);
+      .addToggle((toggle) => {
+        const resolve = { indentParagraphs: workspaceIndentParagraphs, liveJustify: workspaceLiveJustify, liveHyphenation: workspaceLiveHyphenation }[key];
+        restoreInherited = () => { toggle.setValue(resolve(this.app, this.plugin.settings, this.folder)); };
+        toggle.setValue(value).onChange((next) => { void this.saveLocalField(projectRootPath, relativeScope, key, next); });
+      });
+    this.addResetButton(setting, projectRootPath, relativeScope, key, restoreInherited);
   }
 
   private renderTypographyNumber(
@@ -607,14 +730,19 @@ export class FolderWorkspaceModal extends Modal {
     label: string,
     value: number,
   ): void {
+    let restoreInherited = (): void => {};
     const setting = new Setting(container)
       .setName(label)
       .setDesc(this.sourceDescription(projectRootPath, relativeScope, key))
-      .addText((text) => text.setValue(String(value)).onChange((raw) => {
-        const parsed = Number(raw);
-        void this.saveLocalField(projectRootPath, relativeScope, key, Number.isFinite(parsed) ? parsed : 0);
-      }));
-    this.addResetButton(setting, projectRootPath, relativeScope, key);
+      .addText((text) => {
+        const resolve = { readingFontSize: workspaceReadingFontSize, lineHeight: workspaceLineHeight, textWidth: workspaceTextWidth }[key];
+        restoreInherited = () => { text.setValue(String(resolve(this.app, this.plugin.settings, this.folder))); };
+        text.setValue(String(value)).onChange((raw) => {
+          const parsed = Number(raw);
+          void this.saveLocalField(projectRootPath, relativeScope, key, Number.isFinite(parsed) ? parsed : 0);
+        });
+      });
+    this.addResetButton(setting, projectRootPath, relativeScope, key, restoreInherited);
   }
 
   private addResetButton<K extends keyof FolderWorkspaceConfig>(
@@ -622,12 +750,26 @@ export class FolderWorkspaceModal extends Modal {
     projectRootPath: string,
     relativeScope: string,
     key: K,
+    restoreInherited?: () => void,
   ): void {
-    const local = getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope);
-    if (this.hasLocalField(local, key)) setting.addExtraButton((button) => button
-      .setIcon("rotate-ccw")
-      .setTooltip(t("modal.folderWorkspace.resetField"))
-      .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, key); }));
+    let resetEl: HTMLElement | null = null;
+    const refresh = (): void => {
+      const local = getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope);
+      setting.setDesc(this.sourceDescription(projectRootPath, relativeScope, key));
+      if (this.hasLocalField(local, key)) {
+        if (!resetEl) setting.addExtraButton((button) => {
+          resetEl = button.extraSettingsEl;
+          button.setIcon("rotate-ccw").setTooltip(t("modal.folderWorkspace.resetField"))
+            .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, key); });
+        });
+      } else {
+        resetEl?.remove();
+        resetEl = null;
+        restoreInherited?.();
+      }
+    };
+    this.registerFieldRefresh(key, refresh);
+    refresh();
   }
 
   private renderNumberGoal(
@@ -638,18 +780,19 @@ export class FolderWorkspaceModal extends Modal {
     label: string,
     value: number,
   ): void {
-    const local = getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope);
+    let restoreInherited = (): void => {};
     const setting = new Setting(container)
       .setName(label)
       .setDesc(this.sourceDescription(projectRootPath, relativeScope, key))
-      .addText((text) => text.setValue(String(value)).onChange((raw) => {
-        const parsed = parseInt(raw, 10);
-        void this.saveLocalField(projectRootPath, relativeScope, key, isNaN(parsed) ? 0 : Math.max(0, parsed));
-      }));
-    if (this.hasLocalField(local, key)) setting.addExtraButton((button) => button
-      .setIcon("rotate-ccw")
-      .setTooltip(t("modal.folderWorkspace.resetField"))
-      .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, key); }));
+      .addText((text) => {
+        const resolve = { wordGoal: workspaceWordGoalDefault, tolerance: workspaceTolerance, projectWordGoal: workspaceTotalWordGoal, sessionGoal: workspaceSessionGoal }[key];
+        restoreInherited = () => { text.setValue(String(resolve(this.app, this.plugin.settings, this.folder))); };
+        text.setValue(String(value)).onChange((raw) => {
+          const parsed = parseInt(raw, 10);
+          void this.saveLocalField(projectRootPath, relativeScope, key, isNaN(parsed) ? 0 : Math.max(0, parsed));
+        });
+      });
+    this.addResetButton(setting, projectRootPath, relativeScope, key, restoreInherited);
   }
 
   private addFieldReset<K extends keyof FolderWorkspaceConfig>(
@@ -659,17 +802,27 @@ export class FolderWorkspaceModal extends Modal {
     key: K,
     refresh?: () => void,
   ): void {
-    const local = getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope);
-    if (!this.hasLocalField(local, key)) return;
-    new Setting(container).setName(t("modal.folderWorkspace.resetField")).addExtraButton((button) => button
-      .setIcon("rotate-ccw")
-      .setTooltip(t("modal.folderWorkspace.resetField"))
-      .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, key, refresh); }));
+    const holder = container.createDiv();
+    let visible = false;
+    const update = (): void => {
+      const local = getFolderWorkspaceConfig(this.plugin.settings.projectMeta[projectRootPath], relativeScope);
+      const next = this.hasLocalField(local, key);
+      if (next === visible) return;
+      visible = next;
+      holder.empty();
+      if (visible) new Setting(holder).setName(t("modal.folderWorkspace.resetField")).addExtraButton((button) => button
+        .setIcon("rotate-ccw")
+        .setTooltip(t("modal.folderWorkspace.resetField"))
+        .onClick(() => { void this.resetLocalField(projectRootPath, relativeScope, key, refresh); }));
+    };
+    this.registerFieldRefresh(key, update);
+    update();
   }
 
   private async resetLocalConfig(projectRootPath: string, relativeScope: string): Promise<void> {
     const meta = this.plugin.settings.projectMeta[projectRootPath];
     if (!meta?.folderWorkspaces || !Object.prototype.hasOwnProperty.call(meta.folderWorkspaces, relativeScope)) return;
+    const restoreResetFocus = this.resetButton?.buttonEl === this.contentEl.ownerDocument?.activeElement;
     const next = { ...meta.folderWorkspaces };
     const config = next[relativeScope];
     const identity: FolderWorkspaceConfig = { version: 1 };
@@ -681,9 +834,15 @@ export class FolderWorkspaceModal extends Modal {
     else meta.folderWorkspaces = next;
     this.plugin.refreshCitationRendering?.();
     refreshReferenceCitationSettings(this.plugin);
-    await this.plugin.saveSettings();
-    this.plugin.renderAllViews(true);
     this.rerenderContent();
+    if (restoreResetFocus) {
+      const control = this.resetButton?.buttonEl.disabled
+        ? this.contentEl.querySelector<HTMLElement>(".feuillets-workspace-essentials select")
+        : this.resetButton?.buttonEl;
+      control?.focus();
+    }
+    await saveWorkspaceSettings(this.plugin);
+    this.plugin.renderAllViews(true);
   }
 
 }
