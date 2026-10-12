@@ -33,6 +33,7 @@ import { openFileActivating, openFileActivatingWithCursor, selectRange } from ".
 import { createQuickDraftFile, isProjectDraft, moveDraftToProjectFolder, nextAvailablePromotedDraftPath, ProjectDraftAutoRenamer } from "./services/project-drafts.js";
 import type { FeuilletsEditorSurface } from "./utils/scrivenings-editor-adapter.js";
 import { ScriveningsSegmentEditorAdapter } from "./utils/scrivenings-editor-adapter.js";
+import { applyCitationInsertion, prepareCitationInsertion, type CitationInsertionEditor } from "./services/citation-insertion.js";
 import { NotesView } from "./views/notes-view.js";
 import { PropertiesView } from "./views/properties-view.js";
 import { ResearchView } from "./views/research-view.js";
@@ -75,7 +76,7 @@ import {
   type CitekeyTriggerRange,
   type CitekeyTriggerType,
 } from "./utils/cm-citekey-trigger.js";
-import { getCachedBibtexCatalog } from "./services/bibtex-catalog.js";
+import { getCachedBibtexCatalog, isValidCitekey } from "./services/bibtex-catalog.js";
 import { resolveWorkspaceCitationResources } from "./services/workspace-citations.js";
 import { resolveBibliographyMetadataFromFrontmatter } from "./services/source-bibliography-resolver.js";
 import { CitekeyModal } from "./ui/citekey-modal.js";
@@ -861,7 +862,8 @@ class FeuilletsPlugin extends Plugin {
     this.registerEditorExtension(createParagraphReorderExtension());
     this.registerEditorExtension(
       createCitekeyTriggerExtension((view, range, triggerType) => {
-        const file = this.app.workspace.getActiveFile();
+        const target = this.getReferenceCitationTarget();
+        const file = target && (target.editor as CitationInsertionEditor & { cm?: CitekeyEditorView }).cm === view ? target.file : null;
         if (!file) return;
         void this.openCitekeyPicker(view, range, file, undefined, triggerType);
       })
@@ -4108,10 +4110,10 @@ class FeuilletsPlugin extends Plugin {
     }
   }
 
-  citationStyleFor() {
+  citationStyleFor(): "footnote" | "parenthetical" {
     const root = this.getProjectFolder();
     const meta = root ? this.settings.projectMeta[root.path] : null;
-    return (meta && meta.citationStyle) || "footnote";
+    return meta?.citationStyle === "parenthetical" ? "parenthetical" : "footnote";
   }
 
   registerLastEditorTracking() {
@@ -4140,15 +4142,21 @@ class FeuilletsPlugin extends Plugin {
   }
 
   /** Keeps editor and file paired when citation actions are invoked from a sidebar. */
-  getReferenceCitationTarget(): { editor: Editor; file: TFile } | null {
+  getReferenceCitationTarget(): { editor: CitationInsertionEditor; file: TFile } | null {
+    const continu = this.getCentralContinuView?.();
+    if (continu) return continu.getReferenceCitationTarget();
     const workspace = this.app.workspace;
+    const leaves = workspace.getLeavesOfType?.("markdown");
+    const isAvailable = (editor: Editor, file: TFile) =>
+      (!leaves || leaves.some((leaf) => leaf.view instanceof MarkdownView && leaf.view.editor === editor && leaf.view.file === file))
+      && (!this.app.vault?.getAbstractFileByPath || this.app.vault.getAbstractFileByPath(file.path) === file);
     const active = workspace.activeEditor;
-    if (active?.editor && active.file?.extension === "md") return { editor: active.editor, file: active.file };
+    if (active?.editor && active.file?.extension === "md" && isAvailable(active.editor, active.file)) return { editor: active.editor, file: active.file };
     const activeView = workspace.getActiveViewOfType?.(MarkdownView);
     const recent = workspace.getMostRecentLeaf?.()?.view;
     const last = this._lastMarkdownLeaf?.view;
     for (const view of [activeView, recent, last]) {
-      if (view instanceof MarkdownView && view.file?.extension === "md") return { editor: view.editor, file: view.file };
+      if (view instanceof MarkdownView && view.file?.extension === "md" && isAvailable(view.editor, view.file)) return { editor: view.editor, file: view.file };
     }
     return null;
   }
@@ -4241,7 +4249,7 @@ class FeuilletsPlugin extends Plugin {
     ).open();
   }
 
-  quickCiteSource(sourceFile: TFile, target?: { editor: Editor; file: TFile }): void {
+  quickCiteSource(sourceFile: TFile, target?: { editor: CitationInsertionEditor; file: TFile }): void {
     if (sourceFile.extension.toLowerCase() !== "md") {
       this.quickCiteAttachment(sourceFile);
       return;
@@ -4252,9 +4260,19 @@ class FeuilletsPlugin extends Plugin {
       return;
     }
     const targetFile = target?.file || this.app.workspace.getActiveFile();
-    promptForPage(this.app, this, sourceFile, (file, page) =>
-      this.insertCitationFor(file, page, editor, targetFile)
-    );
+    const content = editor.getValue();
+    const from = editor.posToOffset(editor.getCursor("from"));
+    const to = editor.posToOffset(editor.getCursor("to"));
+    promptForPage(this.app, this, sourceFile, (file, page) => {
+      if (editor.getValue() !== content || editor.posToOffset(editor.getCursor("from")) !== from
+        || editor.posToOffset(editor.getCursor("to")) !== to
+        || target && (this.getReferenceCitationTarget()?.editor !== editor
+          || this.getReferenceCitationTarget()?.file !== target.file)) {
+        new Notice(t("main.notice.citationInsertionRefused"));
+        return;
+      }
+      this.insertCitationFor(file, page, editor, targetFile);
+    });
   }
 
   quickCiteAttachment(attachmentFile: TFile): void {
@@ -4441,7 +4459,7 @@ class FeuilletsPlugin extends Plugin {
     new FootnoteCheckModal(this.app, editor, result).open();
   }
 
-  insertCitationFor(sourceFile: TFile, page: string, editor: Editor, targetFile?: TFile | null): void {
+  insertCitationFor(sourceFile: TFile, page: string, editor: CitationInsertionEditor, targetFile?: TFile | null): void {
     if (sourceFile.extension.toLowerCase() !== "md") {
       new Notice(t("main.notice.cannotCiteDirectlyBinary"));
       return;
@@ -4464,31 +4482,31 @@ class FeuilletsPlugin extends Plugin {
       new Notice(t("main.notice.emptySourceSheet"));
       return;
     }
-    if (citationTarget) this._lastCitedSourceByFile.set(citationTarget.path, sourceFile.path);
-    if (style === "parenthetical") {
-      const at = editor.getCursor("to");
-      const start = editor.posToOffset(at);
-      editor.replaceRange(text, at, at);
-      editor.setCursor({ line: at.line, ch: at.ch + text.length });
-      editor.focus();
-      this.recordCitationOccurrence(citationTarget, sourceFile, editor.getValue(), start, start + text.length);
-      this.markSourceCited(sourceFile);
-      new Notice(isRepeat ? t("main.notice.ibidInserted") : t("main.notice.citationInserted"));
+    const content = editor.getValue();
+    const at = editor.posToOffset(editor.getCursor("to"));
+    const plan = prepareCitationInsertion(content, at, at, text, style);
+    if (!plan || !applyCitationInsertion(editor, content, plan)) {
+      new Notice(t("main.notice.citationInsertionRefused"));
       return;
     }
-    const n = nextFootnoteNumber(editor.getValue());
-    const refMarker = `[^${n}]`;
-    const at = editor.getCursor("to");
-    editor.replaceRange(refMarker, at, at);
-    const lastLine = editor.lastLine();
-    const end = { line: lastLine, ch: editor.getLine(lastLine).length };
-    const definitionStart = editor.posToOffset(end) + `\n\n[^${n}]: `.length;
-    editor.replaceRange(`\n\n[^${n}]: ${text}`, end, end);
-    editor.setCursor({ line: at.line, ch: at.ch + refMarker.length });
-    editor.focus();
-    this.recordCitationOccurrence(citationTarget, sourceFile, editor.getValue(), definitionStart, definitionStart + text.length);
+    if (citationTarget) this._lastCitedSourceByFile.set(citationTarget.path, sourceFile.path);
+    this.recordCitationOccurrence(citationTarget, sourceFile, editor.getValue(), plan.contentStart, plan.contentStart + text.length);
     this.markSourceCited(sourceFile);
-    new Notice(isRepeat ? t("main.notice.ibidInsertedNote", { n: String(n) }) : t("main.notice.citationInsertedNote", { n: String(n) }));
+    new Notice(plan.noteNumber !== undefined
+      ? (isRepeat ? t("main.notice.ibidInsertedNote", { n: String(plan.noteNumber) }) : t("main.notice.citationInsertedNote", { n: String(plan.noteNumber) }))
+      : (isRepeat ? t("main.notice.ibidInserted") : t("main.notice.citationInserted")));
+  }
+
+  insertBibtexCitation(key: string, target: { editor: CitationInsertionEditor; file: TFile }): boolean {
+    if (!isValidCitekey(key)) return false;
+    const current = this.getReferenceCitationTarget();
+    if (current?.editor !== target.editor || current.file !== target.file) return false;
+    const content = target.editor.getValue();
+    const at = target.editor.posToOffset(target.editor.getCursor("to"));
+    const plan = prepareCitationInsertion(content, at, at, `[@${key}]`, this.citationStyleFor());
+    const applied = Boolean(plan && applyCitationInsertion(target.editor, content, plan));
+    if (!applied) new Notice(t("main.notice.citationInsertionRefused"));
+    return applied;
   }
 
   async openCitekeyPicker(
@@ -4507,7 +4525,42 @@ class FeuilletsPlugin extends Plugin {
       this._activeCitekeyViews.delete(view);
     };
 
+    const initialDocument = view.state.doc;
+    const initialContent = initialDocument.sliceString(0, initialDocument.length);
+    const selectionKey = () => {
+      const selection = view.state.selection?.main;
+      return selection ? `${selection.anchor}:${selection.head}:${selection.empty}` : "";
+    };
+    const initialSelection = selectionKey();
+    const resolveInsertionContext = () => {
+      const continu = this.getCentralContinuView?.();
+      if (continu) {
+        if (continu.editorView !== view) return null;
+        const segment = continu.getSegmentByPath(file.path);
+        const target = continu.getReferenceCitationTarget();
+        if (!segment || target?.file !== file || range.from < segment.from || range.to > segment.to) return null;
+        return { from: segment.from, to: segment.to, frontmatter: segment.frontmatter };
+      }
+      const workspace = this.app.workspace;
+      const active = workspace?.activeEditor;
+      const leaves = workspace?.getLeavesOfType?.("markdown") ?? [];
+      const editors = [active, ...leaves.map((leaf) => leaf.view instanceof MarkdownView ? leaf.view : null)];
+      const owner = editors.find((entry) => entry?.file === file
+        && (entry.editor as Editor & { cm?: CitekeyEditorView }).cm === view);
+      const target = this.getReferenceCitationTarget();
+      return owner && target?.file === file
+        && (target.editor as CitationInsertionEditor & { cm?: CitekeyEditorView }).cm === view
+        ? { from: 0, to: view.state.doc.length, frontmatter: "" } : null;
+    };
+    const initialContext = resolveInsertionContext();
+    const contextIsCurrent = () => initialContext !== null && view.state.doc === initialDocument
+      && view.state.doc.sliceString(0, view.state.doc.length) === initialContent
+      && selectionKey() === initialSelection
+      && this.app.vault.getAbstractFileByPath(file.path) === file
+      && JSON.stringify(resolveInsertionContext()) === JSON.stringify(initialContext);
+
     try {
+      if (!contextIsCurrent()) { releaseLock(); return; }
       if (!(file instanceof TFile) || file.extension.toLowerCase() !== "md") {
         releaseLock();
         return;
@@ -4582,8 +4635,11 @@ class FeuilletsPlugin extends Plugin {
         return;
       }
 
-      const entries = await getCachedBibtexCatalog(this.app, resolution.bibliography.file);
-      if (!entries || entries.length === 0) {
+      const bibliographyFile = resolution.bibliography.file;
+      const bibliographyRevision = `${bibliographyFile.stat.mtime}:${bibliographyFile.stat.size}`;
+      const isolationPath = this.getWorkspaceFolder()?.path;
+      const entries = await getCachedBibtexCatalog(this.app, bibliographyFile);
+      if (!entries || entries.length === 0 || !contextIsCurrent()) {
         releaseLock();
         return;
       }
@@ -4602,7 +4658,16 @@ class FeuilletsPlugin extends Plugin {
         this.app,
         entries,
         (selectedItems) => {
-          insertCitation(view, range, selectedItems, triggerType);
+          const currentResources = resolveWorkspaceCitationResources(this.app, this.settings, projectRoot, searchFolder);
+          if (!contextIsCurrent() || this.getProjectFolder()?.path !== projectPath
+            || this.getWorkspaceFolder()?.path !== isolationPath
+            || currentResources.bibliography.file !== bibliographyFile
+            || `${bibliographyFile.stat.mtime}:${bibliographyFile.stat.size}` !== bibliographyRevision
+            || selectedItems.some((item) => !entries.some((entry) => entry.key === item.key))
+            || !initialContext
+            || !insertCitation(view, range, selectedItems, triggerType, { ...initialContext, mode: this.citationStyleFor() })) {
+            new Notice(t("main.notice.citationInsertionRefused"));
+          }
           releaseLock();
         },
         () => {

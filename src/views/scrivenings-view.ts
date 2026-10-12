@@ -53,6 +53,7 @@ import { loadAnnotations, annotationsForFile, resolveAnnotation, toManuscriptRel
 import { t } from "../i18n/index.js";
 import type { TextAnalysisProvider } from "../api/text-analysis.js";
 import { ScriveningsGrammarChecker } from "../utils/cm-scrivenings-grammar.js";
+import { ScriveningsSegmentEditorAdapter } from "../utils/scrivenings-editor-adapter.js";
 
 /**
  * ScriveningsView — LOT 1 (cœur technique uniquement).
@@ -457,6 +458,7 @@ export class ScriveningsView extends ItemView {
   private readonly grammarChecker?: ScriveningsGrammarChecker;
   private _compileScope: CompileScope | null = null;
   private cm: EditorViewInstance | null = null;
+  private referenceEditor: { view: EditorViewInstance; path: string; editor: ScriveningsSegmentEditorAdapter } | null = null;
   /** Comptes de mots par fichier — recalcul complet au chargement/à la
    * recomposition (`computeScriveningsWordCounts`), incrémental à chaque
    * édition (`updateScriveningsWordCounts`, voir handleEditorChanges) : voir
@@ -503,6 +505,21 @@ export class ScriveningsView extends ItemView {
     const selection = this.cm?.state.selection.main;
     const document = this.session?.document;
     return selection && document ? segmentAt(document, selection.head ?? selection.from)?.file ?? null : null;
+  }
+
+  /** Pair the real cursor file with a stable adapter, including sidebar focus. */
+  getReferenceCitationTarget(): { file: TFile; editor: ScriveningsSegmentEditorAdapter } | null {
+    const file = this.getReferenceFile();
+    const cm = this.cm;
+    const segment = file ? this.getSegmentByPath(file.path) : null;
+    const selection = cm?.state.selection.main;
+    if (!cm || !file || !segment || !selection || selection.from < segment.from || selection.to > segment.to) return null;
+    if (this.referenceEditor?.view !== cm || this.referenceEditor.path !== file.path) {
+      this.referenceEditor = { view: cm, path: file.path,
+        editor: new ScriveningsSegmentEditorAdapter(cm, file.path, (path) =>
+          this.cm === cm ? this.getSegmentByPath(path) : null) };
+    }
+    return { file, editor: this.referenceEditor.editor };
   }
 
   requestGrammarCheck(paths?: readonly string[]): void {

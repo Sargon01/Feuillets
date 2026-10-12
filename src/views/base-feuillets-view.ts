@@ -1748,7 +1748,10 @@ export abstract class BaseFeuilletsView extends ItemView {
     const currentTarget = () => resolveReferenceTarget(this.app, baseContext.projectRoot,
       this.plugin.getReferenceCitationTarget?.()?.file ?? null, this.plugin.getCentralContinuView?.()?.compileScope ?? null, this.plugin.getCentralContinuView?.()?.getReferenceFile?.() ?? null);
     const referenceTarget = currentTarget();
-    const insertionTarget = referenceTarget.kind === "markdown" ? this.plugin.getReferenceCitationTarget?.() ?? null : null;
+    const insertionTarget = this.plugin.getReferenceCitationTarget?.() ?? null;
+    const insertionContent = insertionTarget?.editor.getValue();
+    const insertionFrom = insertionTarget?.editor.posToOffset(insertionTarget.editor.getCursor("from"));
+    const insertionTo = insertionTarget?.editor.posToOffset(insertionTarget.editor.getCursor("to"));
     const target = referenceTarget.target;
     const workspacePath = this.plugin.getWorkspaceFolder?.()?.path;
     const currentDocumentContext = () => resolveReferenceDocumentContext(this.app, this.plugin.settings, baseContext,
@@ -1807,13 +1810,14 @@ export abstract class BaseFeuilletsView extends ItemView {
         event.stopPropagation();
         const currentTarget = this.plugin.getReferenceCitationTarget?.();
         if (!isCurrent() || !insertionTarget || currentTarget?.editor !== insertionTarget.editor || !applicable
+          || currentTarget.file !== insertionTarget.file || insertionTarget.editor.getValue() !== insertionContent
+          || insertionTarget.editor.posToOffset(insertionTarget.editor.getCursor("from")) !== insertionFrom
+          || insertionTarget.editor.posToOffset(insertionTarget.editor.getCursor("to")) !== insertionTo
           || insertionTarget.file.path !== target?.path
           || !documentContext.files.some((file) => file.path === insertionTarget.file.path)) return;
         if (reference.kind === "source") this.plugin.quickCiteSource(reference.file, insertionTarget);
         else if (isValidCitekey(reference.key)) {
-          const editor = insertionTarget.editor;
-          editor.replaceRange(`[@${reference.key}]`, editor.getCursor());
-          editor.focus();
+          this.plugin.insertBibtexCitation(reference.key, insertionTarget);
         }
       });
     };

@@ -1,4 +1,5 @@
 import type { ScriveningsSegment } from "../services/scrivenings-document.js";
+import { dispatchCitationPlan, type CitationInsertionPlan } from "../services/citation-insertion.js";
 
 /**
  * LOT 1.4 — Menu contextuel Continu : présente UN segment Scrivenings comme
@@ -73,8 +74,9 @@ export interface ScriveningsAdapterEditorView {
     readonly selection: { readonly main: { readonly from: number; readonly to: number; readonly empty: boolean } };
   };
   dispatch(spec: {
-    changes?: { from: number; to: number; insert: string };
+    changes?: { from: number; to: number; insert: string } | readonly { from: number; to: number; insert: string }[];
     selection?: { anchor: number; head?: number };
+    annotations?: unknown;
   }): void;
   focus(): void;
 }
@@ -123,6 +125,22 @@ export class ScriveningsSegmentEditorAdapter implements FeuilletsEditorSurface {
     const segment = this.segment();
     if (!segment) return "";
     return segment.frontmatter + this.editorView.state.doc.sliceString(segment.from, segment.to);
+  }
+
+  /** Reject the whole batch before dispatch; the native boundary filter remains active. */
+  applyCitationPlan(plan: CitationInsertionPlan, expectedContent: string): boolean {
+    const segment = this.segment();
+    if (!segment || this.getValue() !== expectedContent) return false;
+    const selection = this.editorView.state.selection.main;
+    if (selection.from < segment.from || selection.to > segment.to) return false;
+    const bodyStart = segment.frontmatter.length;
+    if (plan.changes.some((change) => change.from < bodyStart || change.to > expectedContent.length
+      || change.from > change.to) || plan.cursor < bodyStart) return false;
+    const shift = segment.from - bodyStart;
+    return dispatchCitationPlan(this.editorView, {
+      ...plan, changes: plan.changes.map((change) => ({ ...change, from: change.from + shift, to: change.to + shift })),
+      cursor: plan.cursor + shift,
+    });
   }
 
   /** Vrai seulement si la sélection composite courante est non vide ET

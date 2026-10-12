@@ -1,5 +1,6 @@
 import { EditorView } from "@codemirror/view";
 import { isValidCitekey } from "../services/bibtex-catalog.js";
+import { dispatchCitationPlan, prepareCitationInsertion, type CitationChange } from "../services/citation-insertion.js";
 
 export type CitekeyTriggerType = "open_group" | "continue_group";
 
@@ -19,16 +20,14 @@ export type CitekeyEditorView = {
       length: number;
       sliceString(from: number, to: number): string;
     };
+    selection?: { main: { head: number; anchor?: number; empty: boolean } };
   };
   dispatch(spec: {
-    changes: {
-      from: number;
-      to: number;
-      insert: string;
-    };
+    changes: CitationChange | readonly CitationChange[];
     selection: {
       anchor: number;
     };
+    annotations?: unknown;
   }): void;
   focus?(): void;
 };
@@ -191,6 +190,9 @@ export function insertCitation(
   range: CitekeyTriggerRange,
   items: readonly CitationReferenceItem[],
   triggerType: CitekeyTriggerType = "open_group",
+  context: { mode: "footnote" | "parenthetical"; from: number; to: number; frontmatter: string } = {
+    mode: "parenthetical", from: 0, to: view.state.doc.length, frontmatter: "",
+  },
 ): boolean {
   if (items.length === 0) return false;
   for (const item of items) {
@@ -218,42 +220,36 @@ export function insertCitation(
   const formattedItems = items.map(formatCitationReferenceItem).join("; ");
 
   let replacement: string;
-  let insertPos: number;
 
   if (triggerType === "open_group") {
     if (hasFollowingBracket) {
       replacement = `[${formattedItems}`;
-      insertPos = range.from + replacement.length + 1;
     } else {
       replacement = `[${formattedItems}]`;
-      insertPos = range.from + replacement.length;
     }
   } else {
     if (hasFollowingBracket) {
       replacement = formattedItems;
-      insertPos = range.from + replacement.length + 1;
     } else {
       replacement = `${formattedItems}]`;
-      insertPos = range.from + replacement.length;
     }
   }
 
-  view.dispatch({
-    changes: {
-      from: range.from,
-      to: range.to,
-      insert: replacement,
-    },
-    selection: {
-      anchor: insertPos,
-    },
+  if (range.from < context.from || range.to > context.to) return false;
+  if (hasFollowingBracket && range.to + 1 > context.to) return false;
+  const shift = context.from - context.frontmatter.length;
+  const content = context.frontmatter + doc.sliceString(context.from, context.to);
+  // Consume an existing closing bracket together with the trigger.
+  if (hasFollowingBracket) replacement += "]";
+  const plan = prepareCitationInsertion(content, range.from - shift,
+    range.to + (hasFollowingBracket ? 1 : 0) - shift, replacement, context.mode, triggerType === "continue_group");
+  if (!plan) return false;
+  // Continuations preserve the already-open group; only new groups can create notes.
+  if (triggerType === "continue_group" && !isInsideOpenCitationGroup(doc, range.from)) return false;
+  return dispatchCitationPlan(view, { ...plan,
+    changes: plan.changes.map((change) => ({ ...change, from: change.from + shift, to: change.to + shift })),
+    cursor: plan.cursor + shift,
   });
-
-  if (typeof view.focus === "function") {
-    view.focus();
-  }
-
-  return true;
 }
 
 export function insertCitekey(

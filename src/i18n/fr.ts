@@ -1825,6 +1825,7 @@ export const fr = {
   "main.notice.cannotCiteDirectlyBinary": "Les documents joints ne peuvent pas être cités directement sans fiche Source.",
   "main.notice.ibidInserted": "Ibid. inséré.",
   "main.notice.citationInserted": "Citation insérée.",
+  "main.notice.citationInsertionRefused": "Insertion refusée : le contexte de citation a changé ou ne permet pas une modification atomique sûre.",
   "main.notice.ibidInsertedNote": "Ibid. inséré — note {n}.",
   "main.notice.citationInsertedNote": "Citation insérée — note {n}.",
   "main.notice.citationInsertedButNotMarked": "Citation insérée, mais la source n'a pas pu être marquée comme citée.",

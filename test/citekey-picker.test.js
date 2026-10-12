@@ -203,10 +203,10 @@ function createMockEditorView(initialText) {
       },
     },
     dispatch(spec) {
-      text =
-        text.slice(0, spec.changes.from) +
-        spec.changes.insert +
-        text.slice(spec.changes.to);
+      const changes = Array.isArray(spec.changes) ? spec.changes : [spec.changes];
+      for (const change of [...changes].reverse()) {
+        text = text.slice(0, change.from) + change.insert + text.slice(change.to);
+      }
       cursor = spec.selection.anchor;
     },
     focus() {
@@ -218,6 +218,7 @@ function createMockEditorView(initialText) {
     setText(newText) {
       text = newText;
     },
+    setCursor(position) { cursor = position; },
     getCursor() {
       return cursor;
     },
@@ -228,6 +229,7 @@ function createMockEditorView(initialText) {
 }
 
 function createTestPlugin(f, activeWorkspaceFolder = null) {
+  f.app.workspace = { getMostRecentLeaf: () => null };
   const plugin = Object.create(FeuilletsPlugin.prototype);
   plugin.app = f.app;
   plugin.settings = f.settings;
@@ -235,6 +237,11 @@ function createTestPlugin(f, activeWorkspaceFolder = null) {
   plugin.getProjectFolder = () => f.project;
   plugin.getWorkspaceFolder = () => activeWorkspaceFolder;
   plugin.notifyContinuDocumentChanged = () => {};
+  const openPicker = plugin.openCitekeyPicker;
+  plugin.openCitekeyPicker = function (view, range, file, ...args) {
+    f.app.workspace.activeEditor = { file, editor: { cm: view } };
+    return openPicker.call(this, view, range, file, ...args);
+  };
   return plugin;
 }
 
@@ -502,6 +509,49 @@ test("12. none of these cases modify settings and unconfigured status is detecte
   const resNotConfigured = resolveWorkspaceCitationResources(f.app, emptyMetaSettings, f.project, f.workAExtra);
   assert.equal(resNotConfigured.bibliography.status, "not_configured");
   assert.equal(resNotConfigured.bibliography.file, null);
+});
+
+for (const change of ["cancel", "document", "selection", "owner", "bibliography", "project", "workspace"]) {
+  test(`picker refuses stale ${change} without creating a note`, async () => {
+    clearBibtexCatalogCache();
+    const f = createGenericCitationFixture();
+    const plugin = createTestPlugin(f, f.workA);
+    const view = createMockEditorView("Text [@");
+    const original = CitekeyModal.prototype.open;
+    let modal;
+    CitekeyModal.prototype.open = function () { modal = this; };
+    try {
+      await plugin.openCitekeyPicker(view, { from: 5, to: 7 }, f.docA, f.workA);
+      assert.ok(modal);
+      modal.addReference("smith2024", "42");
+      if (change === "document") view.setText("New Text [@");
+      if (change === "selection") view.setCursor(1);
+      if (change === "owner") f.app.workspace.activeEditor = { file: f.docB, editor: { cm: createMockEditorView("Other [@") } };
+      if (change === "bibliography") f.workABib.stat.mtime++;
+      if (change === "project") plugin.getProjectFolder = () => f.workB;
+      if (change === "workspace") plugin.getWorkspaceFolder = () => f.workB;
+      const before = view.getText();
+      if (change === "cancel") modal.cancel(); else modal.insert();
+      assert.equal(view.getText(), before);
+      assert.doesNotMatch(view.getText(), /\[\^/);
+      assert.equal(plugin._activeCitekeyViews.has(view), false);
+    } finally { CitekeyModal.prototype.open = original; }
+  });
+}
+
+test("picker uses the project insertion mode without a CSL companion", async () => {
+  clearBibtexCatalogCache();
+  const f = createGenericCitationFixture();
+  f.settings.projectMeta[f.project.path].citationStyle = "parenthetical";
+  const plugin = createTestPlugin(f, f.workA);
+  const view = createMockEditorView("Text [@");
+  const original = CitekeyModal.prototype.open;
+  CitekeyModal.prototype.open = function () { this.addReference("smith2024", "42"); this.insert(); };
+  try {
+    await plugin.openCitekeyPicker(view, { from: 5, to: 7 }, f.docA, f.workA);
+    assert.equal(view.getText(), "Text [@smith2024, p. 42]");
+    assert.equal(plugin.cslCitationHost, undefined);
+  } finally { CitekeyModal.prototype.open = original; }
 });
 
 test("13. user typing of [@ triggers exactly once", () => {
@@ -1102,7 +1152,7 @@ test("34. no direct Vault write is performed", async () => {
     capturedModal.addReference("smith2024");
     capturedModal.insert();
 
-    assert.equal(view.getText(), "Hello [@smith2024]");
+    assert.equal(view.getText(), "Hello [^1]\n\n[^1]: [@smith2024]");
     assert.equal(vaultWriteCalls, 0);
   } finally {
     CitekeyModal.prototype.open = originalOpen;
@@ -1133,7 +1183,7 @@ test("35. settings JSON remains identical before and after search/insertion", as
 
     capturedModal.addReference(suggestions[0]);
     capturedModal.insert();
-    assert.equal(view.getText(), "Hello [@smith2024]");
+    assert.equal(view.getText(), "Hello [^1]\n\n[^1]: [@smith2024]");
 
     const afterJson = JSON.stringify(f.settings);
     assert.equal(afterJson, beforeJson);

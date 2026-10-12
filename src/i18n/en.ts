@@ -1825,6 +1825,7 @@ export const en = {
   "main.notice.cannotCiteDirectlyBinary": "Attached documents cannot be cited directly without a Source sheet.",
   "main.notice.ibidInserted": "Ibid. inserted.",
   "main.notice.citationInserted": "Citation inserted.",
+  "main.notice.citationInsertionRefused": "Insertion refused: the citation context changed or does not allow a safe atomic edit.",
   "main.notice.ibidInsertedNote": "Ibid. inserted — note {n}.",
   "main.notice.citationInsertedNote": "Citation inserted — note {n}.",
   "main.notice.citationInsertedButNotMarked": "Citation inserted, but the source could not be marked as cited.",

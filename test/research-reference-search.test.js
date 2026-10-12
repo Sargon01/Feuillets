@@ -20,6 +20,8 @@ import { resolveDocumentCitationStyle } from "../src/services/document-citation-
 import { resolvePandocCitationPreviewForFile } from "../src/services/pandoc-citation-preview.js";
 import { t, setLocale, getLocale } from "../src/i18n/index.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { buildScriveningsDocument, applyCompositeChanges } from "../src/services/scrivenings-document.js";
+import { ScriveningsSegmentEditorAdapter } from "../src/utils/scrivenings-editor-adapter.js";
 
 class Element {
   constructor(tag = "div", options = {}) {
@@ -52,6 +54,14 @@ function editorFor(file) {
   let cursor = { line: 0, ch: file.content.length };
   const toOffset = (pos) => file.content.split("\n").slice(0, pos.line).reduce((n, line) => n + line.length + 1, 0) + pos.ch;
   return {
+    transaction(tx) {
+      for (const change of [...tx.changes].reverse()) {
+        const start = toOffset(change.from);
+        const end = toOffset(change.to);
+        file.content = file.content.slice(0, start) + change.text + file.content.slice(end);
+      }
+      cursor = tx.selection.from;
+    },
     getValue: () => file.content,
     getCursor: () => ({ ...cursor }),
     setCursor: (pos) => { cursor = pos; },
@@ -109,7 +119,8 @@ function fixture({ sources = true, bibtex = true, entries = 2 } = {}) {
     getReferenceCitationTarget: () => target,
     fmOf: (file) => file.frontmatter || {},
     titleFor: (file) => file.frontmatter?.title || file.basename,
-    citationStyleFor: () => "footnote",
+    citationStyleFor: () => "parenthetical",
+    insertBibtexCitation: FeuilletsPlugin.prototype.insertBibtexCitation,
     saveSettings: async () => { settingsEvents.push("save"); },
     refreshCitationRendering: () => { settingsEvents.push("invalidate"); },
     renderAllViews: (force) => { settingsEvents.push(["refresh", force]); },
@@ -478,7 +489,12 @@ for (const style of ["footnote", "parenthetical"]) {
       const original = TextInputModal.prototype.open;
       let prompts = 0;
       TextInputModal.prototype.open = function () { prompts++; void this.onSubmit({ page: "42" }); };
-      try { button.click(); await settle(); button.click(); await settle(); } finally { TextInputModal.prototype.open = original; }
+      try {
+        button.click(); await settle();
+        await rerender(f);
+        if (origin === "search result") await query(f, "smith");
+        f.container.findAll("feuillets-reference-cite")[0].click(); await settle();
+      } finally { TextInputModal.prototype.open = original; }
       assert.equal(prompts, 2);
       assert.match(f.scene.content, /42/);
       assert.match(f.scene.content, /[Ii]bid/);
@@ -534,7 +550,8 @@ for (const [configuration, options] of [["Source only", { bibtex: false }], ["Bi
     }
     if (options.bibtex !== false) {
       f.getTarget().editor.setCursor({ line: 0, ch: 2 });
-      buttons.at(-1).click();
+      await rerender(f);
+      f.container.findAll("feuillets-reference-cited")[0].findAll("feuillets-reference-cite").at(-1).click();
       assert.equal(f.scene.content, "Bo[@smith1]dy ");
       assert.equal(f.getTarget().editor.focused, true);
       assert.match(cited.textContent, /2/);
@@ -583,9 +600,70 @@ test("BibTeX Cite inserts Pandoc syntax at the current cursor and focuses the ed
   await f.render();
   await query(f, "smith1");
   f.getTarget().editor.setCursor({ line: 0, ch: 2 });
+  await rerender(f);
+  await query(f, "smith1");
   f.container.findAll("feuillets-reference-cite")[0].click();
   assert.equal(f.scene.content, "Bo[@smith1]dy ");
   assert.equal(f.getTarget().editor.focused, true);
+});
+
+test("BibTeX Cite honors footnote mode without Source bookkeeping or CSL", async () => {
+  const f = fixture({ sources: false });
+  f.plugin.citationStyleFor = () => "footnote";
+  f.scene.content = "Body[^7][^named].\n\n[^7]: Previous\n[^named]: Named";
+  f.getTarget().editor.setCursor({ line: 0, ch: 2 });
+  await f.render();
+  await query(f, "smith1");
+  f.container.findAll("feuillets-reference-cite")[0].click();
+  assert.equal(f.scene.content, "Bo[^8]dy[^7][^named].\n\n[^7]: Previous\n[^named]: Named\n\n[^8]: [@smith1]");
+  assert.equal(f.source.frontmatter.cite_count, undefined);
+  assert.equal(f.plugin._lastCitedSourceByFile, undefined);
+  assert.equal(f.plugin.cslCitationHost, undefined);
+});
+
+for (const change of ["selection", "content"]) test(`BibTeX Cite refuses a stale ${change} snapshot`, async () => {
+  const f = fixture({ sources: false });
+  f.plugin.citationStyleFor = () => "footnote";
+  await f.render();
+  await query(f, "smith1");
+  if (change === "selection") f.getTarget().editor.setCursor({ line: 0, ch: 1 });
+  else f.scene.content += "Changed";
+  const before = f.scene.content;
+  f.container.findAll("feuillets-reference-cite")[0].click();
+  assert.equal(f.scene.content, before);
+  assert.doesNotMatch(f.scene.content, /\[\^/);
+});
+
+for (const index of [0, 1, 2]) test(`References Cite inserts into the real Continu segment ${index}`, async () => {
+  const f = fixture({ sources: false });
+  const files = [f.scene, await f.app.vault.create("Project/Second.md", ""), await f.app.vault.create("Project/Third.md", "")];
+  for (const [n, file] of files.entries()) file.content = `---\ntitle: ${n}\n---\nText[^${n + 2}].\n\n[^${n + 2}]: Old\nLast paragraph.`;
+  const originals = files.map((file) => file.content);
+  let doc = buildScriveningsDocument(files.map((file) => ({ file, content: file.content })));
+  const cm = { state: { doc: { get length() { return doc.text.length; }, sliceString: (from, to) => doc.text.slice(from, to) },
+    selection: { main: { from: doc.segments[index].to - 1, to: doc.segments[index].to - 1, empty: true } } },
+    dispatch(spec) {
+      const changes = Array.isArray(spec.changes) ? spec.changes : [spec.changes];
+      const result = applyCompositeChanges(doc, changes);
+      assert.ok(result);
+      doc = result.document;
+      for (const segment of doc.segments) segment.file.content = segment.frontmatter + segment.body;
+      cm.state.selection.main = { from: spec.selection.anchor, to: spec.selection.anchor, empty: true };
+    }, focus() {} };
+  const adapter = new ScriveningsSegmentEditorAdapter(cm, files[index].path, (path) => doc.segments.find((segment) => segment.path === path));
+  f.setTarget({ editor: adapter, file: files[index] });
+  f.context.files = files;
+  // An unrelated active Markdown file must not override the continuous cursor file.
+  f.app.workspace.getActiveFile = () => files[(index + 1) % files.length];
+  f.plugin.getCentralContinuView = () => ({ compileScope: { type: "folder", path: f.root.path, projectRoot: f.root.path }, getReferenceFile: () => files[index] });
+  f.plugin.citationStyleFor = () => "footnote";
+  await f.render();
+  await query(f, "smith1");
+  const button = f.container.findAll("feuillets-reference-cite")[0];
+  assert.equal(button.disabled, false);
+  button.click();
+  assert.equal(files[index].content, originals[index].replace("Last paragraph.", `Last paragraph[^${index + 3}].`) + `\n\n[^${index + 3}]: [@smith1]`);
+  for (const [n, file] of files.entries()) if (n !== index) assert.equal(file.content, originals[n]);
 });
 
 test("mixed results keep Source and BibTeX paths independent even with the same search term", async () => {
@@ -785,6 +863,16 @@ test("sidebar target retrieval pairs the remembered Markdown editor with its fil
   Object.assign(view, { file, editor: editorFor(file) });
   const plugin = { app: { workspace: { activeEditor: null, getActiveViewOfType: () => null, getMostRecentLeaf: () => null } }, _lastMarkdownLeaf: { view } };
   assert.deepEqual(FeuilletsPlugin.prototype.getReferenceCitationTarget.call(plugin), { file, editor: view.editor });
+});
+
+test("sidebar target retrieval refuses a remembered editor after its leaf closes", () => {
+  const file = new TFile("Project/Scene.md", "Body");
+  const view = Object.create(MarkdownView.prototype);
+  Object.assign(view, { file, editor: editorFor(file) });
+  const plugin = { app: { vault: { getAbstractFileByPath: () => file }, workspace: {
+    activeEditor: null, getLeavesOfType: () => [], getActiveViewOfType: () => null, getMostRecentLeaf: () => null,
+  } }, _lastMarkdownLeaf: { view } };
+  assert.equal(FeuilletsPlugin.prototype.getReferenceCitationTarget.call(plugin), null);
 });
 
 test("unrelated Markdown and BibTeX modifications do not rebuild the References panel", async () => {

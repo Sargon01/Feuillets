@@ -363,6 +363,8 @@ async function referencePanelSnapshot(f, { workspace = null, editorFile = f.scen
   let generationInput;
   let sourceTarget;
   const editor = {
+    getValue: () => editorFile.content,
+    posToOffset: (pos) => pos.ch,
     getCursor: () => ({ line: 0, ch: editorFile.content.length }),
     replaceRange: (text) => { editorFile.content += text; },
     focus() {},
@@ -495,7 +497,10 @@ async function referenceNavigationHarness({ embedded = true } = {}) {
   const { view, contentEl } = createView(f, { activeFile });
   view.app.workspace.getActiveFile = () => activeFile;
   view.plugin.getWorkspaceFolder = () => isolation;
-  view.plugin.getReferenceCitationTarget = () => ({ file: editorFile, editor: {} });
+  view.plugin.getReferenceCitationTarget = () => ({ file: editorFile, editor: {
+    getValue: () => editorFile.content, posToOffset: (pos) => pos.ch,
+    getCursor: () => ({ line: 0, ch: editorFile.content.length }),
+  } });
   const rootSplit = {};
   let centralView = { file: activeFile };
   view.app.workspace.rootSplit = rootSplit;

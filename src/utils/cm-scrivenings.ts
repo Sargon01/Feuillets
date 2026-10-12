@@ -283,7 +283,8 @@ export const scriveningsBoundariesField = StateFieldTyped.define<number[]>({
       if (effect.is(setScriveningsBoundaryOffsetsEffect)) return effect.value as number[];
     }
     if (!tr.docChanged) return value;
-    return value.map((offset) => tr.changes.mapPos(offset, -1));
+    // EOF insertions belong to the preceding sheet; the junction character moves right.
+    return value.map((offset) => tr.changes.mapPos(offset, 1));
   },
 });
 

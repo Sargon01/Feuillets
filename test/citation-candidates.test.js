@@ -543,6 +543,11 @@ test("Citation candidates and attachment resolution", async (suite) => {
     let editorValue = "Chapitre introductif.";
     let cursorPos = { line: 0, ch: editorValue.length };
     const editor = {
+      transaction(tx) {
+        const original = editorValue;
+        const offset = (pos) => original.split("\n").slice(0, pos.line).reduce((n, line) => n + line.length + 1, 0) + pos.ch;
+        for (const change of [...tx.changes].reverse()) editorValue = editorValue.slice(0, offset(change.from)) + change.text + editorValue.slice(offset(change.to));
+      },
       getValue: () => editorValue,
       getCursor: () => cursorPos,
       posToOffset: (pos) => pos.ch,
@@ -868,6 +873,11 @@ test("Citation candidates and attachment resolution", async (suite) => {
     // 3. Insert citation in editor
     let editorValue = "Historical analysis.";
     const editor = {
+      transaction(tx) {
+        const original = editorValue;
+        const offset = (pos) => original.split("\n").slice(0, pos.line).reduce((n, line) => n + line.length + 1, 0) + pos.ch;
+        for (const change of [...tx.changes].reverse()) editorValue = editorValue.slice(0, offset(change.from)) + change.text + editorValue.slice(offset(change.to));
+      },
       getValue: () => editorValue,
       getCursor: () => ({ line: 0, ch: editorValue.length }),
       posToOffset: (pos) => pos.ch,

@@ -5,6 +5,7 @@
  * `EditorView.lineWrapping` dans le stub voisin) pour que les tests de
  * composition d'extensions puissent comparer par référence. */
 const HISTORY_EXTENSION = { facet: "history" };
+export const isolateHistory = { of: (value) => ({ type: "isolateHistory", value }) };
 
 export function history() {
   return HISTORY_EXTENSION;

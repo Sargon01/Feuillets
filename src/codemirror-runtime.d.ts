@@ -30,6 +30,7 @@ declare module "@codemirror/view" {
 }
 
 declare module "@codemirror/commands" {
+  export const isolateHistory: { of(value: "full" | "before" | "after"): unknown };
   export function history(): unknown;
   export const historyKeymap: unknown[];
   export function redo(target: unknown): boolean;

@@ -129,6 +129,11 @@ test("remap suit le feuillet relatif et la Source physique", async () => {
 test("insertCitationFor conserve l'insertion parenthétique et enregistre la cible capturée", async () => {
   const state = fixture();
   const editor = {
+    transaction(tx) {
+      const original = this.value;
+      const offset = (pos) => original.split("\n").slice(0, pos.line).reduce((n, line) => n + line.length + 1, 0) + pos.ch;
+      for (const change of [...tx.changes].reverse()) this.value = this.value.slice(0, offset(change.from)) + change.text + this.value.slice(offset(change.to));
+    },
     value: "Avant ",
     getValue() { return this.value; },
     getCursor() { return { line: 0, ch: 6 }; },
@@ -158,6 +163,11 @@ test("insertCitationFor conserve l'insertion parenthétique et enregistre la cib
 test("note de bas de page et Ibid. enregistrent le corps de citation", async () => {
   const state = fixture();
   const editor = {
+    transaction(tx) {
+      const original = this.value;
+      const offset = (pos) => original.split("\n").slice(0, pos.line).reduce((n, line) => n + line.length + 1, 0) + pos.ch;
+      for (const change of [...tx.changes].reverse()) this.value = this.value.slice(0, offset(change.from)) + change.text + this.value.slice(offset(change.to));
+    },
     value: "Avant ",
     getValue() { return this.value; },
     getCursor() { return { line: 0, ch: this.value.length }; },
@@ -313,6 +323,11 @@ test("ZotFlow integration: insertCitationFor with creators array", async () => {
   });
 
   const editor = {
+    transaction(tx) {
+      const original = this.value;
+      const offset = (pos) => original.split("\n").slice(0, pos.line).reduce((n, line) => n + line.length + 1, 0) + pos.ch;
+      for (const change of [...tx.changes].reverse()) this.value = this.value.slice(0, offset(change.from)) + change.text + this.value.slice(offset(change.to));
+    },
     value: "Avant ",
     getValue() { return this.value; },
     getCursor() { return { line: 0, ch: 6 }; },
@@ -350,6 +365,11 @@ test("insertCitationFor preserves logical frontmatter mapping", async () => {
   });
 
   const editor = {
+    transaction(tx) {
+      const original = this.value;
+      const offset = (pos) => original.split("\n").slice(0, pos.line).reduce((n, line) => n + line.length + 1, 0) + pos.ch;
+      for (const change of [...tx.changes].reverse()) this.value = this.value.slice(0, offset(change.from)) + change.text + this.value.slice(offset(change.to));
+    },
     value: "Avant ",
     getValue() { return this.value; },
     getCursor() { return { line: 0, ch: 6 }; },
