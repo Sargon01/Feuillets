@@ -2,6 +2,38 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.6.0 — 2026-10-12
+
+### Écriture et typographie
+
+- Le menu Disposition propose des contrôles locaux d'alignement, d'alinéa et d'espacement avant et après les paragraphes.
+- Chaque propriété peut revenir aux valeurs du gabarit sans modifier les réglages globaux ; les propriétés locales sont conservées dans les rendus et exports concernés.
+
+### Espaces de travail
+
+- Les espaces de travail déclarés retrouvent leur identité indépendante, y compris lorsqu'ils sont imbriqués ou partagent les mêmes ressources de recherche.
+- Leurs réglages sont organisés en sections, avec navigation clavier et défilement plus stables ; les modales préservent les champs et le contexte pendant l'enregistrement.
+
+### Citations et références
+
+- Les réglages bibliographiques suivent le contexte du projet ou de l'espace de travail déclaré, y compris le feuillet courant dans Continu.
+- Les nouvelles citations BibLaTeX respectent le mode d'insertion existant : parenthétique ou notes de bas de page, indépendamment du style CSL.
+- Le sélecteur déclenché par `[@` et le bouton Citer de Recherche → Références utilisent une insertion commune dans Markdown classique et Continu.
+- L'appel de note et sa définition Markdown contenant la citation Pandoc sont insérés atomiquement et s'annulent en une seule opération.
+- Les groupes de références, les continuations `; @`, les localisateurs et les notes existantes sont préservés ; une citation groupée crée une seule note et une citation située dans une note reste dans celle-ci.
+- L'insertion fonctionne sans le compagnon CSL et conserve la syntaxe Pandoc ; les citations anciennes ne sont pas réécrites. Le formatage et l'indexation des fiches Source restent distincts des citations BibLaTeX.
+
+### Recherche et remplacement
+
+- Ajout du remplacement sur plusieurs fichiers, avec prévisualisation et confirmation des remplacements globaux.
+- Refonte de la barre de recherche et remplacement et sécurisation du remplacement intégral dans un feuillet, avec protection des contextes Markdown et annulation.
+
+### Fiabilité
+
+- Les insertions dans Continu utilisent le contenu et la fin du feuillet cible, protègent son frontmatter et respectent les frontières entre segments, y compris lors d'un ajout en fin de feuillet.
+- Les insertions sont refusées lorsque le document, la sélection ou le contexte bibliographique capturé est devenu périmé ; annuler le sélecteur ne crée aucune note.
+- Renforcement des tests unitaires et Chromium pour les transactions, l'annulation, la sauvegarde et la réouverture de Continu, les réglages contextuels et la mise en forme des paragraphes.
+
 ## 3.5.3 — 2026-10-10
 
 ### Citations CSL
