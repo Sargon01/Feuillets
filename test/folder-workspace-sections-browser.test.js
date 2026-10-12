@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { builtinModules } from "node:module";
 import { build } from "esbuild";
 import { chromium } from "playwright";
@@ -112,7 +113,7 @@ test(`workspace sections: keyboard, reference geometry and scrolling (${dark ? "
   assert.deepEqual(compact.headers, [40, 40, 40, 40, 40]);
   assert.deepEqual(compact.essentialBorders, ["0px", "0px", "0px", "0px"]);
   assert.equal(compact.extraHeaders, 0);
-  await page.screenshot({ path: `/private/tmp/feuillets-workspace-compact-${dark ? "dark" : "light"}.png` });
+  await page.screenshot({ path: join(tmpdir(), `feuillets-workspace-compact-${dark ? "dark" : "light"}.png`) });
   const header = (key) => page.locator(`[data-workspace-section="${key}"] > button`);
   const goals = page.locator('[data-workspace-section="goals"] input');
   assert.equal(await goals.first().isVisible(), false);
@@ -212,7 +213,7 @@ test(`workspace sections: keyboard, reference geometry and scrolling (${dark ? "
     await new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame)));
     const content = window.workspaceFixture.modal.contentEl; content.scrollTop = content.scrollHeight;
   });
-  await page.screenshot({ path: `/private/tmp/feuillets-workspace-references-${dark ? "dark" : "light"}.png` });
+  await page.screenshot({ path: join(tmpdir(), `feuillets-workspace-references-${dark ? "dark" : "light"}.png`) });
   await header("references").click();
   await header("workflow").click(); await header("typography").click();
   await page.evaluate(() => {
