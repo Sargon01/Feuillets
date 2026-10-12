@@ -16,11 +16,11 @@ type LayoutMenuEntry = LayoutMenuAction | LayoutMenuGroup;
  * this menu instance before that copy, retaining the host's native display,
  * position, document and synchronous return value. */
 export function waitForLayoutMenuState(menu: Menu, ready: Promise<void>): void {
-  const showAtPosition = menu.showAtPosition;
+  const showAtPosition = menu.showAtPosition.bind(menu);
   menu.showAtPosition = (position, doc) => {
     void ready.then(() => {
       menu.showAtPosition = showAtPosition;
-      showAtPosition.call(menu, position, doc);
+      showAtPosition(position, doc);
     });
     return menu;
   };
