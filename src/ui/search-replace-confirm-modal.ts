@@ -64,7 +64,8 @@ export class SearchReplaceConfirmModal extends Modal {
           const line = row.createDiv();
           line.createSpan({ cls: "feuillets-search-preview-label", text: `${label} ` });
           line.createSpan({ text: before });
-          line.createSpan({ cls: "feuillets-search-preview-text", text: text ? text.length > 160 ? `${text.slice(0, 160)}…` : text : t("searchReplace.emptyReplacement") });
+          const preview = line.createSpan({ cls: "feuillets-search-preview-text" });
+          preview.createSpan({ cls: "feuillets-search-preview-text-content", text: text ? text.length > 160 ? `${text.slice(0, 160)}…` : text : t("searchReplace.emptyReplacement") });
           line.createSpan({ text: after });
         };
         render(t("searchReplace.before"), change.expected);

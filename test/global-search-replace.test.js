@@ -506,9 +506,9 @@ test("confirmation renders groups lazily, cancels without writes and settles a d
   assert.equal(details.querySelectorAll("span").length, 0);
   details.open = true;
   details.dispatchEvent({ type: "toggle" });
-  assert.equal(details.querySelectorAll("span").length, 160);
+  assert.equal(details.querySelectorAll("span").length, 200);
   details.querySelector("button").click();
-  assert.equal(details.querySelectorAll("span").length, 320);
+  assert.equal(details.querySelectorAll("span").length, 400);
   const confirm = modal.contentEl.querySelectorAll("button").find((button) => button.textContent === "Replace in 45 sheets");
   confirm.click(); confirm.click();
   assert.equal(await confirmation, true);
