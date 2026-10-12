@@ -2,6 +2,15 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.6.1 — 2026-10-12
+
+### Compatibilité Obsidian
+
+- Correction de deux avertissements du contrôle CSS communautaire concernant les propriétés `multicolumn` et `text-decoration`.
+- Adaptation de l'espacement des contrôles bibliographiques sans modification de leur disposition.
+- Conservation du soulignement coloré dans l'aperçu de Recherche/Remplacer grâce à une structure CSS compatible.
+- Aucun changement fonctionnel ni modification des documents utilisateurs.
+
 ## 3.6.0 — 2026-10-12
 
 ### Écriture et typographie
