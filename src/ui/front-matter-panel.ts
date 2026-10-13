@@ -78,7 +78,6 @@ function displayTitle(app: App, file: TFile): string {
  * facultatif, fonctionne parfaitement sans PreviewView.
  */
 export class FrontMatterPanel {
-  private bodyEl: HTMLElement | null = null;
   private expanded = false;
 
   constructor(
@@ -117,7 +116,6 @@ export class FrontMatterPanel {
     toggle.addEventListener("click", (event) => { event.stopPropagation?.(); void toggleExpanded(); });
 
     const body = container.createDiv({ cls: "feuillets-front-matter-body" });
-    this.bodyEl = body;
     if (this.expanded) this.renderList(body);
   }
 
@@ -127,18 +125,7 @@ export class FrontMatterPanel {
    * contrat que FirstPagePanel.renderExpandedFields(). */
   async renderExpandedList(container: HTMLElement): Promise<void> {
     this.expanded = true;
-    this.bodyEl = container;
     this.renderList(container);
-  }
-
-  /** Réactualise SEULEMENT la liste, sans toucher au <details> qui
-   * l'enveloppe : basculer une inclusion ne doit ni refermer la
-   * sous-section ni faire sauter le focus ailleurs dans l'écran — même
-   * règle que FirstPagePanel.reloadFields(). */
-  private async reloadList(): Promise<void> {
-    if (this.bodyEl) this.renderList(this.bodyEl);
-    else await this.render();
-    await this.callbacks.onPresentationChanged?.();
   }
 
   private renderList(body: HTMLElement): void {
@@ -171,7 +158,7 @@ export class FrontMatterPanel {
     await this.app.fileManager?.processFrontMatter?.(file, (data: Record<string, unknown>) => {
       data.compile = included;
     });
-    await this.reloadList();
+    await this.callbacks.onPresentationChanged?.();
   }
 
   /** Ouvre le feuillet dans l'éditeur, comme n'importe quel feuillet du

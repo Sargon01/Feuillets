@@ -1143,7 +1143,7 @@ test("MICRO grammaire §26.CSS — plus AUCUN selector global ne force les Setti
 
 function settingName(host, name) {
   const insp = currentInspector(host);
-  const container = insp?._settings || insp?.settings || [];
+  const container = insp ? allElements(insp).flatMap((node) => node._settings || node.settings || []) : [];
   for (const s of container) {
     if (s.name === name) return s;
   }

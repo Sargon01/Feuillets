@@ -1,4 +1,4 @@
-import { Notice, TFile, TFolder, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
+import { Notice, TFile, TFolder, getFrontMatterInfo, parseYaml, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { isFrontMatter } from "../services/folder-structure.js";
 import { fmOf } from "../services/frontmatter.js";
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
@@ -89,8 +89,13 @@ export function frontTitleCandidates(app: App, plugin: FirstPagePanelPlugin, edi
  * (callback facultatif).
  */
 export class FirstPagePanel {
-  private bodyEl: HTMLElement | null = null;
   private expanded = false;
+  private includeInput: HTMLInputElement | null = null;
+  private frontPicker: HTMLSelectElement | null = null;
+  private fieldInputs = new Map<string, HTMLInputElement>();
+  private fieldsGeneration = 0;
+  private displayedPath: string | null = null;
+  private selectionPromise: Promise<string | null> = Promise.resolve(null);
 
   constructor(
     private app: App,
@@ -117,25 +122,86 @@ export class FirstPagePanel {
    * restent intacts : seul l'indicateur `compile` du frontmatter change,
    * celui-là même que lisent `compile()` et « Éléments inclus ». */
   private async setFirstPageIncluded(included: boolean): Promise<void> {
-    const { selected } = this.frontTitleState();
-    if (!selected) return;
-    await this.app.fileManager?.processFrontMatter?.(selected, (data: Record<string, unknown>) => {
-      data.compile = included;
+    const path = this.displayedPath;
+    if (!path || this.frontPicker?.value !== path || this.includeInput?.disabled) return;
+    const generation = this.fieldsGeneration;
+    this.selectionPromise = this.selectionPromise.then(async (previous) => {
+      try {
+        if (generation !== this.fieldsGeneration || this.includeInput?.checked !== included) return previous;
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) throw new Error("Front file not found");
+        const changed = await this.updateIncluded(file, included, generation);
+        if (changed && generation === this.fieldsGeneration) await this.callbacks.onPresentationChanged?.();
+      } catch (error) {
+        this.selectionError(error, generation);
+      }
+      return previous;
     });
-    await this.reloadFields();
+    await this.selectionPromise;
   }
 
   /** Choisit un autre feuillet Front. Les autres candidats sont exclus, pas
    * supprimés : revenir en arrière ne coûte qu'un second choix. */
   private async chooseFrontTitleFile(path: string): Promise<void> {
-    for (const file of this.frontTitleCandidates()) {
-      const wanted = file.path === path;
-      if ((fmOf(this.app, file).compile !== false) === wanted) continue;
-      await this.app.fileManager?.processFrontMatter?.(file, (data: Record<string, unknown>) => {
-        data.compile = wanted;
-      });
+    const picker = this.frontPicker;
+    if (!picker) return;
+    const generation = ++this.fieldsGeneration;
+    if (this.displayedPath !== path) this.displayedPath = null;
+    for (const input of this.fieldInputs.values()) {
+      if (this.displayedPath === null) input.value = "";
+      input.disabled = true;
     }
-    await this.reloadFields();
+    if (this.includeInput) this.includeInput.disabled = true;
+    this.selectionPromise = this.selectionPromise.then(async (previous) => {
+      const confirmed = previous;
+      let changed = false;
+      try {
+        if (generation !== this.fieldsGeneration || this.frontPicker !== picker || picker.value !== path) return confirmed;
+        const files = this.frontTitleCandidates();
+        if (!files.some((file) => file.path === path)) throw new Error("Front file not found");
+        for (const file of files) {
+          changed = await this.updateIncluded(file, file.path === path, generation) || changed;
+          if (generation !== this.fieldsGeneration) return changed ? null : confirmed;
+        }
+        if (!await this.reloadFields(path, generation)) return changed ? null : confirmed;
+        if (changed || confirmed !== path) await this.callbacks.onPresentationChanged?.();
+        return path;
+      } catch (error) {
+        this.selectionError(error, generation);
+        return changed ? null : confirmed;
+      }
+    });
+    await this.selectionPromise;
+  }
+
+  private async updateIncluded(file: TFile, included: boolean, generation: number): Promise<boolean> {
+    // MetadataCache can still describe the state before our last write.
+    const content = await this.app.vault.read(file);
+    const parsed: unknown = parseYaml(getFrontMatterInfo(content).frontmatter);
+    const data = typeof parsed === "object" && parsed !== null ? parsed as Record<string, unknown> : {};
+    const current = (data.compile !== undefined ? data.compile : data.compiler) !== false;
+    if (generation !== this.fieldsGeneration || current === included) return false;
+    await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
+      frontmatter.compile = included;
+    });
+    return true;
+  }
+
+  private selectionError(error: unknown, generation: number): void {
+    const message = error instanceof Error ? error.message : String(error);
+    new Notice(t("preview.notice.firstPageError", { message }));
+    console.error("Feuillets first page operation failed", error);
+    if (generation !== this.fieldsGeneration) return;
+    this.displayedPath = null;
+    if (this.frontPicker) this.frontPicker.value = "";
+    if (this.includeInput) {
+      this.includeInput.checked = false;
+      this.includeInput.disabled = true;
+    }
+    for (const input of this.fieldInputs.values()) {
+      input.value = "";
+      input.disabled = true;
+    }
   }
 
   /** Ouvre le feuillet Front dans l'éditeur, comme n'importe quel feuillet du
@@ -154,15 +220,27 @@ export class FirstPagePanel {
    * Le HTML rendu n'est jamais retouché à la main : c'est le fichier qui
    * change, et le rendu qui en découle. */
   private async setFirstPageField(path: string, role: string, value: string): Promise<void> {
-    const file = this.app.vault.getAbstractFileByPath(path);
-    if (!(file instanceof TFile)) return;
-    const content = await this.app.vault.cachedRead(file);
-    const next = setTitleRoleValue(content, role, value);
-    if (next !== content) await this.app.vault.modify(file, next);
-    if (role === "titre") this.plugin.settings.manuscriptTitle = value.trim();
-    if (role === "auteur") this.plugin.settings.manuscriptAuthor = value.trim();
-    await this.plugin.saveSettings?.();
-    await this.callbacks.onPresentationChanged?.();
+    if (this.displayedPath !== path || this.frontPicker?.value !== path || this.includeInput?.disabled || this.fieldInputs.get(role)?.disabled) return;
+    const generation = this.fieldsGeneration;
+    this.selectionPromise = this.selectionPromise.then(async (previous) => {
+      try {
+        const file = this.app.vault.getAbstractFileByPath(path);
+        if (!(file instanceof TFile)) throw new Error("Front file not found");
+        const content = await this.app.vault.read(file);
+        const next = setTitleRoleValue(content, role, value);
+        if (next !== content) await this.app.vault.modify(file, next);
+        if (generation === this.fieldsGeneration && this.displayedPath === path && this.frontPicker?.value === path) {
+          if (role === "titre") this.plugin.settings.manuscriptTitle = value.trim();
+          if (role === "auteur") this.plugin.settings.manuscriptAuthor = value.trim();
+          await this.plugin.saveSettings?.();
+          if (generation === this.fieldsGeneration) await this.callbacks.onPresentationChanged?.();
+        }
+      } catch (error) {
+        this.selectionError(error, generation);
+      }
+      return previous;
+    });
+    await this.selectionPromise;
   }
 
   /** Reconstruit tout le composant (les valeurs affichées viennent du
@@ -188,7 +266,6 @@ export class FirstPagePanel {
     toggle.addEventListener("click", (event) => { event.stopPropagation?.(); void toggleExpanded(); });
 
     const body = container.createDiv({ cls: "feuillets-first-page-body" });
-    this.bodyEl = body;
     if (this.expanded) await this.renderFields(body);
   }
 
@@ -209,33 +286,40 @@ export class FirstPagePanel {
    * callbacks que render() — seule la ligne-résumé disparaît. */
   async renderExpandedFields(container: HTMLElement): Promise<void> {
     this.expanded = true;
-    this.bodyEl = container;
     await this.renderFields(container);
   }
 
-  /** Réactualise SEULEMENT le contenu, sans toucher au <details> qui
-   * l'enveloppe : l'inclusion/exclusion et le choix d'un autre fichier Front
-   * ne doivent ni refermer la sous-section ni faire sauter le focus. */
-  private async reloadFields(): Promise<void> {
-    try {
-      if (this.bodyEl) await this.renderFields(this.bodyEl);
-      else await this.render();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      new Notice(t("preview.notice.firstPageError", { message: msg }));
-      console.error("Feuillets : échec de FirstPagePanel.renderFields", e);
+  private async reloadFields(path: string, generation: number): Promise<boolean> {
+    const picker = this.frontPicker;
+    if (!picker || !this.includeInput || generation !== this.fieldsGeneration || picker.value !== path) return false;
+    const selected = this.app.vault.getAbstractFileByPath(path);
+    if (!(selected instanceof TFile)) throw new Error("Front file not found");
+    if (this.displayedPath !== path) {
+      const content = await this.app.vault.cachedRead(selected);
+      if (generation !== this.fieldsGeneration || this.frontPicker !== picker || picker.value !== path) return false;
+      for (const [role, input] of this.fieldInputs) input.value = readTitleRoleValue(content, role);
+      this.displayedPath = path;
     }
-    await this.callbacks.onPresentationChanged?.();
+    this.includeInput.checked = true;
+    this.includeInput.disabled = false;
+    for (const input of this.fieldInputs.values()) input.disabled = false;
+    return true;
   }
 
   /** Contenu de « Première page », conservé lors des rafraîchissements et
    * rendu avec les lignes latérales compactes du plugin. */
   private async renderFields(body: HTMLElement): Promise<void> {
+    const generation = ++this.fieldsGeneration;
+    this.displayedPath = null;
+    this.frontPicker = null;
+    this.fieldInputs.clear();
     body.empty();
     const { files, selected, included } = this.frontTitleState();
 
     const includeRow = this.propertyRow(body, t("preview.export.includeTitlePage"));
     const includeInput = includeRow.createEl("input", { type: "checkbox" });
+    this.includeInput = includeInput;
+    includeInput.disabled = true;
     includeInput.checked = included;
     includeInput.setAttribute("aria-label", t("preview.export.includeTitlePage"));
     includeInput.addEventListener("change", () => void this.setFirstPageIncluded(includeInput.checked));
@@ -243,21 +327,31 @@ export class FirstPagePanel {
     if (selected) {
       const frontControl = this.propertyRow(body, t("preview.export.frontFile"));
       const picker = frontControl.createEl("select");
+      this.frontPicker = picker;
       for (const file of files) picker.createEl("option", { value: file.path, text: file.basename });
       picker.value = selected.path;
       picker.setAttribute("aria-label", t("preview.export.usedFrontFile"));
       picker.addEventListener("change", () => void this.chooseFrontTitleFile(picker.value));
       const open = this.iconButton(frontControl, "pencil", t("preview.export.openFrontFile"));
-      open.addEventListener("click", () => void this.openFrontFile(selected.path));
+      open.addEventListener("click", () => void this.openFrontFile(picker.value));
 
-      const content = await this.app.vault.cachedRead(selected);
       for (const { label, role } of previewFirstPageFields()) {
         const control = this.propertyRow(body, label);
         const input = control.createEl("input", { type: "text" });
-        input.value = readTitleRoleValue(content, role);
+        this.fieldInputs.set(role, input);
+        input.disabled = true;
         input.setAttribute("aria-label", label);
-        input.addEventListener("change", () => void this.setFirstPageField(selected.path, role, input.value));
+        input.addEventListener("change", () => void this.setFirstPageField(picker.value, role, input.value));
       }
+      const content = await this.app.vault.cachedRead(selected);
+      if (generation !== this.fieldsGeneration || this.frontPicker !== picker) return;
+      this.displayedPath = selected.path;
+      for (const [role, input] of this.fieldInputs) {
+        input.value = readTitleRoleValue(content, role);
+        input.disabled = false;
+      }
+      includeInput.disabled = false;
+      this.selectionPromise = this.selectionPromise.then(() => selected.path);
     } else {
       body.createDiv({
         cls: "feuillets-edition-empty",

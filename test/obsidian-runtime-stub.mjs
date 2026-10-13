@@ -582,6 +582,22 @@ export function stringifyYaml(value) {
   return Object.entries(value).map(([key, item]) => `${key}: ${String(item)}`).join("\n");
 }
 
+export function getFrontMatterInfo(content) {
+  const match = content.match(/^\uFEFF?---[ \t]*\r?\n([\s\S]*?)^---[ \t]*(?:\r?\n|$)/m);
+  return { exists: !!match, frontmatter: match?.[1] || "", from: 0, to: match?.[0].length || 0, contentStart: match?.[0].length || 0 };
+}
+
+export function parseYaml(text) {
+  const result = {};
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^([^:#]+):\s*(.*?)\s*$/);
+    if (!match) continue;
+    const value = match[2];
+    result[match[1].trim()] = value === "true" ? true : value === "false" ? false : value === "null" || value === "" ? null : value;
+  }
+  return result;
+}
+
 export function normalizePath(path) {
   return path.replace(/\\/g, "/").replace(/\/+/g, "/").replace(/^\//, "");
 }

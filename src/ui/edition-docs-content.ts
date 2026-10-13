@@ -140,7 +140,6 @@ export class EditionDocsContent {
       S.collapsed[collapseKey] = true;
     }
     void this.plugin.saveSettings();
-    void this.render();
   }
 
   private iconBtn(parent: HTMLElement, icon: string, tooltip: string, onClick?: (e: MouseEvent) => void | Promise<void>): HTMLElement {
@@ -370,10 +369,6 @@ export class EditionDocsContent {
     for (const child of children) {
       if (child instanceof TFolder) {
         this.renderFolderRow(list, child, depth);
-        const isCollapsed = this.isFolderCollapsed(child.path);
-        if (!isCollapsed) {
-          this.renderFolderEntries(list, child, depth + 1);
-        }
       } else if (child instanceof TFile) {
         this.renderFileRow(list, child, depth);
       }
@@ -385,6 +380,9 @@ export class EditionDocsContent {
     const row = parent.createDiv({ cls: "feuillets-project-row feuillets-edition-folder-row" });
     row.style.paddingLeft = `${6 + depth * 16}px`;
     const isCollapsed = this.isFolderCollapsed(folder.path);
+    row.setAttr("role", "button");
+    row.setAttr("tabindex", "0");
+    row.setAttr("aria-expanded", String(!isCollapsed));
 
     // Chevron (cliquable sur la rangée entière)
     const chevronIcon = row.createSpan({ cls: "feuillets-cell-icon" });
@@ -396,9 +394,22 @@ export class EditionDocsContent {
 
     row.createSpan({ cls: "feuillets-project-row-label" }).setText(folder.name);
 
-    // Toute la rangée cliquable pour toggle
-    row.addEventListener("click", () => {
+    const children = parent.createDiv();
+    if (!isCollapsed) this.renderFolderEntries(children, folder, depth + 1);
+    const toggle = () => {
       this.toggleFolderCollapse(folder.path);
+      const collapsed = this.isFolderCollapsed(folder.path);
+      row.setAttr("aria-expanded", String(!collapsed));
+      setIcon(chevronIcon, collapsed ? "chevron-right" : "chevron-down");
+      children.empty();
+      if (!collapsed) this.renderFolderEntries(children, folder, depth + 1);
+    };
+    row.addEventListener("click", toggle);
+    row.addEventListener("keydown", (event: KeyboardEvent) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        toggle();
+      }
     });
   }
 

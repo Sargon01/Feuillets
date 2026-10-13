@@ -629,10 +629,25 @@ export class LayoutEditor {
       ? activeProjectMeta.presentationTheme
       : "";
     const globalTheme = isPresentationThemeId(settings.presentationTheme) ? settings.presentationTheme : "classic";
+    let projectSelect: HTMLSelectElement;
+    let defaultSelect: HTMLSelectElement;
+    const themeSettings = new Map<string, Setting>();
+    const refreshLabels = () => {
+      for (const select of [projectSelect, defaultSelect]) {
+        for (const option of Array.from(select.querySelectorAll("option"))) {
+          option.setText(option.value
+            ? resolvePresentationTheme(option.value, settings.presentationThemes, getLocale()).name
+            : t("layoutWorkspace.defaultThemeOption", { theme: resolvePresentationTheme(settings.presentationTheme, settings.presentationThemes, getLocale()).name }));
+        }
+      }
+      activeTheme.setDesc(this.activePresentationTheme().name);
+      for (const [id, setting] of themeSettings) setting.setName(resolvePresentationTheme(id, settings.presentationThemes, getLocale()).name);
+    };
 
     host.createEl("h5", { text: t("layoutWorkspace.slidesUsage") });
     const projectSetting = new Setting(host).setName(t("layoutWorkspace.projectTheme"));
     projectSetting.addDropdown((dropdown) => {
+      projectSelect = dropdown.selectEl;
       dropdown.addOption("", t("layoutWorkspace.defaultThemeOption", { theme: resolvePresentationTheme(globalTheme, themes, getLocale()).name }));
       for (const id of PRESENTATION_THEME_IDS) dropdown.addOption(id, resolvePresentationTheme(id, themes, getLocale()).name);
       dropdown.setValue(projectTheme);
@@ -645,7 +660,7 @@ export class LayoutEditor {
         await this.plugin.saveSettings();
         await this.plugin.refreshPresentationAppearance?.();
         await this.onPresentationAppearanceChange?.();
-        this.renderWorkspace();
+        refreshLabels();
       });
     });
     if (!projectPath) projectSetting.setDesc(t("layoutWorkspace.noActiveProject"));
@@ -653,6 +668,7 @@ export class LayoutEditor {
     new Setting(host)
       .setName(t("layoutWorkspace.defaultTheme"))
       .addDropdown((dropdown) => {
+        defaultSelect = dropdown.selectEl;
         for (const id of PRESENTATION_THEME_IDS) dropdown.addOption(id, resolvePresentationTheme(id, themes, getLocale()).name);
         dropdown.setValue(globalTheme);
         dropdown.onChange(async (value) => {
@@ -661,22 +677,23 @@ export class LayoutEditor {
           await this.plugin.saveSettings();
           await this.plugin.refreshPresentationAppearance?.();
           await this.onPresentationAppearanceChange?.();
-          this.renderWorkspace();
+          refreshLabels();
         });
       });
 
-    new Setting(host).setName(t("layoutWorkspace.activeTheme")).setDesc(this.activePresentationTheme().name);
+    const activeTheme = new Setting(host).setName(t("layoutWorkspace.activeTheme")).setDesc(this.activePresentationTheme().name);
 
     host.createEl("h5", { text: t("layoutWorkspace.slidesThemes") });
     for (const id of PRESENTATION_THEME_IDS) {
-      new Setting(host)
+      const setting = new Setting(host)
         .setName(resolvePresentationTheme(id, themes, getLocale()).name)
         .addButton((button) => button.setButtonText(t("layoutWorkspace.editTheme")).onClick(() => {
           new PresentationThemeModal(this.app, this.plugin, id, async () => {
             await this.onPresentationAppearanceChange?.();
-            this.renderWorkspace();
+            refreshLabels();
           }).open();
         }));
+      themeSettings.set(id, setting);
     }
   }
 
@@ -748,27 +765,24 @@ export class LayoutEditor {
     });
   }
 
-  /* §8 du dernier lot UX avant 2.5 : en-tête/pied désactivés n'affichent
-     plus QUE le seul champ utile — l'interrupteur — au lieu de tous leurs
-     champs grisés. Le bascule ré-affiche/masque le reste EN reconstruisant
-     l'inspecteur (`renderInspector()`), seule façon de faire apparaître ou
-     disparaître les champs suivants — jamais les données du gabarit.
-     UNIQUEMENT en mode "workspace" (Édition → Mise en page, cible réelle du
-     chantier) : le LayoutModal historique (mode "modal", où l'utilisatrice
-     clique directement les bandes en-tête/pied de la maquette) continue
-     d'afficher tous les champs, comportement inchangé — hors du périmètre de
-     ce chantier. */
-
   renderHeaderInspector(insp: HTMLElement): void {
     insp.createEl("h4", { text: t("modal.layout.headerAllPages") });
+    let fields: HTMLElement;
     new Setting(insp).setName(t("modal.layout.enableHeader")).addToggle((t2) =>
       t2.setValue(this.template.header.enabled).onChange(async (v) => {
         this.template.header.enabled = v;
+        if (this.mode === "workspace") {
+          fields.empty();
+          if (v) this.renderHeaderFields(fields);
+        }
         await this.saveTemplate();
-        if (this.mode === "workspace") this.renderInspector();
       })
     );
-    if (this.mode === "workspace" && !this.template.header.enabled) return;
+    fields = insp.createDiv();
+    if (this.mode !== "workspace" || this.template.header.enabled) this.renderHeaderFields(fields);
+  }
+
+  private renderHeaderFields(insp: HTMLElement): void {
     new Setting(insp).setName(t("modal.layout.headerLeft")).addText((t2) =>
       t2.setValue(this.template.header.left).onChange(async (v) => {
         this.template.header.left = v;
@@ -800,14 +814,22 @@ export class LayoutEditor {
 
   renderFooterInspector(insp: HTMLElement): void {
     insp.createEl("h4", { text: t("modal.layout.footerNumber") });
+    let fields: HTMLElement;
     new Setting(insp).setName(t("modal.layout.enableFooter")).addToggle((t2) =>
       t2.setValue(this.template.footer.enabled).onChange(async (v) => {
         this.template.footer.enabled = v;
+        if (this.mode === "workspace") {
+          fields.empty();
+          if (v) this.renderFooterFields(fields);
+        }
         await this.saveTemplate();
-        if (this.mode === "workspace") this.renderInspector();
       })
     );
-    if (this.mode === "workspace" && !this.template.footer.enabled) return;
+    fields = insp.createDiv();
+    if (this.mode !== "workspace" || this.template.footer.enabled) this.renderFooterFields(fields);
+  }
+
+  private renderFooterFields(insp: HTMLElement): void {
     new Setting(insp).setName(t("modal.layout.formatWithVars")).addText((t2) =>
       t2.setValue(this.template.footer.right).onChange(async (v) => {
         this.template.footer.right = v;
@@ -847,6 +869,7 @@ export class LayoutEditor {
     num(t("modal.layout.sizePt"), () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
 
     new Setting(insp).setName(t("modal.layout.alignment")).then((s) => {
+      const buttons = new Map<string, HTMLElement>();
       const alignments: Array<[string, string, string]> = [
         ["left", "align-left", t("modal.layout.alignLeft")],
         ["center", "align-center", t("modal.layout.alignCenter")],
@@ -856,10 +879,11 @@ export class LayoutEditor {
         s.addExtraButton((b) => {
           b.setIcon(icon).setTooltip(label).onClick(async () => {
             st.align = val;
-            this.renderInspector();
+            for (const [alignment, button] of buttons) button.toggleClass("is-active", alignment === val);
             await this.saveModel();
           });
           if ((st.align || "center") === val) b.extraSettingsEl.addClass("is-active");
+          buttons.set(val, b.extraSettingsEl);
         });
       }
     });
@@ -919,18 +943,18 @@ export class LayoutEditor {
    * la simple ouverture de l'inspecteur. Le reset supprime la propriété et
    * repasse par le MÊME mécanisme de sauvegarde (saveTemplate). */
   private colorField(insp: HTMLElement, name: string, value: () => string | undefined, effective: () => string, set: (value: string | undefined) => void): void {
-    new Setting(insp).setName(name)
-      .addColorPicker((cp) => {
-        cp.setValue(value() || effective());
-        cp.onChange(async (next) => { set(next || undefined); await this.saveTemplate(); });
-      })
-      .addExtraButton((b) => {
+    const setting = new Setting(insp).setName(name);
+    setting.addColorPicker((cp) => {
+      cp.setValue(value() || effective());
+      cp.onChange(async (next) => { set(next || undefined); await this.saveTemplate(); });
+      setting.addExtraButton((b) => {
         b.setIcon("rotate-ccw").setTooltip(t("modal.layout.reset")).onClick(async () => {
           set(undefined);
+          cp.setValue(effective());
           await this.saveTemplate();
-          this.renderInspector();
         });
       });
+    });
   }
 
   private renderPageFormatInspector(insp: HTMLElement): void {
@@ -982,6 +1006,13 @@ export class LayoutEditor {
       this.template.page.mirrorMargins = v; await this.saveTemplate();
     }));
 
+    let gutter: HTMLElement;
+    const renderGutter = () => {
+      gutter.empty();
+      if (this.template.page.columns.count > 1) {
+        this.numberField(gutter, t("modal.layout.gutterPt"), () => this.template.page.columns.gutterPt, (v) => this.template.page.columns.gutterPt = Math.max(0, v), true);
+      }
+    };
     new Setting(insp).setName(t("modal.layout.columns")).setClass("feuillets-setting-compact").addText((control) => {
       control.inputEl.type = "number";
       control.setValue(String(this.template.page.columns.count)).onChange(async (raw) => {
@@ -989,13 +1020,12 @@ export class LayoutEditor {
         if (!Number.isFinite(next)) return;
         const wasMulti = this.template.page.columns.count > 1;
         this.template.page.columns.count = Math.max(1, Math.round(next));
+        if (wasMulti !== (this.template.page.columns.count > 1)) renderGutter();
         await this.saveTemplate();
-        if (wasMulti !== (this.template.page.columns.count > 1)) this.renderInspector();
       });
     });
-    if (this.template.page.columns.count > 1) {
-      this.numberField(insp, t("modal.layout.gutterPt"), () => this.template.page.columns.gutterPt, (v) => this.template.page.columns.gutterPt = Math.max(0, v), true);
-    }
+    gutter = insp.createDiv();
+    renderGutter();
   }
 
   renderPageInspector(insp: HTMLElement): void {
@@ -1100,17 +1130,22 @@ export class LayoutEditor {
   renderHeadingsInspector(insp: HTMLElement): void {
     // Pas de titre "Titres" ici : doublon avec la navigation/l'onglet, §4.
     const picker = insp.createDiv({ cls: "feuillets-heading-level-picker" });
+    const editor = insp.createDiv({ cls: "feuillets-heading-editor" });
+    const renderHeading = () => {
+      editor.empty();
+      editor.createEl("h5", { text: this.selectedHeading.toUpperCase() });
+      this.renderHeadingLevelInspector(editor, this.selectedHeading);
+    };
     for (const level of ["h1", "h2", "h3", "h4", "h5", "h6"] as const) {
       const button = picker.createEl("button", { cls: "feuillets-heading-level", text: level.toUpperCase() });
       button.toggleClass("is-active", this.selectedHeading === level);
       button.addEventListener("click", () => {
         this.selectedHeading = level;
-        this.renderInspector();
+        for (const item of Array.from(picker.children)) item.toggleClass("is-active", item === button);
+        renderHeading();
       });
     }
-    const editor = insp.createDiv({ cls: "feuillets-heading-editor" });
-    editor.createEl("h5", { text: this.selectedHeading.toUpperCase() });
-    this.renderHeadingLevelInspector(editor, this.selectedHeading);
+    renderHeading();
   }
 
   private renderBlockquoteStyleInspector(insp: HTMLElement): void {
@@ -1167,17 +1202,18 @@ export class LayoutEditor {
        §4 du micro-lot finition UI. */
     const roleSection = insp.createDiv({ cls: "feuillets-layout-section" });
     roleSection.createEl("h4", { text: t("modal.layout.elementStyle") });
+    let roleFields: HTMLElement;
     new Setting(roleSection).setName(t("modal.layout.element")).addDropdown((d) => {
       d.addOption("", t("modal.layout.chooseElement"));
       for (const role of this.roles) d.addOption(role, titleRoleLabel(role));
       d.setValue(this.selectedRole || "").onChange((v) => {
         this.selectedRole = v || null;
-        this.renderInspector();
+        roleFields.empty();
+        if (this.selectedRole && this.styles[this.selectedRole]) this.renderBlockInspector(roleFields, this.selectedRole);
       });
     });
-    if (this.selectedRole && this.styles[this.selectedRole]) {
-      this.renderBlockInspector(roleSection, this.selectedRole);
-    }
+    roleFields = roleSection.createDiv();
+    if (this.selectedRole && this.styles[this.selectedRole]) this.renderBlockInspector(roleFields, this.selectedRole);
   }
 
   /** §29-§31 : réutilise TitlePageMiniature telle quelle — clic sur un bloc

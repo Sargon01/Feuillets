@@ -90,7 +90,7 @@ export class AnnexesPanel {
     const row = container.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
     row.createSpan({ cls: "feuillets-properties-key", text: t("annexes.sectionTitle") });
     const control = row.createDiv({ cls: "feuillets-edition-row-control" });
-    control.createSpan({ cls: "feuillets-edition-count", text: count });
+    const countEl = control.createSpan({ cls: "feuillets-edition-count", text: count });
     const input = control.createEl("input", { type: "checkbox" });
     input.checked = this.includedState();
     input.setAttribute("aria-label", t("annexes.include"));
@@ -102,9 +102,15 @@ export class AnnexesPanel {
     setTooltip(button, label);
     button.setAttribute("aria-label", label);
     button.addEventListener("click", () => {
-      if (folder) {
-        if (!revealFolderInFileExplorer(this.app, folder)) new Notice(t("annexes.openFolder"));
-      } else void this.createFolder();
+      const currentFolder = this.folder();
+      if (currentFolder) {
+        if (!revealFolderInFileExplorer(this.app, currentFolder)) new Notice(t("annexes.openFolder"));
+      } else void this.createFolder().then(() => {
+        countEl.setText(t("annexes.count", { count: String(this.fileCount()) }));
+        setIcon(button, "folder-open");
+        setTooltip(button, t("annexes.openFolder"));
+        button.setAttribute("aria-label", t("annexes.openFolder"));
+      });
     });
   }
 
@@ -112,7 +118,6 @@ export class AnnexesPanel {
   private async createFolder(): Promise<void> {
     await ensureFolder(this.app, `${this.editorialRoot.path}/Annexes`);
     new Notice(t("annexes.folderCreated"));
-    await this.render();
     await this.callbacks.onPresentationChanged?.();
   }
 

@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFolder } from "obsidian";
+import { TFolder, stringifyYaml } from "obsidian";
 import { FirstPagePanel, frontTitleCandidates, previewFirstPageFields } from "../src/ui/first-page-panel.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
+import { stripFrontmatter } from "../src/services/frontmatter.js";
 
 /* Même petit DOM factice que test/export-panel.test.js (convention du
  * dépôt : dupliqué, pas partagé). */
@@ -118,6 +119,7 @@ function buildFixture() {
       const data = { ...(frontmatter.get(file.path) || {}) };
       mutate(data);
       frontmatter.set(file.path, data);
+      file.content = `---\n${stringifyYaml(data)}\n---\n${stripFrontmatter(file.content)}`;
     },
   };
   const app = {
@@ -144,6 +146,7 @@ function buildFixture() {
     const path = `${front.path}/${name}.md`;
     const file = await app.vault.create(path, opts.content ?? frontTitleContent(opts.title, opts.author));
     frontmatter.set(file.path, { type: opts.type ?? "titre", compile: opts.compile !== false, ...(opts.fm || {}) });
+    file.content = `---\n${stringifyYaml(frontmatter.get(file.path))}\n---\n${stripFrontmatter(file.content)}`;
     return file;
   }
 
@@ -249,8 +252,7 @@ test("FirstPagePanel : inclusion écrit compile dans le frontmatter du Front", a
     const include = container.querySelector('[aria-label="Inclure la page de titre"]');
     include.checked = false;
     include.dispatch("change");
-    await Promise.resolve();
-    await Promise.resolve();
+    await panel.selectionPromise;
 
     assert.equal(frontmatter.get(page.path).compile, false);
   } finally {
@@ -274,8 +276,7 @@ test("FirstPagePanel : changer de Front exclut les autres sans les supprimer", a
 
     picker.value = variant.path;
     picker.dispatch("change");
-    await Promise.resolve();
-    await Promise.resolve();
+    await panel.selectionPromise;
 
     assert.equal(frontmatter.get(variant.path).compile, true);
     assert.equal(frontmatter.get(main.path).compile, false, "un seul Front sert de première page");
@@ -300,14 +301,12 @@ test("FirstPagePanel : écriture des rôles — titre synchronise manuscriptTitl
     const titleInput = container.querySelector('[aria-label="Titre"]');
     titleInput.value = "NEFES";
     titleInput.dispatch("change");
-    await Promise.resolve();
-    await Promise.resolve();
+    await panel.selectionPromise;
 
     const authorInput = container.querySelector('[aria-label="Auteur"]');
     authorInput.value = "Halim";
     authorInput.dispatch("change");
-    await Promise.resolve();
-    await Promise.resolve();
+    await panel.selectionPromise;
 
     assert.equal(plugin.settings.manuscriptTitle, "NEFES");
     assert.equal(plugin.settings.manuscriptAuthor, "Halim");
@@ -391,8 +390,7 @@ test("FirstPagePanel : fonctionne parfaitement SANS callback onPresentationChang
     titleInput.value = "Sans Preview";
     await assert.doesNotReject(async () => {
       titleInput.dispatch("change");
-      await Promise.resolve();
-      await Promise.resolve();
+      await panel.selectionPromise;
     });
     assert.equal(plugin.settings.manuscriptTitle, "Sans Preview");
   } finally {

@@ -187,7 +187,7 @@ export class EditionWorkspaceContent {
     menu.addItem((item) => item.setTitle(t("editionLayout.newTemplate")).onClick(() => void this.createNewTemplate()));
     menu.addItem((item) => item.setTitle(t("editionLayout.duplicate")).onClick(() => void this.duplicateTemplate()));
     if (isCustom) {
-      menu.addItem((item) => item.setTitle(t("editionLayout.renameTemplate")).onClick(() => void this.renameTemplate(activeLabel)));
+      menu.addItem((item) => item.setTitle(t("editionLayout.renameTemplate")).onClick(() => void this.renameTemplate(activeLabel, templates)));
       menu.addItem((item) => item.setTitle(t("editionLayout.deleteTemplate")).onClick(() => this.confirmDeleteTemplate(activeLabel)));
     }
     menu.addSeparator();
@@ -231,11 +231,14 @@ export class EditionWorkspaceContent {
     await this.refreshLinkedPreview();
   }
 
-  private async renameTemplate(currentLabel: string): Promise<void> {
+  private async renameTemplate(currentLabel: string, templates: Array<{ key: string; label: string }>): Promise<void> {
     const label = (await promptText(this.app, t("editionLayout.renameTemplate"), currentLabel))?.trim();
     if (!label) return;
     if (!await renameCustomTemplate(this.app, this.plugin.settings, this.plugin.settings.exportTemplate, label)) return;
-    await this.renderModeBody();
+    const template = templates.find((entry) => entry.key === this.plugin.settings.exportTemplate);
+    if (template) template.label = label;
+    this.modeBodyEl?.querySelector("select")?.selectedOptions[0]?.setText(label);
+    if (this.editor) this.editor.templateLabel = label;
   }
 
   private confirmDeleteTemplate(label: string): void {

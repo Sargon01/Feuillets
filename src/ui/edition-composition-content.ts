@@ -137,6 +137,9 @@ export class EditionCompositionContent {
   private selectedSection: CompositionSection = "summary";
   private bodyEl: HTMLElement | null = null;
   private contentListEl: HTMLElement | null = null;
+  private presetsEl: HTMLElement | null = null;
+  private presetAddButton: HTMLButtonElement | null = null;
+  private presetControls = new Map<keyof OuvrageCompositionConfig, HTMLInputElement>();
   /** Rendu de la sous-page/sommaire courant en cours — exposé pour que les
    * tests puissent l'attendre après un `navigateTo()` fire-and-forget (comme
    * un clic réel sur une ligne-résumé), même contrat que
@@ -209,10 +212,13 @@ export class EditionCompositionContent {
   private renderContextBlock(): void {
     const contextEl = this.contextEl;
     if (!contextEl) return;
-    contextEl.empty();
     const globalRoot = this.plugin.getProjectFolder();
     const binding = this.binding;
     const editorialRoot = this.editorialRoot;
+    const context = JSON.stringify([globalRoot?.path, editorialRoot?.path, binding?.isInherited, getLocale()]);
+    if (contextEl.getAttribute("data-composition-context") === context) return;
+    contextEl.setAttribute("data-composition-context", context);
+    contextEl.empty();
     if (!globalRoot || !binding || !editorialRoot) return;
 
     const row = contextEl.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
@@ -249,6 +255,9 @@ export class EditionCompositionContent {
     if (!body) return;
     body.empty();
     this.contentListEl = null;
+    this.presetsEl = null;
+    this.presetAddButton = null;
+    this.presetControls.clear();
 
     if (this.selectedSection !== "summary") {
       this.renderSubpageHeader(body, this.subpageTitle(this.selectedSection));
@@ -761,13 +770,14 @@ export class EditionCompositionContent {
     value: string,
     onChange: (value: string) => void | Promise<void>,
     placeholder?: string,
-  ): void {
+  ): HTMLInputElement {
     const control = this.propertyRow(parent, label);
     const input = control.createEl("input", { type: "text" });
     input.value = value;
     if (placeholder) input.setAttribute("placeholder", placeholder);
     input.setAttribute("aria-label", label);
     input.addEventListener("change", () => void onChange(input.value));
+    return input;
   }
 
   private toggleRow(
@@ -775,12 +785,13 @@ export class EditionCompositionContent {
     label: string,
     value: boolean,
     onChange: (value: boolean) => void | Promise<void>,
-  ): void {
+  ): HTMLInputElement {
     const control = this.propertyRow(parent, label);
     const input = control.createEl("input", { type: "checkbox" });
     input.checked = value;
     input.setAttribute("aria-label", label);
     input.addEventListener("change", () => void onChange(input.checked));
+    return input;
   }
 
   /** LOT 5B — les 16 champs de Composition viennent de `this.binding.value`
@@ -816,12 +827,12 @@ export class EditionCompositionContent {
     this.textRow(parent, t("settings.renamePrefix.name"), value.renamePrefix,
       (v) => this.updateBinding({ renamePrefix: v.trim() || "chapitre" }));
 
-    this.toggleRow(parent, t("settings.insertFolderTitles.name"), value.folderTitles,
-      (v) => this.updateBinding({ folderTitles: v }));
-    this.toggleRow(parent, t("settings.insertTitles.name"), value.chapterTitles,
-      (v) => this.updateBinding({ chapterTitles: v }));
-    this.toggleRow(parent, t("settings.insertSceneTitles.name", { unitPlural }), value.sceneTitles,
-      (v) => this.updateBinding({ sceneTitles: v }));
+    this.presetControls.set("folderTitles", this.toggleRow(parent, t("settings.insertFolderTitles.name"), value.folderTitles,
+      (v) => this.updateBinding({ folderTitles: v })));
+    this.presetControls.set("chapterTitles", this.toggleRow(parent, t("settings.insertTitles.name"), value.chapterTitles,
+      (v) => this.updateBinding({ chapterTitles: v })));
+    this.presetControls.set("sceneTitles", this.toggleRow(parent, t("settings.insertSceneTitles.name", { unitPlural }), value.sceneTitles,
+      (v) => this.updateBinding({ sceneTitles: v })));
   }
 
   private renderNotesSection(parent: HTMLElement): void {
@@ -845,21 +856,32 @@ export class EditionCompositionContent {
   private renderCompilationSection(parent: HTMLElement): void {
     const binding = this.binding;
     if (!binding) return;
-    const S = this.plugin.settings as CompositionSettings;
-    const unitPlural = this.plugin.unitLabelPlural();
     const defaultFileName = this.defaultManuscriptFileName();
 
-    this.textRow(parent, t("settings.fileName.name"), binding.value.fileName,
-      (v) => this.updateBinding({ fileName: v.trim() || defaultFileName }), defaultFileName);
-    this.textRow(parent, t("settings.separator.name"), binding.value.separator,
-      (v) => this.updateBinding({ separator: v }), "—");
+    this.presetControls.set("fileName", this.textRow(parent, t("settings.fileName.name"), binding.value.fileName,
+      (v) => this.updateBinding({ fileName: v.trim() || defaultFileName }), defaultFileName));
+    this.presetControls.set("separator", this.textRow(parent, t("settings.separator.name"), binding.value.separator,
+      (v) => this.updateBinding({ separator: v }), "—"));
 
+    this.presetsEl = parent.createDiv();
+    this.renderPresets(this.presetsEl);
+    const addRow = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row feuillets-edition-preset-add-row" });
+    const addActions = addRow.createDiv({ cls: "feuillets-edition-row-control" });
+    const add = addActions.createEl("button", { text: t("settings.compilePresets.add") });
+    this.presetAddButton = add;
+    add.addEventListener("click", () => void this.addPreset());
+  }
+
+  private renderPresets(parent: HTMLElement): void {
+    const S = this.plugin.settings as CompositionSettings;
+    const unitPlural = this.plugin.unitLabelPlural();
+    parent.empty();
     this.groupLabel(parent, t("settings.compilePresets.groupLabel"));
 
     const presets = (S.compilePresets as PresetConfig[]) || [];
     presets.forEach((preset, index) => {
       const head = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row" });
-      head.createSpan({
+      const label = head.createSpan({
         cls: "feuillets-properties-key",
         text: preset.name || t("settings.compilePresets.item", { n: String(index + 1) }),
       });
@@ -873,7 +895,13 @@ export class EditionCompositionContent {
       del.addEventListener("click", () => void this.removePreset(index));
 
       this.textRow(parent, t("settings.compilePresets.name"), preset.name || "",
-        async (v) => { preset.name = v.trim(); await this.plugin.saveSettings(); });
+        async (v) => {
+          preset.name = v.trim();
+          const name = preset.name || t("settings.compilePresets.item", { n: String(index + 1) });
+          label.setText(name);
+          apply.setAttribute("aria-label", t("settings.compilePresets.applyAria", { name }));
+          await this.plugin.saveSettings();
+        });
       this.textRow(parent, t("settings.compilePresets.outputFile"), preset.fileName || "",
         async (v) => { preset.fileName = v.trim(); await this.plugin.saveSettings(); }, "Sortie.md");
       this.toggleRow(parent, t("settings.insertFolderTitles.name"), preset.folderTitles !== false,
@@ -883,11 +911,6 @@ export class EditionCompositionContent {
       this.toggleRow(parent, t("settings.insertSceneTitles.name", { unitPlural }), preset.sceneTitles === true,
         async (v) => { preset.sceneTitles = v; await this.plugin.saveSettings(); });
     });
-
-    const addRow = parent.createDiv({ cls: "feuillets-properties-row feuillets-edition-row feuillets-edition-preset-add-row" });
-    const addActions = addRow.createDiv({ cls: "feuillets-edition-row-control" });
-    const add = addActions.createEl("button", { text: t("settings.compilePresets.add") });
-    add.addEventListener("click", () => void this.addPreset());
   }
 
   /** PRESETS — « Appliquer » : catalogue global TOUJOURS inchangé.
@@ -925,7 +948,22 @@ export class EditionCompositionContent {
       if (preview) await preview.refreshPreview();
     }
     await this.onChangeOpt?.();
-    await this.renderBody();
+    this.refreshBinding();
+    this.renderContextBlock();
+    this.refreshPresetControls();
+  }
+
+  private refreshPresetControls(previous?: OuvrageCompositionConfig): boolean {
+    if (!this.binding) return false;
+    let changed = false;
+    for (const [key, input] of this.presetControls) {
+      const value = this.binding.value[key];
+      if (previous?.[key] === value) continue;
+      changed = true;
+      if (input.type === "checkbox") input.checked = value === true;
+      else if (input.value !== String(value)) input.value = String(value);
+    }
+    return changed;
   }
 
   private async addPreset(): Promise<void> {
@@ -937,16 +975,27 @@ export class EditionCompositionContent {
       chapterTitles: true,
       sceneTitles: false,
     } as PresetConfig);
+    if (this.presetsEl) this.renderPresets(this.presetsEl);
     await this.plugin.saveSettings();
-    await this.renderBody();
   }
 
   private async removePreset(index: number): Promise<void> {
     const S = this.plugin.settings as CompositionSettings;
+    const previous = this.binding?.value;
     S.compilePresets.splice(index, 1);
-    if (S.activePreset >= S.compilePresets.length) S.activePreset = -1;
+    if (S.activePreset === index) S.activePreset = -1;
+    else if (S.activePreset > index) S.activePreset--;
+    this.refreshBinding();
+    const changed = this.refreshPresetControls(previous);
+    if (this.presetsEl) this.renderPresets(this.presetsEl);
+    this.presetAddButton?.focus({ preventScroll: true });
     await this.plugin.saveSettings();
-    await this.renderBody();
+    if (changed) {
+      this.plugin.refreshBinderViews();
+      const preview = this.plugin.getCentralPreviewView?.();
+      if (preview) await preview.refreshPreview();
+      await this.onChangeOpt?.();
+    }
   }
 
   /** RECTIFICATION UI LOT 5B — met à jour la composition via le binding
