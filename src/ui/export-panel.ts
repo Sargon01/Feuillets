@@ -81,6 +81,7 @@ export type ExportPanelPlugin = ExportWorkflowPlugin & {
  * bien monté par PreviewView que par EditionExportView, sans instance
  * Preview. */
 export type ExportPanelCallbacks = {
+  onScopeChanged?: () => Promise<void> | void;
   /** Portée explicite à utiliser, si l'appelant en connaît une (PreviewView :
    * `effectiveExportScope()`). Facultatif — sans lui, le panneau retombe sur
    * `currentExportScope(plugin)`. */
@@ -750,6 +751,7 @@ export class ExportPanel {
       rememberExportScope(this.plugin, scope);
     }
     this.scopeLabelEl = null;
+    await this.callbacks.onScopeChanged?.();
   }
 
   private setExportFileName(value: string): void {

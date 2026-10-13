@@ -106,6 +106,7 @@ export class SidebarFeuilletsView extends ItemView {
   relecturePage: RelecturePage;
   editionPage: EditionPage;
   private layoutSummaryPage: LayoutSummaryPage = "home";
+  private editionContext = "";
   subViews: SidebarSubViews;
   /** Conteneur dédié de la barre « Retour à Édition » (rendue QUE lorsque
    * le contenu enfant est sur sa page racine) — jamais la barre elle-même
@@ -159,6 +160,7 @@ export class SidebarFeuilletsView extends ItemView {
        navigation to References without refreshing the Research folder browser. */
     const refreshReferences = () => {
       void this.refreshReferencesOnActiveDocumentChange();
+      if (this.activeTab === "project") void this.refreshData();
     };
     this.registerEvent(this.app.workspace.on("active-leaf-change", refreshReferences));
     this.registerEvent(this.app.workspace.on("layout-change", refreshReferences));
@@ -188,6 +190,7 @@ export class SidebarFeuilletsView extends ItemView {
 
   async render(): Promise<void> {
     const container = this.contentEl;
+    this.editionBackHost = null;
     container.empty();
     container.addClass("feuillets-sidebar-container");
 
@@ -334,7 +337,9 @@ export class SidebarFeuilletsView extends ItemView {
     previewBtn.addEventListener("click", () => void this.openPreview());
 
     const exportHost = bar.createDiv({ cls: "feuillets-sidebar-edition-export-host" });
-    new ExportPanel(this.app, this.plugin, exportHost).renderQuickBar(exportHost);
+    new ExportPanel(this.app, this.plugin, exportHost, {
+      onScopeChanged: () => this.refreshData(),
+    }).renderQuickBar(exportHost);
   }
 
   /* Onglet « Édition » (clé interne "project") : page d'accueil avec 3 entrées
@@ -347,10 +352,12 @@ export class SidebarFeuilletsView extends ItemView {
      RACINE (childIsAtRoot, voir setEditionChildAtRoot) — sinon seul le
      Retour local de l'enfant reste, jamais les deux simultanément. */
   async renderProjectTab(element: HTMLElement): Promise<void> {
+    this.editionContext = this.getEditionContext();
     this.renderEditionActionsBar(element);
     const wrapper = element.createDiv({ cls: "feuillets-notes-container" });
     if (this.editionPage !== "home") {
       this.editionBackHost = wrapper.createDiv({ cls: "feuillets-edition-back-host" });
+      const backHost = this.editionBackHost;
       const host = wrapper.createDiv({ cls: "feuillets-sidebar-project" });
       if (this.editionPage === "composition") {
         this.renderEditionBackBar();
@@ -361,9 +368,13 @@ export class SidebarFeuilletsView extends ItemView {
           {
             initialMode: "composition",
             linkedPreviewLeaf: this.existingProjectPreviewLeaf(),
-            onNavigationRootChange: (isRoot) => this.setEditionChildAtRoot(isRoot),
+            onNavigationRootChange: (isRoot) => {
+              if (this.editionBackHost === backHost) this.setEditionChildAtRoot(isRoot);
+            },
             layoutSummaryPage: this.layoutSummaryPage,
-            onLayoutSummaryPageChange: (page) => { this.layoutSummaryPage = page; },
+            onLayoutSummaryPageChange: (page) => {
+              if (this.editionBackHost === backHost) this.layoutSummaryPage = page;
+            },
           }
         );
         await content.render();
@@ -376,9 +387,13 @@ export class SidebarFeuilletsView extends ItemView {
           {
             initialMode: "layout",
             linkedPreviewLeaf: this.existingProjectPreviewLeaf(),
-            onNavigationRootChange: (isRoot) => this.setEditionChildAtRoot(isRoot),
+            onNavigationRootChange: (isRoot) => {
+              if (this.editionBackHost === backHost) this.setEditionChildAtRoot(isRoot);
+            },
             layoutSummaryPage: this.layoutSummaryPage,
-            onLayoutSummaryPageChange: (page) => { this.layoutSummaryPage = page; },
+            onLayoutSummaryPageChange: (page) => {
+              if (this.editionBackHost === backHost) this.layoutSummaryPage = page;
+            },
           }
         );
         await content.render();
@@ -600,6 +615,22 @@ export class SidebarFeuilletsView extends ItemView {
       return;
     }
     await this.subViews[this.activeTab].render(force);
+  }
+
+  private getEditionContext(): string {
+    const project = this.plugin.getProjectFolder()?.path ?? null;
+    const root = this.plugin.editorialRootForComposition?.()?.path ?? project;
+    return JSON.stringify([project, root]);
+  }
+
+  async refreshData(): Promise<void> {
+    if (this.activeTab !== "project") {
+      await this.renderAllSubViews();
+    } else if (this.editionContext !== this.getEditionContext()) {
+      await this.render();
+    }
+    // Mounted Edition forms keep their DOM; reactivation and explicit renders
+    // reload their data through the existing components.
   }
 }
 

@@ -129,6 +129,7 @@ export type ContinuSourceView = {
 export type PreviewViewPlugin = {
   settings: PreviewViewSettings;
   getProjectFolder(): TFolder | null;
+  refreshEditionContext?(): Promise<void>;
   cslCitationHost?: CslCitationHost | null;
   /** Mêmes résolveurs que le Binder : pas de seconde logique de titre. */
   shortTitleFor?(file: TFile): string;
@@ -549,6 +550,7 @@ export class PreviewView extends ItemView {
     this._compileScope = scope;
     this.refreshTabHeader();
     this.updateUI();
+    await this.plugin.refreshEditionContext?.();
     await this.refreshPreview();
   }
 

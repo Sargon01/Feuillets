@@ -385,6 +385,7 @@ type StaleableView = View & {
   _stale?: boolean;
   render?: (force?: boolean) => void | Promise<void>;
   renderAllSubViews?: (force?: boolean) => void | Promise<void>;
+  refreshData?: () => void | Promise<void>;
 };
 
 /** Panneau latéral unifié (SidebarFeuilletsView) vu depuis refreshJournalViews
@@ -3901,12 +3902,13 @@ class FeuilletsPlugin extends Plugin {
   }
 
   renderStaleViews(): void {
-    for (const type of [VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT]) {
+    for (const type of [VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_SIDEBAR_FEUILLETS]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         const v = leaf.view as StaleableView;
         if (v && v._stale && typeof v.render === "function" && this.leafVisible(leaf)) {
           v._stale = false;
-          void v.render();
+          if (typeof v.refreshData === "function") void v.refreshData();
+          else void v.render();
         }
       }
     }
@@ -3922,7 +3924,9 @@ class FeuilletsPlugin extends Plugin {
             continue;
           }
           view._stale = false;
-          if (typeof view.renderAllSubViews === "function") {
+          if (!force && typeof view.refreshData === "function") {
+            void view.refreshData();
+          } else if (typeof view.renderAllSubViews === "function") {
             void view.renderAllSubViews(force);
           } else if (typeof view.render === "function") {
             void view.render(force);
@@ -3933,15 +3937,7 @@ class FeuilletsPlugin extends Plugin {
     this.adjustSidebarWidth();
   }
 
-  /** Rafraîchit UNIQUEMENT les vues Binder (VIEW_SIDEBAR)
-   * — jamais VIEW_BOARD ni VIEW_SIDEBAR_FEUILLETS, donc jamais la surface centrale Édition
-   * (Composition/Mise en page) qu'elle héberge parfois. Contrairement à
-   * `refreshView()`/`renderAllViews()` (qui reconstruisent tout, y compris
-   * la sous-page Composition active en cours d'édition), ce chemin ciblé
-   * sert les réglages qui n'affectent QUE l'affichage du Binder — la
-   * numérotation en premier lieu — sans jamais faire perdre le focus, le
-   * défilement ni la sous-page ouverte dans Composition (dernier lot UX
-   * avant 2.5, §9 : bug de perte de focus dans Composition → Structure). */
+  /** Binder-only settings must not refresh the other panels. */
   refreshBinderViews(): void {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR)) {
       const view = leaf.view as StaleableView;
@@ -4803,6 +4799,15 @@ class FeuilletsPlugin extends Plugin {
     if (!scope) return globalRoot;
     const resolved = this.app.vault.getAbstractFileByPath(normalizePath(scope.projectRoot));
     return resolved instanceof TFolder ? resolved : globalRoot;
+  }
+
+  async refreshEditionContext(): Promise<void> {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)) {
+      const view = leaf.view;
+      if (view instanceof SidebarFeuilletsView && view.activeTab === "project") {
+        await view.refreshData();
+      }
+    }
   }
 
   /** Portée d'un dossier du Binder, rattachée à son ouvrage : la racine
