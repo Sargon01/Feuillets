@@ -33,7 +33,7 @@ type Drag = {
   clientX: number;
   clientY: number;
   moved: boolean;
-  source: MinimalRuntimeNode;
+  sources: Map<string, MinimalRuntimeNode>;
   before: CanvasData;
   history: CanvasHistory;
   entries: CanvasData[];
@@ -56,6 +56,7 @@ function hasContract(value: unknown): value is DropCanvas {
 function isFreeText(data: CanvasData, node: CanvasNode): boolean {
   return node.type === "text" && !!node.id &&
     !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width") &&
+    !Object.keys(node).some((key) => key.startsWith("mindmap")) &&
     !data.edges.some((edge) => (edge.fromNode === node.id || edge.toNode === node.id) &&
       Object.keys(edge).some((key) => key.startsWith("feuillets_")));
 }
@@ -84,7 +85,7 @@ function unchanged(canvas: DropCanvas, drag: Drag, current: CanvasData): boolean
   return current.nodes.every((node) => {
     const before = original.get(node.id);
     if (!before || canvas.nodes.get(node.id) !== drag.instances.get(node.id)) return false;
-    const comparable = node.id === drag.source.id ? { ...node, x: before.x, y: before.y } : node;
+    const comparable = drag.sources.has(node.id) ? { ...node, x: before.x, y: before.y } : node;
     return JSON.stringify(comparable) === JSON.stringify(before);
   }) && JSON.stringify({ ...current, nodes: [] }) === JSON.stringify({ ...drag.before, nodes: [] });
 }
@@ -118,6 +119,24 @@ export function toggleDropLink(data: CanvasData, sourceId: string, targetId: str
   return { ...data, edges: [...data.edges, edge] };
 }
 
+/** A selection adds missing links without changing existing relationships. */
+export function addDropLinks(data: CanvasData, sourceIds: string[], targetId: string): CanvasData | null {
+  if (!validData(data) || sourceIds.length < 2 || new Set(sourceIds).size !== sourceIds.length || sourceIds.includes(targetId)) return null;
+  const target = data.nodes.find((node) => node.id === targetId);
+  if (!target || !isFreeText(data, target)) return null;
+  let next = data;
+  for (const sourceId of sourceIds) {
+    const source = data.nodes.find((node) => node.id === sourceId);
+    if (!source || !isFreeText(data, source)) return null;
+    if (data.edges.some((edge) => (edge.fromNode === sourceId && edge.toNode === targetId) ||
+      (edge.fromNode === targetId && edge.toNode === sourceId))) continue;
+    const added = toggleDropLink(next, sourceId, targetId);
+    if (!added) return null;
+    next = added;
+  }
+  return next;
+}
+
 /** Observe the native drag; only its completed result is transformed. */
 export function attachCarnetDropLinks(
   app: Pick<App, "workspace">,
@@ -143,40 +162,49 @@ export function attachCarnetDropLinks(
   };
   const finalize = (pending: Drag, targetId: string): void => {
     timer = undefined;
-    if (!active() || !hasContract(canvas) || canvas.isDragging || canvas.isHoldingSpace || canvas.selection.size !== 1 ||
-      !canvas.selection.has(pending.source) || pending.source.isEditing || !sameHistory(canvas, pending)) return;
+    if (!active() || !hasContract(canvas) || canvas.isDragging || canvas.isHoldingSpace || canvas.selection.size !== pending.sources.size ||
+      [...pending.sources.values()].some((node) => !canvas.selection.has(node) || node.isEditing) || !sameHistory(canvas, pending)) return;
     const current = canvas.getData();
     if (!unchanged(canvas, pending, current) || canvas.nodes.get(targetId)?.isEditing) return;
-    const source = pending.before.nodes.find((node) => node.id === pending.source.id);
-    const moved = current.nodes.find((node) => node.id === pending.source.id);
-    if (!source || !moved || (moved.x === source.x && moved.y === source.y)) return;
-    const restored = { ...current, nodes: current.nodes.map((node) =>
-      node.id === source.id ? { ...node, x: source.x, y: source.y } : node) };
-    const next = toggleDropLink(restored, source.id, targetId);
+    const originals = new Map(pending.before.nodes.filter((node) => pending.sources.has(node.id)).map((node) => [node.id, node]));
+    if (!current.nodes.some((node) => {
+      const before = originals.get(node.id);
+      return before && (node.x !== before.x || node.y !== before.y);
+    })) return;
+    const restored = { ...current, nodes: current.nodes.map((node) => {
+      const before = originals.get(node.id);
+      return before ? { ...node, x: before.x, y: before.y } : node;
+    }) };
+    const sourceIds = [...pending.sources.keys()];
+    const next = sourceIds.length === 1 ? toggleDropLink(restored, sourceIds[0], targetId) : addDropLinks(restored, sourceIds, targetId);
     if (!next) return;
     // Keep the native drag checkpoint out of history and save one final snapshot.
     canvas.requestPushHistory.cancel();
     canvas.importData(next, true);
     canvas.requestSave(false);
     canvas.requestPushHistory.cancel();
-    canvas.pushHistory(canvas.getData());
+    if (next.edges !== current.edges) canvas.pushHistory(canvas.getData());
   };
   const onDown = (event: PointerEvent): void => {
     cancel();
     if (!active() || !hasContract(canvas) || canvas.isDragging || canvas.isHoldingSpace ||
       !event.isPrimary || event.pointerType !== "mouse" || event.button !== 0 ||
-      event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || canvas.selection.size > 1) return;
+      event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     if ((event.target as Element | null)?.closest?.(".canvas-node-resizer, .canvas-node-connection-point, input, textarea, button, a, [contenteditable]")) return;
     const data = canvas.getData();
     if (!validData(data)) return;
     const source = [...canvas.nodes.values()].find((node) => node.nodeEl?.contains(event.target as Node));
     const node = source && data.nodes.find((candidate) => candidate.id === source.id);
     if (!source || source.isEditing || !node || !isFreeText(data, node)) return;
+    if (canvas.selection.size > 1 && !canvas.selection.has(source)) return;
+    const sources = new Map((canvas.selection.size > 1 ? [...canvas.selection] : [source]).map((candidate) => [candidate.id, candidate]));
+    if ([...sources.values()].some((candidate) => canvas.nodes.get(candidate.id) !== candidate || candidate.isEditing ||
+      !data.nodes.some((raw) => raw.id === candidate.id && isFreeText(data, raw)))) return;
     canvas.requestPushHistory.run();
     const history = canvas.history;
     if (history.current < 0 || history.current >= history.data.length) return;
     drag = {
-      pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, moved: false, source,
+      pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, moved: false, sources,
       before: JSON.parse(JSON.stringify(canvas.getData())) as CanvasData,
       history, entries: history.data.slice(), fingerprints: history.data.map((entry) => JSON.stringify(entry)),
       current: history.current, instances: new Map(canvas.nodes),
@@ -193,7 +221,7 @@ export function attachCarnetDropLinks(
     const pos = canvas.posFromEvt(event);
     const data = canvas.getData();
     const target = [...data.nodes].reverse().find((node) => {
-      if (node.id === pending.source.id || !isFreeText(data, node)) return false;
+      if (pending.sources.has(node.id) || !pending.instances.has(node.id) || !isFreeText(data, node)) return false;
       const bbox = canvas.nodes.get(node.id)?.getBBox?.();
       return bbox && pos.x >= bbox.minX && pos.x <= bbox.maxX && pos.y >= bbox.minY && pos.y <= bbox.maxY;
     });
