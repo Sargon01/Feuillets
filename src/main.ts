@@ -134,6 +134,7 @@ import { createFolderCarnet, folderCarnetCanvasPath, getFolderCarnetDisplayLabel
 import { remapFeuilletsPathReferences } from "./carnet/core/path-reference-maintenance.js";
 import { remapWorkspaceCitationResourcePaths } from "./services/workspace-citations.js";
 import { registerCarnetNoteStyleMenu } from "./carnet/canvas/note-style.js";
+import { registerCarnetEdgeStyleMenu } from "./carnet/canvas/edge-style.js";
 import { createCarnetLifecycle, type CarnetLifecycle } from "./carnet/core/lifecycle.js";
 import {
   createMindmapBlock,
@@ -847,6 +848,7 @@ class FeuilletsPlugin extends Plugin {
     );
     this.carnetLifecycle.refresh();
     registerCarnetNoteStyleMenu(this, (file) => this.isFeuilletsCarnetFile(file), () => this.carnetLifecycle?.refresh());
+    registerCarnetEdgeStyleMenu(this, (file) => this.isFeuilletsCarnetFile(file));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.carnetLifecycle?.refresh()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.carnetLifecycle?.refresh()));
     this.registerMindmapCommands();

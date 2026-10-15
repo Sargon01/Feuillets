@@ -55,10 +55,10 @@ function hasContract(value: unknown): value is DropCanvas {
 
 function isFreeText(data: CanvasData, node: CanvasNode): boolean {
   return node.type === "text" && !!node.id &&
-    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width") &&
+    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width" && key !== "feuillets_text_style") &&
     !Object.keys(node).some((key) => key.startsWith("mindmap")) &&
     !data.edges.some((edge) => (edge.fromNode === node.id || edge.toNode === node.id) &&
-      Object.keys(edge).some((key) => key.startsWith("feuillets_")));
+      Object.keys(edge).some((key) => key.startsWith("feuillets_") && key !== "feuillets_edge_style"));
 }
 
 function validData(data: CanvasData): boolean {

@@ -139,8 +139,8 @@ test("structural edges and nodes outside the free-note set remain native", () =>
   binding.cleanup();
 });
 
-test("explicit colors, arrows and external styles keep native edge geometry", () => {
-  for (const style of [{ color: "1" }, { toEnd: "arrow" }, { pathStyle: "curved" }]) {
+test("external styles keep native edge geometry", () => {
+  for (const style of [{ pathStyle: "curved" }, { feuillets_managed: "relations" }]) {
     const f = runtimeFixture(), drawing = f.edge.updatePath, getData = f.edge.getData.bind(f.edge);
     f.edge.getData = () => ({ ...getData(), ...style });
     const binding = attachTextAnchors(f.canvas);
@@ -150,12 +150,38 @@ test("explicit colors, arrows and external styles keep native edge geometry", ()
   }
 });
 
-test("an edge styled after decoration immediately returns to native endpoints", () => {
+test("native colors and Feuillets styles retain rectangular attachment geometry", () => {
   const f = runtimeFixture(), binding = attachTextAnchors(f.canvas);
   binding.refresh(new Set(["a", "b"]));
   const getData = f.edge.getData.bind(f.edge);
-  f.edge.getData = () => ({ ...getData(), color: "2" });
+  f.edge.getData = () => ({ ...getData(), color: "2", fromEnd: "arrow", feuillets_edge_style: { pattern: "dotted", width: "thick" } });
   f.edge.updatePath();
-  assert.deepEqual(f.edge.drawn.from, f.a.getBBox());
+  assert.deepEqual(f.edge.drawn.from, rect(400, 100, 400, 100));
   binding.cleanup();
+});
+
+test("native arrowheads align with the straight path and all appearance attributes are reversible", () => {
+  const f = runtimeFixture(), elements = [];
+  const element = () => {
+    const attributes = new Map(), classes = new Set(), el = { attributes, classes, style: {},
+      setAttribute(k, v) { attributes.set(k, v); }, removeAttribute(k) { attributes.delete(k); },
+      classList: { add(k) { classes.add(k); }, remove(k) { classes.delete(k); } },
+    }; elements.push(el); return el;
+  };
+  f.edge.lineGroupEl = element(); f.edge.lineEndGroupEl = element();
+  f.edge.path = { display: element(), interaction: element() };
+  f.edge.fromLineEnd = { el: element() }; f.edge.toLineEnd = { el: element() };
+  f.edge.from.end = "arrow"; f.edge.to.end = "arrow"; f.b.y = 300;
+  const getData = f.edge.getData.bind(f.edge);
+  f.edge.getData = () => ({ ...getData(), feuillets_edge_style: { pattern: "dotted", width: "thick" }, color: "3" });
+  const binding = attachTextAnchors(f.canvas); binding.refresh(new Set(["a", "b"])); f.edge.updatePath();
+  const { from, to } = f.edge.bezier, angle = Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI;
+  assert.equal(f.edge.fromLineEnd.el.style.transform, `translate(${from.x}px, ${from.y}px) rotate(${angle - 90}deg)`);
+  assert.equal(f.edge.toLineEnd.el.style.transform, `translate(${to.x}px, ${to.y}px) rotate(${angle + 90}deg)`);
+  assert.equal(f.edge.path.display.attributes.get("d"), f.edge.path.interaction.attributes.get("d"));
+  assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-pattern"), "dotted");
+  assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-width"), "thick");
+  assert.equal(f.edge.lineEndGroupEl.attributes.get("data-feuillets-arrows"), "true");
+  binding.cleanup();
+  for (const el of elements.slice(0, 2)) { assert.equal(el.attributes.size, 0); assert.equal(el.classes.size, 0); }
 });

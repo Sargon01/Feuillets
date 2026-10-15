@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { attachNoteSizing, measureNoteSize } from "../src/carnet/canvas/note-size.js";
 
-function fixture(onLiveChange) {
+function fixture(onLiveChange, onEditor, onSelectionChange) {
   let raw = { id: "a", type: "text", text: "**Rendered text**", x: -25, y: 40, width: 250, height: 60, custom: { retained: true } };
   const classes = new Set(), callbacks = [];
   const node = {
@@ -24,7 +24,7 @@ function fixture(onLiveChange) {
     overrideHistory() { this.requestPushHistory.run(); this.history.data[this.history.current] = this.getData(); this.saves++; },
   };
   canvas.requestPushHistory = Object.assign(() => {}, { run() { if (pending) { canvas.history.data.splice(++canvas.history.current); canvas.history.data.push(pending); pending = undefined; } } });
-  const binding = attachNoteSizing(canvas, onLiveChange); binding.refresh(new Set(["a"]));
+  const binding = attachNoteSizing(canvas, onLiveChange, onEditor, onSelectionChange); binding.refresh(new Set(["a"]));
   return { node, canvas, binding, classes, callbacks };
 }
 
@@ -181,5 +181,99 @@ test("theme padding is preserved in both dimensions and manual width is never en
   f.node.setData({ ...f.node.getData(), feuillets_note_width: "manual", width: 190 });
   assert.deepEqual(measureNoteSize(f.node), { width: 190, height: 109 });
   assert.equal(f.classes.size, 0);
+  f.binding.cleanup();
+});
+
+
+test("editor typography and selection controls share the existing scoped editor binding and cleanup", () => {
+  const calls = [];
+  const f = fixture(undefined, () => { calls.push("bind"); return () => calls.push("cleanup"); }, () => calls.push("selection"));
+  const editor = activeEditor(f);
+  assert.deepEqual(calls, ["bind"]);
+  editor.mode.onUpdate({ docChanged: false, geometryChanged: false, selectionSet: true }, false);
+  assert.deepEqual(calls, ["bind", "selection"]);
+  assert.equal(f.canvas.saves, 0); assert.equal(f.canvas.history.data.length, 1);
+  f.binding.cleanup(); assert.deepEqual(calls, ["bind", "selection", "cleanup"]);
+  editor.mode.onUpdate({ docChanged: false, geometryChanged: false, selectionSet: true }, false);
+  assert.equal(calls.length, 3);
+});
+
+test("a font-only edit measures into its existing typography checkpoint and never restores stale dimensions", () => {
+  const f = fixture(), before = f.node.getData(), editor = activeEditor(f);
+  editor.cm.state.doc.toString = () => before.text;
+  f.node.setData({ ...before, feuillets_text_style: { size: 32 } });
+  f.canvas.history.data[0] = f.canvas.getData();
+  editor.flush();
+  assert.equal(f.node.getData().height, 274); assert.equal(f.canvas.history.data.length, 1);
+  assert.equal(f.canvas.history.data[0].nodes[0].height, 274);
+  f.node.setIsEditing(false); assert.equal(f.node.getData().height, 274);
+  assert.equal(f.node.getData().x, before.x); assert.equal(f.node.getData().width, before.width);
+  f.binding.cleanup();
+});
+
+test("font changes refresh cached native Markdown blocks at the measuring width and resize within the typography checkpoint", () => {
+  const f = fixture(), before = f.node.getData(), calls = [];
+  f.node.setData({ ...before, feuillets_note_width: "manual", feuillets_text_style: { size: 28 } });
+  f.node.renderedHeight = 80;
+  f.node.child = { previewMode: { renderer: {
+    sections: [0, 1, 2].map((id) => ({ resetCompute() { calls.push(id); } })),
+    onRender() {
+      assert(f.classes.has("feuillets-note-measuring"));
+      assert(!f.classes.has("feuillets-note-measuring-auto"));
+      f.node.renderedHeight = f.node.getData().feuillets_text_style.size === 28 ? 460 : 140;
+    },
+  } } };
+  f.canvas.history.data[0] = f.canvas.getData();
+  f.binding.update(f.node, true);
+  assert.equal(f.node.getData().height, 462); assert.equal(f.node.getData().width, before.width);
+  assert.deepEqual(calls, [0, 1, 2]); assert.equal(f.canvas.history.data.length, 1);
+  assert.equal(f.canvas.history.data[0].nodes[0].height, 462);
+  f.node.setData({ ...f.node.getData(), feuillets_text_style: { size: 12 } });
+  f.canvas.requestSave(); f.binding.update(f.node, true);
+  assert.equal(f.node.getData().height, 142); assert.equal(f.canvas.history.data.length, 2);
+  assert.equal(f.canvas.history.data[1].nodes[0].height, 142);
+  assert.equal(f.node.getData().x, before.x); assert.equal(f.node.getData().y, before.y);
+  assert.equal(f.node.getData().text, before.text); assert.deepEqual(f.node.getData().custom, before.custom);
+  const saves = f.canvas.saves; f.binding.update(f.node);
+  assert.equal(calls.length, 6); assert.equal(f.canvas.saves, saves); assert.equal(f.classes.size, 0);
+  f.binding.cleanup();
+});
+
+test("preview typography invalidation waits through editing and native drag without losing the requested resize", () => {
+  for (const flag of ["isEditing", "isDragging"]) {
+    const f = fixture(), target = flag === "isEditing" ? f.node : f.canvas;
+    let renders = 0;
+    f.node.child = { previewMode: { renderer: { sections: [{ resetCompute() {} }], onRender() { renders++; f.node.renderedHeight = 350; } } } };
+    target[flag] = true;
+    f.binding.update(f.node, true); assert.equal(renders, 0); assert.equal(f.node.getData().height, 60);
+    target[flag] = false;
+    f.binding.update(f.node); assert.equal(renders, 1); assert.equal(f.node.getData().height, 352);
+    f.binding.update(f.node); assert.equal(renders, 1); assert.equal(f.canvas.history.data.length, 1);
+    f.binding.cleanup();
+  }
+});
+
+test("unsupported native preview methods are untouched and measuring classes are cleared when native layout fails", () => {
+  const f = fixture(); let resets = 0;
+  f.node.child = { previewMode: { renderer: { sections: [{ resetCompute() { resets++; } }] } } };
+  assert.deepEqual(measureNoteSize(f.node, true), { width: 82, height: 97 }); assert.equal(resets, 0);
+  f.node.child.previewMode.renderer.onRender = () => { throw new Error("Native layout failed"); };
+  assert.throws(() => measureNoteSize(f.node, true), /Native layout failed/); assert.equal(f.classes.size, 0);
+  f.binding.cleanup();
+});
+
+test("native border-box measurements avoid zoom rounding drift in saved typography geometry", () => {
+  const f = fixture();
+  f.node.nodeEl.getBoundingClientRect = () => ({ width: 125.00001 });
+  f.node.nodeEl.ownerDocument.defaultView.getComputedStyle = () => f.classes.has("feuillets-note-measuring")
+    ? { boxSizing: "border-box", width: "120px", height: "300px" }
+    : { boxSizing: "border-box", width: "248px", height: "58px" };
+  assert.deepEqual(measureNoteSize(f.node), { width: 122, height: 302 });
+  f.binding.update(f.node); assert.equal(f.node.getData().height, 302);
+  f.node.nodeEl.ownerDocument.defaultView.getComputedStyle = () => f.classes.has("feuillets-note-measuring")
+    ? { boxSizing: "border-box", width: "120px", height: "300px" }
+    : { boxSizing: "border-box", width: "120px", height: "300px" };
+  const saves = f.canvas.saves; f.binding.update(f.node);
+  assert.equal(f.canvas.saves, saves); assert.equal(f.node.getData().height, 302);
   f.binding.cleanup();
 });

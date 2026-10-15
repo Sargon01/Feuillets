@@ -12216,10 +12216,46 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
   stroke-dasharray: 3 3;
   stroke-linecap: round;
 }
+.feuillets-carnet-canvas .feuillets-note-connection[data-feuillets-pattern="solid"] .canvas-display-path {
+  stroke-dasharray: none;
+}
+.feuillets-carnet-canvas .feuillets-note-connection[data-feuillets-pattern="dotted"] .canvas-display-path {
+  stroke-dasharray: 0.5 4;
+}
+.feuillets-carnet-canvas .feuillets-note-connection[data-feuillets-width="regular"] .canvas-display-path {
+  stroke-width: 2px;
+}
+.feuillets-carnet-canvas .feuillets-note-connection[data-feuillets-width="thick"] .canvas-display-path {
+  stroke-width: 3px;
+}
+.feuillets-carnet-canvas .feuillets-note-connection[data-feuillets-pattern="dashed"][data-feuillets-width="regular"] .canvas-display-path {
+  stroke-dasharray: 4 4;
+}
+.feuillets-carnet-canvas .feuillets-note-connection[data-feuillets-pattern="dashed"][data-feuillets-width="thick"] .canvas-display-path {
+  stroke-dasharray: 6 6;
+}
+.feuillets-carnet-canvas .feuillets-note-connection[data-feuillets-pattern="dotted"][data-feuillets-width="regular"] .canvas-display-path {
+  stroke-dasharray: 0.5 5.5;
+}
+.feuillets-carnet-canvas .feuillets-note-connection[data-feuillets-pattern="dotted"][data-feuillets-width="thick"] .canvas-display-path {
+  stroke-dasharray: 0.5 7;
+}
+.feuillets-carnet-canvas .feuillets-note-connection.is-themed .canvas-display-path {
+  stroke: var(--canvas-color);
+}
+.feuillets-carnet-canvas .feuillets-note-connection-ends .canvas-path-end {
+  fill: var(--text-muted);
+}
+.feuillets-carnet-canvas .feuillets-note-connection-ends.is-themed .canvas-path-end {
+  fill: var(--canvas-color);
+}
 .feuillets-carnet-canvas .feuillets-note-connection.is-focused .canvas-display-path {
   stroke: var(--interactive-accent);
 }
-.feuillets-carnet-canvas .feuillets-note-connection-ends {
+.feuillets-carnet-canvas .feuillets-note-connection-ends.is-focused .canvas-path-end {
+  fill: var(--interactive-accent);
+}
+.feuillets-carnet-canvas .feuillets-note-connection-ends[data-feuillets-arrows="false"] {
   display: none;
 }
 .feuillets-carnet-canvas .feuillets-note-measuring .markdown-preview-view {
@@ -12236,4 +12272,56 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
   word-break: normal;
   overflow-wrap: break-word;
   text-wrap: pretty;
+}
+
+.feuillets-carnet-canvas .canvas-menu .feuillets-appearance-panel {
+  display: block;
+  height: auto;
+  width: max-content;
+  max-width: min(calc(100vw - 40px), var(--feuillets-panel-width, 220px));
+  max-height: min(420px, 60vh, var(--feuillets-panel-height, 60vh));
+  overflow: auto;
+  padding: 4px;
+}
+.feuillets-carnet-canvas .feuillets-appearance-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+}
+.feuillets-carnet-canvas .feuillets-appearance-row + .feuillets-appearance-row {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.feuillets-carnet-canvas .feuillets-appearance-option {
+  padding: 4px;
+}
+.feuillets-carnet-canvas .feuillets-appearance-option svg {
+  width: 28px;
+  height: 20px;
+}
+.feuillets-carnet-canvas .feuillets-appearance-option.is-active {
+  color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+/* Per-note typography leaves native card colors and Markdown structure intact. */
+.feuillets-carnet-canvas .feuillets-note-typography .markdown-preview-view {
+  font-size: var(--feuillets-text-size, var(--font-text-size));
+  color: var(--feuillets-text-color, var(--text-normal));
+  text-align: var(--feuillets-text-align, left);
+}
+.feuillets-carnet-canvas .feuillets-appearance-option[data-text-color="red"] { color: color-mix(in srgb, var(--color-red) 70%, var(--text-normal)); }
+.feuillets-carnet-canvas .feuillets-appearance-option[data-text-color="orange"] { color: color-mix(in srgb, var(--color-orange) 70%, var(--text-normal)); }
+.feuillets-carnet-canvas .feuillets-appearance-option[data-text-color="green"] { color: color-mix(in srgb, var(--color-green) 70%, var(--text-normal)); }
+.feuillets-carnet-canvas .feuillets-appearance-option[data-text-color="cyan"] { color: color-mix(in srgb, var(--color-cyan) 70%, var(--text-normal)); }
+.feuillets-carnet-canvas .feuillets-appearance-option[data-text-color="purple"] { color: color-mix(in srgb, var(--color-purple) 70%, var(--text-normal)); }
+/* Native Canvas relays this stylesheet into its editor iframe. */
+.cm-editor[data-feuillets-typography] .cm-scroller {
+  font-size: var(--feuillets-text-size, var(--font-text-size));
+  color: var(--feuillets-text-color, var(--text-normal));
+}
+.cm-editor[data-feuillets-typography] .cm-line {
+  text-align: var(--feuillets-text-align, left);
 }

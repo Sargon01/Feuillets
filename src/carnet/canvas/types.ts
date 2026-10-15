@@ -1,4 +1,7 @@
+export type CarnetTextStyle = { size?: number; align?: "left" | "center" | "right" | "justify"; color?: "red" | "orange" | "green" | "cyan" | "purple" };
 export type CarnetNoteStyle = "plain" | "outline" | "rounded" | "filled" | "classic";
+export type CarnetEdgePattern = "solid" | "dashed" | "dotted";
+export type CarnetEdgeWidth = "thin" | "regular" | "thick";
 
 /** Types shared by the Canvas boundary.  Canvas is deliberately permissive:
  * plugins may add fields which Feuillets does not know about. */
@@ -14,6 +17,7 @@ export type CanvasNode = {
   color?: string;
   feuillets_note_style?: CarnetNoteStyle;
   feuillets_note_width?: "manual";
+  feuillets_text_style?: CarnetTextStyle;
   feuillets_managed?: "manuscript" | "research" | "thread";
   /** Groupe Canvas natif délimitant un bloc Feuillets, porté UNIQUEMENT par
    * le node `type: "group"` qui
@@ -47,6 +51,8 @@ export type CanvasNode = {
 
 export type CanvasEdge = {
   id: string;
+  color?: string;
+  feuillets_edge_style?: { pattern?: CarnetEdgePattern; width?: CarnetEdgeWidth };
   fromNode?: string;
   toNode?: string;
   fromSide?: "top" | "right" | "bottom" | "left";

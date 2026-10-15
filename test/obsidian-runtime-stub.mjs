@@ -550,6 +550,8 @@ export class ButtonComponent {
     return this;
   }
 
+  setCta() { this.cta = true; return this; }
+
   onClick(callback) {
     this.callback = callback;
     return this;
@@ -560,6 +562,9 @@ export class DropdownComponent {
   constructor(container) {
     this.container = container;
     this.options = [];
+    this.selectEl = { attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };
+    container.dropdownComponents ||= [];
+    container.dropdownComponents.push(this);
   }
 
   addOption(value, label) {

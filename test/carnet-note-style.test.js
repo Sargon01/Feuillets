@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyNoteStyle, attachCarnetNoteStyles, isFreeNote } from "../src/carnet/canvas/note-style.js";
+import { applyNoteAppearance, applyNoteStyle, attachCarnetNoteStyles, isFreeNote } from "../src/carnet/canvas/note-style.js";
 
 const clone = (value) => structuredClone(value);
 function fixture() {
@@ -89,4 +89,32 @@ test("missing appearance means plain without migrating data, and classic is an e
   canvas.nodes.get("a").raw.feuillets_note_width = "manual";
   assert.equal(isFreeNote(canvas.getData(), canvas.nodes.get("a").raw), true);
   binding.cleanup();
+});
+
+test("native history imports notify appearance controls without waiting for a toolbar render", () => {
+  const canvas = fixture(), updates = [];
+  const binding = attachCarnetNoteStyles(canvas, () => updates.push(canvas.nodes.get("a").getData().feuillets_note_style));
+  applyNoteStyle(canvas, "a", "rounded"); binding.refresh();
+  assert.equal(updates.at(-1), "rounded");
+  const count = updates.length;
+  canvas.undo(); assert.equal(updates.length, count + 1); assert.equal(updates.at(-1), undefined);
+  canvas.redo(); assert.equal(updates.length, count + 2); assert.equal(updates.at(-1), "rounded");
+  binding.cleanup();
+});
+
+test("independent typography uses one native transaction, normalizes defaults and preserves content and card color", () => {
+  const c = fixture(), before = c.getData();
+  c.nodes.get("a").raw.color = "4";
+  assert(applyNoteAppearance(c, "a", { textStyle: { size: 24, align: "center", color: "purple" } }));
+  assert.equal(c.saves, 1); assert.equal(c.history.length, 2);
+  assert.deepEqual(c.nodes.get("a").getData(), { ...before.nodes[0], color: "4", feuillets_text_style: { size: 24, align: "center", color: "purple" } });
+  assert(isFreeNote(c.getData(), c.nodes.get("a").getData()));
+  assert.deepEqual(c.nodes.get("b").getData(), before.nodes[1]);
+  applyNoteAppearance(c, "a", { textStyle: { size: 24, align: "center", color: "purple" } }); assert.equal(c.saves, 1);
+  const saved = c.getData(); c.undo(); assert.equal(c.nodes.get("a").getData().feuillets_text_style, undefined);
+  c.redo(); assert.deepEqual(c.getData(), saved);
+  const reopened = fixture(); reopened.importData(JSON.parse(JSON.stringify(saved)));
+  assert.deepEqual(reopened.nodes.get("a").getData().feuillets_text_style, { size: 24, align: "center", color: "purple" });
+  applyNoteAppearance(c, "a", { textStyle: { align: "left" } }); assert.equal(c.nodes.get("a").getData().feuillets_text_style, undefined);
+  applyNoteAppearance(c, "a", { textStyle: undefined }); assert.equal(c.saves, 2);
 });

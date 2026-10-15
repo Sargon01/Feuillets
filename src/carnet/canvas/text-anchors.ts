@@ -1,4 +1,5 @@
 import type { CanvasBBox, MinimalRuntimeCanvas, MinimalRuntimeEdge, MinimalRuntimeEdgeEnd, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
+import type { CanvasEdge } from "./types.js";
 
 type Side = "top" | "right" | "bottom" | "left";
 type Anchor = { side: Side; box: CanvasBBox };
@@ -12,7 +13,14 @@ type AnchorCanvas = MinimalRuntimeCanvas & {
   removeEdge: (edge: MinimalRuntimeEdge) => void;
 };
 
-const defaultEdgeFields = new Set(["id", "fromNode", "toNode", "fromSide", "toSide", "fromEnd", "toEnd", "label"]);
+const defaultEdgeFields = new Set(["id", "fromNode", "toNode", "fromSide", "toSide", "fromEnd", "toEnd", "label", "color", "feuillets_edge_style"]);
+export const isOrdinaryEdge = (edge: CanvasEdge): boolean => Object.keys(edge).every((key) => defaultEdgeFields.has(key));
+const appearanceAttributes = ["data-feuillets-pattern", "data-feuillets-width", "data-feuillets-arrows"];
+function clearAppearance(edge: MinimalRuntimeEdge): void {
+  edge.lineGroupEl?.classList.remove("feuillets-note-connection");
+  edge.lineEndGroupEl?.classList.remove("feuillets-note-connection-ends");
+  for (const element of [edge.lineGroupEl, edge.lineEndGroupEl]) for (const attribute of appearanceAttributes) element?.removeAttribute(attribute);
+}
 const center = (box: CanvasBBox): { x: number; y: number } => ({ x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 });
 /** Intersect the center-to-center line with the native card boundary. */
 export function rectangleAnchor(bounds: CanvasBBox, target: { x: number; y: number }): Anchor | null {
@@ -36,9 +44,7 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
   let freeIds = new Set<string>();
   const eligible = (edge: MinimalRuntimeEdge): boolean => {
     if (!edge.from || !edge.to || !freeIds.has(edge.from.node.id) || !freeIds.has(edge.to.node.id)) return false;
-    const data = edge.getData();
-    return Object.keys(data).every((key) => defaultEdgeFields.has(key)) &&
-      data.fromEnd !== "arrow" && data.toEnd !== "arrow" && edge.from.end !== "arrow" && edge.to.end !== "arrow";
+    return isOrdinaryEdge(edge.getData());
   };
 
   const bindEdge = (edge: MinimalRuntimeEdge): void => {
@@ -67,8 +73,7 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
     target.updatePath = () => withAnchors(() => {
       original.call(target);
       if (!eligible(target)) {
-        target.lineGroupEl?.classList.remove("feuillets-note-connection");
-        target.lineEndGroupEl?.classList.remove("feuillets-note-connection-ends");
+        clearAppearance(target);
         return;
       }
       const point = (end: MinimalRuntimeEdgeEnd): { x: number; y: number } | undefined => {
@@ -89,14 +94,24 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
       target.bezier = { from, to, cp1: from, cp2: to, path };
       target.lineGroupEl?.classList.add("feuillets-note-connection");
       target.lineEndGroupEl?.classList.add("feuillets-note-connection-ends");
+      const data: CanvasEdge = target.getData();
+      const style = data.feuillets_edge_style;
+      for (const element of [target.lineGroupEl, target.lineEndGroupEl]) {
+        element?.setAttribute("data-feuillets-pattern", style?.pattern ?? "dashed");
+        element?.setAttribute("data-feuillets-width", style?.width ?? "thin");
+        element?.setAttribute("data-feuillets-arrows", String(target.from.end === "arrow" || target.to.end === "arrow"));
+      }
+      // Native triangles point upward; align their tips with the straight segment.
+      const angle = Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI;
+      if (target.fromLineEnd?.el) target.fromLineEnd.el.style.transform = `translate(${from.x}px, ${from.y}px) rotate(${angle - 90}deg)`;
+      if (target.toLineEnd?.el) target.toLineEnd.el.style.transform = `translate(${to.x}px, ${to.y}px) rotate(${angle + 90}deg)`;
     });
     target.getBBox = () => withAnchors(() => originalBounds.call(target) as CanvasBBox);
     const wrapped = target.updatePath, wrappedBounds = target.getBBox;
     edges.set(target, () => {
       if (target.updatePath === wrapped) target.updatePath = original;
       if (target.getBBox === wrappedBounds) target.getBBox = originalBounds;
-      target.lineGroupEl?.classList.remove("feuillets-note-connection");
-      target.lineEndGroupEl?.classList.remove("feuillets-note-connection-ends");
+      clearAppearance(target);
     });
     runtime.markMoved(target);
   };

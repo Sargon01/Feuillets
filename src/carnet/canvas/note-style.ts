@@ -1,9 +1,10 @@
+import { bindTextEditor, normalizeTextStyle, refreshTextStyle } from "./text-style.js";
 import { attachNoteSizing } from "./note-size.js";
 import { attachTextAnchors } from "./text-anchors.js";
 import { Menu, Notice, type App, type EventRef, type TFile } from "obsidian";
 import { t } from "../../i18n/index.js";
 import type { MinimalRuntimeCanvas, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
-import type { CanvasData, CanvasNode, CarnetNoteStyle } from "./types.js";
+import type { CanvasData, CanvasNode, CarnetNoteStyle, CarnetTextStyle } from "./types.js";
 
 const styles = ["plain", "outline", "rounded", "filled", "classic"] as const;
 const classes = styles.map((style) => `feuillets-note-${style}`);
@@ -30,24 +31,39 @@ function hasStyleContract(value: unknown): value is StyleCanvas {
 
 export function isFreeNote(data: CanvasData, node: CanvasNode): boolean {
   return node.type === "text" && !!node.id &&
-    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width") &&
+    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width" && key !== "feuillets_text_style") &&
     !Object.keys(node).some((key) => key.startsWith("mindmap")) &&
     !data.edges.some((edge) => (edge.fromNode === node.id || edge.toNode === node.id) &&
-      Object.keys(edge).some((key) => key.startsWith("feuillets_")));
+      Object.keys(edge).some((key) => key.startsWith("feuillets_") && key !== "feuillets_edge_style"));
 }
 
 export function applyNoteStyle(value: unknown, nodeId: string, style: CarnetNoteStyle | undefined): boolean {
+  return applyNoteAppearance(value, nodeId, { style });
+}
+
+export function applyNoteAppearance(value: unknown, nodeId: string, change: { style?: CarnetNoteStyle; color?: string; textStyle?: CarnetTextStyle }): boolean {
   if (!hasStyleContract(value) || value.readonly) return false;
   const node = value.nodes.get(nodeId);
   const data = value.getData();
   const current = data.nodes.find((candidate) => candidate.id === nodeId);
   if (!node || !current || !isFreeNote(data, current)) return false;
-  if (current.feuillets_note_style === style) return true;
+  const next = { ...node.getData() };
+  if (Object.prototype.hasOwnProperty.call(change, "style")) {
+    if (change.style === undefined) delete next.feuillets_note_style;
+    else next.feuillets_note_style = change.style;
+  }
+  if (change.color !== undefined) {
+    if (change.color) next.color = change.color;
+    else delete next.color;
+  }
+  if (Object.prototype.hasOwnProperty.call(change, "textStyle")) {
+    const style = normalizeTextStyle(change.textStyle);
+    if (style) next.feuillets_text_style = style;
+    else delete next.feuillets_text_style;
+  }
+  if (JSON.stringify(next) === JSON.stringify(node.getData())) return true;
   // Flush the preceding native edit before recording this independent action.
   value.requestPushHistory.run();
-  const next = { ...node.getData() };
-  if (style === undefined) delete next.feuillets_note_style;
-  else next.feuillets_note_style = style;
   node.setData(next);
   value.requestPushHistory.cancel();
   value.requestSave(false);
@@ -56,18 +72,21 @@ export function applyNoteStyle(value: unknown, nodeId: string, style: CarnetNote
 }
 
 /** Bound by the existing Carnet lifecycle, including native reload and undo. */
-export function attachCarnetNoteStyles(canvasValue: unknown): { refresh(): void; cleanup(): void } | null {
+export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => void): { refresh(): void; cleanup(): void } | null {
   if (!hasStyleContract(canvasValue)) return null;
   const canvas = canvasValue;
   const decorated = new Set<HTMLElement>();
-  const sizing = attachNoteSizing(canvas, (node) => anchors?.update(node));
+  const sizing = attachNoteSizing(canvas, (node) => anchors?.update(node), bindTextEditor, onRefresh);
   const anchors = attachTextAnchors(canvas, (node) => sizing?.update(node));
   const refresh = (): void => {
     const data = canvas.getData();
     const current = new Set<HTMLElement>();
+    const typographyChanges: MinimalRuntimeNode[] = [];
     const free = new Set(data.nodes.filter((node) => isFreeNote(data, node)).map((node) => node.id));
     for (const node of data.nodes) {
-      const el = canvas.nodes.get(node.id)?.nodeEl;
+      const runtime = canvas.nodes.get(node.id);
+      if (runtime && refreshTextStyle(runtime, free.has(node.id))) typographyChanges.push(runtime);
+      const el = runtime?.nodeEl;
       if (!el?.classList) continue;
       current.add(el);
       const style = free.has(node.id) ? (node.feuillets_note_style ?? "plain") : undefined;
@@ -77,6 +96,8 @@ export function attachCarnetNoteStyles(canvasValue: unknown): { refresh(): void;
     for (const el of decorated) if (!current.has(el)) { el.classList.remove(...classes); decorated.delete(el); }
     sizing?.refresh(free);
     anchors?.refresh(free);
+    for (const node of typographyChanges) if (free.has(node.id)) sizing?.update(node, true);
+    onRefresh?.();
   };
   let importing = false;
   const originalAdd = canvas.addNode;
@@ -100,6 +121,7 @@ export function attachCarnetNoteStyles(canvasValue: unknown): { refresh(): void;
       anchors?.cleanup();
       if (canvas.addNode === add) canvas.addNode = originalAdd;
       if (canvas.importData === wrapped) canvas.importData = original;
+      for (const node of canvas.nodes.values()) refreshTextStyle(node, false);
       decorated.forEach((el) => el.classList.remove(...classes));
       decorated.clear();
     },

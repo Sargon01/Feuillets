@@ -1,6 +1,7 @@
 import type { App, TFile } from "obsidian";
 import { attachCarnetNoteStyles } from "../canvas/note-style.js";
 import { attachCarnetDropLinks, type DropLinkView } from "../canvas/drop-links.js";
+import { attachAppearanceToolbar } from "../canvas/appearance-toolbar.js";
 
 type CanvasView = DropLinkView & { containerEl?: HTMLElement; contentEl?: HTMLElement };
 type LeafWithHeader = { view?: CanvasView; tabHeaderEl?: HTMLElement };
@@ -39,6 +40,7 @@ export type CarnetMindmapDecorator = (view: { file?: TFile | null; canvas?: unkn
  * d'origine n'est mémorisé qu'une fois, avant la première réécriture). */
 export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (file: TFile | null | undefined) => boolean, resolveTitle?: CarnetTitleResolver, decorateMindmap?: CarnetMindmapDecorator): CarnetLifecycle {
   const noteStyles = new Map<CanvasView, { canvas: unknown; binding: NonNullable<ReturnType<typeof attachCarnetNoteStyles>> }>();
+  const toolbars = new Map<CanvasView, { canvas: unknown; file: TFile; binding: NonNullable<ReturnType<typeof attachAppearanceToolbar>> }>();
   const marked = new Set<HTMLElement>();
   const originalTitles = new Map<HTMLElement, string>();
   const dropLinks = new Map<CanvasView, { canvas: unknown; file: TFile; cleanup: () => void }>();
@@ -62,10 +64,17 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
           noteStyles.delete(view);
         }
         if (!noteStyles.has(view)) {
-          const binding = attachCarnetNoteStyles(view.canvas);
+          const binding = attachCarnetNoteStyles(view.canvas, () => toolbars.get(view)?.binding.refresh());
           if (binding) noteStyles.set(view, { canvas: view.canvas, binding });
         }
         noteStyles.get(view)?.binding.refresh();
+        const toolbar = toolbars.get(view);
+        if (toolbar && (toolbar.canvas !== view.canvas || toolbar.file !== view.file)) { toolbar.binding.cleanup(); toolbars.delete(view); }
+        if (!toolbars.has(view)) {
+          const binding = attachAppearanceToolbar(view.canvas, () => noteStyles.get(view)?.binding.refresh(), () => app.workspace.getMostRecentLeaf()?.view === view);
+          if (binding) toolbars.set(view, { canvas: view.canvas, file: view.file, binding });
+        }
+        toolbars.get(view)?.binding.refresh();
         const existing = dropLinks.get(view);
         if (existing && (existing.canvas !== view.canvas || existing.file !== view.file)) {
           existing.cleanup();
@@ -108,6 +117,7 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
         dropLinks.delete(view);
       }
     }
+    for (const [view, toolbar] of toolbars) if (!currentViews.has(view)) { toolbar.binding.cleanup(); toolbars.delete(view); }
     // Une leaf fermée/reconstruite ne réapparaît plus dans getLeavesOfType :
     // son ancien titleEl doit être restauré ici, jamais laissé en mémoire.
     for (const titleEl of [...originalTitles.keys()]) if (!currentTitleEls.has(titleEl)) restore(titleEl);
@@ -115,6 +125,7 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
   return {
     refresh,
     cleanup: () => {
+      toolbars.forEach((toolbar) => toolbar.binding.cleanup()); toolbars.clear();
       noteStyles.forEach((styled) => styled.binding.cleanup());
       noteStyles.clear();
       dropLinks.forEach((binding) => binding.cleanup());
