@@ -127,3 +127,26 @@ test("typography controls preserve native card color, apply successive choices a
   f.select(c.nodes.get("a"), c.nodes.get("b")); assert.equal(typography().length, 0);
   f.binding.cleanup(); assert.equal(typography().length, 0);
 });
+
+test("Stack notes extends eligible multi-selection controls without replacing native actions or duplicating buttons", () => {
+  const f = fixture(), c = f.canvas;
+  for (const node of c.nodes.values()) { node.id = node.raw.id; node.moveTo = (pos) => node.setData({ ...node.getData(), ...pos }); }
+  c.history = { data: [c.getData()], current: 0 };
+  c.pushHistory = function (data) { this.history.data.splice(++this.history.current); this.history.data.push(structuredClone(data)); };
+  const stackButtons = () => byClass(f.menuEl, "feuillets-stack-notes-button");
+  f.select(c.nodes.get("b"), c.nodes.get("a"));
+  assert.equal(stackButtons().length, 1); assert.equal(stackButtons()[0].attrs["aria-label"], "Stack notes"); assert.equal(stackButtons()[0].icon, "rows-3");
+  assert.deepEqual(f.menuEl.children.filter((e) => e.attrs.native).map((e) => e.attrs.native), ["remove", "color", "zoom"]);
+  const selection = [...c.selection]; stackButtons()[0].click();
+  assert.equal(c.nodes.get("b").raw.x, 0); assert.equal(c.nodes.get("b").raw.y, 100); assert.deepEqual([...c.selection], selection);
+  assert.equal(c.history.data.length, 2); assert.equal(c.saves, 1); assert.equal(f.refreshed, 0);
+  stackButtons()[0].click(); assert.equal(c.saves, 1);
+  for (let i = 0; i < 10; i++) { c.menu.render(true); f.binding.refresh(); assert.equal(stackButtons().length, 1); }
+  f.select(c.nodes.get("a")); assert.equal(stackButtons().length, 0);
+  f.select(c.nodes.get("a"), c.edges.get("ab")); assert.equal(stackButtons().length, 0);
+  c.nodes.get("b").raw.feuillets_plan_version = 2; f.select(...c.nodes.values()); assert.equal(stackButtons().length, 0);
+  delete c.nodes.get("b").raw.feuillets_plan_version; f.select(...c.nodes.values()); assert.equal(stackButtons().length, 1);
+  f.setActive(false); f.binding.refresh(); assert.equal(stackButtons().length, 0);
+  f.setActive(true); f.binding.refresh(); assert.equal(stackButtons().length, 1);
+  f.binding.cleanup(); assert.equal(stackButtons().length, 0); assert.equal(c.menu.render, f.original);
+});

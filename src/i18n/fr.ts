@@ -3,6 +3,8 @@
  * panneau/zone fonctionnelle, dans l'ordre où on les rencontre en lisant
  * le code source correspondant. */
 export const fr = {
+  "carnet.stackNotes.title": "Empiler les notes",
+  "carnet.stackNotes.unavailable": "L’empilement est indisponible pour cette sélection Canvas.",
   "carnet.typography.title": "Typographie",
   "carnet.typography.size": "Taille du texte",
   "carnet.typography.decrease": "Réduire la taille",

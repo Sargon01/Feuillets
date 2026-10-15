@@ -3,6 +3,7 @@ import { t } from "../../i18n/index.js";
 import type { MinimalRuntimeEdge, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 import { applyEdgeStyle, getEdgeAppearance, isEligibleEdge } from "./edge-style.js";
 import { applyNoteAppearance, applyNoteStyle, isFreeNote } from "./note-style.js";
+import { canStackNotes, stackNotes } from "./stack-notes.js";
 import { formatNoteSelection, getFormattingEditor, normalizeTextStyle, textAlignments, textColors } from "./text-style.js";
 import type { CanvasData, CarnetTextStyle } from "./types.js";
 
@@ -44,6 +45,7 @@ export function attachAppearanceToolbar(value: unknown, refreshStyles: () => voi
   let button: HTMLButtonElement | undefined, panel: HTMLElement | undefined, editing: Selection | null = null;
   let typographyButton: HTMLButtonElement | undefined, typography = false;
   let panelEditor: ReturnType<typeof getFormattingEditor>;
+  let stackButton: HTMLButtonElement | undefined;
   let nativeDirection: HTMLButtonElement | undefined;
   const close = (): void => { panel?.remove(); panel = undefined; editing = null; panelEditor = undefined; updateChoices = undefined; button?.classList.remove("is-active"); typographyButton?.classList.remove("is-active"); };
   const fitPanel = (): void => {
@@ -169,6 +171,16 @@ export function attachAppearanceToolbar(value: unknown, refreshStyles: () => voi
     typographyButton?.remove(); typographyButton = undefined;
   };
   const refresh = (): void => {
+    if (!isActive() || !menu.menuEl.isConnected || !canStackNotes(canvas)) {
+      stackButton?.remove(); stackButton = undefined;
+    } else if (!stackButton || stackButton.parentElement !== menu.menuEl) {
+      stackButton?.remove();
+      stackButton = menu.menuEl.createEl("button", { cls: "clickable-icon feuillets-stack-notes-button", attr: { "aria-label": t("carnet.stackNotes.title") } });
+      setIcon(stackButton, "rows-3"); setTooltip(stackButton, t("carnet.stackNotes.title"), { placement: "top" });
+      stackButton.addEventListener("click", () => {
+        if (!stackNotes(canvas, isActive)) new Notice(t("carnet.stackNotes.unavailable"));
+      });
+    }
     const selection = selected(canvas);
     if (panel && typography && editing?.kind === "note" && panelEditor !== getFormattingEditor(editing.target)) close();
     if (editing && (!same(editing, selection) || !isActive() || !panel?.isConnected)) close();
@@ -210,6 +222,7 @@ export function attachAppearanceToolbar(value: unknown, refreshStyles: () => voi
   };
   menu.render = wrapped;
   return { refresh, cleanup: () => {
+    stackButton?.remove(); stackButton = undefined;
     close(); releaseButton(); host.removeEventListener("pointerdown", outside, true);
     if (menu.render === wrapped) { menu.render = original; if (menu.menuEl.isConnected) original.call(menu, true); }
   } };

@@ -6,6 +6,8 @@
 import type { fr } from "./fr.js";
 
 export const en = {
+  "carnet.stackNotes.title": "Stack notes",
+  "carnet.stackNotes.unavailable": "Stacking is unavailable for this Canvas selection.",
   "carnet.typography.title": "Typography",
   "carnet.typography.size": "Font size",
   "carnet.typography.decrease": "Decrease font size",
