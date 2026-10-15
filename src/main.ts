@@ -133,6 +133,7 @@ import { resolveCanvasSession, type CanvasSession } from "./carnet/canvas/adapte
 import { createFolderCarnet, folderCarnetCanvasPath, getFolderCarnetDisplayLabel, getFolderCarnetRegistration, isFolderCarnetCanvasFile, listCanonicalFolderCarnetOwners, canonicalizeFolderCarnetRegistration, removeFolderCarnetRegistrationsForDeletedFile, resolveExistingFolderCarnetRegistration, resolveFolderCarnet, resolveFolderCarnetContext as resolveFolderCarnetContextCore, resolveFolderCarnetTitleContext, type FolderCarnetContext } from "./carnet/core/folder-carnets.js";
 import { remapFeuilletsPathReferences } from "./carnet/core/path-reference-maintenance.js";
 import { remapWorkspaceCitationResourcePaths } from "./services/workspace-citations.js";
+import { registerCarnetNoteStyleMenu } from "./carnet/canvas/note-style.js";
 import { createCarnetLifecycle, type CarnetLifecycle } from "./carnet/core/lifecycle.js";
 import {
   createMindmapBlock,
@@ -845,6 +846,7 @@ class FeuilletsPlugin extends Plugin {
       }
     );
     this.carnetLifecycle.refresh();
+    registerCarnetNoteStyleMenu(this, (file) => this.isFeuilletsCarnetFile(file), () => this.carnetLifecycle?.refresh());
     this.registerEvent(this.app.workspace.on("layout-change", () => this.carnetLifecycle?.refresh()));
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.carnetLifecycle?.refresh()));
     this.registerMindmapCommands();

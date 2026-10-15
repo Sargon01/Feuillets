@@ -55,7 +55,7 @@ function hasContract(value: unknown): value is DropCanvas {
 
 function isFreeText(data: CanvasData, node: CanvasNode): boolean {
   return node.type === "text" && !!node.id &&
-    !Object.keys(node).some((key) => key.startsWith("feuillets_")) &&
+    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width") &&
     !data.edges.some((edge) => (edge.fromNode === node.id || edge.toNode === node.id) &&
       Object.keys(edge).some((key) => key.startsWith("feuillets_")));
 }

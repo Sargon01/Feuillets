@@ -6,6 +6,15 @@
 import type { fr } from "./fr.js";
 
 export const en = {
+  "carnet.noteStyle.title": "Appearance",
+  "carnet.noteStyle.default": "Default",
+  "carnet.noteStyle.plain": "Frameless",
+  "carnet.noteStyle.outline": "Simple outline",
+  "carnet.noteStyle.rounded": "Rounded corners",
+  "carnet.noteStyle.classic": "Classic Canvas card",
+  "carnet.noteStyle.filled": "Colored background",
+  "carnet.noteStyle.unavailable": "The appearance cannot be saved in this Canvas view.",
+
   "carnet.folder.create": "Create notebook",
   "carnet.folder.open": "Open notebook",
   "carnet.title.global": "Notebook",

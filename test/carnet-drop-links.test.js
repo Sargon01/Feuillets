@@ -233,3 +233,21 @@ test("closing the view cancels its deferred operation immediately", () => {
   assert.equal(f.canvas.getData().edges.length, 0);
   assert.equal(f.nodes.get("a").raw.x, 310);
 });
+
+test("styled and manually sized free notes retain drop-link creation, removal and native history", () => {
+  const f = fixture();
+  f.nodes.get("a").raw.feuillets_note_style = "plain";
+  f.nodes.get("a").raw.feuillets_note_width = "manual";
+  f.nodes.get("b").raw.feuillets_note_style = "filled";
+  f.canvas.requestSave();
+  const before = f.canvas.getData();
+  f.start(); f.release(); f.flush();
+  assert.equal(f.canvas.getData().edges.length, 1);
+  assert.deepEqual(f.canvas.getData().nodes, before.nodes);
+  f.canvas.undo();
+  assert.deepEqual(f.canvas.getData(), before);
+  f.canvas.redo();
+  assert.equal(f.canvas.getData().edges.length, 1);
+  f.start(); f.release(); f.flush();
+  assert.deepEqual(f.canvas.getData(), before);
+});

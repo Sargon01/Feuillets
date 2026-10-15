@@ -1,4 +1,5 @@
 import type { App, TFile } from "obsidian";
+import { attachCarnetNoteStyles } from "../canvas/note-style.js";
 import { attachCarnetDropLinks, type DropLinkView } from "../canvas/drop-links.js";
 
 type CanvasView = DropLinkView & { containerEl?: HTMLElement; contentEl?: HTMLElement };
@@ -37,6 +38,7 @@ export type CarnetMindmapDecorator = (view: { file?: TFile | null; canvas?: unkn
  * refresh répété réapplique le même titre sans jamais l'empiler (le texte
  * d'origine n'est mémorisé qu'une fois, avant la première réécriture). */
 export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (file: TFile | null | undefined) => boolean, resolveTitle?: CarnetTitleResolver, decorateMindmap?: CarnetMindmapDecorator): CarnetLifecycle {
+  const noteStyles = new Map<CanvasView, { canvas: unknown; binding: NonNullable<ReturnType<typeof attachCarnetNoteStyles>> }>();
   const marked = new Set<HTMLElement>();
   const originalTitles = new Map<HTMLElement, string>();
   const dropLinks = new Map<CanvasView, { canvas: unknown; file: TFile; cleanup: () => void }>();
@@ -54,6 +56,16 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
       const view = leafWithHeader.view ?? {};
       if (isCarnet(view.file) && view.file) {
         currentViews.add(view);
+        const styled = noteStyles.get(view);
+        if (styled && styled.canvas !== view.canvas) {
+          styled.binding.cleanup();
+          noteStyles.delete(view);
+        }
+        if (!noteStyles.has(view)) {
+          const binding = attachCarnetNoteStyles(view.canvas);
+          if (binding) noteStyles.set(view, { canvas: view.canvas, binding });
+        }
+        noteStyles.get(view)?.binding.refresh();
         const existing = dropLinks.get(view);
         if (existing && (existing.canvas !== view.canvas || existing.file !== view.file)) {
           existing.cleanup();
@@ -84,6 +96,12 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
     }
     for (const wrapper of marked) if (!current.has(wrapper)) wrapper.classList.remove("feuillets-carnet-canvas");
     marked.clear(); current.forEach((wrapper) => marked.add(wrapper));
+    for (const [view, styled] of noteStyles) {
+      if (!currentViews.has(view)) {
+        styled.binding.cleanup();
+        noteStyles.delete(view);
+      }
+    }
     for (const [view, binding] of dropLinks) {
       if (!currentViews.has(view)) {
         binding.cleanup();
@@ -97,6 +115,8 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
   return {
     refresh,
     cleanup: () => {
+      noteStyles.forEach((styled) => styled.binding.cleanup());
+      noteStyles.clear();
       dropLinks.forEach((binding) => binding.cleanup());
       dropLinks.clear();
       marked.forEach((wrapper) => wrapper.classList.remove("feuillets-carnet-canvas"));

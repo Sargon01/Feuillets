@@ -12170,3 +12170,70 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
   min-width: 0;
   border-top: 1px solid var(--background-modifier-border);
 }
+
+/* Individual free-note appearances retain native hit areas and controls. */
+.feuillets-carnet-canvas .canvas-node.feuillets-note-plain .canvas-node-container,
+.feuillets-carnet-canvas .canvas-node.feuillets-note-outline .canvas-node-container,
+.feuillets-carnet-canvas .canvas-node.feuillets-note-rounded .canvas-node-container {
+  background: transparent;
+  box-shadow: none;
+}
+.feuillets-carnet-canvas .canvas-node.feuillets-note-plain .canvas-node-container {
+  border-color: transparent;
+  border-radius: 0;
+}
+.feuillets-carnet-canvas .canvas-node.feuillets-note-outline .canvas-node-container {
+  border: 1px solid var(--canvas-color);
+  border-radius: 0;
+}
+.feuillets-carnet-canvas .canvas-node.feuillets-note-rounded .canvas-node-container {
+  border: 1px solid var(--canvas-color);
+  border-radius: var(--radius-l);
+}
+.feuillets-carnet-canvas .canvas-node.feuillets-note-filled .canvas-node-container {
+  background: color-mix(in srgb, var(--canvas-color) 12%, var(--background-primary));
+  border: 1px solid color-mix(in srgb, var(--canvas-color) 50%, transparent);
+  border-radius: var(--radius-m);
+  box-shadow: none;
+}
+.feuillets-carnet-canvas .canvas-node.feuillets-note-plain:hover .canvas-node-container {
+  border-color: var(--background-modifier-border-hover);
+}
+.feuillets-carnet-canvas .canvas-node:is(.feuillets-note-plain, .feuillets-note-outline, .feuillets-note-rounded, .feuillets-note-filled):is(.is-selected, .is-editing) .canvas-node-container {
+  border-color: var(--interactive-accent);
+}
+
+.feuillets-carnet-canvas .canvas-node:is(.feuillets-note-plain, .feuillets-note-outline, .feuillets-note-rounded, .feuillets-note-filled) :is(.canvas-node-content, .canvas-node-placeholder) {
+  background: transparent;
+}
+.feuillets-carnet-canvas .canvas-node:is(.feuillets-note-plain, .feuillets-note-outline, .feuillets-note-rounded, .feuillets-note-filled):is(.is-selected, .is-focused) .canvas-node-container {
+  box-shadow: var(--shadow-border-accent);
+}
+
+.feuillets-carnet-canvas .feuillets-note-connection .canvas-display-path {
+  stroke: var(--text-muted);
+  stroke-width: 1.25px;
+  stroke-dasharray: 3 3;
+  stroke-linecap: round;
+}
+.feuillets-carnet-canvas .feuillets-note-connection.is-focused .canvas-display-path {
+  stroke: var(--interactive-accent);
+}
+.feuillets-carnet-canvas .feuillets-note-connection-ends {
+  display: none;
+}
+.feuillets-carnet-canvas .feuillets-note-measuring .markdown-preview-view {
+  height: auto;
+  min-height: 0;
+}
+.feuillets-carnet-canvas .feuillets-note-measuring-auto .markdown-preview-view {
+  width: max-content;
+  max-width: 420px;
+}
+
+.feuillets-carnet-canvas .canvas-node:is(.feuillets-note-plain, .feuillets-note-outline, .feuillets-note-rounded, .feuillets-note-filled, .feuillets-note-classic) .markdown-preview-view,
+.feuillets-carnet-canvas .canvas-node:is(.feuillets-note-plain, .feuillets-note-outline, .feuillets-note-rounded, .feuillets-note-filled, .feuillets-note-classic) .markdown-preview-view :is(p, li, blockquote, h1, h2, h3, h4, h5, h6) {
+  word-break: normal;
+  overflow-wrap: break-word;
+  text-wrap: pretty;
+}

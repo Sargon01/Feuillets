@@ -1,3 +1,5 @@
+export type CarnetNoteStyle = "plain" | "outline" | "rounded" | "filled" | "classic";
+
 /** Types shared by the Canvas boundary.  Canvas is deliberately permissive:
  * plugins may add fields which Feuillets does not know about. */
 export type CanvasNode = {
@@ -10,6 +12,8 @@ export type CanvasNode = {
   width?: number;
   height?: number;
   color?: string;
+  feuillets_note_style?: CarnetNoteStyle;
+  feuillets_note_width?: "manual";
   feuillets_managed?: "manuscript" | "research" | "thread";
   /** Groupe Canvas natif délimitant un bloc Feuillets, porté UNIQUEMENT par
    * le node `type: "group"` qui

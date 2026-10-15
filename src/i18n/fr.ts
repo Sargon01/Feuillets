@@ -3,6 +3,15 @@
  * panneau/zone fonctionnelle, dans l'ordre où on les rencontre en lisant
  * le code source correspondant. */
 export const fr = {
+  "carnet.noteStyle.title": "Habillage",
+  "carnet.noteStyle.default": "Par défaut",
+  "carnet.noteStyle.plain": "Sans cadre",
+  "carnet.noteStyle.outline": "Contour simple",
+  "carnet.noteStyle.rounded": "Coins arrondis",
+  "carnet.noteStyle.classic": "Carte Canvas classique",
+  "carnet.noteStyle.filled": "Fond coloré",
+  "carnet.noteStyle.unavailable": "L’habillage ne peut pas être enregistré dans cette vue Canvas.",
+
   "carnet.folder.create": "Créer le Carnet",
   "carnet.folder.open": "Ouvrir le Carnet",
   "carnet.title.global": "Carnet",
