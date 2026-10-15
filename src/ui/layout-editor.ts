@@ -181,6 +181,9 @@ export class LayoutEditor {
    * en mode workspace (§28), et strictement le MÊME composant que celui du
    * LayoutModal (§29). `null` partout ailleurs. */
   miniature: TitlePageMiniature | null = null;
+  private rolePicker: HTMLSelectElement | null = null;
+  private roleFields: HTMLElement | null = null;
+  private roleInputs = new Map<keyof TitlePageStyle, HTMLInputElement>();
 
   constructor(app: App, plugin: LayoutPlugin, host: HTMLElement | null, templateKey: string, options: LayoutEditorOptions) {
     this.app = app;
@@ -227,6 +230,7 @@ export class LayoutEditor {
    * `load()` pour que `renderStandaloneFirstPage()` (Composition → Première
    * page, §6) partage exactement le même chargement, sans duplication. */
   private async loadModel(): Promise<void> {
+    this.miniature?.destroy();
     const S = this.plugin.settings;
     this.templates = await listExportTemplates(this.app, S);
     this.template = await resolveExportTemplateV2(this.app, S, this.templateKey);
@@ -269,6 +273,7 @@ export class LayoutEditor {
   private renderWorkspace(): void {
     const host = this.host;
     if (!host) return;
+    this.miniature?.destroy();
     host.empty();
     this.navigationButtons = {};
     this.navEl = null;
@@ -733,9 +738,14 @@ export class LayoutEditor {
 
   renderInspector(): void {
     const insp = this.inspectorEl;
+    if (this.mode === "workspace") {
+      this.miniature?.destroy();
+      this.miniature = null;
+    }
+    this.rolePicker = null;
+    this.roleFields = null;
+    this.roleInputs.clear();
     insp.empty();
-    // Reconstruite avec l'inspecteur : jamais un élément orphelin conservé.
-    if (this.selected !== "firstPage") this.miniature = null;
     if (this.selected === "page") return this.renderPageInspector(insp);
     if (this.selected === "body") return this.renderBodyInspector(insp);
     if (this.selected === "headings") return this.renderHeadingsInspector(insp);
@@ -855,18 +865,22 @@ export class LayoutEditor {
 
   renderBlockInspector(insp: HTMLElement, role: string): void {
     const st = this.styles[role];
+    this.roleInputs.clear();
     insp.createEl("h4", { text: titleRoleLabel(role) });
-    const num = (name: string, get: () => number | undefined, set: NumberFieldSetter): Setting =>
+    const num = (key: keyof TitlePageStyle, name: string, get: () => number | undefined, set: NumberFieldSetter): Setting =>
       new Setting(insp).setName(name).addText((t2) => {
+        this.roleInputs.set(key, t2.inputEl);
         t2.inputEl.type = "number";
         t2.setValue(get() != null ? String(get()) : "").onChange(async (v) => {
           const n = parseFloat(v);
-          set(v.trim() === "" || !Number.isFinite(n) ? undefined : n);
+          if (v.trim() !== "" && !Number.isFinite(n)) return;
+          this.miniature?.cancelDrag();
+          set(v.trim() === "" ? undefined : n);
           await this.saveModel();
         });
       });
 
-    num(t("modal.layout.sizePt"), () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
+    num("fontSizePt", t("modal.layout.sizePt"), () => st.fontSizePt, (n) => (n == null ? delete st.fontSizePt : (st.fontSizePt = n)));
 
     new Setting(insp).setName(t("modal.layout.alignment")).then((s) => {
       const buttons = new Map<string, HTMLElement>();
@@ -878,6 +892,7 @@ export class LayoutEditor {
       for (const [val, icon, label] of alignments) {
         s.addExtraButton((b) => {
           b.setIcon(icon).setTooltip(label).onClick(async () => {
+            this.miniature?.cancelDrag();
             st.align = val;
             for (const [alignment, button] of buttons) button.toggleClass("is-active", alignment === val);
             await this.saveModel();
@@ -888,8 +903,10 @@ export class LayoutEditor {
       }
     });
 
-    num(t("modal.layout.marginAbove"), () => st.marginTopPt, (n) => (n == null ? delete st.marginTopPt : (st.marginTopPt = n)));
-    num(t("modal.layout.marginBelow"), () => st.marginBottomPt, (n) => (n == null ? delete st.marginBottomPt : (st.marginBottomPt = n)));
+    num("marginTopPt", t("modal.layout.marginAbove"), () => st.marginTopPt, (n) => (n == null ? delete st.marginTopPt : (st.marginTopPt = n)));
+    num("marginBottomPt", t("modal.layout.marginBelow"), () => st.marginBottomPt, (n) => (n == null ? delete st.marginBottomPt : (st.marginBottomPt = n)));
+    num("marginLeftPt", t("modal.layout.marginLeftPt"), () => st.marginLeftPt, (n) => (n == null ? delete st.marginLeftPt : (st.marginLeftPt = n)));
+    num("marginRightPt", t("modal.layout.marginRightPt"), () => st.marginRightPt, (n) => (n == null ? delete st.marginRightPt : (st.marginRightPt = n)));
   }
 
   /** Champ numérique compact (drapeau `compact`) — pose la classe explicite
@@ -1202,52 +1219,50 @@ export class LayoutEditor {
        §4 du micro-lot finition UI. */
     const roleSection = insp.createDiv({ cls: "feuillets-layout-section" });
     roleSection.createEl("h4", { text: t("modal.layout.elementStyle") });
-    let roleFields: HTMLElement;
     new Setting(roleSection).setName(t("modal.layout.element")).addDropdown((d) => {
+      this.rolePicker = d.selectEl;
       d.addOption("", t("modal.layout.chooseElement"));
       for (const role of this.roles) d.addOption(role, titleRoleLabel(role));
-      d.setValue(this.selectedRole || "").onChange((v) => {
-        this.selectedRole = v || null;
-        roleFields.empty();
-        if (this.selectedRole && this.styles[this.selectedRole]) this.renderBlockInspector(roleFields, this.selectedRole);
-      });
+      d.setValue(this.selectedRole || "").onChange((v) => this.selectFirstPageRole(v || null));
     });
-    roleFields = roleSection.createDiv();
-    if (this.selectedRole && this.styles[this.selectedRole]) this.renderBlockInspector(roleFields, this.selectedRole);
+    this.roleFields = roleSection.createDiv();
+    if (this.selectedRole && this.styles[this.selectedRole]) this.renderBlockInspector(this.roleFields, this.selectedRole);
   }
 
-  /** §29-§31 : réutilise TitlePageMiniature telle quelle — clic sur un bloc
-   * = sélection du rôle affichée par l'inspecteur, glisser vertical =
-   * `marginTopPt` existant, sauvegarde dans le MÊME ExportTemplateV2, puis
-   * rafraîchissement du vrai Preview via `onChange`. Aucune donnée nouvelle. */
+  private selectFirstPageRole(role: string | null): void {
+    if (role === this.selectedRole) return;
+    this.miniature?.cancelDrag();
+    this.selectedRole = role;
+    if (this.rolePicker) this.rolePicker.value = role || "";
+    this.roleFields?.empty();
+    this.roleInputs.clear();
+    if (role && this.styles[role] && this.roleFields) this.renderBlockInspector(this.roleFields, role);
+    this.miniature?.refresh();
+  }
+
   private mountFirstPageMiniature(insp: HTMLElement): void {
     const host = insp.createDiv({ cls: "feuillets-layout-miniature" });
     this.miniature = new TitlePageMiniature(host, this, {
       heightPx: 260,
       onSelect: (target) => {
-        /* Un clic sur un bloc choisit son rôle SANS quitter la catégorie
-           Première page : l'inspecteur affiche ce rôle juste sous la maquette.
-           Un clic sur une bande est ignoré ici — en workspace, en-tête et pied
-           s'éditent dans la catégorie Page (aucun doublon d'interface). */
         if (typeof target !== "string" || !this.styles[target]) return;
         this.selected = "firstPage";
-        this.selectedRole = target;
-        this.renderInspector();
+        this.selectFirstPageRole(target);
       },
       onDragValue: () => this.syncMiniatureInspector(),
     });
     this.miniature.mount();
   }
 
-  /** Met à jour le champ « marge au-dessus » pendant un glisser, sans
-   * reconstruire l'inspecteur (garde le focus des autres champs) — même
-   * contrat que LayoutModal.syncInspectorValues. */
-  private syncMiniatureInspector(): void {
-    const role = this.selectedRole;
+  syncMiniatureInspector(): void {
+    const role = this.selected === "firstPage" ? this.selectedRole : this.selected;
     if (!role || !this.styles[role]) return;
-    const inputs = this.inspectorEl.querySelectorAll<HTMLInputElement>('input[type="number"]');
-    const target = inputs[inputs.length - 2];
-    if (target) target.value = this.styles[role].marginTopPt != null ? String(this.styles[role].marginTopPt) : "";
+    for (const [key, input] of this.roleInputs) {
+      if (input === input.ownerDocument.activeElement) continue;
+      const value = this.styles[role][key];
+      const text = value != null ? String(value) : "";
+      if (input.value !== text) input.value = text;
+    }
   }
 
   async saveModel(): Promise<void> {

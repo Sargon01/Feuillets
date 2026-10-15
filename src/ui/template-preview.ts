@@ -85,6 +85,8 @@ export function mountTemplatePreview(
     /* L'aperçu ne césure pas : la règle vient après celle du gabarit afin que
        la composition mesurée avec hyphenationOverride:false lui corresponde. */
     "body, .pdf-page-content { hyphens: none; }",
+    ".feuillets-preview-caret-marker { position: absolute; width: 0; border-left: 2px solid var(--interactive-accent, #7864b5); pointer-events: none; z-index: 3; }",
+    ".feuillets-preview-caret-marker.is-block-fallback { border-left-style: dashed; }",
     "html { margin: 0; padding: 0; width: 100%; }",
     "body { margin: 0; padding: 0; width: 100%; overflow: hidden; background: var(--background-secondary, #f0f2f5); }",
     ".feuillets-preview-pages-wrapper {",

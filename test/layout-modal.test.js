@@ -25,6 +25,8 @@ class FakeElement {
     if (options.cls) this.addClass(options.cls);
   }
 
+  get ownerDocument() { return globalThis.document; }
+  get isConnected() { return true; }
   createEl(tag, options = {}) { const child = new FakeElement(tag, options); this.children.push(child); return child; }
   createDiv(options = {}) { return this.createEl("div", options); }
   createSpan(options = {}) { return this.createEl("span", options); }
@@ -50,7 +52,7 @@ function installSettingStub() {
     const control = {
       kind,
       options: [],
-      inputEl: { type: "text", value: "" },
+      inputEl: { type: "text", value: "", get ownerDocument() { return globalThis.document || { activeElement: null }; } },
       extraSettingsEl: new FakeElement(),
       addOption(value, label) { this.options.push({ value, label }); return this; },
       setValue(value) { this.value = value; this.inputEl.value = value; return this; },
@@ -120,8 +122,12 @@ function createModal({ templateKey = "classique", exportFormat = "docx" } = {}) 
 
 async function withFakeDocument(run) {
   const previousDocument = globalThis.document;
+  const previousObserver = globalThis.MutationObserver;
+  globalThis.MutationObserver = class { observe() {} disconnect() {} };
   const listeners = new Map();
   globalThis.document = {
+    body: {},
+    activeElement: null,
     addEventListener(name, callback) { listeners.set(name, callback); },
     removeEventListener(name, callback) { if (listeners.get(name) === callback) listeners.delete(name); },
   };
@@ -129,6 +135,7 @@ async function withFakeDocument(run) {
     await run(listeners);
   } finally {
     globalThis.document = previousDocument;
+    globalThis.MutationObserver = previousObserver;
   }
 }
 
@@ -350,10 +357,10 @@ test("LayoutModal gère les bandes, le glisser-déposer et les inspecteurs V2 sa
 
       const role = modal.roles[0];
       const initialMargin = modal.styles[role].marginTopPt || 0;
-      modal.startDrag({ clientY: 100, preventDefault() {} }, role);
-      listeners.get("pointermove")({ clientY: -100 });
+      modal.startDrag({ clientX: 0, clientY: 100, pointerId: 1, preventDefault() {} }, role);
+      listeners.get("pointermove")({ clientX: 0, clientY: -100, pointerId: 1 });
       assert.equal(modal.styles[role].marginTopPt >= 0, true);
-      await listeners.get("pointerup")();
+      await listeners.get("pointerup")({ clientX: 0, clientY: -100, pointerId: 1 });
       assert.equal(listeners.size, 0);
       assert.equal(calls.frontmatter.length, 1);
       assert.equal(calls.notify, 1, "la sauvegarde du gabarit avertit l’aperçu qui l’a ouvert");

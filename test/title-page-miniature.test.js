@@ -34,6 +34,8 @@ class FakeElement {
     this.value = options.value ?? "";
     if (options.cls) this.addClass(options.cls);
   }
+  get ownerDocument() { return globalThis.document; }
+  get isConnected() { return true; }
   createEl(tag, options = {}) { const child = new FakeElement(tag, options); this.children.push(child); return child; }
   createDiv(options = {}) { return this.createEl("div", options); }
   createSpan(options = {}) { return this.createEl("span", options); }
@@ -65,7 +67,7 @@ function installSettingStub() {
     const control = {
       kind,
       options: [],
-      inputEl: { type: "text", value: "" },
+      inputEl: { type: "text", value: "", get ownerDocument() { return globalThis.document || { activeElement: null }; } },
       extraSettingsEl: new FakeElement(),
       addOption(value, label) { this.options.push({ value, label }); return this; },
       setValue(value) { this.value = value; this.inputEl.value = value; return this; },
@@ -122,8 +124,12 @@ function buildEditor(options = {}) {
 
 async function withFakeDocument(run) {
   const previousDocument = globalThis.document;
+  const previousObserver = globalThis.MutationObserver;
+  globalThis.MutationObserver = class { observe() {} disconnect() {} };
   const listeners = new Map();
   globalThis.document = {
+    body: {},
+    activeElement: null,
     addEventListener(name, callback) { listeners.set(name, callback); },
     removeEventListener(name, callback) { if (listeners.get(name) === callback) listeners.delete(name); },
   };
@@ -131,6 +137,7 @@ async function withFakeDocument(run) {
     await run(listeners);
   } finally {
     globalThis.document = previousDocument;
+    globalThis.MutationObserver = previousObserver;
   }
 }
 
@@ -250,8 +257,8 @@ test("Mise en page → Première page : cliquer un bloc sélectionne son rôle d
     assert.ok(block, "le bloc du rôle est rendu");
 
     await withFakeDocument(async (listeners) => {
-      block.events.get("pointerdown")({ clientY: 0, preventDefault() {} });
-      listeners.get("pointerup") && await listeners.get("pointerup")();
+      block.events.get("pointerdown")({ clientX: 0, clientY: 0, pointerId: 1, preventDefault() {} });
+      listeners.get("pointerup") && await listeners.get("pointerup")({ clientX: 0, clientY: 0, pointerId: 1 });
     });
 
     assert.equal(editor.selected, "firstPage", "on ne quitte jamais la catégorie Première page");
@@ -269,17 +276,65 @@ test("Mise en page → Première page : le glisser modifie marginTopPt et ne sau
     const before = editor.styles[role].marginTopPt || 0;
 
     await withFakeDocument(async (listeners) => {
-      editor.miniature.startDrag({ clientY: 100, preventDefault() {} }, role);
+      editor.miniature.startDrag({ clientX: 0, clientY: 100, pointerId: 1, preventDefault() {} }, role);
       assert.equal(calls.frontmatter.length, 0, "aucune écriture prématurée pendant le glisser");
-      listeners.get("pointermove")({ clientY: 140 });
+      listeners.get("pointermove")({ clientX: 0, clientY: 140, pointerId: 1 });
       assert.ok(editor.styles[role].marginTopPt > before, "la marge existante augmente vers le bas");
       assert.equal(calls.frontmatter.length, 0, "toujours aucune écriture pendant le mouvement");
-      await listeners.get("pointerup")();
+      await listeners.get("pointerup")({ clientX: 0, clientY: 140, pointerId: 1 });
       assert.equal(listeners.size, 0, "les écouteurs globaux sont retirés");
     });
 
     assert.equal(calls.frontmatter.length, 1, "une seule écriture, au relâchement");
     assert.equal(calls.change, 1, "le vrai Preview est rafraîchi une fois");
+  } finally { restore(); }
+});
+
+test("Miniature: a click or a rounded zero displacement leaves optional margins absent", async () => {
+  const restore = installSettingStub();
+  try {
+    const { editor, calls } = buildEditor();
+    await editor.load();
+    editor.select("firstPage");
+    const role = editor.roles[0];
+    editor.styles[role].marginTopPt = 0;
+    const before = { ...editor.styles[role] };
+    await withFakeDocument(async (listeners) => {
+      editor.miniature.startDrag({ clientX: 20, clientY: 20, pointerId: 1, preventDefault() {} }, role);
+      await listeners.get("pointerup")({ clientX: 20, clientY: 20, pointerId: 1 });
+      editor.miniature.startDrag({ clientX: 20, clientY: 20, pointerId: 1, preventDefault() {} }, role);
+      listeners.get("pointermove")({ clientX: 20, clientY: 0, pointerId: 1 });
+      await listeners.get("pointerup")({ clientX: 20, clientY: 0, pointerId: 1 });
+      assert.equal(listeners.size, 0);
+    });
+    assert.deepEqual(editor.styles[role], before);
+    assert.equal(calls.frontmatter.length, 0);
+    assert.equal(calls.change, 0);
+  } finally { restore(); }
+});
+
+test("Miniature: cancellation restores margins and a second gesture starts with clean listeners", async () => {
+  const restore = installSettingStub();
+  try {
+    const { editor, calls } = buildEditor();
+    await editor.load();
+    editor.select("firstPage");
+    const role = editor.roles[0];
+    const before = { ...editor.styles[role] };
+    await withFakeDocument(async (listeners) => {
+      editor.miniature.startDrag({ clientX: 20, clientY: 20, pointerId: 1, preventDefault() {} }, role);
+      listeners.get("pointermove")({ clientX: 26, clientY: 40, pointerId: 1 });
+      assert.notDeepEqual(editor.styles[role], before);
+      listeners.get("pointercancel")({ pointerId: 1 });
+      assert.equal(listeners.size, 0);
+      assert.deepEqual(editor.styles[role], before);
+      editor.miniature.startDrag({ clientX: 20, clientY: 20, pointerId: 1, preventDefault() {} }, role);
+      listeners.get("pointermove")({ clientX: 26, clientY: 40, pointerId: 1 });
+      await listeners.get("pointerup")({ clientX: 26, clientY: 40, pointerId: 1 });
+      assert.equal(listeners.size, 0);
+    });
+    assert.equal(calls.frontmatter.length, 1);
+    assert.equal(calls.change, 1);
   } finally { restore(); }
 });
 
@@ -292,10 +347,10 @@ test("Mise en page → Première page : le glisser ne borne jamais sous zéro", 
     const role = editor.roles[0];
 
     await withFakeDocument(async (listeners) => {
-      editor.miniature.startDrag({ clientY: 500, preventDefault() {} }, role);
-      listeners.get("pointermove")({ clientY: -5000 });
+      editor.miniature.startDrag({ clientX: 0, clientY: 500, pointerId: 1, preventDefault() {} }, role);
+      listeners.get("pointermove")({ clientX: 0, clientY: -5000, pointerId: 1 });
       assert.equal(editor.styles[role].marginTopPt, 0);
-      await listeners.get("pointerup")();
+      await listeners.get("pointerup")({ clientX: 0, clientY: -5000, pointerId: 1 });
     });
   } finally { restore(); }
 });

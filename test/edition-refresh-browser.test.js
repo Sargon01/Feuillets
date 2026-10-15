@@ -4,6 +4,10 @@ import { resolve } from "node:path";
 import { builtinModules } from "node:module";
 import { build } from "esbuild";
 import { chromium } from "playwright";
+import { readFileSync } from "node:fs";
+import { Document, Packer } from "docx";
+import JSZip from "jszip";
+import { blockToParagraphs } from "../src/services/docx-blocks.js";
 
 test("Edition refresh and local interactions preserve mounted controls", async (t) => {
   const bundle = await build({
@@ -11,6 +15,10 @@ test("Edition refresh and local interactions preserve mounted controls", async (
       export { SidebarFeuilletsView } from "./src/views/sidebar-feuillets-view.ts";
       export { PreviewView } from "./src/views/preview-view.ts";
       export { EditionWorkspaceContent } from "./src/ui/edition-workspace-content.ts";
+      export { LayoutEditor } from "./src/ui/layout-editor.ts";
+      export { LayoutModal } from "./src/ui/layout-modal.ts";
+      export { resolvePageGeometry } from "./src/services/page-geometry.ts";
+      export { titleRoleCss } from "./src/utils/export-templates.ts";
       export { ExportPanel } from "./src/ui/export-panel.ts";
       export { DEFAULT_SETTINGS } from "./src/default-settings.ts";
       export * from "./src/constants.ts";
@@ -251,6 +259,81 @@ test("Edition refresh and local interactions preserve mounted controls", async (
       f.api.Notice.onCreate = (message) => f.notices.push(message);
     });
     return page;
+  }
+
+  async function openMiniature(context, mode = "composition") {
+    const page = await open(context, mode === "workspace" ? "layout" : "composition", true);
+    await page.setViewportSize({ width: 1200, height: 1000 });
+    await page.addStyleTag({ content: readFileSync("styles.css", "utf8") });
+    await page.evaluate(async (mode) => {
+      const f = window.fixture;
+      f.container.style.height = "900px";
+      if (mode === "modal") {
+        f.modal = new f.api.LayoutModal(f.app, f.plugin, "classique", "Classic", () => { f.calls.preview++; });
+        f.modal.modalEl = document.createElement("div");
+        f.modal.contentEl = document.createElement("div");
+        f.modal.modalEl.appendChild(f.modal.contentEl);
+        document.body.appendChild(f.modal.modalEl);
+        await f.modal.onOpen();
+        f.editor = f.modal.editor;
+      } else if (mode === "workspace") {
+        f.editor = f.workspaceContent.editor;
+        await f.navigate("modal.layout.categoryPage");
+        f.editor.select("firstPage");
+      } else {
+        await f.navigate("compositionSummary.beforeManuscript");
+        await f.navigate("preview.export.firstPage");
+        f.editor = f.workspaceContent.compositionContent.layoutEditor;
+      }
+      f.miniature = f.editor.miniature;
+      f.miniPage = f.miniature.pageEl;
+      f.role = "titre";
+      f.block = f.miniature.blockEls[f.role];
+      f.originalStyle = { ...f.editor.styles[f.role] };
+      f.frontContent = await f.app.vault.read(f.titleFile);
+      f.notifications = 0;
+      const notify = f.editor.notifyChange.bind(f.editor);
+      f.editor.notifyChange = () => { f.notifications++; notify(); };
+      f.saves = 0;
+      const save = f.editor.saveModel.bind(f.editor);
+      f.editor.saveModel = async () => { f.saves++; await save(); };
+      f.pointerListeners = new Map();
+      const add = document.addEventListener.bind(document);
+      const remove = document.removeEventListener.bind(document);
+      document.addEventListener = (name, listener, options) => {
+        if (["pointermove", "pointerup", "pointercancel"].includes(name)) {
+          if (!f.pointerListeners.has(name)) f.pointerListeners.set(name, new Set());
+          f.pointerListeners.get(name).add(listener);
+        }
+        add(name, listener, options);
+      };
+      document.removeEventListener = (name, listener, options) => {
+        f.pointerListeners.get(name)?.delete(listener);
+        remove(name, listener, options);
+      };
+      f.cleanGesture = () => [...f.pointerListeners.values()].every((listeners) => listeners.size === 0);
+      f.stableMiniature = () => f.miniPage.isConnected && f.miniature.pageEl === f.miniPage && f.miniature.blockEls[f.role] === f.block && f.block.isConnected;
+      f.numericValues = () => Object.fromEntries([...f.editor.roleInputs].map(([key, input]) => [key, input.value]));
+      f.calls.preview = 0;
+      f.writes.length = 0;
+    }, mode);
+    return page;
+  }
+
+  async function beginGesture(page, dx = 0, dy = 0) {
+    const point = await page.evaluate(() => {
+      const f = window.fixture;
+      f.block.scrollIntoView({ block: "center" });
+      const bounds = f.block.getBoundingClientRect();
+      f.labelBefore = f.block.firstElementChild.getBoundingClientRect().x;
+      f.blockBefore = { top: bounds.top, width: bounds.width };
+      return { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+    });
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    await page.evaluate(() => { window.fixture.numericInputs = [...window.fixture.editor.roleInputs.values()]; });
+    if (dx || dy) await page.mouse.move(point.x + dx, point.y + dy, { steps: 3 });
+    return point;
   }
 
   async function openPresets(context, local = false) {
@@ -947,6 +1030,277 @@ test("Edition refresh and local interactions preserve mounted controls", async (
     });
     assert.ok(result.stable && result.folder);
     assert.equal(result.opened, 1);
+  });
+
+  await t.test("Miniature: clicks select roles locally without saving in all three hosts", async (context) => {
+    for (const mode of ["workspace", "composition", "modal"]) {
+      const page = await openMiniature(context, mode);
+      const general = await page.evaluate(() => {
+        const f = window.fixture;
+        f.general = [...f.editor.inspectorEl.querySelectorAll("select, .checkbox-container")];
+        return f.general.length;
+      });
+      const point = await beginGesture(page);
+      await page.mouse.move(point.x + 2, point.y);
+      await page.mouse.up();
+      const result = await page.evaluate(async (mode) => {
+        const f = window.fixture;
+        await f.settle();
+        const selected = mode === "modal" ? f.editor.selected === f.role : f.editor.selectedRole === f.role && f.editor.rolePicker.value === f.role && f.editor.selected === "firstPage";
+        const stable = f.stableMiniature();
+        const fields = f.numericInputs.length === 5 && f.numericInputs.every((input) => input.isConnected);
+        const highlighted = f.block.hasClass("is-selected");
+        const controls = mode === "modal" || f.general.every((input) => input.isConnected);
+        if (mode === "modal") {
+          f.miniature.headerBand.click();
+          if (f.editor.selected !== "header") throw new Error("Header selection lost");
+          f.miniature.footerBand.click();
+          if (f.editor.selected !== "footer") throw new Error("Footer selection lost");
+        }
+        return { selected, stable, fields, highlighted, controls, saves: f.saves, writes: f.writes.length, notifications: f.notifications, clean: f.cleanGesture() };
+      }, mode);
+      assert.ok(result.selected && result.stable && result.fields && result.highlighted && result.controls && result.clean, JSON.stringify({ mode, general, ...result }));
+      assert.equal(result.saves, 0);
+      assert.equal(result.writes, 0);
+      assert.equal(result.notifications, 0);
+    }
+  });
+
+  await t.test("Miniature: vertical motion preserves the page and inspector, follows the flow and saves once on release", async (context) => {
+    for (const mode of ["workspace", "composition", "modal"]) {
+      const page = await openMiniature(context, mode);
+      await page.evaluate(() => { const f = window.fixture; f.next = f.miniature.blockEls[f.editor.roles[1]]; f.nextTop = parseFloat(f.next.style.top); });
+      await beginGesture(page, 0, 12);
+      const during = await page.evaluate(() => {
+        const f = window.fixture;
+        const style = f.editor.styles[f.role];
+        const shift = parseFloat(f.block.style.top) - (f.originalStyle.marginTopPt + f.editor.template.page.marginsCm.top * 10 * 72 / 25.4) * f.miniature.scale;
+        return { stable: f.stableMiniature() && f.numericInputs.every((input) => input.isConnected), top: style.marginTopPt, before: f.originalStyle.marginTopPt, field: f.numericValues().marginTopPt, following: Math.abs(parseFloat(f.next.style.top) - f.nextTop - shift) < 0.01, saves: f.saves, writes: f.writes.length };
+      });
+      assert.ok(during.stable && during.following);
+      assert.ok(during.top > during.before);
+      assert.equal(during.field, String(during.top));
+      assert.equal(during.saves, 0);
+      assert.equal(during.writes, 0);
+      await page.mouse.up();
+      await page.waitForFunction(() => window.fixture.notifications === 1);
+      const result = await page.evaluate(async () => {
+        const f = window.fixture;
+        await f.settle();
+        const saved = await f.api.resolveExportTemplateV2(f.app, f.plugin.settings, f.editor.templateKey);
+        return { saves: f.saves, writes: f.writes.length, notifications: f.notifications, preview: f.calls.preview, saved: saved.titlePage.styles[f.role].marginTopPt, current: f.editor.styles[f.role].marginTopPt, clean: f.cleanGesture(), front: f.frontContent === await f.app.vault.read(f.titleFile), stable: f.stableMiniature() };
+      });
+      assert.equal(result.saves, 1);
+      assert.equal(result.writes, 1);
+      assert.equal(result.notifications, 1);
+      assert.equal(result.preview, 1, mode);
+      assert.equal(result.saved, result.current);
+      assert.ok(result.clean && result.front && result.stable);
+    }
+  });
+
+  await t.test("Miniature: horizontal margins translate left, centered and right aligned text without changing paragraph width", async (context) => {
+    for (const align of ["left", "center", "right"]) {
+      const page = await openMiniature(context);
+      await page.evaluate((align) => { const f = window.fixture; f.editor.styles[f.role].align = align; f.miniature.refresh(); }, align);
+      for (const dx of [8, -8]) {
+        await beginGesture(page, dx);
+        const result = await page.evaluate(() => {
+          const f = window.fixture;
+          const bounds = f.block.getBoundingClientRect();
+          const style = f.editor.styles[f.role];
+          return { shift: f.block.firstElementChild.getBoundingClientRect().x - f.labelBefore, width: bounds.width - f.blockBefore.width, sum: style.marginLeftPt + style.marginRightPt, stable: f.stableMiniature() && f.numericInputs.every((input) => input.isConnected), fields: f.numericValues(), style: { ...style } };
+        });
+        assert.ok(Math.abs(result.shift - dx) < 0.5, JSON.stringify({ align, dx, ...result }));
+        assert.ok(Math.abs(result.width) < 0.1);
+        assert.equal(result.sum, 0);
+        assert.equal(result.fields.marginLeftPt, String(result.style.marginLeftPt));
+        assert.equal(result.fields.marginRightPt, String(result.style.marginRightPt));
+        assert.ok(result.stable);
+        await page.mouse.up();
+        await page.evaluate(async () => window.fixture.settle());
+      }
+      assert.equal(await page.evaluate(() => window.fixture.saves), 2);
+    }
+  });
+
+  await t.test("Miniature: diagonal drag preserves focused drafts and saved margins reach PDF CSS and DOCX OOXML", async (context) => {
+    const page = await openMiniature(context);
+    const point = await beginGesture(page);
+    await page.evaluate(() => {
+      const f = window.fixture;
+      f.focused = f.editor.roleInputs.get("marginTopPt");
+      f.focused.value = "999";
+      f.focused.focus();
+    });
+    await page.mouse.move(point.x + 8, point.y + 12, { steps: 3 });
+    assert.ok(await page.evaluate(() => {
+      const f = window.fixture;
+      return document.activeElement === f.focused && f.focused.value === "999" && f.numericInputs.every((input) => input.isConnected) && f.editor.styles[f.role].marginTopPt > f.originalStyle.marginTopPt && f.editor.styles[f.role].marginLeftPt > 0 && f.editor.styles[f.role].marginRightPt < 0 && f.saves === 0;
+    }));
+    await page.mouse.up();
+    await page.waitForFunction(() => window.fixture.notifications === 1);
+    const result = await page.evaluate(async () => {
+      const f = window.fixture;
+      const template = await f.api.resolveExportTemplateV2(f.app, f.plugin.settings, f.editor.templateKey);
+      const style = template.titlePage.styles[f.role];
+      const sheet = document.createElement("style");
+      const sample = document.createElement("div");
+      sample.className = "feuillets-frontpage";
+      sample.style.width = "500px";
+      const paragraph = document.createElement("p");
+      paragraph.setAttribute("data-fp-role", f.role);
+      const text = document.createElement("span");
+      text.textContent = "Centered manuscript title";
+      paragraph.appendChild(text);
+      sample.appendChild(paragraph);
+      document.body.append(sheet, sample);
+      sheet.textContent = f.api.titleRoleCss({ titlePage: { styles: { [f.role]: { ...style, marginLeftPt: 0, marginRightPt: 0 } } } });
+      const before = text.getBoundingClientRect().x;
+      sheet.textContent = f.api.titleRoleCss(template);
+      const computed = getComputedStyle(paragraph);
+      return { style, shift: text.getBoundingClientRect().x - before, left: parseFloat(computed.marginLeft), right: parseFloat(computed.marginRight), focused: document.activeElement === f.focused && f.focused.value === "999", clean: f.cleanGesture() };
+    });
+    assert.ok(result.focused && result.clean);
+    assert.ok(Math.abs(result.shift - result.style.marginLeftPt * 96 / 72) < 0.1);
+    assert.ok(Math.abs(result.left - result.style.marginLeftPt * 96 / 72) < 0.1);
+    assert.ok(Math.abs(result.right - result.style.marginRightPt * 96 / 72) < 0.1);
+    const paragraph = { nodeType: 1, tagName: "P", childNodes: [{ nodeType: 3, nodeValue: "Manuscript title" }], children: [], textContent: "Manuscript title", classList: { contains: () => false }, getAttribute: () => null, querySelector: () => null };
+    const paragraphs = blockToParagraphs(paragraph, new Map(), { key: "classique", label: "Classic" }, {}, new Map(), { style: result.style });
+    const zip = await JSZip.loadAsync(await Packer.toBuffer(new Document({ sections: [{ children: paragraphs }] })));
+    const xml = await zip.file("word/document.xml").async("string");
+    assert.ok(xml.includes(`w:left="${result.style.marginLeftPt}pt"`));
+    assert.ok(xml.includes(`w:right="${result.style.marginRightPt}pt"`));
+    assert.ok(xml.includes(`w:before="${result.style.marginTopPt * 20}"`));
+    assert.ok(xml.includes('w:jc w:val="center"'));
+  });
+
+  await t.test("Miniature: numeric margins update the same blocks and a role change cancels a pending gesture locally", async (context) => {
+    for (const mode of ["composition", "modal"]) {
+      const page = await openMiniature(context, mode);
+      await beginGesture(page);
+      await page.mouse.up();
+      const result = await page.evaluate(async (mode) => {
+        const f = window.fixture;
+        const inputs = [...f.editor.roleInputs];
+        for (const [key, value] of [["marginLeftPt", "10"], ["marginRightPt", "20"], ["marginTopPt", "50"], ["marginBottomPt", "30"]]) {
+          const input = f.editor.roleInputs.get(key);
+          input.value = value;
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+          await f.settle();
+        }
+        const manual = f.stableMiniature() && inputs.every(([, input]) => input.isConnected) && f.editor.styles[f.role].marginLeftPt === 10 && f.editor.styles[f.role].marginRightPt === 20 && f.editor.styles[f.role].marginTopPt === 50 && f.editor.styles[f.role].marginBottomPt === 30;
+        const changedPosition = parseFloat(f.block.style.left) > 10 * f.miniature.scaleX;
+        f.beforeChange = JSON.stringify(f.editor.styles[f.role]);
+        f.saves = 0;
+        const next = f.editor.roles[1];
+        f.nextRole = next;
+        f.changeRole = () => {
+          if (mode === "modal") f.modal.select(next);
+          else { f.editor.rolePicker.value = next; f.editor.rolePicker.dispatchEvent(new Event("change")); }
+        };
+        return { manual, changedPosition };
+      }, mode);
+      assert.ok(result.manual && result.changedPosition);
+      await beginGesture(page, 6, 10);
+      const switched = await page.evaluate(async () => {
+        const f = window.fixture;
+        f.changeRole();
+        await f.settle();
+        return { stable: f.stableMiniature(), restored: f.beforeChange === JSON.stringify(f.editor.styles[f.role]), selected: f.editor.selectedRole === f.nextRole || f.editor.selected === f.nextRole, clean: f.cleanGesture(), saves: f.saves };
+      });
+      await page.mouse.up();
+      assert.ok(switched.stable && switched.restored && switched.selected && switched.clean);
+      assert.equal(switched.saves, 0);
+    }
+  });
+
+  await t.test("Miniature: cancellation, interruption, remount and detachment restore unsaved values and release listeners", async (context) => {
+    for (const interruption of ["pointercancel", "blur", "remount", "detach", "close"]) {
+      const page = await openMiniature(context, interruption === "close" ? "modal" : "composition");
+      await beginGesture(page, 8, 12);
+      const result = await page.evaluate(async (interruption) => {
+        const f = window.fixture;
+        if (interruption === "pointercancel") document.dispatchEvent(new window.PointerEvent("pointercancel", { pointerId: 1 }));
+        if (interruption === "blur") window.dispatchEvent(new Event("blur"));
+        if (interruption === "remount") f.miniature.mount();
+        if (interruption === "detach") f.miniPage.remove();
+        if (interruption === "close") f.modal.onClose();
+        await f.settle();
+        return { restored: JSON.stringify(f.editor.styles[f.role]) === JSON.stringify(f.originalStyle), clean: f.cleanGesture(), saves: f.saves, writes: f.writes.length, notifications: f.notifications };
+      }, interruption);
+      await page.mouse.up();
+      assert.ok(result.restored && result.clean, JSON.stringify({ interruption, ...result }));
+      assert.equal(result.saves, 0);
+      assert.equal(result.writes, 0);
+      assert.equal(result.notifications, 0);
+    }
+  });
+
+  await t.test("Miniature: unrelated pointers and zero net displacement do not save, and outside movements stay bounded", async (context) => {
+    const page = await openMiniature(context);
+    let point = await beginGesture(page);
+    await page.evaluate((point) => document.dispatchEvent(new window.PointerEvent("pointermove", { pointerId: 99, clientX: point.x + 80, clientY: point.y + 80 })), point);
+    await page.mouse.up();
+    point = await beginGesture(page, 8, 12);
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.up();
+    assert.ok(await page.evaluate(() => {
+      const f = window.fixture;
+      return f.saves === 0 && f.notifications === 0 && f.writes.length === 0 && f.cleanGesture() && JSON.stringify(f.editor.styles[f.role]) === JSON.stringify(f.originalStyle);
+    }));
+    point = await beginGesture(page);
+    const bounded = await page.evaluate((point) => {
+      const f = window.fixture;
+      document.dispatchEvent(new window.PointerEvent("pointermove", { pointerId: 1, clientX: point.x + 800, clientY: point.y + 800 }));
+      const paper = f.miniPage.getBoundingClientRect();
+      const block = f.block.getBoundingClientRect();
+      const style = f.editor.styles[f.role];
+      const inside = block.left >= paper.left - 0.1 && block.right <= paper.right + 0.1 && block.bottom <= paper.bottom + 0.1;
+      const finite = [style.marginTopPt, style.marginLeftPt, style.marginRightPt].every(Number.isFinite);
+      const singleListeners = [...f.pointerListeners.values()].every((listeners) => listeners.size === 1);
+      document.dispatchEvent(new window.PointerEvent("pointercancel", { pointerId: 1 }));
+      return { inside, finite, singleListeners, clean: f.cleanGesture(), restored: JSON.stringify(style) === JSON.stringify(f.originalStyle), saves: f.saves };
+    }, point);
+    await page.mouse.up();
+    assert.ok(bounded.inside && bounded.finite && bounded.singleListeners && bounded.clean && bounded.restored, JSON.stringify(bounded));
+    assert.equal(bounded.saves, 0);
+    await beginGesture(page, 6, 10);
+    await page.mouse.up();
+    await page.waitForFunction(() => window.fixture.notifications === 1);
+    assert.ok(await page.evaluate(() => window.fixture.saves === 1 && window.fixture.cleanGesture()));
+  });
+
+  await t.test("Miniature: point conversion follows page format, orientation, scale and asymmetric page margins", async (context) => {
+    const page = await openMiniature(context);
+    for (const [index, size] of ["A4", "A5", "Letter"].entries()) {
+      for (const orientation of ["portrait", "landscape"]) {
+        const expected = await page.evaluate(({ size, orientation, height }) => {
+          const f = window.fixture;
+          Object.assign(f.editor.template.page, { size, orientation, marginsCm: { top: 1.8, bottom: 2.2, left: 1.3, right: 2.1 } });
+          Object.assign(f.editor.styles[f.role], { marginTopPt: 20, marginLeftPt: 0, marginRightPt: 0 });
+          f.miniature.options.heightPx = height;
+          f.miniature.refresh();
+          const geometry = f.api.resolvePageGeometry({ pageSize: size, pageOrientation: orientation });
+          const scaleX = parseFloat(f.miniPage.style.width) / (geometry.widthMm * 72 / 25.4);
+          const scaleY = height / (geometry.heightMm * 72 / 25.4);
+          return { left: Math.round(6 / scaleX), top: 20 + Math.round(10 / scaleY), ratio: geometry.widthMm / geometry.heightMm, leftPx: 1.3 * 10 * 72 / 25.4 * scaleX, scaleX };
+        }, { size, orientation, height: [200, 260, 400][index] });
+        await beginGesture(page, 6, 10);
+        const result = await page.evaluate(() => {
+          const f = window.fixture;
+          return { style: { ...f.editor.styles[f.role] }, ratio: parseFloat(f.miniPage.style.width) / parseFloat(f.miniPage.style.height), left: parseFloat(f.block.style.left), stable: f.stableMiniature() };
+        });
+        assert.equal(result.style.marginLeftPt, expected.left);
+        assert.equal(result.style.marginRightPt, -expected.left);
+        assert.equal(result.style.marginTopPt, expected.top);
+        assert.ok(Math.abs(result.ratio - expected.ratio) < 0.005);
+        assert.ok(Math.abs(result.left - expected.leftPx - expected.left * expected.scaleX) < 0.001);
+        assert.ok(result.stable);
+        await page.mouse.up();
+        await page.evaluate(async () => window.fixture.settle());
+      }
+    }
   });
 
   await t.test("Preset deletion: removing the active preset displays the effective fallback without saving Composition", async (context) => {

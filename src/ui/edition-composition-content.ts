@@ -713,7 +713,10 @@ export class EditionCompositionContent {
     const S = this.plugin.settings as CompositionSettings;
     this.layoutEditor = new LayoutEditor(this.app, this.plugin, null, S.exportTemplate, {
       mode: "workspace",
-      onChange: () => void this.onChangeOpt?.(),
+      onChange: () => {
+        void this.plugin.getCentralPreviewView?.()?.refreshPreview();
+        void this.onChangeOpt?.();
+      },
     });
     await this.layoutEditor.renderStandaloneFirstPage(presentationHost);
   }

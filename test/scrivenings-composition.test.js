@@ -349,3 +349,52 @@ test("nextScrollAnchorAfterRecomposition : chemin absent de l'ancien ordre -> nu
   const result = nextScrollAnchorAfterRecomposition({ path: "Fantome.md", progress: 0.3 }, ["A.md", "B.md"], ["A.md"]);
   assert.equal(result, null);
 });
+
+
+test("Scroll restoration awaits the initial pass and handles a deferred rejection", async (context) => {
+  const { view, a, b, root } = buildView();
+  await view.openScope(createSelectionScope(root.path, [a.path, b.path]));
+  view.getScrollAnchor = () => ({ path: b.path, progress: 0.42 });
+  let complete;
+  const pending = new Promise((resolve) => { complete = resolve; });
+  const callbacks = [];
+  const frame = window.requestAnimationFrame;
+  const log = console.error;
+  const errors = [];
+  window.requestAnimationFrame = (callback) => { callbacks.push(callback); return callbacks.length; };
+  console.error = (...args) => {
+    if (args[0] === "Failed to restore Continu scroll position") errors.push(args);
+    else log(...args);
+  };
+  context.after(() => { window.requestAnimationFrame = frame; console.error = log; });
+  const failure = new Error("Deferred scroll measurement failed");
+  const calls = [];
+  view.scrollToAnchor = async (path, progress) => {
+    calls.push({ path, progress });
+    if (calls.length === 1) await pending;
+    else throw failure;
+  };
+  let finished = false;
+  const opening = view.openScope(createSelectionScope(root.path, [b.path])).then(() => { finished = true; });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(finished, false);
+  assert.equal(callbacks.length, 0);
+  complete();
+  await opening;
+  assert.equal(finished, true);
+  assert.deepEqual(calls, [{ path: b.path, progress: 0.42 }]);
+  assert.equal(callbacks.length, 1);
+  assert.equal(callbacks[0](), undefined);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(calls, [{ path: b.path, progress: 0.42 }, { path: b.path, progress: 0.42 }]);
+  assert.deepEqual(errors, [["Failed to restore Continu scroll position", failure]]);
+});
+
+test("An initial scroll restoration rejection reaches the caller", async () => {
+  const { view, a, b, root } = buildView();
+  await view.openScope(createSelectionScope(root.path, [a.path, b.path]));
+  view.getScrollAnchor = () => ({ path: b.path, progress: 0.42 });
+  const failure = new Error("Initial scroll measurement failed");
+  view.scrollToAnchor = async () => { throw failure; };
+  await assert.rejects(view.openScope(createSelectionScope(root.path, [b.path])), failure);
+});

@@ -1,3 +1,5 @@
+import type { EditorCursorChange } from "../services/editor-cursor-tracking.js";
+import { lineColToOffset, offsetToLineCol } from "../utils/scrivenings-editor-adapter.js";
 import {
   compileScopesEqual,
   createProjectScope,
@@ -48,6 +50,9 @@ import {
   SOURCE_PATH_ATTR,
   SOURCE_START_COL_ATTR,
   SOURCE_START_LINE_ATTR,
+  SOURCE_TEXT_ATTR,
+  sourceOffsetToRenderedOffset,
+  renderedOffsetToSourceOffset,
   type SourceBlockMap,
   type SourceBlockPosition,
 } from "./preview-source-map.js";
@@ -114,22 +119,19 @@ export type ContinuSourceView = {
   getLiveBody(path: string): string | null;
   getScrollElement(): HTMLElement | null;
   getScrollAnchor(): ScriveningsScrollAnchor | null;
-  scrollToAnchor(path: string, progress: number): void;
+  getSourcePosition?(): { path: string; line: number; ch: number } | null;
+  scrollToAnchor(path: string, progress: number, block?: ScriveningsScrollAnchor["block"]): void | Promise<void>;
   openSingleMember(path: string): Promise<boolean>;
-  /** LOT « clic Preview → Continu » — place le curseur Continu à la
-   * position source `{line, ch}` (0-based, coordonnées du FICHIER
-   * ORIGINAL — même contrat que `SourceBlockPosition`,
-   * preview-source-map.ts) du feuillet `path`, recentre et donne le focus.
-   * `false` si `path` n'appartient pas à la composition actuelle. N'écrit
-   * jamais, ne change jamais le scope. Voir ScriveningsView pour
-   * l'implémentation réelle. */
-  focusSourcePosition(path: string, position: { line: number; ch: number }): Promise<boolean>;
+  /** Place the caret at an original Markdown source position, reveal it if
+   * needed, and focus Continu without changing its document or scope. */
+  focusSourcePosition(path: string, position: { line: number; ch: number }, isCurrent?: () => boolean): Promise<boolean>;
 };
 
 export type PreviewViewPlugin = {
   settings: PreviewViewSettings;
   getProjectFolder(): TFolder | null;
   refreshEditionContext?(): Promise<void>;
+  updatePreviewStatusBar?(): void;
   cslCitationHost?: CslCitationHost | null;
   /** Mêmes résolveurs que le Binder : pas de seconde logique de titre. */
   shortTitleFor?(file: TFile): string;
@@ -177,11 +179,13 @@ export type ZoomMode = "fit-width" | "fit-page" | "manual";
  *   mode où l'alignement exact avec une scène est secondaire. */
 export type PreviewMode = "scene" | "chapter" | "part" | "manuscript";
 
-/** Position de lecture, exprimée indépendamment du zoom et du nombre de
- * pages : index de la première page visible + progression relative dans
- * cette page. Un `scrollTop` brut ne survivrait ni à un changement de zoom
- * ni à une repagination. */
-type ScrollAnchor = { pageIndex: number; pageProgress: number };
+type ScrollAnchor = {
+  pageIndex: number;
+  pageProgress: number;
+  scrollTop: number;
+  source: ScriveningsScrollAnchor | null;
+  block: { path: string; line: number; col: number; progress: number } | null;
+};
 
 /** Sous-ensemble de `Editor` (API publique Obsidian) réellement utilisé par
  * le clic Aperçu → éditeur — jamais `editor.cm`, jamais d'API interne. */
@@ -257,6 +261,14 @@ export function previewZoomModeLabel(mode: ZoomMode): string {
   if (mode === "fit-width") return t("preview.zoom.fitWidth");
   if (mode === "fit-page") return t("preview.zoom.fitPage");
   return t("preview.zoom.manual");
+}
+
+// Preview iframe documents do not inherit Obsidian's DOM helpers.
+function createFrameElement<K extends keyof HTMLElementTagNameMap>(
+  doc: Pick<Document, "createElement">,
+  tag: K
+): HTMLElementTagNameMap[K] {
+  return doc.createElement(tag);
 }
 
 /** Surface visuelle de premier niveau dans la pile paginée : une `.pdf-page`
@@ -443,6 +455,7 @@ export class PreviewView extends ItemView {
      sens, cet écho relancerait immédiatement une correction en retour. */
   private syncingFromEditor = false;
   private syncingFromPreview = false;
+  private sourceScrollTop: number | null = null;
   private lastSourceScrollAt = 0;
   private lastPreviewScrollAt = 0;
   /* Arbitrent à eux deux la confiance accordée au tampon vivant de l'éditeur
@@ -537,10 +550,17 @@ export class PreviewView extends ItemView {
   }
 
   async setCompileScope(scope: CompileScope): Promise<void> {
+    const preservePosition = this.compileScope !== null && compileScopesEqual(this.compileScope, scope);
+    this.openVisibleRequestId++;
+    this.preservingPreviewScrollRequestId = null;
+    if (this.autoOpenVisibleTimer !== null) {
+      window.clearTimeout(this.autoOpenVisibleTimer);
+      this.autoOpenVisibleTimer = null;
+    }
     /* Une portée nouvellement choisie rend toute passe provisoire ou complète
        en cours caduque immédiatement : son iframe ne peut plus devenir le
        rendu visible de cette Preview. */
-    if (this.refreshInFlight) {
+    if (this.refreshInFlight || this.progressivePreviewTimer !== null) {
       this.refreshGeneration++;
       this.refreshInFlight = false;
       this.rerunRequested = false;
@@ -551,7 +571,7 @@ export class PreviewView extends ItemView {
     this.refreshTabHeader();
     this.updateUI();
     await this.plugin.refreshEditionContext?.();
-    await this.refreshPreview();
+    await this.refreshPreview(preservePosition);
   }
 
   /** `updateHeader` : API interne non déclarée dans obsidian.d.ts — même
@@ -722,6 +742,7 @@ export class PreviewView extends ItemView {
        ne sert de repli que lorsqu'aucune portée explicite n'est posée. */
     if (this.mode === mode) return;
     this.openVisibleRequestId++;
+    this.preservingPreviewScrollRequestId = null;
     if (this.autoOpenVisibleTimer !== null && typeof window !== "undefined") {
       window.clearTimeout(this.autoOpenVisibleTimer);
       this.autoOpenVisibleTimer = null;
@@ -734,7 +755,7 @@ export class PreviewView extends ItemView {
     if (!wasSheetMode && mode === "scene") this.bindSourcePane();
     this.cancelSceneRefresh();
     this.updateUI();
-    await this.refreshPreview();
+    await this.refreshPreview(this.compileScope !== null);
   }
 
   /** Le suivi est actif soit pour la compatibilité de l'ancien mode
@@ -830,8 +851,6 @@ export class PreviewView extends ItemView {
     this.openVisibleEl = this.iconBtn(this.toolbarControlsEl, "file-edit", t("preview.openVisibleSheet"), () => void this.openVisibleFeuillet());
     this.openVisibleEl.addClass("feuillets-preview-open-visible");
     this.iconBtn(this.toolbarControlsEl, "refresh-cw", t("preview.refreshPreview"), () => void this.refreshPreview());
-    this.statusEl = view.createSpan({ cls: "feuillets-preview-status feuillets-preview-status-hidden" });
-    this.followedEl = view.createSpan({ cls: "feuillets-preview-status-hidden" });
 
     /* UN SEUL contrôle de zoom : le pourcentage lui-même. Clic = menu,
        double-clic = retour à 100 %, Cmd/Ctrl + molette dans l'aperçu. */
@@ -927,14 +946,14 @@ export class PreviewView extends ItemView {
       const file = this.app.workspace.getActiveFile();
       const path = file instanceof TFile ? file.path : null;
       if (path === this.displayedPath) return;
-      await this.refreshPreview();
+      await this.refreshPreview(false);
       return;
     }
     if (this.mode === "chapter" || this.mode === "part") {
       const active = this.app.workspace.getActiveFile();
       const scope = this.scopeForMode(this.mode, active);
       if (scope && scope.path !== this.displayedPath) {
-        await this.refreshPreview();
+        await this.refreshPreview(false);
         return;
       }
     }
@@ -1506,6 +1525,11 @@ export class PreviewView extends ItemView {
       if (!(file instanceof TFile)) continue;
       const sections = this.realSectionsFor(file);
       if (!sections.length) continue;
+      const raw = await this.readFileForPreview(file);
+      for (const section of sections) {
+        section.text = raw.slice(lineColToOffset(raw, { line: section.start.line, ch: section.start.col }),
+          lineColToOffset(raw, { line: section.end.line, ch: section.end.col }));
+      }
       const leadingSkip = typeof seg.titleBlockCount === "number"
         ? seg.titleBlockCount
         : await this.titleLeadingSkipFor(file);
@@ -1593,21 +1617,21 @@ export class PreviewView extends ItemView {
     }
   }
 
-  async refreshPreview(): Promise<void> {
+  async refreshPreview(preservePosition = true): Promise<void> {
     if (this.closed || !this.scaledContainer) return;
 
-    /* File à UNE SEULE tâche : plusieurs demandes pendant un rendu ne
-       produisent qu'un seul rejeu, avec l'état le plus récent. */
-    if (this.refreshInFlight) {
+    // Coalesce data refreshes; navigation invalidates the render already in flight.
+    if (this.refreshInFlight && preservePosition) {
       this.rerunRequested = true;
       return;
     }
 
+    this.rerunRequested = false;
     const generation = ++this.refreshGeneration;
     this.cancelProgressivePreview();
     this.refreshInFlight = true;
     this.cancelSceneRefresh();
-    const anchor = this.captureScrollAnchor();
+    const anchor = preservePosition ? this.captureScrollAnchor() : null;
     this.setStatus("rendering");
 
     const finish = (status: PreviewStatus) => {
@@ -1661,10 +1685,9 @@ export class PreviewView extends ItemView {
       this.clearPreviewMessage();
       if (provisionalScope && originalScope) {
         await this.renderPreviewSource(source, generation, anchor, finish, () => {
-          /* `onFrameLoad` vient d'installer l'iframe. Libérer d'abord le
-             cycle courant, puis placer la passe complète dans une tâche
-             ultérieure laisse une occasion réelle au navigateur de peindre. */
+          // Let an available provisional frame paint before starting the full pass.
           finish("rendering");
+          if (this.closed || generation !== this.refreshGeneration) return;
           this.progressivePreviewTimer = window.setTimeout(() => {
             this.progressivePreviewTimer = null;
             void this.refreshProgressivePreview(generation, originalScope);
@@ -1951,7 +1974,8 @@ export class PreviewView extends ItemView {
       this.zoomScale,
       this.mode,
       (loadedFrame) => {
-        this.onFrameLoad(generation, loadedFrame, anchor);
+        this.onFrameLoad(generation, loadedFrame, anchor, !!onLoaded);
+        if (this.closed || generation !== this.refreshGeneration) return;
         if (onLoaded) onLoaded();
         else finish("fresh");
       }
@@ -1965,16 +1989,35 @@ export class PreviewView extends ItemView {
 
   /** Iframe lifecycle for the Document preview. */
 
-  private onFrameLoad(generation: number, frame: HTMLIFrameElement, anchor: ScrollAnchor | null): void {
+  private onFrameLoad(generation: number, frame: HTMLIFrameElement, anchor: ScrollAnchor | null, provisional = false): void {
     if (generation !== this.refreshGeneration) {
       frame.remove();
       if (this.pendingFrame === frame) this.pendingFrame = null;
       return;
     }
-    if (this.previewFrame && this.previewFrame !== frame) this.previewFrame.remove();
+    // Keep a gesture made during rendering, without recapturing an anchor after a zoom change alone.
+    if (anchor && this.previewViewport && this.previewViewport.scrollTop !== anchor.scrollTop) {
+      anchor = this.captureScrollAnchor();
+    }
+    const path = anchor?.block?.path || anchor?.source?.path;
+    if (provisional && anchor && this.previewFrame && (
+      path
+        ? !Array.from(frame.contentDocument?.querySelectorAll(`[${SOURCE_BLOCK_PATH_ATTR}], [${SOURCE_PATH_ATTR}]`) || [])
+          .some((element) => element.getAttribute(SOURCE_BLOCK_PATH_ATTR) === path || element.getAttribute(SOURCE_PATH_ATTR) === path)
+        : anchor.pageIndex >= (frame.contentDocument?.querySelectorAll(".pdf-page").length || 0)
+    )) {
+      frame.remove();
+      if (this.pendingFrame === frame) this.pendingFrame = null;
+      return;
+    }
+    this.bindSourcePane();
+    if (anchor) this.syncingFromEditor = true;
+    const previousFrame = this.previewFrame;
+    const followed = previousFrame?.contentDocument?.querySelector<HTMLElement>(".feuillets-preview-followed-block");
+    const caret = previousFrame?.contentDocument?.querySelector<HTMLElement>(".feuillets-preview-caret-marker");
+    frame.removeClass("is-preview-frame-loading");
     this.previewFrame = frame;
     this.pendingFrame = null;
-    frame.removeClass("is-preview-frame-loading");
     this.frameLoaded = true;
 
     this.measureNaturalDimensions();
@@ -1993,15 +2036,19 @@ export class PreviewView extends ItemView {
       this.recalculateAutoZoom();
     }
 
-    this.restoreScrollAnchor(anchor);
+    if (previousFrame && previousFrame !== frame) previousFrame.remove();
+    const restored = this.restoreScrollAnchor(anchor);
     this.bindInteractiveTitlePage();
     this.bindPreviewBlockClicks(frame);
-    if (this.syncScrollEnabled) {
-      this.bindSourcePane();
+    if (followed) this.markFollowedBlock(this.fragmentsForAnchor({ path: followed.getAttribute(SOURCE_BLOCK_PATH_ATTR) || "", progress: 0,
+      block: { line: Number(followed.getAttribute(SOURCE_START_LINE_ATTR)), col: Number(followed.getAttribute(SOURCE_START_COL_ATTR)), progress: 0, viewportRatio: 0 } }));
+    const cursor = this.linkedContinuView()?.getSourcePosition?.();
+    if (cursor) this.markSourcePosition(cursor.path, cursor);
+    else if (caret) this.markSourcePosition(caret.dataset.path || "", { line: Number(caret.dataset.line), ch: Number(caret.dataset.ch) });
+    if (this.syncScrollEnabled && !restored) {
       this.applySourceToPreview();
-    } else {
-      this.updateVisibleFeuillet();
     }
+    this.updateVisibleFeuillet();
 
     // LOT 3 — pont Continu → Preview (followCompileScope) : l'ancre reçue
     // ne peut être appliquée qu'ICI, une fois l'iframe RÉELLEMENT chargée
@@ -2012,6 +2059,7 @@ export class PreviewView extends ItemView {
       this.pendingContinuAnchor = null;
       this.scrollPreviewToAnchor(continuAnchor);
     }
+    if (anchor) this.releaseAfterFrame(() => { this.syncingFromEditor = false; });
   }
 
   /* =================== Clic dans l'Aperçu → éditeur =====================
@@ -2028,9 +2076,10 @@ export class PreviewView extends ItemView {
     const doc = frame.contentDocument;
     if (!doc || typeof doc.addEventListener !== "function") return;
     doc.addEventListener("click", (event: MouseEvent) => this.onPreviewBlockClick(event));
+    for (const event of ["wheel", "pointerdown", "keydown"]) doc.addEventListener(event, () => this.onPreviewInteraction(), { passive: true, capture: true });
   }
 
-  private onPreviewBlockClick(event: { target: unknown; preventDefault(): void }): void {
+  private onPreviewBlockClick(event: { target: unknown; clientX?: number; clientY?: number; preventDefault(): void }): void {
     const target = event.target as Element | null;
     if (!target || typeof target.closest !== "function") return;
 
@@ -2057,38 +2106,41 @@ export class PreviewView extends ItemView {
     }
 
     event.preventDefault();
+    this.onPreviewInteraction();
+    this.markFollowedBlock(this.fragmentsForAnchor({ path, progress: 0,
+      block: { line: startLine, col: startCol, progress: 0, viewportRatio: 0 } }));
 
-    // LOT « clic Preview → Continu » : Continu lié → naviguer DANS Continu
-    // (curseur + recentrage + focus), JAMAIS ouvrir un Markdown ni détruire
-    // Continu (openPreviewBlockInEditor appelle `getLeafForOpeningFile()`,
-    // qui peut retomber sur la leaf CENTRALE actuellement occupée par
-    // Continu). « Ouvrir ce feuillet » reste la SEULE action explicite pour
-    // quitter Continu vers Markdown (voir openVisibleFeuillet, inchangée).
+    // A linked Continu keeps its editor; only explicit sheet opening switches to Markdown.
     const continu = this.linkedContinuView();
+    const position = continu ? this.sourcePositionAtClick(block, event) : { line: startLine, ch: startCol };
+    this.markSourcePosition(path, position);
     if (continu) {
-      void this.focusContinuFromPreviewClick(continu, path, { line: startLine, ch: startCol });
+      void this.focusContinuFromPreviewClick(continu, path, position);
       return;
     }
 
+    this.lastPreviewScrollAt = 0;
     void this.openPreviewBlockInEditor(path, { line: startLine, ch: startCol }, { line: endLine, ch: endCol });
   }
 
-  /** LOT « clic Preview → Continu » — place le curseur Continu au début du
-   * passage cliqué (`ContinuSourceView.focusSourcePosition`, implémentée
-   * par ScriveningsView). Le scroll programmatique que cet appel peut
-   * provoquer est protégé par le MÊME garde anti-rebond que le reste de la
-   * synchronisation (`syncingFromPreview` / `releaseAfterFrame` EXISTANTS)
-   * — jamais un second mécanisme anti-boucle, jamais un délai arbitraire. */
+  /** Keep the latest navigation valid through CodeMirror measurement and
+   * record its final position to ignore delayed source scroll echoes. */
   private async focusContinuFromPreviewClick(
     continu: ContinuSourceView,
     path: string,
     position: { line: number; ch: number }
   ): Promise<void> {
+    const requestId = ++this.openVisibleRequestId;
     this.syncingFromPreview = true;
     try {
-      await continu.focusSourcePosition(path, position);
+      await continu.focusSourcePosition(path, position, () => !this.closed && requestId === this.openVisibleRequestId && this.linkedContinuView() === continu);
     } finally {
-      this.releaseAfterFrame(() => { this.syncingFromPreview = false; });
+      if (requestId === this.openVisibleRequestId && this.linkedContinuView() === continu) {
+        this.sourceScrollTop = this.syncScroller?.scrollTop ?? null;
+        this.releaseAfterFrame(() => {
+          if (requestId === this.openVisibleRequestId) this.syncingFromPreview = false;
+        });
+      }
     }
   }
 
@@ -2130,7 +2182,6 @@ export class PreviewView extends ItemView {
        celle du scroll programmatique de `scrollIntoView` ci-dessous. */
     const requestId = ++this.openVisibleRequestId;
     this.preservingPreviewScrollRequestId = requestId;
-    const keptPreviewScrollTop = Number(this.previewViewport?.scrollTop) || 0;
 
     await leaf.openFile(file, { active: true });
     if (this.closed || requestId !== this.openVisibleRequestId) return;
@@ -2166,15 +2217,9 @@ export class PreviewView extends ItemView {
     editor.scrollIntoView({ from, to }, true);
     editor.focus();
 
-    // Restaure la position exacte capturée avant l'ouverture — un dernier
-    // scroll de l'éditeur peut encore survenir après cette ligne (voir le
-    // commentaire d'ouverture), d'où la restauration répétée à la frame
-    // suivante avant de lever le garde-fou.
-    if (this.previewViewport) this.previewViewport.scrollTop = keptPreviewScrollTop;
     this.releaseAfterFrame(() => {
       if (this.preservingPreviewScrollRequestId !== requestId) return;
       this.preservingPreviewScrollRequestId = null;
-      if (this.previewViewport) this.previewViewport.scrollTop = keptPreviewScrollTop;
     });
   }
 
@@ -2216,7 +2261,7 @@ export class PreviewView extends ItemView {
   }
 
   private makeTitleElementEditable(element: HTMLElement, role: string, path: string): void {
-    element.addClass("feuillets-preview-title-editable");
+    element.classList.add("feuillets-preview-title-editable");
     element.setAttribute("tabindex", "0");
     element.setAttribute("title", t("preview.titleControl.editRole", { role }));
     element.setAttribute("aria-label", t("preview.titleControl.editRole", { role }));
@@ -2234,11 +2279,11 @@ export class PreviewView extends ItemView {
   private selectTitleElement(element: HTMLElement): void {
     const doc = element.ownerDocument;
     for (const selected of Array.from(doc?.querySelectorAll<HTMLElement>(".is-title-selected") || [])) {
-      selected.removeClass("is-title-selected");
+      selected.classList.remove("is-title-selected");
     }
-    element.addClass("is-title-selected");
+    element.classList.add("is-title-selected");
     const controls = element.nextElementSibling as HTMLElement | null;
-    if (controls?.hasClass("feuillets-preview-title-controls")) {
+    if (controls?.classList.contains("feuillets-preview-title-controls")) {
       controls.style.top = `${Number(element.offsetTop) || 0}px`;
       controls.style.left = `${(Number(element.offsetLeft) || 0) + (Number(element.offsetWidth) || 0) + 8}px`;
     }
@@ -2247,18 +2292,16 @@ export class PreviewView extends ItemView {
   /** Petite poignée contextuelle, injectée seulement dans l'iframe affichée.
    * Elle ne modifie jamais le HTML rendu : chaque action persiste d'abord
    * dans le feuillet Front ou dans le gabarit, puis déclenche un nouveau rendu.
-   *
-   * `doc.createElement` volontaire (pas createEl/createDiv, ni doc.win.createEl) :
-   * `element.ownerDocument` est le document de l'iframe d'aperçu, un realm JS
-   * séparé sans les prototypes patchés par Obsidian — même raison que
-   * export-pdf.ts (iframe.contentDocument). `.win` reste typé `Window` mais
-   * pointe vers la fenêtre de CE realm, elle aussi non patchée : y appeler
-   * `.createEl` planterait exactement pareil. */
+   */
   private addTitleRoleControls(element: HTMLElement, role: string, path: string): void {
-    const controls = element.createSpan({ cls: "feuillets-preview-title-controls" });
+    const controls = createFrameElement(element.ownerDocument, "span");
+    controls.className = "feuillets-preview-title-controls";
     controls.setAttribute("data-title-controls", role);
     const action = (icon: string, label: string, run: () => void): void => {
-      const button = controls.createEl("button", { cls: "clickable-icon", type: "button" });
+      const button = createFrameElement(controls.ownerDocument, "button");
+      button.className = "clickable-icon";
+      button.type = "button";
+      controls.appendChild(button);
       setIcon(button, icon);
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
@@ -2269,7 +2312,9 @@ export class PreviewView extends ItemView {
       });
     };
     action("pencil", t("preview.titleControl.editRole", { role }), () => void this.editTitleRole(path, role));
-    const drag = controls.createEl("button", { cls: "clickable-icon", type: "button" });
+    const drag = createFrameElement(controls.ownerDocument, "button");
+    drag.className = "clickable-icon";
+    drag.type = "button";
     setIcon(drag, "grip-vertical");
     drag.setAttribute("aria-label", t("preview.titleControl.moveVertically"));
     drag.setAttribute("title", t("preview.titleControl.moveVertically"));
@@ -2288,7 +2333,7 @@ export class PreviewView extends ItemView {
     event.stopPropagation();
     const doc = element.ownerDocument;
     const startY = event.clientY;
-    handle.addClass("is-dragging");
+    handle.classList.add("is-dragging");
     const move = (next: PointerEvent): void => {
       const delta = (next.clientY - startY) / Math.max(this.zoomScale, 0.1);
       element.style.transform = `translateY(${delta}px)`;
@@ -2296,7 +2341,7 @@ export class PreviewView extends ItemView {
     const up = (next: PointerEvent): void => {
       doc.removeEventListener("pointermove", move);
       doc.removeEventListener("pointerup", up);
-      handle.removeClass("is-dragging");
+      handle.classList.remove("is-dragging");
       element.style.removeProperty("transform");
       const deltaPt = Math.round(((next.clientY - startY) / Math.max(this.zoomScale, 0.1)) * 0.75);
       if (deltaPt) void this.adjustTitleRoleSpacing(role, deltaPt);
@@ -2306,12 +2351,15 @@ export class PreviewView extends ItemView {
   }
 
   /** Commandes globales placées DANS la page : déplacement de la composition
-   * et marges internes, sans panneau permanent ni réglage parallèle.
-   * `doc.createElement` volontaire — voir addTitleRoleControls ci-dessus. */
+   * et marges internes, sans panneau permanent ni réglage parallèle. */
   private addTitlePageControls(titlePage: HTMLElement): void {
-    const controls = titlePage.createSpan({ cls: "feuillets-preview-title-page-controls" });
+    const controls = createFrameElement(titlePage.ownerDocument, "span");
+    controls.className = "feuillets-preview-title-page-controls";
     const action = (icon: string, label: string, run: () => void): void => {
-      const button = controls.createEl("button", { cls: "clickable-icon", type: "button" });
+      const button = createFrameElement(controls.ownerDocument, "button");
+      button.className = "clickable-icon";
+      button.type = "button";
+      controls.appendChild(button);
       setIcon(button, icon);
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
@@ -2320,7 +2368,6 @@ export class PreviewView extends ItemView {
         event.stopPropagation();
         run();
       });
-      controls.appendChild(button);
     };
     action("move-up", t("preview.titleControl.moveCompositionUp"), () => void this.adjustTitlePageVertical(-12));
     action("move-down", t("preview.titleControl.moveCompositionDown"), () => void this.adjustTitlePageVertical(12));
@@ -2385,7 +2432,7 @@ export class PreviewView extends ItemView {
     label: string,
     role: string
   ): void {
-    element.addClass("feuillets-preview-title-editable");
+    element.classList.add("feuillets-preview-title-editable");
     element.setAttribute("tabindex", "0");
     element.setAttribute("title", t("preview.titleControl.editRole", { role: label.toLowerCase() }));
     const edit = (): void => {
@@ -2407,11 +2454,14 @@ export class PreviewView extends ItemView {
     this.addGeneratedTitleRoleControls(element, role, edit);
   }
 
-  /** `doc.createElement` volontaire — voir addTitleRoleControls plus haut. */
   private addGeneratedTitleRoleControls(element: HTMLElement, role: string, edit: () => void): void {
-    const controls = element.createSpan({ cls: "feuillets-preview-title-controls" });
+    const controls = createFrameElement(element.ownerDocument, "span");
+    controls.className = "feuillets-preview-title-controls";
     const action = (icon: string, label: string, run: () => void): HTMLElement => {
-      const button = controls.createEl("button", { cls: "clickable-icon", type: "button" });
+      const button = createFrameElement(controls.ownerDocument, "button");
+      button.className = "clickable-icon";
+      button.type = "button";
+      controls.appendChild(button);
       setIcon(button, icon);
       button.setAttribute("aria-label", label);
       button.setAttribute("title", label);
@@ -2420,7 +2470,6 @@ export class PreviewView extends ItemView {
         event.stopPropagation();
         run();
       });
-      controls.appendChild(button);
       return button;
     };
     action("pencil", t("preview.titleControl.editRole", { role }), edit);
@@ -2479,11 +2528,19 @@ export class PreviewView extends ItemView {
 
   private setStatus(status: PreviewStatus): void {
     this.status = status;
-    if (this.statusEl) {
-      this.statusEl.textContent = previewStatusLabel(status, this.mode);
-      this.statusEl.toggleClass("is-error", status === "error");
-      this.statusEl.toggleClass("is-working", status === "rendering" || status === "stale");
-    }
+    this.plugin.updatePreviewStatusBar?.();
+  }
+
+  getReadingPosition(): string | null {
+    const viewport = this.previewViewport;
+    const pages = Array.from(this.previewFrame?.contentDocument?.querySelectorAll<HTMLElement>(".pdf-page") || []);
+    if (this.closed || !viewport || viewport.clientHeight <= 0 || !pages.length) return null;
+    const position = viewport.scrollTop + viewport.clientHeight / 3;
+    let index = pages.findIndex((page) => this.frameTopWithinScroll() + (page.offsetTop + page.offsetHeight) * this.zoomScale >= position);
+    if (index < 0) index = pages.length - 1;
+    const path = this.captureBlockAnchor(position)?.path;
+    const file = path ? this.app.vault.getAbstractFileByPath(path) : null;
+    return t("preview.status.position", { sheet: file instanceof TFile ? this.binderFileTitle(file) : this.getDisplayText(), page: String(index + 1), total: String(pages.length) });
   }
 
   /* ==================== Suivi de la scène active ======================
@@ -2650,10 +2707,22 @@ export class PreviewView extends ItemView {
       this.syncScrollerCleanup?.();
       this.syncScrollerCleanup = null;
       this.syncScroller = scroller;
+      this.sourceScrollTop = scroller?.scrollTop ?? null;
+      this.syncingFromPreview = false;
       if (scroller && typeof scroller.addEventListener === "function") {
         const handler = (): void => this.onSourceScroll();
+        const interact = (): void => {
+          this.openVisibleRequestId++;
+          this.preservingPreviewScrollRequestId = null;
+          this.syncingFromPreview = false;
+          this.lastPreviewScrollAt = 0;
+        };
         scroller.addEventListener("scroll", handler);
-        this.syncScrollerCleanup = () => scroller.removeEventListener("scroll", handler);
+        for (const event of ["wheel", "pointerdown", "keydown"]) scroller.addEventListener(event, interact, { passive: true, capture: true });
+        this.syncScrollerCleanup = () => {
+          scroller.removeEventListener("scroll", handler);
+          for (const event of ["wheel", "pointerdown", "keydown"]) scroller.removeEventListener(event, interact, true);
+        };
       }
     }
     this.syncKind = kind;
@@ -2668,6 +2737,7 @@ export class PreviewView extends ItemView {
     this.syncScrollerCleanup = null;
     this.syncScroller = null;
     this.syncKind = null;
+    this.sourceScrollTop = null;
     this.syncSourcePath = null;
     this.syncingFromEditor = false;
     this.syncingFromPreview = false;
@@ -2687,12 +2757,31 @@ export class PreviewView extends ItemView {
 
   private onSourceScroll(): void {
     if (this.closed || !this.syncScrollEnabled) return;
+    if (this.syncScroller) {
+      const top = this.syncScroller.scrollTop;
+      if (top === this.sourceScrollTop) return;
+      this.sourceScrollTop = top;
+    }
     if (this.preservingPreviewScrollRequestId !== null) return;
     // Écho de NOTRE propre correction : surtout ne pas le prendre pour un
     // geste de l'utilisatrice, sinon les deux panneaux se poursuivent.
     if (this.syncingFromPreview) return;
+    if (this.syncKind === "continu") this.lastPreviewScrollAt = 0;
     this.lastSourceScrollAt = Date.now();
     this.scheduleSync(() => this.applySourceToPreview());
+  }
+
+  private onPreviewInteraction(): void {
+    this.openVisibleRequestId++;
+    this.preservingPreviewScrollRequestId = null;
+    this.syncingFromEditor = false;
+    this.syncingFromPreview = false;
+    this.lastSourceScrollAt = 0;
+    this.lastPreviewScrollAt = Date.now();
+    this.cancelFrame(this.syncHandle);
+    this.syncHandle = null;
+    this.syncJob = null;
+    this.markFollowedBlock([]);
   }
 
   private onPreviewScroll(): void {
@@ -2701,8 +2790,17 @@ export class PreviewView extends ItemView {
     // pas être pris pour une lecture manuelle, sinon il bloquerait la mise à
     // jour source → aperçu qui vient justement de le provoquer.
     const programmatic = this.syncingFromEditor;
-    if (!programmatic) this.lastPreviewScrollAt = Date.now();
+    if (!programmatic) {
+      this.markFollowedBlock([]);
+      this.lastPreviewScrollAt = Date.now();
+      if (this.syncKind === "continu") {
+        this.openVisibleRequestId++;
+        this.syncingFromPreview = false;
+        this.lastSourceScrollAt = 0;
+      }
+    }
     if (this.isLongFormPreview) this.scheduleVisibleFeuilletUpdate();
+    else this.updateVisibleFeuillet();
     if (!programmatic && this.isAutoOpenPreview) this.scheduleAutoOpenVisibleFeuillet();
     if (!this.syncScrollEnabled) return;
     if (programmatic) return;
@@ -2756,7 +2854,7 @@ export class PreviewView extends ItemView {
     if (this.autoOpenVisibleTimer !== null) window.clearTimeout(this.autoOpenVisibleTimer);
     this.autoOpenVisibleTimer = window.setTimeout(() => {
       this.autoOpenVisibleTimer = null;
-      if (this.closed || !this.isAutoOpenPreview) return;
+      if (this.closed || !this.isAutoOpenPreview || this.linkedContinuView()) return;
       const path = this.visibleFeuilletPathAtViewport();
       if (!path || path === this.synchronizedFeuilletPath) return;
       void this.openVisibleFeuillet({ focusEditor: false, alignFromPreview: true, origin: "auto" });
@@ -2765,6 +2863,7 @@ export class PreviewView extends ItemView {
 
   /** Détermine le feuillet lu au tiers supérieur du viewport, sans rendu. */
   private updateVisibleFeuillet(): void {
+    this.setStatus(this.status);
     if (!this.isLongFormPreview) return;
     const path = this.visibleFeuilletPathAtViewport();
     if (path === this.visibleFeuilletPath) return;
@@ -2964,11 +3063,157 @@ export class PreviewView extends ItemView {
   private previewAnchorAtViewport(): ScriveningsScrollAnchor | null {
     const viewport = this.previewViewport;
     if (!viewport) return null;
-    const path = this.visibleFeuilletPathAtViewport();
+    const block = this.captureBlockAnchor();
+    const path = block?.path || this.visibleFeuilletPathAtViewport();
     if (!path) return null;
     const section = this.sectionForPath(path);
     if (!section) return null;
-    return { path, progress: progressWithinSection(viewport.scrollTop, section, viewport.clientHeight || 0) };
+    const anchor: ScriveningsScrollAnchor = { path, progress: progressWithinSection(viewport.scrollTop, section, viewport.clientHeight || 0) };
+    if (block) {
+      const fragments = this.fragmentsForAnchor({ ...anchor, block: { ...block, viewportRatio: 0 } });
+      const height = fragments.reduce((total, fragment) => total + fragment.getBoundingClientRect().height, 0);
+      if (height > 0) {
+        const position = viewport.scrollTop - this.frameTopWithinScroll();
+        const elapsed = fragments.reduce((total, fragment) => {
+          const rect = fragment.getBoundingClientRect();
+          return total + Math.min(rect.height, Math.max(0, position - rect.top));
+        }, 0);
+        anchor.block = { line: block.line, col: block.col, progress: elapsed / height, viewportRatio: 0 };
+      }
+    }
+    return anchor;
+  }
+
+  private fragmentsForAnchor(anchor: ScriveningsScrollAnchor): HTMLElement[] {
+    const block = anchor.block;
+    const doc = this.previewFrame?.contentDocument;
+    if (!block || !doc) return [];
+    const elements = Array.from(doc.querySelectorAll<HTMLElement>(`[${SOURCE_BLOCK_PATH_ATTR}]`));
+    const first = elements.find((element) => element.getAttribute(SOURCE_BLOCK_PATH_ATTR) === anchor.path
+      && Number(element.getAttribute(SOURCE_START_LINE_ATTR)) <= block.line
+      && Number(element.getAttribute(SOURCE_END_LINE_ATTR)) >= block.line);
+    if (!first) return [];
+    return elements.filter((element) => element.getAttribute(SOURCE_BLOCK_PATH_ATTR) === anchor.path
+      && element.getAttribute(SOURCE_START_LINE_ATTR) === first.getAttribute(SOURCE_START_LINE_ATTR)
+      && element.getAttribute(SOURCE_START_COL_ATTR) === first.getAttribute(SOURCE_START_COL_ATTR)
+      && element.getBoundingClientRect().height > 0);
+  }
+
+  private sourceTextNodes(fragments: HTMLElement[]): Text[] | null {
+    const source = fragments[0]?.getAttribute(SOURCE_TEXT_ATTR);
+    if (source === null || source === undefined) return null;
+    const nodes: Text[] = [];
+    for (const fragment of fragments) {
+      const walker = fragment.ownerDocument.createTreeWalker(fragment, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) nodes.push(node as Text);
+    }
+    return nodes;
+  }
+
+  private sourceRange(fragments: HTMLElement[], position: { line: number; ch: number }): Range | null {
+    const nodes = this.sourceTextNodes(fragments);
+    if (!nodes?.length) return null;
+    const first = fragments[0];
+    const startLine = Number(first.getAttribute(SOURCE_START_LINE_ATTR));
+    const source = first.getAttribute(SOURCE_TEXT_ATTR) || "";
+    const sourceOffset = lineColToOffset(source, {
+      line: position.line - startLine,
+      ch: position.ch - (position.line === startLine ? Number(first.getAttribute(SOURCE_START_COL_ATTR)) : 0),
+    });
+    let offset = sourceOffsetToRenderedOffset(source, nodes.map((node) => node.data).join(""), sourceOffset);
+    if (offset === null) return null;
+    for (const node of nodes) {
+      if (offset < node.length || node === nodes[nodes.length - 1]) {
+        const range = node.ownerDocument.createRange();
+        const start = Math.min(offset, Math.max(0, node.length - 1));
+        range.setStart(node, start);
+        range.setEnd(node, Math.min(node.length, start + 1));
+        return range;
+      }
+      offset -= node.length;
+    }
+    return null;
+  }
+
+  private markSourcePosition(path: string, position: { line: number; ch: number }): HTMLElement | null {
+    const doc = this.previewFrame?.contentDocument;
+    if (!doc?.body) return null;
+    doc.querySelector(".feuillets-preview-caret-marker")?.remove();
+    const fragments = this.fragmentsForAnchor({ path, progress: 0,
+      block: { line: position.line, col: position.ch, progress: 0, viewportRatio: 0 } });
+    if (!fragments.length) return null;
+    const range = this.sourceRange(fragments, position);
+    const lineRect = range?.getBoundingClientRect();
+    const precise = !!lineRect && lineRect.height > 0;
+    const rect = precise ? lineRect : fragments[0].getBoundingClientRect();
+    const marker = createFrameElement(doc, "span");
+    marker.classList.add("feuillets-preview-caret-marker");
+    marker.classList.toggle("is-block-fallback", !precise);
+    marker.setAttribute("aria-hidden", "true");
+    marker.dataset.path = path;
+    marker.dataset.line = String(position.line);
+    marker.dataset.ch = String(position.ch);
+    marker.dataset.precision = precise ? "line" : "block";
+    const bounds = range?.startContainer.parentElement?.closest(`[${SOURCE_BLOCK_PATH_ATTR}]`)?.getBoundingClientRect() || fragments[0].getBoundingClientRect();
+    marker.style.left = `${Math.max(0, bounds.left - 6)}px`;
+    marker.style.top = `${rect.top}px`;
+    marker.style.height = `${precise ? rect.height : Math.min(12, rect.height)}px`;
+    doc.body.appendChild(marker);
+    return marker;
+  }
+
+  onEditorCursorChanged(change: EditorCursorChange): void {
+    if (this.closed || this.linkedContinuView() || this.activeMarkdownView()?.file?.path !== change.filePath) return;
+    const file = this.app.vault.getAbstractFileByPath(change.filePath);
+    if (!(file instanceof TFile)) return;
+    const editor = this.editorForFile(file);
+    if (!editor) return;
+    this.markSourcePosition(change.filePath, offsetToLineCol(editor.getValue(), change.cursorOffset));
+  }
+
+  onContinuSelectionChanged(source: ContinuSourceView): void {
+    if (this.closed || this.linkedContinuView() !== source) return;
+    const position = source.getSourcePosition?.();
+    if (!position) return;
+    const marker = this.markSourcePosition(position.path, position);
+    const viewport = this.previewViewport;
+    if (!marker || !viewport || this.syncingFromPreview) return;
+    const rect = marker.getBoundingClientRect();
+    const top = this.frameTopWithinScroll() + rect.top - viewport.scrollTop;
+    const delta = top < 0 ? top : Math.max(0, top + rect.height - viewport.clientHeight);
+    if (Math.abs(delta) < 1) return;
+    this.syncingFromEditor = true;
+    viewport.scrollTop += delta;
+    this.releaseAfterFrame(() => { this.syncingFromEditor = false; });
+  }
+
+  private sourcePositionAtClick(block: Element, event: { clientX?: number; clientY?: number }): { line: number; ch: number } {
+    const line = Number(block.getAttribute(SOURCE_START_LINE_ATTR));
+    const ch = Number(block.getAttribute(SOURCE_START_COL_ATTR));
+    if (event.clientX === undefined || event.clientY === undefined) return { line, ch };
+    const path = block.getAttribute(SOURCE_BLOCK_PATH_ATTR) || "";
+    const fragments = this.fragmentsForAnchor({ path, progress: 0, block: { line, col: ch, progress: 0, viewportRatio: 0 } });
+    const nodes = this.sourceTextNodes(fragments);
+    const doc = this.previewFrame?.contentDocument;
+    const caret = doc?.caretPositionFromPoint?.(event.clientX, event.clientY);
+    if (!caret || !nodes?.includes(caret.offsetNode as Text)) return { line, ch };
+    let offset = caret.offset;
+    for (const node of nodes) {
+      if (node === caret.offsetNode) break;
+      offset += node.length;
+    }
+    const source = fragments[0].getAttribute(SOURCE_TEXT_ATTR) || "";
+    const sourceOffset = renderedOffsetToSourceOffset(source, nodes.map((node) => node.data).join(""), offset);
+    if (sourceOffset === null) return { line, ch };
+    const position = offsetToLineCol(source, sourceOffset);
+    return { line: line + position.line, ch: position.ch + (position.line === 0 ? ch : 0) };
+  }
+
+  private markFollowedBlock(fragments: HTMLElement[]): void {
+    const doc = this.previewFrame?.contentDocument;
+    if (!doc) return;
+    for (const element of Array.from(doc.querySelectorAll<HTMLElement>(".feuillets-preview-followed-block"))) element.classList.remove("feuillets-preview-followed-block");
+    for (const element of fragments) element.classList.add("feuillets-preview-followed-block");
   }
 
   /** Replace le viewport de l'Aperçu sur `anchor` — même repérage de
@@ -2983,7 +3228,25 @@ export class PreviewView extends ItemView {
     if (!viewport) return;
     const section = this.sectionForPath(anchor.path);
     if (!section) return;
-    const raw = scrollTopWithinSection(section, viewport.clientHeight || 0, anchor.progress);
+    const fragments = this.fragmentsForAnchor(anchor);
+    let raw = scrollTopWithinSection(section, viewport.clientHeight || 0, anchor.progress);
+    if (anchor.block && fragments.length) {
+      const start = Number(fragments[0].getAttribute(SOURCE_START_LINE_ATTR));
+      const end = Number(fragments[0].getAttribute(SOURCE_END_LINE_ATTR));
+      const progress = Math.min(1, Math.max(0, (anchor.block.line - start + anchor.block.progress) / (end - start + 1)));
+      let remaining = fragments.reduce((height, fragment) => height + fragment.getBoundingClientRect().height, 0) * progress;
+      for (let index = 0; index < fragments.length; index++) {
+        const rect = fragments[index].getBoundingClientRect();
+        if (remaining <= rect.height || index === fragments.length - 1) {
+          raw = this.frameTopWithinScroll() + rect.top + remaining - anchor.block.viewportRatio * viewport.clientHeight;
+          break;
+        }
+        remaining -= rect.height;
+      }
+    }
+    this.markFollowedBlock(fragments);
+    const cursor = this.linkedContinuView()?.getSourcePosition?.();
+    if (cursor) this.markSourcePosition(cursor.path, cursor);
     const maxScrollTop = Math.max(0, scrollableAmount(viewport));
     const target = Math.max(0, Math.min(raw, maxScrollTop));
     if (Math.abs(target - viewport.scrollTop) < 1) return;
@@ -3039,10 +3302,24 @@ export class PreviewView extends ItemView {
       const anchor = this.previewAnchorAtViewport();
       if (!anchor) return;
       const current = continu.getScrollAnchor();
-      if (current && current.path === anchor.path && Math.abs(current.progress - anchor.progress) < 0.01) return;
+      if (current && current.path === anchor.path && (anchor.block && current.block
+        ? current.block.line === anchor.block.line && current.block.col === anchor.block.col
+          && Math.abs(current.block.progress - anchor.block.progress) < 0.01
+          && Math.abs(current.block.viewportRatio - anchor.block.viewportRatio) < 0.01
+        : Math.abs(current.progress - anchor.progress) < 0.01)) return;
+      const requestId = ++this.openVisibleRequestId;
       this.syncingFromPreview = true;
-      continu.scrollToAnchor(anchor.path, anchor.progress);
-      this.releaseAfterFrame(() => { this.syncingFromPreview = false; });
+      const scroll = continu.scrollToAnchor(anchor.path, anchor.progress, anchor.block);
+      this.sourceScrollTop = scroller.scrollTop;
+      void Promise.resolve(scroll).finally(() => {
+        if (this.closed || this.linkedContinuView() !== continu || this.syncScroller !== scroller) return;
+        // A newer Preview gesture still owns this source adjustment; source input clears this timestamp.
+        if (requestId === this.openVisibleRequestId || this.lastPreviewScrollAt > 0) this.sourceScrollTop = scroller.scrollTop;
+        if (requestId !== this.openVisibleRequestId) return;
+        this.releaseAfterFrame(() => {
+          if (requestId === this.openVisibleRequestId) this.syncingFromPreview = false;
+        });
+      });
       return;
     }
 
@@ -3228,9 +3505,6 @@ export class PreviewView extends ItemView {
     // Toute nouvelle demande annule la protection transitoire de la
     // précédente : une ancienne ouverture ne peut pas bloquer le suivi.
     this.preservingPreviewScrollRequestId = null;
-    const keptPreviewScrollTop = alignFromPreview
-      ? (Number(this.previewViewport?.scrollTop) || 0)
-      : null;
     if (alignFromPreview) {
       this.preservingPreviewScrollRequestId = requestId;
       // Le temps que l'éditeur monte son nouveau document, tout scroll
@@ -3267,14 +3541,9 @@ export class PreviewView extends ItemView {
     }
 
     this.applyPreviewToSource();
-    /* `openFile()` peut faire émettre un dernier scroll du panneau Markdown
-       après la résolution de sa promesse. On restaure donc la position
-       capturée puis on enlève le garde-fou à la frame suivante. */
-    if (this.previewViewport && keptPreviewScrollTop !== null) this.previewViewport.scrollTop = keptPreviewScrollTop;
     this.releaseAfterFrame(() => {
       if (this.preservingPreviewScrollRequestId !== requestId) return;
       this.preservingPreviewScrollRequestId = null;
-      if (this.previewViewport && keptPreviewScrollTop !== null) this.previewViewport.scrollTop = keptPreviewScrollTop;
     });
   }
 
@@ -3485,6 +3754,7 @@ export class PreviewView extends ItemView {
      et le défilement vertical sans modificateur n'est jamais intercepté. */
 
   private onViewportWheel(e: WheelEvent): void {
+    this.onPreviewInteraction();
     if (!e || !(e.ctrlKey || e.metaKey)) return;
     e.preventDefault?.();
 
@@ -3537,6 +3807,44 @@ export class PreviewView extends ItemView {
     return frame.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop;
   }
 
+  private sectionForBlock(block: { path: string; line: number; col: number }): ScrollSection | null {
+    const doc = this.previewFrame?.contentDocument;
+    if (!doc) return null;
+    const fragments = Array.from(doc.querySelectorAll<HTMLElement>(`[${SOURCE_BLOCK_PATH_ATTR}]`))
+      .filter((element) => element.getAttribute(SOURCE_BLOCK_PATH_ATTR) === block.path
+        && Number(element.getAttribute(SOURCE_START_LINE_ATTR)) === block.line
+        && Number(element.getAttribute(SOURCE_START_COL_ATTR)) === block.col)
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.height > 0);
+    if (!fragments.length) return null;
+    const top = Math.min(...fragments.map((rect) => rect.top));
+    const bottom = Math.max(...fragments.map((rect) => rect.bottom));
+    return { top: this.frameTopWithinScroll() + top, height: bottom - top };
+  }
+
+  private captureBlockAnchor(position = this.previewViewport?.scrollTop ?? 0): ScrollAnchor["block"] {
+    const viewport = this.previewViewport;
+    const doc = this.previewFrame?.contentDocument;
+    if (!viewport || !doc) return null;
+    const stackTop = this.frameTopWithinScroll();
+    let block: ScrollAnchor["block"] = null;
+    let blockTop = -Infinity;
+    for (const element of Array.from(doc.querySelectorAll<HTMLElement>(`[${SOURCE_BLOCK_PATH_ATTR}]`))) {
+      const rect = element.getBoundingClientRect();
+      const top = stackTop + rect.top;
+      if (rect.height <= 0 || top > position || top < blockTop) continue;
+      const path = element.getAttribute(SOURCE_BLOCK_PATH_ATTR);
+      const line = Number(element.getAttribute(SOURCE_START_LINE_ATTR));
+      const col = Number(element.getAttribute(SOURCE_START_COL_ATTR));
+      if (!path || !Number.isFinite(line) || !Number.isFinite(col)) continue;
+      blockTop = top;
+      block = { path, line, col, progress: 0 };
+    }
+    const section = block && this.sectionForBlock(block);
+    if (block && section) block.progress = (position - section.top) / section.height;
+    return block;
+  }
+
   private captureScrollAnchor(): ScrollAnchor | null {
     const viewport = this.previewViewport;
     const doc = this.previewFrame?.contentDocument;
@@ -3548,32 +3856,45 @@ export class PreviewView extends ItemView {
     const scrollTop = viewport.scrollTop;
     const stackTop = this.frameTopWithinScroll();
     const scale = this.zoomScale;
+    const block = this.captureBlockAnchor();
+    const source = this.previewAnchorAtViewport();
+    const sourceSection = source && this.sectionForPath(source.path);
 
     for (let i = pages.length - 1; i >= 0; i--) {
       const pageTop = stackTop + pages[i].offsetTop * scale;
       if (scrollTop >= pageTop || i === 0) {
         const pageHeight = pages[i].offsetHeight * scale;
         const progress = pageHeight > 0 ? (scrollTop - pageTop) / pageHeight : 0;
-        return { pageIndex: i, pageProgress: progress };
+        return { pageIndex: i, pageProgress: progress, scrollTop, block,
+          source: sourceSection && sourceSection.top <= scrollTop && this.sectionHasUsableRange(sourceSection) ? source : null };
       }
     }
     return null;
   }
 
-  private restoreScrollAnchor(anchor: ScrollAnchor | null): void {
-    if (!anchor) return;
+  private restoreScrollAnchor(anchor: ScrollAnchor | null): boolean {
+    if (!anchor) return false;
     const viewport = this.previewViewport;
     const doc = this.previewFrame?.contentDocument;
-    if (!viewport || !doc) return;
+    if (!viewport || !doc) return false;
 
     const pages = Array.from(doc.querySelectorAll<HTMLElement>(".pdf-page"));
-    if (!pages.length) return;
+    if (!pages.length) return false;
 
     const index = Math.max(0, Math.min(anchor.pageIndex, pages.length - 1));
     const page = pages[index];
     const scale = this.zoomScale;
     const pageTop = this.frameTopWithinScroll() + page.offsetTop * scale;
-    viewport.scrollTop = Math.max(0, pageTop + anchor.pageProgress * page.offsetHeight * scale);
+    const blockSection = anchor.block && this.sectionForBlock(anchor.block);
+    const sourceSection = anchor.source && this.sectionForPath(anchor.source.path);
+    const target = blockSection && anchor.block
+      ? blockSection.top + anchor.block.progress * blockSection.height
+      : sourceSection && anchor.source
+        ? scrollTopWithinSection(sourceSection, viewport.clientHeight || 0, anchor.source.progress)
+        : pageTop + anchor.pageProgress * page.offsetHeight * scale;
+    const clamped = Math.max(0, target);
+    if (Math.abs(clamped - viewport.scrollTop) >= 1) viewport.scrollTop = clamped;
+    return true;
   }
 
   /** Mesure la taille naturelle (NON transformée) — via offsetWidth/Height,
@@ -3625,6 +3946,8 @@ export class PreviewView extends ItemView {
       frame.style.height = `${Math.round(this.naturalPagesHeight * scale)}px`;
     }
 
+    const caret = doc.querySelector<HTMLElement>(".feuillets-preview-caret-marker");
+    if (caret) this.markSourcePosition(caret.dataset.path || "", { line: Number(caret.dataset.line), ch: Number(caret.dataset.ch) });
     this.updateOverflowMode();
   }
 
@@ -3714,6 +4037,7 @@ export class PreviewView extends ItemView {
     this.previewMessageEl = null;
     this.explicitContinuSource = null;
     this.contentEl.empty();
+    this.plugin.updatePreviewStatusBar?.();
   }
 }
 

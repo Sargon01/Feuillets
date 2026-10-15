@@ -31,6 +31,8 @@ import type { CslCitationHost } from "../services/csl-citation-host.js";
 import {
   getScriveningsScrollAnchor,
   scrollScriveningsToAnchor,
+  scriveningsViewportTop,
+  scriveningsSegmentProgress,
   type ScriveningsBlockInfo,
   type ScriveningsScrollAnchor,
 } from "../utils/cm-scrivenings-scroll.js";
@@ -53,7 +55,7 @@ import { loadAnnotations, annotationsForFile, resolveAnnotation, toManuscriptRel
 import { t } from "../i18n/index.js";
 import type { TextAnalysisProvider } from "../api/text-analysis.js";
 import { ScriveningsGrammarChecker } from "../utils/cm-scrivenings-grammar.js";
-import { ScriveningsSegmentEditorAdapter } from "../utils/scrivenings-editor-adapter.js";
+import { ScriveningsSegmentEditorAdapter, offsetToLineCol } from "../utils/scrivenings-editor-adapter.js";
 
 /**
  * ScriveningsView — LOT 1 (cœur technique uniquement).
@@ -150,6 +152,7 @@ export type ScriveningsViewPlugin = {
    * rien, ne compile rien ici. */
   notifyContinuDocumentChanged?: (paths: readonly string[]) => void;
   notifyReferenceContextChanged?(): void;
+  notifyContinuSelectionChanged?(source: ScriveningsView): void;
   /** LOT 1.4 — menu contextuel Continu (main.ts#showScriveningsContextMenu) :
    * construit et affiche le `Menu` Obsidian propre à Continu (Couper/Copier/
    * Coller, Note de bas de page, Annotation, Noter une idée, Réorganiser le
@@ -382,6 +385,7 @@ interface EditorViewInstance {
   dispatch(spec: { effects?: unknown; changes?: unknown; selection?: { anchor: number; head?: number } }): void;
   destroy(): void;
   focus(): void;
+  requestMeasure(request: { read(): null; write(): void }): void;
   /* Surface de géométrie PUBLIQUE CodeMirror utilisée par
      utils/cm-scrivenings-scroll.ts (LOT 2B.1) — voir ce module pour le
      détail des quatre membres autorisés. Ajoutée ici seulement, jamais
@@ -406,12 +410,8 @@ interface EditorViewInstance {
 interface EditorViewCtor {
   new (config: { state: EditorStateInstance; parent: HTMLElement }): EditorViewInstance;
   updateListener: { of(callback: (update: { selectionSet: boolean; docChanged: boolean }) => void): unknown };
-  /* API STATIQUE (LOT « clic Preview → Continu », focusSourcePosition) :
-     centre le passage cliqué dans le viewport Continu. Même principe que
-     le reste de ce typage manuel — pas un nouveau membre du module
-     `@codemirror/view` (déjà `unknown` dans codemirror-runtime.d.ts),
-     seulement la forme locale prêtée à ce cast. */
-  scrollIntoView(pos: number, options?: { y?: "center" }): unknown;
+  scrollIntoView(pos: number, options?: { y?: "nearest"; yMargin?: number; xMargin?: number }): unknown;
+  scrollHandler: { of(handler: (view: EditorViewInstance, range: { head: number }) => boolean): unknown };
 }
 
 const EditorStateTyped = EditorState as EditorStateStatic;
@@ -458,6 +458,8 @@ export class ScriveningsView extends ItemView {
   private readonly grammarChecker?: ScriveningsGrammarChecker;
   private _compileScope: CompileScope | null = null;
   private cm: EditorViewInstance | null = null;
+  private focusRequestId = 0;
+  private focusScroll: { position: number; state: EditorStateInstance; isCurrent(): boolean } | null = null;
   private referenceEditor: { view: EditorViewInstance; path: string; editor: ScriveningsSegmentEditorAdapter } | null = null;
   /** Comptes de mots par fichier — recalcul complet au chargement/à la
    * recomposition (`computeScriveningsWordCounts`), incrémental à chaque
@@ -498,6 +500,16 @@ export class ScriveningsView extends ItemView {
    * module. */
   get editorView(): EditorViewInstance | null {
     return this.cm;
+  }
+
+  getSourcePosition(): { path: string; line: number; ch: number } | null {
+    const document = this.session.document;
+    const selection = this.cm?.state.selection.main;
+    if (!document || !selection) return null;
+    const location = compositeOffsetToLocation(document, selection.head ?? selection.from);
+    if (!location) return null;
+    const text = location.segment.frontmatter + location.segment.body;
+    return { path: location.segment.path, ...offsetToLineCol(text, location.segment.frontmatter.length + location.offset) };
   }
 
   /** Reads the actual cursor segment without changing selection or document content. */
@@ -612,8 +624,12 @@ export class ScriveningsView extends ItemView {
     const restoreTarget = nextScrollAnchorAfterRecomposition(previousAnchor, previousOrder, this.getMemberPaths());
     if (restoreTarget) {
       const apply = () => this.scrollToAnchor(restoreTarget.path, restoreTarget.progress);
-      apply();
-      window.requestAnimationFrame(apply);
+      await apply();
+      window.requestAnimationFrame(() => {
+        void apply().catch((error: unknown) => {
+          console.error("Failed to restore Continu scroll position", error);
+        });
+      });
     }
 
     void this.plugin.updateStatusBar?.();
@@ -702,6 +718,7 @@ export class ScriveningsView extends ItemView {
 
     let referencePath: string | null = document.segments[0]?.path ?? null;
     const extensions = [
+      EditorViewCtorTyped.scrollHandler.of((_view, range) => this.handleFocusScroll(range.head)),
       ...createScriveningsExtensions(imageResolver),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
       createScriveningsCitationExtension(
@@ -720,6 +737,7 @@ export class ScriveningsView extends ItemView {
       scriveningsChangeListener((changes) => this.handleEditorChanges(changes)),
       EditorViewCtorTyped.updateListener.of((update) => {
         if (!update.selectionSet && !update.docChanged) return;
+        if (update.selectionSet) this.plugin.notifyContinuSelectionChanged?.(this);
         const path = this.getReferenceFile()?.path ?? null;
         if (path === referencePath) return;
         referencePath = path;
@@ -809,6 +827,8 @@ export class ScriveningsView extends ItemView {
   }
 
   private destroyEditor(): void {
+    this.focusRequestId++;
+    this.focusScroll = null;
     this.grammarChecker?.destroy();
     // Un seul listener à la fois (§6) : toujours retiré AVANT destroy(),
     // qu'il ait ou non été effectivement appelé depuis le montage — jamais
@@ -1148,16 +1168,51 @@ export class ScriveningsView extends ItemView {
    * feuillet — `null` si aucun scope n'est chargé. */
   getScrollAnchor(): ScriveningsScrollAnchor | null {
     if (!this.cm || !this.session.document) return null;
-    return getScriveningsScrollAnchor(this.cm, this.session.document);
+    const cm = this.cm;
+    const document = this.session.document;
+    const anchor = getScriveningsScrollAnchor(cm, document);
+    const top = scriveningsViewportTop(cm);
+    if (cm.scrollDOM.clientHeight <= 0) return anchor;
+    const reference = top + cm.scrollDOM.clientHeight / 3;
+    const block = cm.elementAtHeight(reference);
+    const location = compositeOffsetToLocation(document, block.from);
+    if (!location || !(block.bottom > block.top)) return anchor;
+    const prefix = (location.segment.frontmatter + location.segment.body.slice(0, location.offset)).split("\n");
+    const visibleStart = block.top >= top;
+    return {
+      path: location.segment.path,
+      progress: scriveningsSegmentProgress(cm, location.segment, top),
+      block: {
+        line: prefix.length - 1,
+        col: prefix[prefix.length - 1].length,
+        progress: visibleStart ? 0 : Math.min(1, Math.max(0, (reference - block.top) / (block.bottom - block.top))),
+        viewportRatio: visibleStart ? (block.top - top) / cm.scrollDOM.clientHeight : 1 / 3,
+      },
+    };
   }
 
   /** Replace le viewport de Continu sur `path` à `progress` (borné) — jamais
    * de curseur déplacé, jamais de transaction document, jamais de dirty
    * state. Sans effet si `path` n'appartient pas au scope actuellement
    * chargé, ou si aucun scope n'est chargé. */
-  scrollToAnchor(path: string, progress: number): void {
+  async scrollToAnchor(path: string, progress: number, block?: ScriveningsScrollAnchor["block"]): Promise<void> {
     if (!this.cm || !this.session.document) return;
-    scrollScriveningsToAnchor(this.cm, this.session.document, path, progress);
+    const cm = this.cm;
+    const document = this.session.document;
+    const segment = document.segments.find((item) => item.path === path);
+    if (block && segment) {
+      const offset = offsetForLineCol(segment.frontmatter + segment.body, block.line, block.col) - segment.frontmatter.length;
+      const position = locationToCompositeOffset(document, path, Math.max(0, Math.min(segment.body.length, offset)));
+      if (position === null) return;
+      const line = cm.lineBlockAt(position);
+      const height = line.top + block.progress * (line.bottom - line.top) - block.viewportRatio * cm.scrollDOM.clientHeight;
+      const target = Math.max(0, Math.min(cm.scrollDOM.scrollHeight - cm.scrollDOM.clientHeight,
+        cm.scrollDOM.scrollTop + height - scriveningsViewportTop(cm)));
+      if (Math.abs(cm.scrollDOM.scrollTop - target) >= 1) cm.scrollDOM.scrollTop = target;
+    } else {
+      scrollScriveningsToAnchor(cm, document, path, progress);
+    }
+    await new Promise<void>((resolve) => cm.requestMeasure({ read: () => null, write: () => resolve() }));
   }
 
   /* ================ LOT « clic Preview → Continu » (§10-16) ==============
@@ -1165,29 +1220,19 @@ export class ScriveningsView extends ItemView {
    * scope, ne sauvegarde rien, ne marque rien dirty, ne crée aucune leaf,
    * ne déplace aucun fichier. */
 
-  /**
-   * Place le curseur Continu à la position SOURCE Markdown `position`
-   * (`{line, ch}`, 0-based — mêmes coordonnées que `SourceBlockPosition`,
-   * preview-source-map.ts : celles du FICHIER MARKDOWN ORIGINAL, jamais
-   * recalculées depuis un rendu), recentre le viewport et donne le focus.
-   * `false` si `path` n'appartient pas à la composition actuellement
-   * chargée, ou si aucun scope n'est chargé (CodeMirror pas encore monté).
-   *
-   * Seul le FRONTMATTER est relu sur disque (il n'est jamais éditable dans
-   * Continu) : le corps utilisé pour la conversion est le corps VIVANT du
-   * segment composite actuellement affiché — même principe que
-   * `PreviewView.readFileForPreview`/`getLiveBody` ci-dessus — pour que le
-   * clic vise la VRAIE position même si Continu a été modifié depuis le
-   * chargement du scope, sans jamais relire le corps sur disque.
-   */
-  async focusSourcePosition(path: string, position: { line: number; ch: number }): Promise<boolean> {
+  /** Place the caret using the live composite body and the file's current
+   * frontmatter. Native nearest-edge scrolling reveals it only if needed. */
+  async focusSourcePosition(path: string, position: { line: number; ch: number }, isCurrent?: () => boolean): Promise<boolean> {
+    const requestId = ++this.focusRequestId;
+    const cm = this.cm;
     const document = this.session.document;
-    if (!document || !this.cm) return false;
+    const file = document?.segments.find((segment) => segment.path === path)?.file;
+    if (!document || !cm || !file) return false;
 
-    const segment = document.segments.find((s) => s.path === path);
+    const raw = await this.app.vault.cachedRead(file);
+    if (requestId !== this.focusRequestId || cm !== this.cm || document !== this.session.document || isCurrent?.() === false) return false;
+    const segment = document.segments.find((item) => item.path === path);
     if (!segment) return false;
-
-    const raw = await this.app.vault.cachedRead(segment.file);
     const { frontmatter } = splitFrontmatter(raw);
     // Source virtuelle JAMAIS écrite : sert uniquement à convertir une
     // position exprimée dans les coordonnées du FICHIER COMPLET (frontmatter
@@ -1206,12 +1251,25 @@ export class ScriveningsView extends ItemView {
     // Le curseur SEUL : jamais de sélection du paragraphe entier — même
     // grammaire que le clic historique Preview → Markdown
     // (openPreviewBlockInEditor, preview-view.ts).
-    this.cm.dispatch({
+    cm.dispatch({
       selection: { anchor: compositeOffset, head: compositeOffset },
-      effects: EditorViewCtorTyped.scrollIntoView(compositeOffset, { y: "center" }),
+      effects: EditorViewCtorTyped.scrollIntoView(compositeOffset, { y: "nearest", yMargin: 0, xMargin: 0 }),
     });
-    this.cm.focus();
+    this.focusScroll = { position: compositeOffset, state: cm.state,
+      isCurrent: () => requestId === this.focusRequestId && cm === this.cm && document === this.session.document && isCurrent?.() !== false };
+    cm.focus();
+    // CodeMirror applies the scroll effect during measurement, after dispatch returns.
+    await new Promise<void>((resolve) => cm.requestMeasure({ read: () => null, write: () => resolve() }));
     return true;
+  }
+
+  private handleFocusScroll(position: number): boolean {
+    const scroll = this.focusScroll;
+    if (!scroll) return false;
+    this.focusScroll = null;
+    // A subsequent editor transaction owns its own scroll effect.
+    if (scroll.position !== position || scroll.state !== this.cm?.state) return false;
+    return !scroll.isCurrent();
   }
 
   /* ===================== Typographie de l'hôte (§7) ===================

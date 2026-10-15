@@ -31,6 +31,7 @@ import { segmentAt } from "../services/scrivenings-document.js";
 export type ScriveningsScrollAnchor = {
   path: string;
   progress: number;
+  block?: { line: number; col: number; progress: number; viewportRatio: number };
 };
 
 /** Sous-ensemble RÉELLEMENT utilisé du `BlockInfo` public de CodeMirror —

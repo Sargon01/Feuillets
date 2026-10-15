@@ -1630,6 +1630,10 @@ body:not(.feuillets-indent) .feuillets-indent-widget {
   font-variant-numeric: tabular-nums;
 }
 
+.feuillets-status-preview {
+  color: var(--text-muted);
+}
+
 .feuillets-status-bar-clickable {
   cursor: pointer;
 }

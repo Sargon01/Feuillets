@@ -13,6 +13,7 @@ export function EditorView(config) {
   this.visibleRanges = [{ from: 0, to: config?.state?.doc?.length ?? 0 }];
   this.plugins = [];
   this.focus = () => {};
+  this.requestMeasure = (request = {}) => { const value = request.read?.(this); request.write?.(value, this); };
   this.destroy = () => {
     for (const plugin of this.plugins) {
       if (typeof plugin.destroy === "function") {
@@ -139,6 +140,7 @@ EditorView.updateListener = { of: (fn) => ({ facet: "updateListener", fn }) };
 EditorView.lineWrapping = { facet: "lineWrapping" };
 EditorView.keymap = { of: (bindings) => ({ facet: "keymap", bindings }) };
 EditorView.scrollIntoView = (pos, options) => ({ effect: "scrollIntoView", pos, options });
+EditorView.scrollHandler = { of: (handler) => ({ scrollHandler: handler }) };
 
 export const ViewPlugin = {
   /* Retourne TOUJOURS `cls` (rétrocompatible avec tous les tests

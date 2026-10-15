@@ -269,10 +269,9 @@ export class EditionWorkspaceContent {
 
   async refreshLinkedPreview(): Promise<void> {
     const leaf = this.previewLeaf;
-    if (!leaf) return;
-    if (!this.app.workspace.getLeavesOfType(VIEW_PREVIEW).includes(leaf)) {
-      // Preview fermée entre-temps : ne pas la recréer silencieusement (§10).
+    if (!leaf || !this.app.workspace.getLeavesOfType(VIEW_PREVIEW).includes(leaf)) {
       this.previewLeaf = null;
+      if (this.mode === "layout") await this.plugin.getCentralPreviewView?.()?.refreshPreview();
       return;
     }
     const view = leaf.view;

@@ -94,6 +94,7 @@ function fakePreview({
   view.lastSourceScrollAt = 0;
   view.syncingFromEditor = false;
   view.syncingFromPreview = false;
+  view.openVisibleRequestId = 0;
   const realUpdateVisibleFeuillet = view.updateVisibleFeuillet;
   view.updateVisibleFeuilletCalls = 0;
   view.updateVisibleFeuillet = function (...args) {

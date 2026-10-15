@@ -34,7 +34,8 @@ globalThis.window ??= {
 };
 
 async function flush() {
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 const PROJECT_ROOT = "Roman/Manuscrit";
@@ -93,6 +94,7 @@ function fakePreviewForClick({ continu = null } = {}) {
   view.closed = false;
   view.releaseHandles = [];
   view.syncingFromPreview = false;
+  view.openVisibleRequestId = 0;
   view.explicitContinuSource = null;
   const openPreviewBlockInEditorCalls = [];
   view.openPreviewBlockInEditor = async (path, from, to) => {
@@ -223,6 +225,7 @@ function buildView({ entries, diskContents = {} }) {
   view.cm = {
     dispatch: (spec) => { dispatchCalls.push(spec); },
     focus: () => { focusCalls++; },
+    requestMeasure: ({ read, write }) => { read(); write(); },
   };
 
   return { view, document, dispatchCalls, getFocusCalls: () => focusCalls, reads };
@@ -242,7 +245,7 @@ test("focusSourcePosition — feuillet AVEC frontmatter YAML : curseur composite
   const expectedComposite = locationToCompositeOffset(view.session.document, "A.md", bodyOffset);
   assert.equal(dispatchCalls.length, 1);
   assert.deepEqual(dispatchCalls[0].selection, { anchor: expectedComposite, head: expectedComposite });
-  assert.ok(dispatchCalls[0].effects, "un effet de recentrage est transmis");
+  assert.equal(dispatchCalls[0].effects.options.y, "nearest");
   assert.equal(getFocusCalls(), 1);
   // Aucun changement du document : le body du segment reste identique.
   assert.equal(view.session.document.segments[0].body, document.segments[0].body);
@@ -340,4 +343,21 @@ test("focusSourcePosition — aucun scope chargé (CodeMirror pas encore monté)
 
   const ok = await view.focusSourcePosition("H.md", { line: 0, ch: 0 });
   assert.equal(ok, false);
+});
+
+test("getSourcePosition resolves the live caret across sheets and includes frontmatter without reading or dispatching", () => {
+  const first = makeFile("First.md", "First");
+  const second = makeFile("Second.md", "Second");
+  const { view, document, dispatchCalls, reads } = buildView({ entries: [
+    { file: first, content: "Before" },
+    { file: second, content: "---\ntitle: Second\n---\nFirst line\n\nSecond line" },
+  ] });
+  const head = locationToCompositeOffset(document, second.path, "First line\n\n".length + 3);
+  view.cm.state = { selection: { main: { head, from: head, to: head, empty: true } } };
+  assert.deepEqual(view.getSourcePosition(), { path: second.path, line: 5, ch: 3 });
+  view.cm.state.selection.main = { head: 0, from: 0, to: 0, empty: true };
+  assert.deepEqual(view.getSourcePosition(), { path: first.path, line: 0, ch: 0 });
+  assert.equal(view.session.document, document);
+  assert.deepEqual(reads, []);
+  assert.deepEqual(dispatchCalls, []);
 });

@@ -19,24 +19,10 @@ export type TitlePageMiniatureOptions = {
    * sans quitter sa catégorie). Absent, la maquette retombe sur
    * `editor.select(target)`, le comportement historique. */
   onSelect?: (target: LayoutSelection) => void;
-  /** Notifié pendant un glisser, après chaque mise à jour de `marginTopPt` :
-   * permet à l'hôte de rafraîchir la valeur affichée dans son inspecteur SANS
-   * le reconstruire (donc sans perdre le focus des autres champs). */
   onDragValue?: () => void;
 };
 
-/** Maquette visuelle de la PAGE DE TITRE : bande d'en-tête, blocs de rôles
- * empilés (glissables verticalement) et bande de pied de page.
- *
- * Extraite du LayoutModal (§29) pour être partagée telle quelle par la modale
- * historique ET la catégorie « Première page » de Mise en page — une seule
- * implémentation, un seul comportement.
- *
- * Elle ne possède AUCUN état : tout vient du `LayoutEditor` qu'elle reçoit
- * (`template`, `styles`, `roles`, `selected`) et toute écriture repasse par
- * `editor.select()` / `editor.saveModel()`. Elle ne manipule que les rôles
- * déjà présents dans `titlePage.styles` : aucun objet libre, aucun calque,
- * aucune coordonnée absolue nouvelle, aucun nouveau format de gabarit (§32). */
+/** Paragraph geometry only; glyph layout belongs to the paginated preview. */
 export class TitlePageMiniature {
   private container: HTMLElement;
   private editor: LayoutEditor;
@@ -49,6 +35,8 @@ export class TitlePageMiniature {
   /** Échelle points → pixels, recalculée à chaque montage depuis la géométrie
    * réelle de la page (jamais une constante A4). */
   private scale = 1;
+  private scaleX = 1;
+  private dragCancel: (() => void) | null = null;
 
   constructor(container: HTMLElement, editor: LayoutEditor, options: TitlePageMiniatureOptions = {}) {
     this.container = container;
@@ -66,32 +54,9 @@ export class TitlePageMiniature {
 
   /** (Re)construit intégralement la maquette dans son conteneur. */
   mount(): HTMLElement {
+    this.destroy();
     this.container.empty();
-    const page = this.template.page;
-    /* §25/§30 : MÊME helper que la pagination et l'export PDF — jamais une
-       seconde table de dimensions, jamais un A4 portrait codé en dur. */
-    const geometry = resolvePageGeometry(
-      { pageSize: page.size, pageOrientation: page.orientation },
-      null,
-    );
-    const heightPx = this.heightPx;
-    const widthPx = Math.round(heightPx * (geometry.widthMm / geometry.heightMm));
-
-    /* Hauteur utile en points (page moins marges haute/basse), d'où l'échelle
-       de la pile de blocs : pour une A4 à 2,5 cm de marges, elle vaut 700pt —
-       exactement la constante figée d'avant, mais désormais dérivée. */
-    const usableMm = Math.max(1, geometry.heightMm - (page.marginsCm.top + page.marginsCm.bottom) * 10);
-    this.scale = (heightPx - HEADER_PX - FOOTER_PX) / (usableMm * MM_TO_PT);
-
     this.pageEl = this.container.createDiv({ cls: "feuillets-tp-page" });
-    this.pageEl.style.height = `${heightPx}px`;
-    this.pageEl.style.width = `${widthPx}px`;
-    this.pageEl.style.flex = `0 0 ${widthPx}px`;
-
-    /* Marges de page discrètes : les blocs s'inscrivent dans la zone de
-       composition réelle, jamais dans un 6 % arbitraire. */
-    const leftPct = (page.marginsCm.left * 10 / geometry.widthMm) * 100;
-    const rightPct = (page.marginsCm.right * 10 / geometry.widthMm) * 100;
 
     this.headerBand = this.pageEl.createDiv({ cls: "feuillets-tp-band feuillets-tp-band-top" });
     this.headerBand.style.height = `${HEADER_PX}px`;
@@ -101,7 +66,7 @@ export class TitlePageMiniature {
     this.footerBand.style.height = `${FOOTER_PX}px`;
     this.footerBand.addEventListener("click", () => this.select("footer"));
 
-    this.buildBlocks(leftPct, rightPct);
+    this.buildBlocks();
     this.refresh();
     return this.pageEl;
   }
@@ -113,22 +78,26 @@ export class TitlePageMiniature {
     this.renderBands();
   }
 
-  private buildBlocks(leftPct: number, rightPct: number): void {
+  private buildBlocks(): void {
     this.blockEls = {};
     for (const role of this.roles) {
       const el = this.pageEl.createDiv({ cls: "feuillets-tp-block" });
-      el.style.left = `${leftPct}%`;
-      el.style.right = `${rightPct}%`;
       el.createSpan({ cls: "feuillets-tp-block-label" }).setText(titleRoleLabel(role));
       el.addEventListener("pointerdown", (e) => this.startDrag(e, role));
       this.blockEls[role] = el;
     }
   }
 
-  /** Positionne chaque bloc dans la zone de contenu (sous la bande en-tête),
-   * pile verticale à marges cumulées. */
   layout(): void {
-    let y = 0;
+    const page = this.template.page;
+    const geometry = resolvePageGeometry({ pageSize: page.size, pageOrientation: page.orientation }, null);
+    const widthPx = Math.round(this.heightPx * geometry.widthMm / geometry.heightMm);
+    this.scale = this.heightPx / (geometry.heightMm * MM_TO_PT);
+    this.scaleX = widthPx / (geometry.widthMm * MM_TO_PT);
+    this.pageEl.style.height = `${this.heightPx}px`;
+    this.pageEl.style.width = `${widthPx}px`;
+    this.pageEl.style.flex = `0 0 ${widthPx}px`;
+    let y = page.marginsCm.top * 10 * MM_TO_PT;
     for (const role of this.roles) {
       const st = this.styles[role];
       const size = st.fontSizePt != null ? st.fontSizePt : 12;
@@ -137,10 +106,12 @@ export class TitlePageMiniature {
       y += mTop;
       const el = this.blockEls[role];
       if (!el) continue;
-      el.style.top = `${HEADER_PX + y * this.scale}px`;
+      el.style.top = `${y * this.scale}px`;
+      el.style.left = `${(page.marginsCm.left * 10 * MM_TO_PT + (st.marginLeftPt ?? 0)) * this.scaleX}px`;
+      el.style.right = `${(page.marginsCm.right * 10 * MM_TO_PT + (st.marginRightPt ?? 0)) * this.scaleX}px`;
       el.style.fontSize = `${Math.max(6, size * this.scale)}px`;
       el.style.textAlign = st.align || "center";
-      el.toggleClass("is-selected", this.editor.selected === role);
+      el.toggleClass("is-selected", this.editor.selected === role || (this.editor.selected === "firstPage" && this.editor.selectedRole === role));
       y += size + mBot;
     }
   }
@@ -169,35 +140,93 @@ export class TitlePageMiniature {
     span.setText(this.template.footer.right || t("modal.layout.pageOfPages"));
   }
 
-  /** Glisser vertical : modifie le `marginTopPt` EXISTANT du rôle, rien
-   * d'autre. La sauvegarde n'a lieu qu'au relâchement (§31 : aucune écriture
-   * prématurée). */
+  cancelDrag(): void {
+    this.dragCancel?.();
+  }
+
+  destroy(): void {
+    this.cancelDrag();
+  }
+
   startDrag(e: PointerEvent, role: string): void {
+    if (e.button > 0 || e.isPrimary === false) return;
+    this.cancelDrag();
     e.preventDefault();
     this.select(role);
     const st = this.styles[role];
+    const block = this.blockEls[role];
+    const doc = block.ownerDocument;
+    const initial = { marginTopPt: st.marginTopPt, marginLeftPt: st.marginLeftPt, marginRightPt: st.marginRightPt };
+    const startTop = initial.marginTopPt ?? 0;
+    const startLeft = initial.marginLeftPt ?? 0;
+    const startRight = initial.marginRightPt ?? 0;
+    if (![startTop, startLeft, startRight, e.clientX, e.clientY].every(Number.isFinite)) return;
+    const startX = e.clientX;
     const startY = e.clientY;
-    const startMargin = st.marginTopPt != null ? st.marginTopPt : 0;
+    const page = this.template.page;
+    const minX = -page.marginsCm.left * 10 * MM_TO_PT - startLeft;
+    const maxX = page.marginsCm.right * 10 * MM_TO_PT + startRight;
+    const width = parseFloat(this.pageEl.style.width) / this.scaleX + minX - maxX;
+    const bottom = this.heightPx / this.scale - page.marginsCm.bottom * 10 * MM_TO_PT;
+    const maxTop = Math.max(startTop, startTop + bottom - parseFloat(block.style.top) / this.scale - (st.fontSizePt ?? 12));
+    let dragging = false;
+    const restore = (): void => {
+      for (const key of ["marginTopPt", "marginLeftPt", "marginRightPt"] as const) {
+        if (initial[key] === undefined) delete st[key];
+        else st[key] = initial[key];
+      }
+    };
     const onMove = (ev: PointerEvent): void => {
-      const dPt = (ev.clientY - startY) / this.scale;
-      st.marginTopPt = Math.max(0, Math.round(startMargin + dPt));
+      if (ev.pointerId !== e.pointerId || !Number.isFinite(ev.clientX) || !Number.isFinite(ev.clientY)) return;
+      if (!block.isConnected || this.styles[role] !== st) { cancel(); return; }
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!dragging && Math.hypot(dx, dy) < 4) return;
+      dragging = true;
+      restore();
+      const top = Math.max(0, Math.min(maxTop, startTop + Math.round(dy / this.scale)));
+      if (dy !== 0 && top !== startTop && Number.isFinite(top)) st.marginTopPt = top;
+      // Opposite margins translate the paragraph without changing its width or alignment.
+      const horizontal = Math.max(minX, Math.min(maxX, Math.round(dx / this.scaleX)));
+      if (dx !== 0 && width > 0 && minX <= maxX && horizontal !== 0) {
+        st.marginLeftPt = startLeft + horizontal;
+        st.marginRightPt = startRight - horizontal;
+      }
       this.layout();
       this.options.onDragValue?.();
     };
-    /* Écouteur `pointerup` volontairement async, passé tel quel : le test
-       (« sans écriture prématurée ») attend sa promesse réelle via
-       `await listeners.get("pointerup")()`. `saveModel()` enchaîne plusieurs
-       `await` (lecture puis écriture du fichier de gabarit) : un wrapper
-       synchrone + `void` casserait cette garantie observable, alors que le DOM
-       ignore de toute façon la valeur de retour d'un listener. */
-    const onUp = async (): Promise<void> => {
-      document.removeEventListener("pointermove", onMove);
-      document.removeEventListener("pointerup", onUpListener);
-      await this.editor.saveModel();
+    const cleanup = (): void => {
+      doc.removeEventListener("pointermove", onMove);
+      doc.removeEventListener("pointerup", onUpListener);
+      doc.removeEventListener("pointercancel", onCancel);
+      doc.defaultView?.removeEventListener("blur", cancel);
+      observer.disconnect();
+      this.dragCancel = null;
+    };
+    const cancel = (): void => {
+      cleanup();
+      restore();
+      this.layout();
+      this.options.onDragValue?.();
+    };
+    const onCancel = (ev: PointerEvent): void => {
+      if (ev.pointerId === e.pointerId) cancel();
+    };
+    const onUp = async (ev: PointerEvent): Promise<void> => {
+      if (ev.pointerId !== e.pointerId) return;
+      if (!block.isConnected || this.styles[role] !== st) { cancel(); return; }
+      onMove(ev);
+      cleanup();
+      if ((["marginTopPt", "marginLeftPt", "marginRightPt"] as const).some((key) => st[key] !== initial[key])) await this.editor.saveModel();
     };
     const onUpListener = onUp as EventListener;
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUpListener);
+    const observer = new MutationObserver(() => { if (!block.isConnected) cancel(); });
+    observer.observe(doc.body, { childList: true, subtree: true });
+    this.dragCancel = cancel;
+    doc.addEventListener("pointermove", onMove);
+    doc.addEventListener("pointerup", onUpListener);
+    doc.addEventListener("pointercancel", onCancel);
+    doc.defaultView?.addEventListener("blur", cancel);
   }
 
   /** Sélection déclenchée DEPUIS la maquette. L'état vit toujours dans

@@ -1918,6 +1918,7 @@ export const en = {
   "preview.status.error": "Error",
   "preview.status.stale": "{mode} needs updating",
   "preview.status.fresh": "{mode} is up to date",
+  "preview.status.position": "{sheet} · Page {page}/{total}",
   "preview.zoom.tooltip": "Zoom: click to choose, double-click to return to 100%",
   "preview.zoom.fitWidth": "fit to width",
   "preview.zoom.fitPage": "full page",

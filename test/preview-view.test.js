@@ -103,6 +103,9 @@ class FakeTextNode {
     this.parentElement = parentElement;
     this._text = text;
   }
+  get data() { return this._text; }
+  get length() { return this._text.length; }
+  get ownerDocument() { return this.parentElement.ownerDocument; }
   get nodeType() { return 3; }
   get nodeValue() { return this._text; }
   set nodeValue(value) {
@@ -143,7 +146,13 @@ class FakeElement {
        situer la pile de pages dans le repère défilé du viewport (voir
        PreviewView.frameTopWithinScroll). */
     this._rectTop = 0;
-    this.classList = { contains: (name) => this.classes.has(name) };
+    this.classList = {
+      contains: (name) => this.classes.has(name),
+      toggle: (name, on) => { if (on ?? !this.classes.has(name)) this.classes.add(name); else this.classes.delete(name); },
+      add: (...names) => { for (const name of names) this.classes.add(name); },
+      remove: (...names) => { for (const name of names) this.classes.delete(name); },
+    };
+    this.dataset = {};
     this._attributes = new Map();
     this._eventListeners = new Map();
   }
@@ -416,7 +425,24 @@ function buildFakeIframeDocument(srcdoc) {
   // de reproduire une vraie propagation DOM — inutile ici, la délégation de
   // production lit `event.target`, pas `this`.
   const docListeners = new Map();
-  return {
+  const doc = {
+    createElement(tag) { const element = new FakeElement(tag); element.ownerDocument = doc; return element; },
+    createTreeWalker(root) {
+      const nodes = [];
+      const visit = (element) => {
+        for (const child of element.childNodes) {
+          if (child.nodeType === 3) nodes.push(child);
+          else visit(child);
+        }
+      };
+      visit(root);
+      let index = 0;
+      return { nextNode: () => nodes[index++] || null };
+    },
+    createRange() {
+      let start;
+      return { setStart: (node) => { start = node; }, setEnd() {}, getBoundingClientRect: () => start.parentElement.getBoundingClientRect() };
+    },
     documentElement: docEl,
     body: bodyEl,
     readyState: "complete",
@@ -436,6 +462,9 @@ function buildFakeIframeDocument(srcdoc) {
       for (const fn of [...(docListeners.get(type) || [])]) fn(event);
     },
   };
+  const attach = (element) => { element.ownerDocument = doc; for (const child of element.children) attach(child); };
+  attach(bodyEl);
+  return doc;
 }
 
 function buildTwoUpPreviewDocument({ rightPage }) {
@@ -577,12 +606,14 @@ function installDom() {
     document: globalThis.document,
     window: globalThis.window,
     Node: globalThis.Node,
+    NodeFilter: globalThis.NodeFilter,
     createEl: globalThis.createEl,
     createDiv: globalThis.createDiv,
     createSpan: globalThis.createSpan,
     ResizeObserver: globalThis.ResizeObserver,
     getComputedStyle: globalThis.getComputedStyle,
   };
+  globalThis.NodeFilter = { SHOW_TEXT: 4 };
   globalThis.Node = {
     ELEMENT_NODE: 1,
     TEXT_NODE: 3,
@@ -645,6 +676,7 @@ function installDom() {
       globalThis.document = previous.document;
       globalThis.window = previous.window;
       globalThis.Node = previous.Node;
+      globalThis.NodeFilter = previous.NodeFilter;
       globalThis.createEl = previous.createEl;
       globalThis.createDiv = previous.createDiv;
       globalThis.createSpan = previous.createSpan;
@@ -1297,7 +1329,9 @@ test("PreviewView : une exception après collectSource() ne bloque plus refreshI
   view.renderPreviewSource = async () => { throw new Error("échec simulé du pipeline de rendu"); };
 
   await view.refreshPreview();
-  assert.equal(view.statusEl.textContent, "Erreur", "l'échec est signalé, pas silencieux");
+  assert.equal(view.status, "error");
+  assert.equal(view.statusEl, null);
+  assert.ok(view.previewMessageEl.textContent.includes("échec simulé du pipeline de rendu"));
   assert.equal(view["refreshInFlight"], false, "refreshInFlight ne doit jamais rester bloqué après une exception");
 
   // Rétablit un pipeline fonctionnel et vérifie qu'un nouveau rafraîchissement
@@ -1306,7 +1340,8 @@ test("PreviewView : une exception après collectSource() ne bloque plus refreshI
   view.renderPreviewSource = originalRender;
   await view.refreshPreview();
   fireLoad(placeFrame(latestFrame(scaledContainer), viewport));
-  assert.equal(view.statusEl.textContent, "Manuscrit à jour", "le rafraîchissement suivant fonctionne de nouveau");
+  assert.equal(view.status, "fresh");
+  assert.equal(view.statusEl, null);
 }));
 
 test("PreviewView : un rendu obsolète ne remplace jamais un rendu plus récent", async () => {
@@ -1594,7 +1629,8 @@ test("mode Scène — rend le feuillet actif SANS jamais appeler compile()", asy
     assert.equal(compiles(), 0, "le mode Scène ne doit JAMAIS écrire Manuscrit.md");
     assert.equal(view.displayedPath, "Manuscrit/Chapitre 1/01-scene.md");
     assert.match(view.getDisplayText(), /01-scene/);
-    assert.equal(view.statusEl.textContent, "Feuillet à jour");
+    assert.equal(view.status, "fresh");
+    assert.equal(view.statusEl, null);
   } finally {
     MarkdownRenderer.render = previousRender;
     dom.restore();
@@ -1615,7 +1651,8 @@ test("mode Scène — la frappe déclenche UN rendu après une courte pause, san
     app.emitWorkspace("editor-change");
     app.emitWorkspace("editor-change");
     assert.equal(dom.pendingTimers(), 1, "trois frappes ne laissent qu'un seul rendu programmé");
-    assert.equal(view.statusEl.textContent, "Feuillet à actualiser");
+    assert.equal(view.status, "stale");
+    assert.equal(view.statusEl, null);
 
     dom.runTimers();
     await flush();
@@ -1712,7 +1749,8 @@ test("mode Manuscrit — la frappe déclenche une seule compilation différée",
   await flush();
   assert.ok(renders > rendersBefore, "le manuscrit est recompilé après le délai");
   fireLoad(placeFrame(latestFrame(scaledContainer), viewport));
-  assert.equal(view.statusEl.textContent, "Manuscrit à jour");
+  assert.equal(view.status, "fresh");
+  assert.equal(view.statusEl, null);
 }));
 
 test("modes — Preview n'a AUCUN panneau Export, seulement un bouton Exporter rapide", withRender(async () => {

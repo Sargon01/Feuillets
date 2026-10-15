@@ -24,6 +24,8 @@
  * après `stripObsidianCruft`, hors de sa portée.
  */
 
+import { frenchTypography } from "../utils/core.js";
+import { parser } from "@lezer/markdown";
 import { joinCompiledSegments } from "../services/compile-segments.js";
 
 export type SourceSegment = {
@@ -141,7 +143,7 @@ export type SourceLineCol = { line: number; col: number };
 
 /** Position d'un bloc dans le fichier Markdown ORIGINAL — copie directe de
  * `SectionCache.position`, jamais une position recalculée. */
-export type SourceBlockPosition = { start: SourceLineCol; end: SourceLineCol };
+export type SourceBlockPosition = { start: SourceLineCol; end: SourceLineCol; text?: string };
 
 /** Repères d'un feuillet : ses sections réelles, dans l'ordre du fichier
  * (frontmatter déjà exclu), et le nombre de blocs de titre ARTIFICIELS que
@@ -166,6 +168,7 @@ export const SOURCE_START_LINE_ATTR = "data-source-start-line";
 export const SOURCE_START_COL_ATTR = "data-source-start-col";
 export const SOURCE_END_LINE_ATTR = "data-source-end-line";
 export const SOURCE_END_COL_ATTR = "data-source-end-col";
+export const SOURCE_TEXT_ATTR = "data-source-text";
 
 export function applyBlockSourceMarkers(
   containerEl: MarkerHost,
@@ -199,6 +202,90 @@ export function applyBlockSourceMarkers(
       el.setAttribute(SOURCE_START_COL_ATTR, String(pos.start.col));
       el.setAttribute(SOURCE_END_LINE_ATTR, String(pos.end.line));
       el.setAttribute(SOURCE_END_COL_ATTR, String(pos.end.col));
+      if (pos.text !== undefined) el.setAttribute(SOURCE_TEXT_ATTR, pos.text);
     });
   }
+}
+
+
+type TextOffsets = { source: Array<number | null>; rendered: Array<number | null> };
+
+/** Checks the actual typography output before mapping its visible characters. */
+function verifiedTextOffsets(source: string, rendered: string): TextOffsets | null {
+  for (const text of [source, frenchTypography(source, false)]) {
+    const spans: Array<{ from: number; to: number }> = [];
+    let index = 0;
+    for (let target = 0; target < text.length; target++) {
+      const from = index;
+      if (source[index] === text[target]) index++;
+      else if (source.slice(index, index + 3) === "..." && text[target] === "…") index += 3;
+      else if ((source[index] === "'" && text[target] === "’")
+        || (source[index] === '"' && (text[target] === "«" || text[target] === "»"))) index++;
+      else if (text[target] === "\u202f") {
+        while (source[index] === " " || source[index] === "\t") index++;
+      } else break;
+      spans.push({ from, to: index });
+    }
+    if (index !== source.length || spans.length !== text.length) continue;
+    const hidden = new Uint8Array(text.length);
+    const hide = (from: number, to: number): void => { hidden.fill(1, from, to); };
+    parser.parse(text).iterate({
+      enter(node) {
+        if (node.name === "Image" || node.name === "InlineCode" || node.name === "FencedCode" || node.name === "CodeBlock") return false;
+        if (node.name === "EmphasisMark" || node.name === "HardBreak") hide(node.from, node.to);
+        if (node.name === "Escape") hide(node.from, node.from + 1);
+        if (node.name === "Link") {
+          const marks = node.node.getChildren("LinkMark");
+          if (marks.length >= 2 && text.slice(marks[1].from, marks[1].to) === "]") {
+            hide(marks[0].from, marks[0].to);
+            hide(marks[1].from, node.to);
+          }
+        }
+      },
+    });
+    const positions: number[] = [];
+    for (let offset = 0; offset < text.length; offset++) if (!hidden[offset]) positions.push(offset);
+    const offsets: TextOffsets = {
+      source: Array<number | null>(source.length + 1).fill(null),
+      rendered: Array<number | null>(rendered.length + 1).fill(null),
+    };
+    const map = (first: number, last: number, start: number, end: number): void => {
+      for (let offset = first; offset < last; offset++) {
+        const span = spans[positions[offset]];
+        for (let raw = span.from; raw < span.to; raw++) offsets.source[raw] = start;
+      }
+      for (let offset = start; offset < end; offset++) offsets.rendered[offset] = spans[positions[first]].from;
+    };
+    const whitespace = (char: string): boolean => char === " " || char === "\n" || char === "\r" || char === "\t";
+    let from = 0;
+    let to = 0;
+    while (from < positions.length && to < rendered.length) {
+      const first = from;
+      const start = to;
+      if (whitespace(text[positions[from]]) && whitespace(rendered[to])) {
+        while (from < positions.length && whitespace(text[positions[from]])) from++;
+        while (to < rendered.length && whitespace(rendered[to])) to++;
+      } else {
+        if (text[positions[from]] !== rendered[to]) break;
+        from++;
+        to++;
+      }
+      map(first, from, start, to);
+    }
+    if (from !== positions.length || to !== rendered.length) continue;
+    offsets.source[source.length] = rendered.length;
+    offsets.rendered[rendered.length] = source.length;
+    return offsets;
+  }
+  return null;
+}
+
+export function sourceOffsetToRenderedOffset(source: string, rendered: string, offset: number): number | null {
+  if (source === rendered) return offset;
+  return verifiedTextOffsets(source, rendered)?.source[offset] ?? null;
+}
+
+export function renderedOffsetToSourceOffset(source: string, rendered: string, offset: number): number | null {
+  if (source === rendered) return offset;
+  return verifiedTextOffsets(source, rendered)?.rendered[offset] ?? null;
 }

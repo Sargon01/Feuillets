@@ -86,7 +86,7 @@ import {
 } from "./utils/cm-pandoc-citation-live-preview.js";
 import { wakeAllPandocCitationCatalogViews } from "./services/pandoc-citation-preview.js";
 import { createEditorImageCaptionExtension } from "./utils/cm-editor-image-caption.js";
-import { createEditorCursorTrackingExtension, type EditorCursorListener } from "./services/editor-cursor-tracking.js";
+import { createEditorCursorTrackingExtension, type EditorCursorChange, type EditorCursorListener } from "./services/editor-cursor-tracking.js";
 import {
   registerPandocCitationReadingMode,
   refreshPandocCitationReadingModeViews,
@@ -632,6 +632,8 @@ class FeuilletsPlugin extends Plugin {
   _dragInProgress?: boolean;
   _dragRetryCount?: number;
   statusEl?: HTMLElement;
+  statusStatsEl?: HTMLElement;
+  statusPreviewEl?: HTMLElement;
   _statusTimer?: number;
   _paraEls?: HTMLElement[] | null;
   _concCounterEl?: HTMLElement | null;
@@ -675,6 +677,14 @@ class FeuilletsPlugin extends Plugin {
   registerEditorCursorListener(listener: EditorCursorListener): () => void {
     this._editorCursorListeners.add(listener);
     return () => this._editorCursorListeners.delete(listener);
+  }
+
+  notifyEditorCursorChanged(change: EditorCursorChange): void {
+    for (const listener of this._editorCursorListeners) listener(change);
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PREVIEW)) {
+      if (leaf.isDeferred) continue;
+      if (leaf.view instanceof PreviewView) leaf.view.onEditorCursorChanged(change);
+    }
   }
 
   /* Attachées dynamiquement par initScenesEditor (scenes-editor.js), pas
@@ -885,7 +895,7 @@ class FeuilletsPlugin extends Plugin {
     );
     this.registerEditorExtension(createEditorImageCaptionExtension(() => this.settings));
     this.registerEditorExtension(createEditorCursorTrackingExtension((change) => {
-      for (const listener of this._editorCursorListeners) listener(change);
+      this.notifyEditorCursorChanged(change);
     }));
     registerPandocCitationReadingMode(this);
     this.registerEvent(this.app.vault.on("modify", (file) => {
@@ -2170,6 +2180,9 @@ class FeuilletsPlugin extends Plugin {
     this.statusEl = this.addStatusBarItem();
     this.statusEl.addClass("feuillets-status-bar");
     this.statusEl.addClass("feuillets-status-bar-clickable");
+    this.statusStatsEl = this.statusEl.createSpan({ cls: "feuillets-status-stats" });
+    this.statusPreviewEl = this.statusEl.createSpan({ cls: "feuillets-status-preview" });
+    this.statusPreviewEl.hidden = true;
     setTooltip(this.statusEl, t("main.statusBarTooltip"));
     this.statusEl.addEventListener("click", () => {
       // Continu (§8, lot 2B.2) : la status bar affiche le total du GROUPE,
@@ -2180,12 +2193,14 @@ class FeuilletsPlugin extends Plugin {
       this.openFileStats(file);
     });
     const updateStatus = () => {
+      this.updatePreviewStatusBar();
       window.clearTimeout(this._statusTimer);
       this._statusTimer = window.setTimeout(() => { void this.updateStatusBar(); }, 300);
     };
     this.registerEvent(this.app.workspace.on("file-open", updateStatus));
     this.registerEvent(this.app.workspace.on("editor-change", updateStatus));
     this.registerEvent(this.app.workspace.on("active-leaf-change", updateStatus));
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.updatePreviewStatusBar()));
     updateStatus();
   }
 
@@ -3294,6 +3309,13 @@ class FeuilletsPlugin extends Plugin {
    * frappe serait le genre de coût que ce pont doit précisément éviter).
    * Résolution du Continu via `getCentralContinuView()`, l'UNIQUE définition
    * du Continu de travail — jamais `getActiveViewOfType`. */
+  notifyContinuSelectionChanged(source: ScriveningsView): void {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PREVIEW)) {
+      if (leaf.isDeferred) continue;
+      if (leaf.view instanceof PreviewView) leaf.view.onContinuSelectionChanged(source);
+    }
+  }
+
   notifyContinuDocumentChanged(paths: readonly string[]): void {
     const continu = this.getCentralContinuView();
     if (!continu || !continu.compileScope) return;
@@ -3679,6 +3701,25 @@ class FeuilletsPlugin extends Plugin {
     return next;
   }
 
+  updatePreviewStatusBar(): void {
+    if (!this.statusPreviewEl) return;
+    const active = this.app.workspace.getActiveViewOfType(PreviewView);
+    const preview = active?.compileScope && this.isValidEditorialRootPath(active.compileScope.projectRoot)
+      ? active : this.getCentralPreviewView();
+    let label = preview?.getReadingPosition() || "";
+    if (!label) {
+      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PREVIEW)) {
+        const view = leaf.view;
+        if (leaf.isDeferred || !(view instanceof PreviewView) || !view.compileScope
+          || !this.isValidEditorialRootPath(view.compileScope.projectRoot)) continue;
+        label = view.getReadingPosition() || "";
+        if (label) break;
+      }
+    }
+    this.statusPreviewEl.textContent = label ? `${this.statusStatsEl?.textContent ? " · " : ""}${label}` : "";
+    this.statusPreviewEl.hidden = !label;
+  }
+
   async updateStatusBar() {
     if (!this.statusEl) return;
 
@@ -3691,7 +3732,8 @@ class FeuilletsPlugin extends Plugin {
     // le Binder ne doit pas vider la status bar du groupe Continu affiché.
     const scrivenings = this.getCentralContinuView();
     if (scrivenings?.compileScope) {
-      this.statusEl.setText(formatScriveningsStats(scrivenings.getGroupStats()));
+      (this.statusStatsEl ?? this.statusEl).setText(formatScriveningsStats(scrivenings.getGroupStats()));
+      this.updatePreviewStatusBar();
       this.statusEl.removeClass("feuillets-status-hit");
       this.statusEl.removeClass("feuillets-status-over");
       return;
@@ -3700,7 +3742,8 @@ class FeuilletsPlugin extends Plugin {
     const file = this.app.workspace.getActiveFile();
     const root = this.getProjectFolder();
     if (!file || !root || !file.path.startsWith(root.path + "/")) {
-      this.statusEl.setText("");
+      (this.statusStatsEl ?? this.statusEl).setText("");
+      this.updatePreviewStatusBar();
       return;
     }
     const mdView = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -3721,7 +3764,8 @@ class FeuilletsPlugin extends Plugin {
       const delta = dailyWordDelta(st.start, total);
       txt += ` · ${t("main.statusBar.todayDelta", { sign: delta >= 0 ? "+" : "", delta: String(delta) })}`;
     }
-    this.statusEl.setText(txt);
+    (this.statusStatsEl ?? this.statusEl).setText(txt);
+    this.updatePreviewStatusBar();
     this.statusEl.removeClass("feuillets-status-hit");
     this.statusEl.removeClass("feuillets-status-over");
     const tol = workspaceTolerance(this.app, this.settings, file.parent);

@@ -53,7 +53,6 @@ export class LayoutModal extends Modal {
       mode: "modal",
       templateLabel,
       onChange: () => this.notifyChange(),
-      onSaved: () => this.miniature?.refresh(),
     });
   }
 
@@ -96,6 +95,7 @@ export class LayoutModal extends Modal {
   /** (Re)charge les blocs du modèle courant et (re)construit la maquette
    * (bandes + blocs + inspecteur) — rejoué quand on change de modèle. */
   async renderLayout(): Promise<void> {
+    this.miniature?.destroy();
     this.titleEl.setText(t("modal.layout.pageLayoutTitle", { name: this.templateLabel || this.templateKey }));
     const c = this.layoutContainer;
     c.empty();
@@ -120,6 +120,7 @@ export class LayoutModal extends Modal {
       onSelect: (target) => this.select(target),
       onDragValue: () => this.syncInspectorValues(),
     });
+    this.editor.miniature = this.miniature;
     this.miniature.mount();
 
     this.inspectorEl = wrap.createDiv({ cls: "feuillets-tp-inspector" });
@@ -141,6 +142,8 @@ export class LayoutModal extends Modal {
   startDrag(e: PointerEvent, role: string): void { this.miniature.startDrag(e, role); }
 
   select(target: LayoutSelection): void {
+    this.miniature?.cancelDrag();
+    if (this.selected === target) return;
     this.editor.select(target);
     this.syncNavigation(target);
     this.miniature.refresh();
@@ -154,14 +157,8 @@ export class LayoutModal extends Modal {
     }
   }
 
-  /** Met à jour le champ « marge au-dessus » pendant un glisser, sans
-   * reconstruire l'inspecteur (garde le focus des autres champs). */
   syncInspectorValues(): void {
-    if (!this.selected || !this.styles[this.selected]) return;
-    const st = this.styles[this.selected];
-    const inputs = this.inspectorEl.querySelectorAll<HTMLInputElement>('input[type="number"]');
-    // ordre : Taille, Marge au-dessus, Marge en dessous
-    if (inputs[1]) inputs[1].value = st.marginTopPt != null ? String(st.marginTopPt) : "";
+    this.editor.syncMiniatureInspector();
   }
 
   async saveModel(): Promise<void> {
@@ -173,6 +170,7 @@ export class LayoutModal extends Modal {
   }
 
   onClose(): void {
+    this.miniature?.destroy();
     this.contentEl.empty();
   }
 }
