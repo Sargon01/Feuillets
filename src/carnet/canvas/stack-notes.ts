@@ -2,8 +2,8 @@ import type { MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 import { isFreeNote } from "./note-style.js";
 import type { CanvasData } from "./types.js";
 
-type StackNode = MinimalRuntimeNode & { moveTo: (position: { x: number; y: number }) => void };
-type StackCanvas = {
+export type StackNode = MinimalRuntimeNode & { moveTo: (position: { x: number; y: number }) => void };
+export type StackCanvas = {
   nodes: Map<string, StackNode>;
   selection: Set<MinimalRuntimeNode>;
   getData(): CanvasData;
@@ -16,7 +16,7 @@ type StackCanvas = {
   isHoldingSpace?: boolean;
 };
 
-function hasContract(value: unknown): value is StackCanvas {
+export function hasContract(value: unknown): value is StackCanvas {
   if (!value || typeof value !== "object") return false;
   const canvas = value as Partial<StackCanvas>;
   return canvas.nodes instanceof Map && canvas.selection instanceof Set && typeof canvas.getData === "function" &&
@@ -27,8 +27,8 @@ function hasContract(value: unknown): value is StackCanvas {
     Array.isArray(canvas.history.data[canvas.history.current]?.nodes) && Array.isArray(canvas.history.data[canvas.history.current]?.edges);
 }
 
-function selectedNotes(canvas: StackCanvas): StackNode[] | null {
-  if (canvas.readonly || canvas.isDragging || canvas.isHoldingSpace || canvas.selection.size < 2) return null;
+export function selectedNotes(canvas: StackCanvas, minimum = 2): StackNode[] | null {
+  if (canvas.readonly || canvas.isDragging || canvas.isHoldingSpace || canvas.selection.size < minimum) return null;
   const data = canvas.getData(), selected: StackNode[] = [];
   if (!Array.isArray(data?.nodes) || !Array.isArray(data.edges)) return null;
   for (const target of canvas.selection) {
@@ -46,7 +46,7 @@ export function canStackNotes(value: unknown): boolean {
   return hasContract(value) && selectedNotes(value) !== null;
 }
 
-function fingerprint(data: CanvasData): string {
+export function fingerprint(data: CanvasData): string {
   return JSON.stringify({ ...data, nodes: [...data.nodes].sort((a, b) => a.id.localeCompare(b.id)),
     edges: [...data.edges].sort((a, b) => a.id.localeCompare(b.id)) });
 }

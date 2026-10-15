@@ -6,6 +6,8 @@
 import type { fr } from "./fr.js";
 
 export const en = {
+  "carnet.dynamicStack.title": "Stack dynamically",
+  "carnet.dynamicStack.dissociate": "Unstack dynamically",
   "carnet.stackNotes.title": "Stack notes",
   "carnet.stackNotes.unavailable": "Stacking is unavailable for this Canvas selection.",
   "carnet.typography.title": "Typography",
@@ -141,7 +143,7 @@ export const en = {
   "binder.displayText": "Feuillets",
   "binder.manageProjects": "Manage projects…",
   "binder.boardPlan": "Board / outline",
-  "binder.visualOutline": "Open visual outline",
+  "binder.visualOutline": "Notebook",
   "binder.splitPane.tooltip": "Switch to split view",
   "binder.mode.simpleTooltip": "Return to single view",
   "binder.density.tooltip": "Density: {mode} — click to toggle, right-click for options",

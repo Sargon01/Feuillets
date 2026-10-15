@@ -1,4 +1,5 @@
 import { bindTextEditor, normalizeTextStyle, refreshTextStyle } from "./text-style.js";
+import { attachDynamicStacks } from "./dynamic-stack.js";
 import { attachNoteSizing } from "./note-size.js";
 import { attachTextAnchors } from "./text-anchors.js";
 import { Menu, Notice, type App, type EventRef, type TFile } from "obsidian";
@@ -31,7 +32,7 @@ function hasStyleContract(value: unknown): value is StyleCanvas {
 
 export function isFreeNote(data: CanvasData, node: CanvasNode): boolean {
   return node.type === "text" && !!node.id &&
-    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width" && key !== "feuillets_text_style") &&
+    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width" && key !== "feuillets_text_style" && key !== "feuillets_stack") &&
     !Object.keys(node).some((key) => key.startsWith("mindmap")) &&
     !data.edges.some((edge) => (edge.fromNode === node.id || edge.toNode === node.id) &&
       Object.keys(edge).some((key) => key.startsWith("feuillets_") && key !== "feuillets_edge_style"));
@@ -76,7 +77,9 @@ export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => v
   if (!hasStyleContract(canvasValue)) return null;
   const canvas = canvasValue;
   const decorated = new Set<HTMLElement>();
-  const sizing = attachNoteSizing(canvas, (node) => anchors?.update(node), bindTextEditor, onRefresh);
+  let importing = false;
+  const stacks = attachDynamicStacks(canvas, () => importing);
+  const sizing = attachNoteSizing(canvas, (node) => anchors?.update(node), bindTextEditor, onRefresh, stacks ?? undefined);
   const anchors = attachTextAnchors(canvas, (node) => sizing?.update(node));
   const refresh = (): void => {
     const data = canvas.getData();
@@ -99,7 +102,6 @@ export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => v
     for (const node of typographyChanges) if (free.has(node.id)) sizing?.update(node, true);
     onRefresh?.();
   };
-  let importing = false;
   const originalAdd = canvas.addNode;
   const add = originalAdd ? (node: MinimalRuntimeNode): void => { originalAdd.call(canvas, node); if (!importing) refresh(); } : undefined;
   if (add) canvas.addNode = add;
@@ -118,6 +120,7 @@ export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => v
     refresh,
     cleanup: () => {
       sizing?.cleanup();
+      stacks?.cleanup();
       anchors?.cleanup();
       if (canvas.addNode === add) canvas.addNode = originalAdd;
       if (canvas.importData === wrapped) canvas.importData = original;

@@ -3,6 +3,7 @@ import { t } from "../../i18n/index.js";
 import type { MinimalRuntimeEdge, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 import { applyEdgeStyle, getEdgeAppearance, isEligibleEdge } from "./edge-style.js";
 import { applyNoteAppearance, applyNoteStyle, isFreeNote } from "./note-style.js";
+import { canStackDynamically, canUnstackDynamically, stackDynamically, unstackDynamically } from "./dynamic-stack.js";
 import { canStackNotes, stackNotes } from "./stack-notes.js";
 import { formatNoteSelection, getFormattingEditor, normalizeTextStyle, textAlignments, textColors } from "./text-style.js";
 import type { CanvasData, CarnetTextStyle } from "./types.js";
@@ -46,6 +47,7 @@ export function attachAppearanceToolbar(value: unknown, refreshStyles: () => voi
   let typographyButton: HTMLButtonElement | undefined, typography = false;
   let panelEditor: ReturnType<typeof getFormattingEditor>;
   let stackButton: HTMLButtonElement | undefined;
+  const dynamicButtons = new Map<string, HTMLButtonElement>();
   let nativeDirection: HTMLButtonElement | undefined;
   const close = (): void => { panel?.remove(); panel = undefined; editing = null; panelEditor = undefined; updateChoices = undefined; button?.classList.remove("is-active"); typographyButton?.classList.remove("is-active"); };
   const fitPanel = (): void => {
@@ -181,6 +183,26 @@ export function attachAppearanceToolbar(value: unknown, refreshStyles: () => voi
         if (!stackNotes(canvas, isActive)) new Notice(t("carnet.stackNotes.unavailable"));
       });
     }
+    for (const action of [
+      { key: "title", icon: "list-start", eligible: canStackDynamically, apply: stackDynamically },
+      { key: "dissociate", icon: "unlink", eligible: canUnstackDynamically, apply: unstackDynamically },
+    ] as const) {
+      const existing = dynamicButtons.get(action.key);
+      if (!isActive() || !menu.menuEl.isConnected || !action.eligible(canvas)) {
+        existing?.remove(); dynamicButtons.delete(action.key);
+      } else if (!existing || existing.parentElement !== menu.menuEl) {
+        existing?.remove();
+        const label = t(`carnet.dynamicStack.${action.key}`);
+        const control = menu.menuEl.createEl("button", { cls: `clickable-icon feuillets-dynamic-stack-${action.key}`, attr: { "aria-label": label } });
+        setIcon(control, action.icon); setTooltip(control, label, { placement: "top" });
+        control.addEventListener("mousedown", (event) => event.preventDefault());
+        control.addEventListener("click", () => {
+          if (!action.apply(canvas, isActive)) new Notice(t("carnet.stackNotes.unavailable"));
+          refreshStyles(); refresh();
+        });
+        dynamicButtons.set(action.key, control);
+      }
+    }
     const selection = selected(canvas);
     if (panel && typography && editing?.kind === "note" && panelEditor !== getFormattingEditor(editing.target)) close();
     if (editing && (!same(editing, selection) || !isActive() || !panel?.isConnected)) close();
@@ -223,6 +245,7 @@ export function attachAppearanceToolbar(value: unknown, refreshStyles: () => voi
   menu.render = wrapped;
   return { refresh, cleanup: () => {
     stackButton?.remove(); stackButton = undefined;
+    dynamicButtons.forEach((control) => control.remove()); dynamicButtons.clear();
     close(); releaseButton(); host.removeEventListener("pointerdown", outside, true);
     if (menu.render === wrapped) { menu.render = original; if (menu.menuEl.isConnected) original.call(menu, true); }
   } };

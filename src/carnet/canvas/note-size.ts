@@ -1,4 +1,5 @@
-import type { CanvasData } from "./types.js";
+import { stackMembership } from "./dynamic-stack.js";
+import type { CanvasNode, CanvasData } from "./types.js";
 import type { MinimalRuntimeCanvas, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 
 type NoteEditor = {
@@ -71,17 +72,17 @@ export function measureNoteSize(node: SizedNode, typographyChanged = false): { w
   const horizontalInset = Math.max(0, data.width - reading.width);
   const verticalInset = Math.max(0, (data.height ?? 0) - reading.height);
   element.classList.add("feuillets-note-measuring");
-  element.classList.toggle("feuillets-note-measuring-auto", data.feuillets_note_width !== "manual");
+  element.classList.toggle("feuillets-note-measuring-auto", data.feuillets_note_width !== "manual" && !stackMembership(data));
   try {
     if (typographyChanged) refreshPreviewLayout(node);
     const size = readSize();
     if (!size.width || !size.height) return null;
-    return { width: data.feuillets_note_width === "manual" ? data.width : Math.max(50, Math.ceil(size.width + horizontalInset)),
+    return { width: data.feuillets_note_width === "manual" || stackMembership(data) ? data.width : Math.max(50, Math.ceil(size.width + horizontalInset)),
       height: Math.max(50, Math.ceil(size.height + verticalInset)) };
   } finally { element.classList.remove("feuillets-note-measuring", "feuillets-note-measuring-auto"); }
 }
 
-export function attachNoteSizing(value: MinimalRuntimeCanvas, onLiveChange?: (node: MinimalRuntimeNode) => void, onEditor?: (node: MinimalRuntimeNode) => (() => void), onSelectionChange?: () => void): { refresh(free: Set<string>): void; update(node: MinimalRuntimeNode, typographyChanged?: boolean): void; cleanup(): void } | null {
+export function attachNoteSizing(value: MinimalRuntimeCanvas, onLiveChange?: (node: MinimalRuntimeNode) => void, onEditor?: (node: MinimalRuntimeNode) => (() => void), onSelectionChange?: () => void, geometry?: { geometryChanged(node: MinimalRuntimeNode): void; moved(node: MinimalRuntimeNode, before: CanvasNode): void; beforeSave(): void }): { refresh(free: Set<string>): void; update(node: MinimalRuntimeNode, typographyChanged?: boolean): void; cleanup(): void } | null {
   const canvas = value as Partial<SizeCanvas>;
   if (typeof canvas.getData !== "function" || typeof canvas.requestSave !== "function" || typeof canvas.overrideHistory !== "function" ||
     typeof canvas.requestPushHistory?.run !== "function" || !Array.isArray(canvas.history?.data)) return null;
@@ -163,6 +164,7 @@ export function attachNoteSizing(value: MinimalRuntimeCanvas, onLiveChange?: (no
       }
       if (binding) binding.startWidth = undefined;
     }
+    geometry?.beforeSave();
     originalSave.call(runtime, history);
     for (const node of changed) node.nodeEl?.ownerDocument.defaultView?.requestAnimationFrame(() => update(node));
   };
@@ -181,6 +183,8 @@ export function attachNoteSizing(value: MinimalRuntimeCanvas, onLiveChange?: (no
             binding.startWidth ??= data.width; pending.add(target);
           }
           original.call(target, rect);
+          if (rect.width !== data.width || rect.height !== data.height) geometry?.geometryChanged(target);
+          else if (rect.x !== data.x || rect.y !== data.y) geometry?.moved(target, data);
         };
         target.moveAndResize = move;
         const originalEditing = target.setIsEditing;

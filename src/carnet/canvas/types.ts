@@ -16,6 +16,8 @@ export type CanvasNode = {
   height?: number;
   color?: string;
   feuillets_note_style?: CarnetNoteStyle;
+  /** Optional persistent vertical relationship between independent text notes. */
+  feuillets_stack?: { id: string; order: number };
   feuillets_note_width?: "manual";
   feuillets_text_style?: CarnetTextStyle;
   feuillets_managed?: "manuscript" | "research" | "thread";

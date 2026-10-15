@@ -150,3 +150,21 @@ test("Stack notes extends eligible multi-selection controls without replacing na
   f.setActive(true); f.binding.refresh(); assert.equal(stackButtons().length, 1);
   f.binding.cleanup(); assert.equal(stackButtons().length, 0); assert.equal(c.menu.render, f.original);
 });
+
+test("dynamic stacking and dissociation share the native toolbar without replacing native layout controls", () => {
+  const f = fixture(), c = f.canvas;
+  c.history = { data: [c.getData()], current: 0 };
+  c.pushHistory = function (data) { this.history.data.splice(++this.history.current); this.history.data.push(structuredClone(data)); };
+  for (const node of c.nodes.values()) { node.id = node.raw.id; node.moveTo = function (position) { this.raw = { ...this.raw, ...position }; }; }
+  f.select(...c.nodes.values());
+  const dynamic = byClass(f.menuEl, "feuillets-dynamic-stack-title")[0];
+  assert(dynamic); assert.equal(dynamic.attrs["aria-label"], "Stack dynamically"); assert.equal(byClass(f.menuEl, "feuillets-stack-notes-button").length, 1);
+  dynamic.click(); assert.equal(c.history.data.length, 2); assert.equal(byClass(f.menuEl, "feuillets-dynamic-stack-title").length, 0);
+  const stacked = c.getData(); assert(stacked.nodes.every((node) => node.feuillets_stack));
+  f.select(c.nodes.get("a")); const dissociate = byClass(f.menuEl, "feuillets-dynamic-stack-dissociate")[0];
+  assert(dissociate); assert.equal(dissociate.attrs["aria-label"], "Unstack dynamically"); dissociate.click();
+  assert.deepEqual(c.getData(), { ...stacked, nodes: stacked.nodes.map(({ feuillets_stack, ...node }) => node) });
+  assert.equal(c.history.data.length, 3); assert.equal(byClass(f.menuEl, "feuillets-dynamic-stack-dissociate").length, 0);
+  assert.deepEqual(f.menuEl.children.filter((e) => e.attrs.native).map((e) => e.attrs.native), ["remove", "color", "zoom"]);
+  f.binding.cleanup(); assert.equal(byClass(f.menuEl, "feuillets-dynamic-stack-title").length, 0);
+});

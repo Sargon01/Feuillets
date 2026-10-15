@@ -3,6 +3,8 @@
  * panneau/zone fonctionnelle, dans l'ordre où on les rencontre en lisant
  * le code source correspondant. */
 export const fr = {
+  "carnet.dynamicStack.title": "Empiler dynamiquement",
+  "carnet.dynamicStack.dissociate": "Dissocier l'empilement",
   "carnet.stackNotes.title": "Empiler les notes",
   "carnet.stackNotes.unavailable": "L’empilement est indisponible pour cette sélection Canvas.",
   "carnet.typography.title": "Typographie",
@@ -138,7 +140,7 @@ export const fr = {
   "binder.displayText": "Feuillets",
   "binder.manageProjects": "Gérer les projets…",
   "binder.boardPlan": "Tableau / plan",
-  "binder.visualOutline": "Ouvrir le Plan visuel",
+  "binder.visualOutline": "Carnet",
   "binder.splitPane.tooltip": "Passer en double vue",
   "binder.mode.simpleTooltip": "Revenir à la vue simple",
   "binder.density.tooltip": "Densité : {mode} — cliquer pour basculer, clic droit : options",
