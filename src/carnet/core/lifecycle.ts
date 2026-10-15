@@ -1,6 +1,7 @@
 import type { App, TFile } from "obsidian";
+import { attachCarnetDropLinks, type DropLinkView } from "../canvas/drop-links.js";
 
-type CanvasView = { file?: TFile | null; containerEl?: HTMLElement; contentEl?: HTMLElement; canvas?: unknown };
+type CanvasView = DropLinkView & { containerEl?: HTMLElement; contentEl?: HTMLElement };
 type LeafWithHeader = { view?: CanvasView; tabHeaderEl?: HTMLElement };
 export type CarnetLifecycle = { refresh: () => void; cleanup: () => void };
 
@@ -38,6 +39,7 @@ export type CarnetMindmapDecorator = (view: { file?: TFile | null; canvas?: unkn
 export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (file: TFile | null | undefined) => boolean, resolveTitle?: CarnetTitleResolver, decorateMindmap?: CarnetMindmapDecorator): CarnetLifecycle {
   const marked = new Set<HTMLElement>();
   const originalTitles = new Map<HTMLElement, string>();
+  const dropLinks = new Map<CanvasView, { canvas: unknown; file: TFile; cleanup: () => void }>();
   const restore = (titleEl: HTMLElement): void => {
     const original = originalTitles.get(titleEl);
     if (original !== undefined) titleEl.textContent = original;
@@ -46,9 +48,22 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
   const refresh = (): void => {
     const current = new Set<HTMLElement>();
     const currentTitleEls = new Set<HTMLElement>();
+    const currentViews = new Set<CanvasView>();
     for (const leaf of app.workspace.getLeavesOfType("canvas")) {
       const leafWithHeader = leaf as unknown as LeafWithHeader;
       const view = leafWithHeader.view ?? {};
+      if (isCarnet(view.file) && view.file) {
+        currentViews.add(view);
+        const existing = dropLinks.get(view);
+        if (existing && (existing.canvas !== view.canvas || existing.file !== view.file)) {
+          existing.cleanup();
+          dropLinks.delete(view);
+        }
+        if (!dropLinks.has(view)) {
+          const cleanup = attachCarnetDropLinks(app, view, isCarnet);
+          if (cleanup) dropLinks.set(view, { canvas: view.canvas, file: view.file, cleanup });
+        }
+      }
       const wrapper = view.containerEl ?? view.contentEl;
       if (wrapper) {
         current.add(wrapper);
@@ -69,6 +84,12 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
     }
     for (const wrapper of marked) if (!current.has(wrapper)) wrapper.classList.remove("feuillets-carnet-canvas");
     marked.clear(); current.forEach((wrapper) => marked.add(wrapper));
+    for (const [view, binding] of dropLinks) {
+      if (!currentViews.has(view)) {
+        binding.cleanup();
+        dropLinks.delete(view);
+      }
+    }
     // Une leaf fermée/reconstruite ne réapparaît plus dans getLeavesOfType :
     // son ancien titleEl doit être restauré ici, jamais laissé en mémoire.
     for (const titleEl of [...originalTitles.keys()]) if (!currentTitleEls.has(titleEl)) restore(titleEl);
@@ -76,6 +97,8 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
   return {
     refresh,
     cleanup: () => {
+      dropLinks.forEach((binding) => binding.cleanup());
+      dropLinks.clear();
       marked.forEach((wrapper) => wrapper.classList.remove("feuillets-carnet-canvas"));
       marked.clear();
       for (const titleEl of [...originalTitles.keys()]) restore(titleEl);
