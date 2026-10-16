@@ -41,14 +41,20 @@ async function readStore(app: App, path: string): Promise<CrossReferenceStore> {
   return parseCrossReferenceStore(await app.vault.read(file), path);
 }
 
-async function writeStore(app: App, path: string, store: CrossReferenceStore): Promise<void> {
+async function writeStore(app: App, path: string, store: CrossReferenceStore, expected?: CrossReferenceStore): Promise<void> {
   validateCrossReferenceStore(store, path);
   // Validate the existing sidecar before any write, including explicit replacement saves.
   await readStore(app, path);
   const json = serializeCrossReferenceStore(store);
   await ensureFolder(app, path.slice(0, path.lastIndexOf("/")));
   const existing = app.vault.getAbstractFileByPath(path);
-  if (existing instanceof TFile) await app.vault.modify(existing, json);
+  if (existing instanceof TFile) await app.vault.process(existing, (currentJson) => {
+    const current = parseCrossReferenceStore(currentJson, path);
+    if (expected && serializeCrossReferenceStore(current) !== serializeCrossReferenceStore(expected)) {
+      throw new Error("Cross-reference store changed during update");
+    }
+    return json;
+  });
   else if (existing === null) await app.vault.create(path, json);
   else throw new CrossReferenceStoreCorruptedError(path);
 }
@@ -118,8 +124,9 @@ export async function addCrossReferenceLink(
     }
     const targetContent = await readContent(targetFile);
     const content = sourceFile === targetFile ? targetContent : await readContent(sourceFile);
-    const result = createCrossReferenceLink(await readStore(app, path), detected, targetContent, sourceFile.path, content, start, end, displayMode);
-    await writeStore(app, path, result.store);
+    const store = await readStore(app, path);
+    const result = createCrossReferenceLink(store, detected, targetContent, sourceFile.path, content, start, end, displayMode);
+    await writeStore(app, path, result.store, store);
     return result;
   });
 }
@@ -155,7 +162,7 @@ export async function remapCrossReferencesAfterRename(
     const remapped = remapCrossReferenceStore(store, oldPath, newPath);
     const changed = store.targets.some((target, index) => target.sourceFile !== remapped.targets[index].sourceFile)
       || store.occurrences.some((occurrence, index) => occurrence.sourceFile !== remapped.occurrences[index].sourceFile);
-    if (changed) await writeStore(app, path, remapped);
+    if (changed) await writeStore(app, path, remapped, store);
     return changed;
   });
 }

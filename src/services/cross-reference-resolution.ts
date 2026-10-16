@@ -26,15 +26,17 @@ export function resolveCrossReferenceTarget(
   const candidates = (detectedTargets ?? detectCrossReferenceTargets(target.sourceFile, content,
     target.type === "appendix" ? { appendixTitle: target.sourceFile.split("/").pop()?.slice(0, -3) ?? "" } : {}))
     .filter((candidate) => candidate.type === target.type && candidate.sourceFile === target.sourceFile);
-  if (result.status === "resolved") {
-    const detectedTarget = candidates.find((candidate) => candidate.anchor.start === result.range.start && candidate.anchor.end === result.range.end);
-    return detectedTarget ? { ...result, detectedTarget } : { status: "missing" };
-  }
   // Missing context at a file edge is unconstrained; every remaining context must match exactly.
   const matches = candidates.filter((candidate) =>
     (!target.anchor.prefix || content.slice(Math.max(0, candidate.anchor.start - target.anchor.prefix.length), candidate.anchor.start) === target.anchor.prefix)
     && (!target.anchor.suffix || content.slice(candidate.anchor.end, candidate.anchor.end + target.anchor.suffix.length) === target.anchor.suffix)
   );
+  if (result.status === "resolved") {
+    if ((target.anchor.prefix || target.anchor.suffix) && matches.some((candidate) =>
+      candidate.anchor.start !== result.range.start || candidate.anchor.end !== result.range.end)) return { status: "ambiguous" };
+    const detectedTarget = candidates.find((candidate) => candidate.anchor.start === result.range.start && candidate.anchor.end === result.range.end);
+    return detectedTarget ? { ...result, detectedTarget } : { status: "missing" };
+  }
   if (matches.length > 1) return { status: "ambiguous" };
   const detectedTarget = matches[0];
   return detectedTarget

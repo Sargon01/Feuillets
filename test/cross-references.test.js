@@ -595,3 +595,87 @@ test("XRef store resolution: current title is returned while the sidecar snapsho
   assert.equal(first.store.targets[0].id, first.target.id);
   assert.equal(state.files.get(state.path).content, saved);
 });
+
+test("XRef target: a surviving old title cannot override conflicting context after a rename", () => {
+  const first = linked();
+  const current = targetContent.replace("Destination", "Renamed destination") + "\n# Destination\n\nA different section.\n";
+  assert.deepEqual(resolveCrossReferenceTarget(first.target, current), { status: "ambiguous" });
+  assert.equal(first.target.anchor.quote, "# Destination");
+});
+
+test("XRef detection: Obsidian comments stay excluded with UTF-16 and CRLF offsets", () => {
+  const text = "---\r\ntitle: é😀\r\n---\r\n\r\n`%%`\r\n\r\n%%\r\n# Hidden 😀\r\n![Hidden](a.png)\r\n| A | B |\r\n| --- | --- |\r\n%%\r\n\r\n# Visible é😀\r\n\r\n![Visible caption](b.png)\r\n";
+  const targets = detectCrossReferenceTargets("A.md", text);
+  assert.deepEqual(targets.map((target) => [target.type, target.titleOrCaption]), [["section", "Visible é😀"], ["figure", "Visible caption"]]);
+  for (const target of targets) {
+    assert.equal(text.slice(target.anchor.start, target.anchor.end), target.anchor.quote);
+    assert.equal(target.anchor.start, text.indexOf(target.anchor.quote));
+  }
+});
+
+test("XRef detection: inline images followed by other Markdown are not standalone figures", () => {
+  for (const text of ["![Map](a.png) and [link](page.md)", "![First](a.png) ![Second](b.png)"]) {
+    assert.deepEqual(detectCrossReferenceTargets("A.md", text), []);
+  }
+});
+
+test("XRef detection: an appendix never anchors to an excluded code or HTML block", () => {
+  for (const text of ["```md\n# Hidden\n```", "    # Hidden", "<!-- hidden -->", "%%\n# Hidden\n%%"]) {
+    assert.deepEqual(detectCrossReferenceTargets("A.md", text, { appendixTitle: "A" }), []);
+  }
+});
+
+test("XRef persistence: corruption arriving at the write boundary is preserved", async (t) => {
+  const state = fixture(); const first = linked();
+  await saveCrossReferenceStore(state.app, state.settings, first.store);
+  const file = state.files.get(state.path);
+  for (const method of ["modify", "process"]) {
+    const original = state.app.vault[method];
+    t.mock.method(state.app.vault, method, async (target, value) => {
+      if (target === file) target.content = "{broken external edit";
+      return original(target, value);
+    });
+  }
+  await assert.rejects(saveCrossReferenceStore(state.app, state.settings, emptyCrossReferenceStore()), CrossReferenceStoreCorruptedError);
+  assert.equal(file.content, "{broken external edit");
+});
+
+test("XRef persistence: a competing external relation is never lost during a queued addition", async (t) => {
+  const state = fixture(); const first = linked();
+  await saveCrossReferenceStore(state.app, state.settings, first.store);
+  const concurrent = structuredClone(first.store);
+  concurrent.occurrences.push({ ...first.occurrence, id: "xr_external" });
+  const externalJson = serializeCrossReferenceStore(concurrent);
+  const file = state.files.get(state.path);
+  for (const method of ["modify", "process"]) {
+    const original = state.app.vault[method];
+    t.mock.method(state.app.vault, method, async (target, value) => {
+      if (target === file) target.content = externalJson;
+      return original(target, value);
+    });
+  }
+  const detected = detectCrossReferenceTargets(state.a.path, state.a.content)[0];
+  await assert.rejects(addCrossReferenceLink(state.app, state.settings, detected, state.b, 5, 18), /changed during update/);
+  assert.equal(file.content, externalJson);
+});
+
+test("XRef persistence: read and write failures propagate and do not poison the project queue", async (t) => {
+  const state = fixture(); const first = linked();
+  await saveCrossReferenceStore(state.app, state.settings, first.store);
+  const file = state.files.get(state.path); const saved = file.content;
+  const read = state.app.vault.read;
+  const failingRead = t.mock.method(state.app.vault, "read", async (target) => {
+    if (target === file) throw new Error("Read unavailable");
+    return read(target);
+  });
+  await assert.rejects(loadCrossReferenceStore(state.app, state.settings), /Read unavailable/);
+  failingRead.mock.restore();
+  for (const method of ["modify", "process"]) {
+    t.mock.method(state.app.vault, method, async () => { throw new Error("Write unavailable"); });
+  }
+  await assert.rejects(remapCrossReferencesAfterRename(state.app, state.settings, state.a.path, "Moved.md"), /Write unavailable/);
+  assert.equal(file.content, saved);
+  t.mock.restoreAll();
+  assert.equal(await remapCrossReferencesAfterRename(state.app, state.settings, state.a.path, "Moved.md"), true);
+  assert.equal((await loadCrossReferenceStore(state.app, state.settings)).targets[0].sourceFile, "Moved.md");
+});
