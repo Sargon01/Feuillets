@@ -23,8 +23,8 @@ import type { CanvasPointerLikeEvent, MinimalRuntimeCanvas, MinimalRuntimeNode }
 import type { KeymapEventHandler, KeymapEventListener, Modifier } from "obsidian";
 import { addMindmapChild, addMindmapSibling, outdentMindmapNode, reparentMindmapNodeByDrop } from "../carnet/blocks/mindmap/mindmap.js";
 import { createCarnetFileNode, feuilletsFileDragPath } from "../carnet/canvas/adapter.js";
-import { isMindmapMemberNode, mindmapSubtree } from "../carnet/blocks/mindmap/model.js";
-import { canReparentByDrop } from "../carnet/blocks/mindmap/interactions.js";
+import { findMindmapGroup, findMindmapParent, isMindmapMemberNode, mindmapSubtree } from "../carnet/blocks/mindmap/model.js";
+import { canReparentByDrop, resolveShiftTabAction } from "../carnet/blocks/mindmap/interactions.js";
 import { isFeuilletsOwnedNode } from "../carnet/canvas/owned-nodes.js";
 
 /* Intégration OPTIONNELLE avec Advanced Canvas (Developer-Mike/obsidian-
@@ -492,26 +492,27 @@ function liveCanvasData(canvas: MinimalAdvancedCanvas): CanvasData | null {
  * ni ne réorganise plus une de ses branches. */
 function handleMindmapKey(canvas: MinimalAdvancedCanvas, kind: "child" | "sibling" | "outdent"): KeymapEventListener {
   return (evt) => {
-    const node = activeSelectionNode(canvas);
-    if (!node || node.isEditing) return;
-    const data = liveCanvasData(canvas);
-    if (!data) return;
-
-    const fullNode = data.nodes.find((n) => n.id === node.id);
-    const blockId = fullNode && typeof fullNode.feuillets_block_id === "string" ? fullNode.feuillets_block_id : null;
-    if (!fullNode || !blockId || !isMindmapMemberNode(fullNode, blockId)) return;
-
-    const acted =
-      kind === "child"
-        ? !!addMindmapChild(data, blockId, node.id)
-        : kind === "sibling"
-          ? !!addMindmapSibling(data, blockId, node.id)
-          : outdentMindmapNode(data, blockId, node.id);
-    if (!acted) return;
+    if (!runMindmapBranchAction(canvas, kind)) return;
     evt.preventDefault();
-    persistCanvasData(canvas, data);
     return false;
   };
+}
+
+/** Share the existing branch operations and persistence with sidebar controls. */
+export function runMindmapBranchAction(canvas: MinimalAdvancedCanvas, kind: "child" | "sibling" | "outdent", checking = false): boolean {
+  const node = activeSelectionNode(canvas);
+  if (!node || node.isEditing || (!canvas.setData && !canvas.importData) || !canvas.requestSave) return false;
+  const data = liveCanvasData(canvas);
+  if (!data) return false;
+  const fullNode = data.nodes.find((candidate) => candidate.id === node.id);
+  const blockId = fullNode && typeof fullNode.feuillets_block_id === "string" ? fullNode.feuillets_block_id : null;
+  if (!fullNode || !blockId || !findMindmapGroup(data, blockId) || !isMindmapMemberNode(fullNode, blockId)) return false;
+  if (kind === "sibling" && !findMindmapParent(data, blockId, node.id)) return false;
+  if (kind === "outdent" && !resolveShiftTabAction(data, blockId, node.id)) return false;
+  if (checking) return true;
+  const acted = kind === "child" ? !!addMindmapChild(data, blockId, node.id) : kind === "sibling" ? !!addMindmapSibling(data, blockId, node.id) : outdentMindmapNode(data, blockId, node.id);
+  if (acted) persistCanvasData(canvas, data);
+  return acted;
 }
 
 /** Attache Tab/Entrée au Scope PUBLIC de la vue Canvas (jamais un listener

@@ -46,6 +46,7 @@ class FakeElement {
   getAttribute(name) { return this.attrs.get(name) ?? null; }
   hasClass(name) { return this.classes.has(name); }
   setText(text) { this.text = String(text); return this; }
+  focus() { this.focused = true; }
   addEventListener(type, callback) { this.events.set(type, callback); }
   dispatch(type, event) { const cb = this.events.get(type); if (cb) cb(event || { target: this }); }
   empty() { this.children = []; }
@@ -193,7 +194,7 @@ test("SidebarFeuilletsView n'affiche pas les onglets masqués", async () => {
   await sidebar.render();
 
   assert.deepEqual(contentEl.children[0].children.map((button) => button.icon), [
-    "file-text", "calendar", "book-open", "bar-chart-3", "spell-check",
+    "file-text", "calendar", "book-open", "bar-chart-3", "spell-check", "notebook-pen",
   ]);
 });
 
@@ -203,7 +204,7 @@ test("SidebarFeuilletsView conserve l'ordre des onglets visibles", async () => {
   await sidebar.render();
 
   assert.deepEqual(contentEl.children[0].children.map((button) => button.icon), [
-    "file-text", "calendar", "book-open", "spell-check",
+    "file-text", "calendar", "book-open", "spell-check", "notebook-pen",
   ]);
 });
 
@@ -250,21 +251,21 @@ test("SidebarFeuilletsView rend uniquement la sous-vue de l'onglet sélectionné
   }
 });
 
-test("SidebarFeuilletsView affiche exactement 6 onglets dans le bon ordre", async () => {
+test("SidebarFeuilletsView displays exactly seven tabs in the expected order", async () => {
   const { sidebar, contentEl } = createSidebar("notes");
   await sidebar.render();
 
   const icons = contentEl.children[0].children.map((button) => button.icon);
   assert.deepEqual(icons, [
-    "file-text", "book-marked", "calendar", "book-open", "bar-chart-3", "spell-check",
+    "file-text", "book-marked", "calendar", "book-open", "bar-chart-3", "spell-check", "notebook-pen",
   ]);
 
   const allTabIds = [];
   for (let i = 0; i < icons.length; i++) {
-    sidebar.activeTab = contentEl.children[0].children[i].id || ["notes", "research", "journal", "project", "stats", "relecture"][i];
+    sidebar.activeTab = contentEl.children[0].children[i].id || ["notes", "research", "journal", "project", "stats", "relecture", "carnets"][i];
     allTabIds.push(sidebar.activeTab);
   }
-  assert.deepEqual(allTabIds, ["notes", "research", "journal", "project", "stats", "relecture"]);
+  assert.deepEqual(allTabIds, ["notes", "research", "journal", "project", "stats", "relecture", "carnets"]);
 });
 
 test("SidebarFeuilletsView : l'onglet Statistiques utilise la clé i18n correcte", async () => {
@@ -1183,4 +1184,32 @@ test("Sidebar : Dossier éditorial (pas de navigation interne) garde toujours «
   await sidebar.renderProjectTab(container);
   assert.ok(globalBackPresent(container), "Retour à Édition présent sur Dossier éditorial");
   assert.ok(localBackTexts(container).includes("Retour à Édition"), "un seul Retour, le global, reste à la racine");
+});
+
+test("Carnets is persisted, hideable, accessible and refreshes without rebuilding its mounted inspector", async () => {
+  const { sidebar, contentEl, settings } = createSidebar("notes");
+  assert.equal(createSidebar("carnets").sidebar.activeTab, "carnets");
+  await sidebar.render();
+  const buttons = contentEl.children[0].children;
+  assert.equal(buttons.length, 7);
+  assert.equal(buttons.filter((button) => button.getAttribute("tabindex") === "0").length, 1);
+  const carnet = buttons[6];
+  assert.equal(carnet.getAttribute("aria-label"), t("sidebar.tab.carnets"));
+  assert.equal(carnet.getAttribute("aria-controls"), "feuillets-sidebar-panel");
+  const originalRender = sidebar.render.bind(sidebar);
+  sidebar.render = async () => {};
+  await carnet.events.get("click")();
+  assert.equal(sidebar.activeTab, "carnets");
+  assert.equal(settings.activeRightPanelTab, "carnets");
+  let refreshed = 0;
+  sidebar.carnetsContent = { refresh() { refreshed++; } };
+  await sidebar.refreshData();
+  await sidebar.renderAllSubViews(true);
+  assert.equal(refreshed, 2);
+  sidebar.carnetsContent = null;
+  sidebar.render = originalRender;
+  settings.hiddenPanels = ["carnets"];
+  await sidebar.renderAllSubViews(true);
+  assert.equal(contentEl.children[0].children.length, 6);
+  assert.equal(sidebar.activeTab, "notes");
 });

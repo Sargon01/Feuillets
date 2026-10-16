@@ -32,6 +32,7 @@ import type { MinimalRuntimeCanvas } from "../services/canvas-runtime.js";
 export type CanvasBridgePersist = (data: CanvasData) => void | Promise<void>;
 
 export type CanvasBridgeModalOptions = {
+  validate?: () => boolean;
   preselectedIds?: string[];
   persist?: CanvasBridgePersist;
   onDone?: () => void;
@@ -52,6 +53,7 @@ export class CanvasBridgeModal extends Modal {
   private persist: CanvasBridgePersist;
   private onDone?: () => void;
   private runtimeCanvas?: MinimalRuntimeCanvas;
+  private validate?: () => boolean;
 
   private rows: CanvasNode[];
   private checked: Set<string>;
@@ -73,6 +75,7 @@ export class CanvasBridgeModal extends Modal {
     this.persist = options.persist || ((data) => this.app.vault.modify(this.canvasFile, JSON.stringify(data, null, "\t")));
     this.onDone = options.onDone;
     this.runtimeCanvas = options.runtimeCanvas;
+    this.validate = options.validate;
 
     this.rows = sortNodesSpatially(textNodesOf(canvas));
     this.checked = new Set(
@@ -160,6 +163,7 @@ export class CanvasBridgeModal extends Modal {
   }
 
   private async confirm(folderInput: HTMLInputElement | null) {
+    if (this.validate && !this.validate()) { new Notice(t("carnet.workspace.unavailable")); return; }
     const orderedIds = this.rows.filter((n) => this.checked.has(n.id)).map((n) => n.id);
     if (orderedIds.length === 0) {
       new Notice(t("modal.canvasBridge.noSelection"));
@@ -183,6 +187,7 @@ export class CanvasBridgeModal extends Modal {
       }
     }
 
+    if (this.validate && !this.validate()) { new Notice(t("carnet.workspace.unavailable")); return; }
     const result = await applySelectedIdeas(this.app, this.canvas, orderedIds, destFolder, this.mode, this.runtimeCanvas);
     await this.persist(this.canvas);
 

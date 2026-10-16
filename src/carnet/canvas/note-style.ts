@@ -1,4 +1,4 @@
-import { bindTextEditor, normalizeTextStyle, refreshTextStyle } from "./text-style.js";
+import { bindTextEditor, normalizeTextStyle, refreshTextStyle, textAlignments, textColors } from "./text-style.js";
 import { attachDynamicStacks } from "./dynamic-stack.js";
 import { attachNoteSizing } from "./note-size.js";
 import { attachTextAnchors } from "./text-anchors.js";
@@ -139,23 +139,80 @@ export function registerCarnetNoteStyleMenu(plugin: {
   registerEvent(event: EventRef): void;
 }, isCarnet: (file: TFile | null | undefined) => boolean, refresh: () => void): void {
   const workspace = plugin.app.workspace as unknown as MenuWorkspace;
+  const extendedMenus = new WeakSet<Menu>();
   plugin.registerEvent(workspace.on("canvas:node-menu", (menu, node) => {
     const canvas = node.canvas;
     const file = canvas?.view?.file;
-    if (!file || !isCarnet(file) || !hasStyleContract(canvas) || canvas.readonly || !isFreeNote(canvas.getData(), node.getData())) return;
+    if (extendedMenus.has(menu) || !file || !isCarnet(file) || !hasStyleContract(canvas) || canvas.readonly ||
+      canvas.nodes.get(node.id) !== node || !isFreeNote(canvas.getData(), node.getData())) return;
+    extendedMenus.add(menu);
+    const current = node.getData();
+    const apply = (change: { style?: CarnetNoteStyle; color?: string; textStyle?: CarnetTextStyle }): void => {
+      if (!isCarnet(canvas.view?.file) || canvas.view?.file !== file || canvas.nodes.get(node.id) !== node) return;
+      if (Object.prototype.hasOwnProperty.call(change, "textStyle") && node.isEditing) return;
+      if (!applyNoteAppearance(canvas, node.id, change)) new Notice(t("carnet.noteStyle.unavailable"));
+      refresh();
+    };
     menu.addItem((item) => {
-      item.setTitle(t("carnet.noteStyle.title")).setIcon("palette");
+      item.setTitle(t("carnet.noteStyle.menu")).setIcon("palette");
       const submenu = (item as typeof item & { setSubmenu(): Menu }).setSubmenu();
-      for (const style of [undefined, ...styles]) {
+      for (const style of ["plain", "outline", "rounded", "filled"] as const) {
         submenu.addItem((choice) => choice
-          .setTitle(t(style === undefined ? "carnet.noteStyle.default" : `carnet.noteStyle.${style}`))
-          .setChecked(node.getData().feuillets_note_style === style)
-          .onClick(() => {
-            if (!isCarnet(canvas.view?.file) || canvas.view?.file !== file) return;
-            if (!applyNoteStyle(canvas, node.id, style)) new Notice(t("carnet.noteStyle.unavailable"));
-            refresh();
-          }));
+          .setTitle(t(`carnet.noteStyle.menu.${style}`))
+          .setChecked((current.feuillets_note_style ?? "plain") === style)
+          .onClick(() => apply({ style })));
       }
+      submenu.addSeparator();
+      submenu.addItem((choice) => choice.setTitle(t("carnet.noteStyle.menu.defaultColor"))
+        .setChecked(!current.color).onClick(() => apply({ color: "" })));
+      for (const [index, color] of ["red", "orange", "yellow", "green", "cyan", "purple"].entries()) {
+        const value = String(index + 1);
+        submenu.addItem((choice) => choice.setTitle(t(`carnet.noteStyle.menu.${color}`))
+          .setChecked(current.color === value).onClick(() => apply({ color: value })));
+      }
+    });
+    if (node.isEditing) return;
+    const textStyle = (): CarnetTextStyle => normalizeTextStyle(node.getData().feuillets_text_style) ?? {};
+    const defaultSize = parseFloat(node.contentEl?.ownerDocument.defaultView?.getComputedStyle(node.contentEl).getPropertyValue("--font-text-size") ?? "") || 16;
+    const size = (): number => textStyle().size ?? defaultSize;
+    const changeText = (patch: CarnetTextStyle): void => apply({ textStyle: { ...textStyle(), ...patch } });
+    menu.addItem((item) => {
+      item.setTitle(t("carnet.typography.title")).setIcon("type");
+      const typography = (item as typeof item & { setSubmenu(): Menu }).setSubmenu();
+      typography.addItem((font) => {
+        font.setTitle(t("carnet.typography.menuSize", { size: String(size()) }));
+        const sizes = (font as typeof font & { setSubmenu(): Menu }).setSubmenu();
+        for (const delta of [-1, 1]) sizes.addItem((choice) => choice
+          .setTitle(t(delta < 0 ? "carnet.typography.decreaseOne" : "carnet.typography.increaseOne"))
+          .setDisabled(delta < 0 ? size() <= 12 : size() >= 40)
+          .onClick(() => {
+            const next = Math.min(40, Math.max(12, size() + delta));
+            changeText({ size: next === defaultSize ? undefined : next });
+          }));
+        sizes.addSeparator();
+        sizes.addItem((choice) => choice.setTitle(t("carnet.typography.defaultSize"))
+          .setChecked(textStyle().size === undefined).onClick(() => changeText({ size: undefined })));
+        const presets = [12, 14, 16, 18, 20, 24, 32, 40];
+        if (textStyle().size !== undefined && !presets.includes(size())) presets.push(size());
+        for (const value of presets.sort((a, b) => a - b)) sizes.addItem((choice) => choice
+          .setTitle(`${value} px`).setChecked(textStyle().size === value).onClick(() => changeText({ size: value })));
+      });
+      typography.addItem((alignment) => {
+        alignment.setTitle(t("carnet.typography.alignment"));
+        const alignments = (alignment as typeof alignment & { setSubmenu(): Menu }).setSubmenu();
+        for (const align of textAlignments) alignments.addItem((choice) => choice
+          .setTitle(t(`carnet.typography.${align}`)).setChecked((textStyle().align ?? "left") === align)
+          .onClick(() => changeText({ align })));
+      });
+      typography.addItem((color) => {
+        color.setTitle(t("carnet.typography.color"));
+        const colors = (color as typeof color & { setSubmenu(): Menu }).setSubmenu();
+        colors.addItem((choice) => choice.setTitle(t("carnet.typography.defaultColor"))
+          .setChecked(textStyle().color === undefined).onClick(() => changeText({ color: undefined })));
+        for (const value of textColors) colors.addItem((choice) => choice
+          .setTitle(t(`carnet.typography.${value}`)).setChecked(textStyle().color === value)
+          .onClick(() => changeText({ color: value })));
+      });
     });
   }));
 }

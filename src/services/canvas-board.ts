@@ -4,6 +4,7 @@ import type { CanvasData, LiveCanvasFileView } from "../carnet/canvas/types.js";
 import { getProjectFolder, resourcesFolderPath } from "./folder-structure.js";
 import { t, type Locale } from "../i18n/index.js";
 import { ensureFolder } from "./project-files.js";
+import { withNewNoteDefaults, type CarnetNoteDefaults } from "../carnet/core/default-styles.js";
 
 /** Valeurs conservées pour les nodes créés explicitement par Feuillets. */
 export type FeuilletsManagedKind = "manuscript" | "research" | "thread";
@@ -148,12 +149,12 @@ export async function addFileNodesToNotebook(
  * touché par ce Lot). Géométrie : même principe que `addFileNodeToCanvas`
  * (empile sous les nodes existants, jamais ne les déplace), dimensions
  * fixes 320×120, aucun `dynamicHeight`. */
-export function addTextNodeToCanvas(data: CanvasData, rawText: string): AddTextNodeResult {
+export function addTextNodeToCanvas(data: CanvasData, rawText: string, defaults?: CarnetNoteDefaults): AddTextNodeResult {
   if (!Array.isArray(data.nodes) || !Array.isArray(data.edges)) return "invalid";
   const text = String(rawText ?? "").trim();
   if (!text) return "empty";
   const maxY = data.nodes.reduce((max, node) => Math.max(max, (node.y || 0) + (node.height || 160)), 0);
-  data.nodes.push({
+  data.nodes.push(withNewNoteDefaults(data, {
     id: newFileNodeId(),
     type: "text",
     text,
@@ -161,7 +162,7 @@ export function addTextNodeToCanvas(data: CanvasData, rawText: string): AddTextN
     y: maxY + 40,
     width: 320,
     height: 120,
-  });
+  }, defaults));
   return "added";
 }
 
@@ -176,7 +177,8 @@ export async function addTextNodeToNotebook(
   app: Pick<App, "vault">,
   canvasFile: TFile,
   rawText: string,
-  liveView?: LiveCanvasFileView
+  liveView?: LiveCanvasFileView,
+  defaults?: CarnetNoteDefaults
 ): Promise<AddTextNodeResult> {
   if (liveView) {
     let data: CanvasData;
@@ -185,7 +187,7 @@ export async function addTextNodeToNotebook(
     } catch {
       return "invalid";
     }
-    const result = addTextNodeToCanvas(data, rawText);
+    const result = addTextNodeToCanvas(data, rawText, defaults);
     if (result === "added") {
       liveView.setViewData(JSON.stringify(data, null, "\t"), false);
       liveView.requestSave();
@@ -199,7 +201,7 @@ export async function addTextNodeToNotebook(
   } catch {
     return "invalid";
   }
-  const result = addTextNodeToCanvas(data, rawText);
+  const result = addTextNodeToCanvas(data, rawText, defaults);
   if (result === "added") await app.vault.modify(canvasFile, JSON.stringify(data, null, "\t"));
   return result;
 }

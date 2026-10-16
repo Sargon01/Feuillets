@@ -124,3 +124,29 @@ test("§23.10 — plusieurs Canvas ouverts : chaque leaf ne reçoit QUE son prop
   assert.equal(titleB.textContent, "Carnet · CHAPITRE 2");
   assert.notEqual(titleA, titleB, "deux éléments DOM distincts, jamais un querySelector global partagé");
 });
+
+
+test("floating toolbar preference is scoped to recognized Carnets, keeps its original default and cleans every view", () => {
+  const makeLeaf = (path) => {
+    const classes = new Set();
+    const containerEl = { classList: {
+      toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); },
+      remove(...names) { names.forEach((name) => classes.delete(name)); },
+    } };
+    return { leaf: { view: { file: { path }, containerEl } }, classes };
+  };
+  const first = makeLeaf("project.canvas"), second = makeLeaf("folder.canvas"), ordinary = makeLeaf("ordinary.canvas");
+  let leaves = [first.leaf, second.leaf, ordinary.leaf], preferences = {};
+  const lifecycle = createCarnetLifecycle({ workspace: { getLeavesOfType: () => leaves } },
+    (file) => file?.path !== "ordinary.canvas", undefined, undefined, () => preferences);
+  const hidden = "feuillets-carnet-hide-selection-toolbar";
+  lifecycle.refresh(); assert(!first.classes.has(hidden)); assert(!second.classes.has(hidden));
+  preferences = { showFloatingToolbar: false }; lifecycle.refresh();
+  assert(first.classes.has(hidden)); assert(second.classes.has(hidden)); assert(!ordinary.classes.has(hidden));
+  preferences = { showFloatingToolbar: true }; lifecycle.refresh();
+  assert(!first.classes.has(hidden)); assert(!second.classes.has(hidden));
+  preferences = { showFloatingToolbar: false }; lifecycle.refresh();
+  leaves = [second.leaf, ordinary.leaf]; lifecycle.refresh(); assert(!first.classes.has(hidden));
+  second.leaf.view.file = ordinary.leaf.view.file; lifecycle.refresh(); assert(!second.classes.has(hidden));
+  lifecycle.cleanup(); assert(!first.classes.size); assert(!second.classes.size); assert(!ordinary.classes.size);
+});

@@ -31,6 +31,7 @@ export type CanvasChapterContext =
   | { source: "command" };
 
 export type CanvasChapterModalOptions = {
+  validate?: () => boolean;
   persist?: CanvasBridgePersist;
   saveSettings: () => void | Promise<void>;
   onDone?: () => void;
@@ -53,6 +54,7 @@ export class CanvasChapterModal extends Modal {
   private saveSettingsFn: () => void | Promise<void>;
   private onDone?: () => void;
   private runtimeCanvas?: MinimalRuntimeCanvas;
+  private validate?: () => boolean;
 
   private isManuscriptPath: (path: string) => boolean;
   private allAdmissible: CanvasNode[];
@@ -81,6 +83,7 @@ export class CanvasChapterModal extends Modal {
     this.saveSettingsFn = options.saveSettings;
     this.onDone = options.onDone;
     this.runtimeCanvas = options.runtimeCanvas;
+    this.validate = options.validate;
 
     this.isManuscriptPath = makeManuscriptPathChecker(app, settings);
     this.allAdmissible = admissibleChapterNodes(canvas.nodes || [], this.isManuscriptPath);
@@ -260,6 +263,7 @@ export class CanvasChapterModal extends Modal {
   }
 
   private async confirm(folderInput: HTMLInputElement) {
+    if (this.validate && !this.validate()) { new Notice(t("carnet.workspace.unavailable")); return; }
     const raw = normalizePath((folderInput.value || "").trim());
     const destFolder = raw ? this.app.vault.getAbstractFileByPath(raw) : null;
     const root = getProjectFolder(this.app, this.settings);

@@ -3,15 +3,16 @@ import { t } from "../../i18n/index.js";
 import type { MinimalRuntimeCanvas, MinimalRuntimeEdge } from "../../services/canvas-runtime.js";
 import { isFreeNote } from "./note-style.js";
 import { isOrdinaryEdge } from "./text-anchors.js";
-import type { CanvasData, CanvasEdge, CarnetEdgePattern, CarnetEdgeWidth } from "./types.js";
+import type { CanvasData, CanvasEdge, CarnetEdgeGeometry, CarnetEdgePattern, CarnetEdgeWidth } from "./types.js";
 
 export type Arrows = "none" | "start" | "end" | "both";
-export type EdgeAppearance = { pattern: CarnetEdgePattern; width: CarnetEdgeWidth; color: string; arrows: Arrows };
-type AppearanceChange = { pattern?: CarnetEdgePattern; width?: CarnetEdgeWidth; color?: string; arrows?: Arrows } | "reset";
+export type EdgeAppearance = { pattern: CarnetEdgePattern; width: CarnetEdgeWidth; color: string; arrows: Arrows; geometry: CarnetEdgeGeometry };
+type AppearanceChange = { pattern?: CarnetEdgePattern; width?: CarnetEdgeWidth; color?: string; arrows?: Arrows; geometry?: CarnetEdgeGeometry } | "reset";
 type EdgeCanvas = MinimalRuntimeCanvas & {
   edges: Map<string, MinimalRuntimeEdge>;
   getData(): CanvasData;
   markDirty(edge: MinimalRuntimeEdge): void;
+  markMoved?: (edge: MinimalRuntimeEdge) => void;
   requestSave(addHistory?: boolean): void;
   pushHistory(data: CanvasData): void;
   requestPushHistory: (() => void) & { run(): void; cancel(): void };
@@ -32,7 +33,8 @@ export function isEligibleEdge(data: CanvasData, edge: CanvasEdge): boolean {
   if (!isOrdinaryEdge(edge)) return false;
   return [edge.fromNode, edge.toNode].every((id) => {
     const node = data.nodes.find((candidate) => candidate.id === id);
-    return !!node && isFreeNote(data, node);
+    // Reuse free-note ownership checks for ordinary native file/image and group endpoints.
+    return !!node && ["text", "file", "group"].includes(node.type ?? "") && isFreeNote(data, { ...node, type: "text" });
   });
 }
 
@@ -41,8 +43,10 @@ function arrowStyle(edge: CanvasEdge): Arrows {
   return start ? (end ? "both" : "start") : (end ? "end" : "none");
 }
 
-export function getEdgeAppearance(edge: CanvasEdge): EdgeAppearance {
-  return { pattern: edge.feuillets_edge_style?.pattern ?? "dashed", width: edge.feuillets_edge_style?.width ?? "thin", color: edge.color ?? "", arrows: arrowStyle(edge) };
+export function getEdgeAppearance(edge: CanvasEdge, data?: CanvasData): EdgeAppearance {
+  const native = data && ![edge.fromNode, edge.toNode].every((id) => data.nodes.some((node) => node.id === id && isFreeNote(data, node)));
+  return { pattern: edge.feuillets_edge_style?.pattern ?? (native ? "solid" : "dashed"), width: edge.feuillets_edge_style?.width ?? (native ? "regular" : "thin"), color: edge.color ?? "", arrows: arrowStyle(edge),
+    geometry: edge.feuillets_edge_style?.geometry === "curved" || edge.feuillets_edge_style?.geometry === "straight" || edge.feuillets_edge_style?.geometry === "map" ? edge.feuillets_edge_style.geometry : native ? "curved" : "straight" };
 }
 
 export function applyEdgeStyle(value: unknown, edgeId: string, change: AppearanceChange): boolean {
@@ -52,20 +56,24 @@ export function applyEdgeStyle(value: unknown, edgeId: string, change: Appearanc
   if (!edge || !current || typeof edge.setData !== "function" || !isEligibleEdge(data, current)) return false;
   const next = { ...current };
   const style = { ...current.feuillets_edge_style };
+  const defaults = getEdgeAppearance({ ...current, feuillets_edge_style: undefined }, data);
   if (change === "reset") {
-    if (!current.feuillets_edge_style && !current.color && arrowStyle(current) === "none") return true;
-    delete next.feuillets_edge_style;
+    if (Object.keys(style).every((key) => key === "geometry") && !current.color && arrowStyle(current) === "none") return true;
+    // Appearance reset preserves the explicit geometry choice.
+    if (style.geometry) next.feuillets_edge_style = { geometry: style.geometry };
+    else delete next.feuillets_edge_style;
     delete next.color;
     next.fromEnd = "none"; next.toEnd = "none";
   } else {
     if (change.pattern !== undefined) {
-      if (change.pattern === "dashed") delete style.pattern;
+      if (change.pattern === defaults.pattern) delete style.pattern;
       else style.pattern = change.pattern;
     }
     if (change.width !== undefined) {
-      if (change.width === "thin") delete style.width;
+      if (change.width === defaults.width) delete style.width;
       else style.width = change.width;
     }
+    if (change.geometry !== undefined) style.geometry = change.geometry;
     if (Object.keys(style).length) next.feuillets_edge_style = style;
     else delete next.feuillets_edge_style;
     if (change.color !== undefined) {
@@ -84,6 +92,7 @@ export function applyEdgeStyle(value: unknown, edgeId: string, change: Appearanc
   value.requestPushHistory.run();
   edge.setData(next);
   value.markDirty(edge);
+  if (change !== "reset" && change.geometry !== undefined && typeof value.markMoved === "function") value.markMoved(edge);
   value.requestPushHistory.cancel();
   value.requestSave(false);
   value.pushHistory(value.getData());
@@ -95,11 +104,14 @@ type MenuWorkspace = { on(name: "canvas:edge-menu", callback: (menu: Menu, edge:
 
 export function registerCarnetEdgeStyleMenu(plugin: { app: App; registerEvent(event: EventRef): void }, isCarnet: (file: TFile | null | undefined) => boolean): void {
   const workspace = plugin.app.workspace as unknown as MenuWorkspace;
+  const extendedMenus = new WeakSet<Menu>();
   plugin.registerEvent(workspace.on("canvas:edge-menu", (menu, edge) => {
     const canvas = edge.canvas, file = canvas?.view?.file;
-    if (!file || !isCarnet(file) || !hasStyleContract(canvas) || canvas.readonly || !isEligibleEdge(canvas.getData(), edge.getData())) return;
+    if (extendedMenus.has(menu) || !file || !isCarnet(file) || !hasStyleContract(canvas) || canvas.readonly ||
+      canvas.edges.get(edge.getData().id) !== edge || !isEligibleEdge(canvas.getData(), edge.getData())) return;
+    extendedMenus.add(menu);
     const current: CanvasEdge = edge.getData();
-    const appearanceValue = getEdgeAppearance(current);
+    const appearanceValue = getEdgeAppearance(current, canvas.getData());
     const apply = (change: AppearanceChange): void => {
       if (canvas.view?.file !== file || !isCarnet(file) || canvas.edges.get(current.id) !== edge) return;
       if (!applyEdgeStyle(canvas, current.id, change)) new Notice(t("carnet.edgeStyle.unavailable"));
@@ -112,7 +124,10 @@ export function registerCarnetEdgeStyleMenu(plugin: { app: App; registerEvent(ev
       });
       return result;
     };
-    const appearance = submenu(menu, t("carnet.edgeStyle.title"));
+    const appearance = submenu(menu, t("carnet.edgeStyle.menu"));
+    const geometryMenu = submenu(appearance, t("carnet.edgeStyle.geometry"));
+    for (const geometry of ["curved", "straight", "map"] as const) geometryMenu.addItem((item) => item
+      .setTitle(t(`carnet.edgeStyle.${geometry}`)).setChecked(appearanceValue.geometry === geometry).onClick(() => apply({ geometry })));
     const line = submenu(appearance, t("carnet.edgeStyle.line"));
     for (const pattern of ["solid", "dashed", "dotted"] as const) line.addItem((item) => item
       .setTitle(t(`carnet.edgeStyle.${pattern}`)).setChecked(appearanceValue.pattern === pattern).onClick(() => apply({ pattern })));
@@ -122,6 +137,14 @@ export function registerCarnetEdgeStyleMenu(plugin: { app: App; registerEvent(ev
     const arrowsMenu = submenu(appearance, t("carnet.edgeStyle.arrows"));
     for (const arrows of ["none", "start", "end", "both"] as const) arrowsMenu.addItem((item) => item
       .setTitle(t(`carnet.edgeStyle.${arrows}`)).setChecked(appearanceValue.arrows === arrows).onClick(() => apply({ arrows })));
+    const colorMenu = submenu(appearance, t("carnet.edgeStyle.color"));
+    colorMenu.addItem((item) => item.setTitle(t("carnet.edgeStyle.defaultColor"))
+      .setChecked(appearanceValue.color === "").onClick(() => apply({ color: "" })));
+    for (const [index, color] of ["red", "orange", "yellow", "green", "cyan", "purple"].entries()) {
+      const value = String(index + 1);
+      colorMenu.addItem((item) => item.setTitle(t(`carnet.edgeStyle.${color}`))
+        .setChecked(appearanceValue.color === value).onClick(() => apply({ color: value })));
+    }
     appearance.addItem((item) => item.setTitle(t("carnet.edgeStyle.reset")).onClick(() => apply("reset")));
   }));
 }

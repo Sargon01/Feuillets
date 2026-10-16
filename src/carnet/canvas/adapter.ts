@@ -52,8 +52,10 @@ export async function persistCanvasData(app: Pick<App, "vault">, file: TFile, da
 
 export type CanvasSession = { data: CanvasData; view?: RuntimeCanvasView; runtimeCanvas?: MinimalRuntimeCanvas; persist: (data: CanvasData) => Promise<void> };
 
-export async function resolveCanvasSession(app: Pick<App, "vault" | "workspace">, file: TFile): Promise<CanvasSession> {
-  const view = findOpenCanvasView(app, file);
+export async function resolveCanvasSession(app: Pick<App, "vault" | "workspace">, file: TFile, preferredView?: unknown): Promise<CanvasSession> {
+  if (preferredView !== undefined && (!isLiveView(preferredView) || preferredView.file !== file ||
+    !app.workspace.getLeavesOfType("canvas").some((leaf) => leaf.view as unknown === preferredView))) throw new Error("Canvas view is no longer available");
+  const view = preferredView !== undefined && isLiveView(preferredView) ? preferredView : findOpenCanvasView(app, file);
   const data = await readCanvasData(app, file, view);
   return { data, view, runtimeCanvas: view?.canvas, persist: (next) => persistCanvasData(app, file, next, view) };
 }

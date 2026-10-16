@@ -1,6 +1,7 @@
+import { CarnetsContent, type CarnetsPlugin } from "../ui/carnets-content.js";
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import { VIEW_PREVIEW, VIEW_SIDEBAR_FEUILLETS } from "../constants.js";
-import { t } from "../i18n/index.js";
+import { getLocale, t } from "../i18n/index.js";
 import { openSnapshotComparison } from "./comparison-view.js";
 import { AnalysisView } from "./analysis-view.js";
 import { DocxReviewView } from "./docx-review-view.js";
@@ -17,7 +18,7 @@ import { ExportPanel, type ExportPanelPlugin } from "../ui/export-panel.js";
 import { createProjectScope } from "../services/compile-scope.js";
 import { openScopeWithPreviewBesideLeaf } from "./preview-view.js";
 
-type SidebarTab = "notes" | "research" | "journal" | "project" | "stats" | "relecture";
+type SidebarTab = "notes" | "research" | "journal" | "project" | "stats" | "relecture" | "carnets";
 /** Sous-page de l'onglet Édition (clé interne "project") — état purement en
  * mémoire (jamais persisté dans les réglages) : "home" affiche les trois
  * entrées de navigation (Composition, Mise en page, Dossier éditorial) ; les
@@ -34,7 +35,8 @@ type SidebarPlugin =
   ConstructorParameters<typeof BaseFeuilletsView>[1]
   & EditionWorkspacePlugin
   & EditionDocsContentPlugin
-  & ExportPanelPlugin;
+  & ExportPanelPlugin
+  & CarnetsPlugin;
 type SidebarSubView = {
   targetContainer?: HTMLElement;
   render(force?: boolean): Promise<void>;
@@ -61,6 +63,7 @@ const SIDEBAR_TABS: SidebarTabDefinition[] = [
   { id: "project", icon: "book-open", titleKey: "sidebar.tab.edition" },
   { id: "stats", icon: "bar-chart-3", titleKey: "sidebar.tab.stats" },
   { id: "relecture", icon: "spell-check", titleKey: "sidebar.tab.proofreading" },
+  { id: "carnets", icon: "notebook-pen", titleKey: "sidebar.tab.carnets" },
 ];
 
 type PreviewViewWithScope = {
@@ -93,7 +96,7 @@ function activeTabFor(value: unknown): SidebarTab {
   if (value === "metadata") return "notes";
   if (
     value === "notes" || value === "research" || value === "journal" ||
-    value === "project" || value === "stats" || value === "relecture"
+    value === "project" || value === "stats" || value === "relecture" || value === "carnets"
   ) {
     return value;
   }
@@ -107,6 +110,8 @@ export class SidebarFeuilletsView extends ItemView {
   editionPage: EditionPage;
   private layoutSummaryPage: LayoutSummaryPage = "home";
   private editionContext = "";
+  private carnetsContent: CarnetsContent | null = null;
+  private tabLayoutKey = "";
   subViews: SidebarSubViews;
   /** Conteneur dédié de la barre « Retour à Édition » (rendue QUE lorsque
    * le contenu enfant est sur sa page racine) — jamais la barre elle-même
@@ -189,6 +194,7 @@ export class SidebarFeuilletsView extends ItemView {
   }
 
   async render(): Promise<void> {
+    if (this.carnetsContent) { this.removeChild(this.carnetsContent); this.carnetsContent = null; }
     const container = this.contentEl;
     this.editionBackHost = null;
     container.empty();
@@ -197,6 +203,7 @@ export class SidebarFeuilletsView extends ItemView {
     // ----- BARRE D'ONGLETS -----
     const tabBar = container.createDiv({ cls: "feuillets-sidebar-tab-bar", attr: { role: "tablist" } });
     const hiddenPanels = new Set(this.plugin.settings.hiddenPanels || []);
+    this.tabLayoutKey = this.getTabLayoutKey();
     const tabs = SIDEBAR_TABS.filter((tab) => !hiddenPanels.has(tab.id));
     if (tabs.length && !tabs.some((tab) => tab.id === this.activeTab)) {
       this.activeTab = tabs[0].id;
@@ -211,12 +218,16 @@ export class SidebarFeuilletsView extends ItemView {
       button.setAttr?.("role", "tab");
       button.setAttr?.("aria-label", label);
       button.setAttr?.("aria-selected", String(this.activeTab === tab.id));
+      button.setAttr?.("tabindex", this.activeTab === tab.id ? "0" : "-1");
+      button.setAttr?.("id", `feuillets-tab-${tab.id}`);
+      button.setAttr?.("aria-controls", "feuillets-sidebar-panel");
 
       const handleTabClick = async (): Promise<void> => {
         this.activeTab = tab.id;
         this.plugin.settings.activeRightPanelTab = tab.id;
         await this.plugin.saveSettings();
         await this.render();
+        this.contentEl.querySelector<HTMLElement>(`#feuillets-tab-${this.activeTab}`)?.focus();
       };
       button.addEventListener("click", () => {
         void handleTabClick();
@@ -234,14 +245,19 @@ export class SidebarFeuilletsView extends ItemView {
           this.plugin.settings.activeRightPanelTab = this.activeTab;
           await this.plugin.saveSettings();
           await this.render();
+          this.contentEl.querySelector<HTMLElement>(`#feuillets-tab-${this.activeTab}`)?.focus();
         })();
       });
     }
 
     // ----- CONTENU DYNAMIQUE DE L'ONGLET SÉLECTIONNÉ -----
-    const content = container.createDiv({ cls: "feuillets-sidebar-content" });
+    const content = container.createDiv({ cls: "feuillets-sidebar-content", attr: { id: "feuillets-sidebar-panel", role: "tabpanel", "aria-labelledby": `feuillets-tab-${this.activeTab}` } });
 
     switch (this.activeTab) {
+      case "carnets":
+        this.carnetsContent = new CarnetsContent(this.app, this.plugin, content);
+        this.addChild(this.carnetsContent);
+        break;
       case "notes":
         await this.renderNotesTab(content);
         break;
@@ -598,6 +614,11 @@ export class SidebarFeuilletsView extends ItemView {
   }
 
   async renderAllSubViews(force = false): Promise<void> {
+    if (this.tabLayoutKey !== this.getTabLayoutKey()) { await this.render(); return; }
+    if (this.activeTab === "carnets") {
+      this.carnetsContent?.refresh();
+      return;
+    }
     if (this.activeTab === "project") {
       // Gestion de projet : aucune sous-vue montée (tout est construit
       // directement par renderProjectTab) — un rendu complet du panneau suffit.
@@ -623,8 +644,16 @@ export class SidebarFeuilletsView extends ItemView {
     return JSON.stringify([project, root]);
   }
 
+  private getTabLayoutKey(): string {
+    return JSON.stringify([this.plugin.settings.hiddenPanels || [], getLocale()]);
+  }
+
   async refreshData(): Promise<void> {
-    if (this.activeTab !== "project") {
+    if (this.tabLayoutKey !== this.getTabLayoutKey()) {
+      await this.render();
+    } else if (this.activeTab === "carnets") {
+      this.carnetsContent?.refresh();
+    } else if (this.activeTab !== "project") {
       await this.renderAllSubViews();
     } else if (this.editionContext !== this.getEditionContext()) {
       await this.render();

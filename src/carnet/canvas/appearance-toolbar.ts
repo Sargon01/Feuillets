@@ -40,7 +40,7 @@ function selected(canvas: ToolbarCanvas): Selection | null {
 }
 
 /** Extend only this view's native selection toolbar; native rendering owns its lifetime. */
-export function attachAppearanceToolbar(value: unknown, refreshStyles: () => void, isActive: () => boolean): { refresh(): void; cleanup(): void } | null {
+export function attachAppearanceToolbar(value: unknown, refreshStyles: () => void, isActive: () => boolean, onRefresh?: () => void): { refresh(): void; cleanup(): void } | null {
   if (!hasToolbar(value)) return null;
   const canvas = value, menu = canvas.menu, original = menu.render;
   let button: HTMLButtonElement | undefined, panel: HTMLElement | undefined, editing: Selection | null = null;
@@ -144,15 +144,23 @@ export function attachAppearanceToolbar(value: unknown, refreshStyles: () => voi
           if (value === "end" || value === "both") svg.createSvg("path", { attr: { d: "M24 7 L29 12 L24 17", fill: "none", stroke: "currentColor", "stroke-width": "1.5", "stroke-linejoin": "round" } });
         }
       };
+      const geometry = group("geometry", t("carnet.edgeStyle.geometry"));
+      for (const mode of ["curved", "straight", "map"] as const) {
+        const control = option(geometry, "geometry", mode, t(`carnet.edgeStyle.${mode}`),
+          () => getEdgeAppearance(selection.target.getData(), canvas.getData()).geometry === mode, () => applyEdgeStyle(canvas, id, { geometry: mode }));
+        if (mode === "map") { setIcon(control, "map"); continue; }
+        const svg = control.createSvg("svg", { attr: { viewBox: "0 0 32 24", "aria-hidden": "true" } });
+        svg.createSvg("path", { attr: { d: mode === "curved" ? "M3 18 C3 3 29 21 29 6" : "M3 18 L29 6", fill: "none", stroke: "currentColor", "stroke-width": "1.5", "stroke-linecap": "round" } });
+      }
       const patterns = group("pattern", t("carnet.edgeStyle.line"));
       for (const pattern of ["solid", "dashed", "dotted"] as const) preview(option(patterns, "pattern", pattern, t(`carnet.edgeStyle.${pattern}`),
-        () => getEdgeAppearance(selection.target.getData()).pattern === pattern, () => applyEdgeStyle(canvas, id, { pattern })), "pattern", pattern);
+        () => getEdgeAppearance(selection.target.getData(), canvas.getData()).pattern === pattern, () => applyEdgeStyle(canvas, id, { pattern })), "pattern", pattern);
       const widths = group("width", t("carnet.edgeStyle.width"));
       for (const width of ["thin", "regular", "thick"] as const) preview(option(widths, "width", width, t(`carnet.edgeStyle.${width}`),
-        () => getEdgeAppearance(selection.target.getData()).width === width, () => applyEdgeStyle(canvas, id, { width })), "width", width);
+        () => getEdgeAppearance(selection.target.getData(), canvas.getData()).width === width, () => applyEdgeStyle(canvas, id, { width })), "width", width);
       const arrows = group("arrows", t("carnet.edgeStyle.arrows"));
       for (const ends of ["none", "start", "end", "both"] as const) preview(option(arrows, "arrows", ends, t(`carnet.edgeStyle.${ends}`),
-        () => getEdgeAppearance(selection.target.getData()).arrows === ends, () => applyEdgeStyle(canvas, id, { arrows: ends })), "arrows", ends);
+        () => getEdgeAppearance(selection.target.getData(), canvas.getData()).arrows === ends, () => applyEdgeStyle(canvas, id, { arrows: ends })), "arrows", ends);
     }
     updateChoices = () => {
       for (const { element, active } of choices) {
@@ -173,6 +181,7 @@ export function attachAppearanceToolbar(value: unknown, refreshStyles: () => voi
     typographyButton?.remove(); typographyButton = undefined;
   };
   const refresh = (): void => {
+    onRefresh?.();
     if (!isActive() || !menu.menuEl.isConnected || !canStackNotes(canvas)) {
       stackButton?.remove(); stackButton = undefined;
     } else if (!stackButton || stackButton.parentElement !== menu.menuEl) {

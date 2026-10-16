@@ -55,7 +55,7 @@ for (const kind of ["note", "edge"]) test(`${kind} icon choices apply immediatel
   f.select(target); const before = c.getData(); assert.equal(f.button().attrs["data-appearance-kind"], kind);
   assert.deepEqual(f.menuEl.children.filter((e) => e.attrs.native).map((e) => e.attrs.native), ["remove", "color", "zoom"]);
   f.button().click(); const panel = f.panel(); assert(panel);
-  const controls = byClass(panel, "feuillets-appearance-option"); assert.equal(controls.length, kind === "note" ? 5 : 10);
+  const controls = byClass(panel, "feuillets-appearance-option"); assert.equal(controls.length, kind === "note" ? 5 : 13);
   assert(controls.every((button) => button.attrs["aria-label"] && button.textContent === "" && (button.children.length || button.icon)));
   assert.equal(walk(panel).filter((e) => e.tag === "select" || e.attrs["data-appearance-field"] === "color").length, 0);
   if (kind === "note") {
@@ -167,4 +167,28 @@ test("dynamic stacking and dissociation share the native toolbar without replaci
   assert.equal(c.history.data.length, 3); assert.equal(byClass(f.menuEl, "feuillets-dynamic-stack-dissociate").length, 0);
   assert.deepEqual(f.menuEl.children.filter((e) => e.attrs.native).map((e) => e.attrs.native), ["remove", "color", "zoom"]);
   f.binding.cleanup(); assert.equal(byClass(f.menuEl, "feuillets-dynamic-stack-title").length, 0);
+});
+
+for (const type of ["file", "group"]) test(`native ${type} connections expose the shared icons and preserve native color control`, () => {
+  const f = fixture(), c = f.canvas; c.nodes.get("a").raw.type = type;
+  f.select(c.edges.get("ab")); assert(f.button()); f.button().click();
+  assert.equal(walk(f.panel()).find((e) => e.attrs["data-appearance-field"] === "pattern" && e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], "solid");
+  f.change("pattern", "dotted"); f.change("width", "thick"); f.change("arrows", "both");
+  assert.deepEqual(c.edges.get("ab").raw.feuillets_edge_style, { pattern: "dotted", width: "thick" });
+  assert.equal(c.edges.get("ab").raw.fromEnd, "arrow"); assert.equal(c.edges.get("ab").raw.toEnd, "arrow");
+  assert.equal(f.menuEl.children.filter((e) => e.attrs.native === "color").length, 1); f.binding.cleanup();
+});
+
+for (const type of ["text", "file"]) test(`geometry icons switch active mode without closing the ${type} connection popover`, () => {
+  const f = fixture(), c = f.canvas; c.nodes.get("a").raw.type = type;
+  f.select(c.edges.get("ab")); f.button().click(); const panel = f.panel();
+  const controls = () => walk(panel).filter((e) => e.attrs["data-appearance-field"] === "geometry");
+  assert.deepEqual(controls().map((e) => e.attrs["data-appearance-value"]), ["curved", "straight", "map"]);
+  assert.equal(controls()[2].icon, "map");
+  assert.equal(controls().find((e) => e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], type === "text" ? "straight" : "curved");
+  for (const geometry of type === "text" ? ["map", "curved", "straight", "map"] : ["straight", "map", "curved"]) {
+    f.change("geometry", geometry); assert.equal(f.panel(), panel); assert.equal(c.edges.get("ab").raw.feuillets_edge_style.geometry, geometry);
+    assert.equal(controls().find((e) => e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], geometry);
+  }
+  assert.equal(f.menuEl.children.filter((e) => e.attrs.native === "color").length, 1); f.binding.cleanup();
 });

@@ -666,6 +666,8 @@ declare type FeuilletsSettings = {
    *  below; this declaration only lagged behind that one. */
   statuses: ProjectStatusEntry[];
   hiddenPanels: string[];
+  carnetShowFloatingToolbar: boolean;
+  carnetDefaultStyles: import("./carnet/core/default-styles.js").CarnetDefaultStyles;
   hiddenBoardModes: string[];
 
   statusFilter: string;

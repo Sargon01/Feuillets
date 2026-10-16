@@ -219,6 +219,8 @@ export type DefaultSettings = {
   structureSectionOrder: string[];
   hiddenBoardModes: string[];
   hiddenPanels: string[];
+  carnetShowFloatingToolbar: boolean;
+  carnetDefaultStyles: import("./carnet/core/default-styles.js").CarnetDefaultStyles;
   filPlaceholders: NarrativeThreadState["filPlaceholders"];
   filOrigins: NarrativeThreadState["filOrigins"];
   filResolved: NarrativeThreadState["filResolved"];
@@ -418,6 +420,8 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   structureSectionOrder: ["Progression", "Compteurs"],
   hiddenBoardModes: [],
   hiddenPanels: [],
+  carnetShowFloatingToolbar: true,
+  carnetDefaultStyles: {},
   filPlaceholders: {},
   filOrigins: {},
   filResolved: [],

@@ -135,7 +135,9 @@ import { remapFeuilletsPathReferences } from "./carnet/core/path-reference-maint
 import { remapWorkspaceCitationResourcePaths } from "./services/workspace-citations.js";
 import { registerCarnetNoteStyleMenu } from "./carnet/canvas/note-style.js";
 import { registerCarnetEdgeStyleMenu } from "./carnet/canvas/edge-style.js";
+import { registerCarnetArrangementMenu } from "./carnet/canvas/arrangement-menu.js";
 import { createCarnetLifecycle, type CarnetLifecycle } from "./carnet/core/lifecycle.js";
+import { normalizeCarnetDefaultStyles } from "./carnet/core/default-styles.js";
 import {
   createMindmapBlock,
   applyMindmapLayout,
@@ -143,7 +145,7 @@ import {
   toggleMindmapOrientation,
   convertIdeaTreeBranchToMindmap,
 } from "./carnet/blocks/mindmap/mindmap.js";
-import { findMindmapChildren, isMindmapMemberNode } from "./carnet/blocks/mindmap/model.js";
+import { findMindmapChildren, findMindmapGroup, isMindmapMemberNode } from "./carnet/blocks/mindmap/model.js";
 import { computeMindmapVisibility } from "./carnet/blocks/mindmap/interactions.js";
 import { renderGenealogyMarkdown } from "./markdown/genealogy/renderer.js";
 import { removeGroupBlockToolbar } from "./carnet/blocks/shared/native-group-block.js";
@@ -175,7 +177,7 @@ import { CaptureIdeaModal } from "./ui/capture-idea-modal.js";
 import { CanvasBridgeModal } from "./ui/canvas-bridge-modal.js";
 import { CanvasChapterModal } from "./ui/canvas-chapter-modal.js";
 import type { BridgeMode } from "./services/canvas-bridge.js";
-import { registerAdvancedCanvasIntegration } from "./integrations/advanced-canvas.js";
+import { registerAdvancedCanvasIntegration, runMindmapBranchAction } from "./integrations/advanced-canvas.js";
 import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot, sheetFrontmatter, type NewSheetOptions } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
@@ -844,13 +846,19 @@ class FeuilletsPlugin extends Plugin {
         this.decorateMindmapCanvasView(view, options);
         this.decoratePlanCanvasView(view, options);
         this.removeRelationsCanvasToolbar(view);
-      }
+      },
+      () => ({ showFloatingToolbar: this.settings.carnetShowFloatingToolbar, defaultStyles: this.settings.carnetDefaultStyles })
     );
     this.carnetLifecycle.refresh();
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)) {
+      const view = leaf.view as SidebarFeuilletsView;
+      if (view.activeTab === "carnets") void view.refreshData();
+    }
     registerCarnetNoteStyleMenu(this, (file) => this.isFeuilletsCarnetFile(file), () => this.carnetLifecycle?.refresh());
     registerCarnetEdgeStyleMenu(this, (file) => this.isFeuilletsCarnetFile(file));
+    registerCarnetArrangementMenu(this, (file) => this.isFeuilletsCarnetFile(file));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.carnetLifecycle?.refresh()));
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.carnetLifecycle?.refresh()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => { this.carnetLifecycle?.context.activate(leaf?.view); this.carnetLifecycle?.refresh(); }));
     this.registerMindmapCommands();
     this.registerPlanCommands();
     this.patchTabTitles();
@@ -3837,6 +3845,8 @@ class FeuilletsPlugin extends Plugin {
     for (const [key] of legacyAutoOpenPanels) delete data[key];
 
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data) as unknown as FeuilletsSettings;
+    this.settings.carnetDefaultStyles = normalizeCarnetDefaultStyles(this.settings.carnetDefaultStyles);
+    this.settings.carnetShowFloatingToolbar = this.settings.carnetShowFloatingToolbar !== false;
     const writingColorsMigrated = migrateWritingColorSettings(this.settings, data);
     if (!hasAutoOpenInspector) {
       const migratedPanels = directLegacyPanels.length > 0 ? directLegacyPanels : historicalPanels;
@@ -5619,6 +5629,26 @@ class FeuilletsPlugin extends Plugin {
     return !!path && this.app.vault.getAbstractFileByPath(path) instanceof TFile;
   }
 
+  isExistingCarnetTarget(file: TFile): boolean {
+    const retained = this.carnetLifecycle?.context.current();
+    return this.app.vault.getAbstractFileByPath(file.path) === file && this.isFeuilletsCarnetFile(file) &&
+      !(retained?.file === file && retained.canvas.readonly);
+  }
+
+  resolveCarnetToolSession(file: TFile): Promise<CanvasSession> {
+    const retained = this.carnetLifecycle?.context.current();
+    return resolveCanvasSession(this.app, file, retained?.file === file ? retained.view : undefined);
+  }
+
+  carnetSessionValidator(file: TFile, session: CanvasSession): () => boolean {
+    const snapshot = JSON.stringify(session.data), canvas = session.view?.canvas;
+    return () => this.isExistingCarnetTarget(file) && (!session.view || (
+      session.view.file === file && session.view.canvas === canvas &&
+      this.app.workspace.getLeavesOfType("canvas").some((leaf) => leaf.view as unknown === session.view) &&
+      JSON.stringify(canvas?.getData?.()) === snapshot
+    ));
+  }
+
   isGlobalCarnetFile(file: TFile | null | undefined): boolean {
     const root = this.getProjectFolder();
     return !!file && !!root && file.path === canvasPathFor(this.app, root);
@@ -6151,12 +6181,27 @@ class FeuilletsPlugin extends Plugin {
    * fonctionnent identiquement avec ou sans Advanced Canvas (§10), agissent
    * TOUJOURS sur le Canvas actif + sa sélection unique, jamais une hypothèse
    * sur quel Carnet est ouvert. */
+  carnetMindmapActions = new Map<string, (checking: boolean, target?: { file?: TFile | null; canvas?: MindmapRuntimeCanvas }) => boolean>();
+
+  runCarnetMindmapAction(id: string, checking: boolean, target: { file?: TFile | null; canvas?: unknown }): boolean {
+    const retained = this.carnetLifecycle?.context.snapshot();
+    if (!retained || retained.target.view !== target || !this.isFeuilletsCarnetFile(retained.target.file) ||
+      this.app.vault.getAbstractFileByPath(retained.target.file.path) !== retained.target.file) return false;
+    const branch = id === "mindmap-add-child" ? "child" : id === "mindmap-add-sibling" ? "sibling" : id === "mindmap-outdent" ? "outdent" : null;
+    if (branch) return runMindmapBranchAction(retained.target.canvas as MindmapRuntimeCanvas, branch, checking);
+    return this.carnetMindmapActions.get(id)?.(checking, target as { file?: TFile | null; canvas?: MindmapRuntimeCanvas }) ?? false;
+  }
+
   registerMindmapCommands(): void {
-    this.addCommand({
+    const register = (command: { id: string; name: string; checkCallback: (checking: boolean, target?: { file?: TFile | null; canvas?: MindmapRuntimeCanvas }) => boolean }): void => {
+      this.carnetMindmapActions.set(command.id, command.checkCallback);
+      this.addCommand({ ...command, checkCallback: (checking) => command.checkCallback(checking) });
+    };
+    register({
       id: "mindmap-create",
       name: t("mindmap.action.create"),
-      checkCallback: (checking) => {
-        const view = this.activeCanvasView();
+      checkCallback: (checking, target) => {
+        const view = target ?? this.activeCanvasView();
         if (!view?.canvas?.getData || !view.canvas.requestSave) return false;
         if (checking) return true;
         void (async () => {
@@ -6175,11 +6220,11 @@ class FeuilletsPlugin extends Plugin {
       },
     });
 
-    this.addCommand({
+    register({
       id: "mindmap-reorganize",
       name: t("mindmap.action.reorganize"),
-      checkCallback: (checking) => {
-        const view = this.activeCanvasView();
+      checkCallback: (checking, target) => {
+        const view = target ?? this.activeCanvasView();
         const canvas = view?.canvas;
         if (!canvas?.getData || !canvas.requestSave) return false;
         const selected = this.activeMindmapSelection(canvas);
@@ -6187,7 +6232,7 @@ class FeuilletsPlugin extends Plugin {
         let data: CanvasData;
         try { data = canvas.getData(); } catch { return false; }
         const node = data.nodes.find((candidate) => candidate.id === selected.id);
-        if (!node || typeof node.feuillets_block_id !== "string") return false;
+        if (!node || typeof node.feuillets_block_id !== "string" || !findMindmapGroup(data, node.feuillets_block_id)) return false;
         if (checking) return true;
         applyMindmapLayout(data, node.feuillets_block_id);
         canvas.setData?.(data);
@@ -6196,11 +6241,11 @@ class FeuilletsPlugin extends Plugin {
       },
     });
 
-    this.addCommand({
+    register({
       id: "mindmap-toggle-collapse",
       name: t("mindmap.action.toggleCollapse"),
-      checkCallback: (checking) => {
-        const view = this.activeCanvasView();
+      checkCallback: (checking, target) => {
+        const view = target ?? this.activeCanvasView();
         const canvas = view?.canvas;
         if (!canvas?.getData || !canvas.requestSave) return false;
         const selected = this.activeMindmapSelection(canvas);
@@ -6219,11 +6264,11 @@ class FeuilletsPlugin extends Plugin {
       },
     });
 
-    this.addCommand({
+    register({
       id: "mindmap-convert-idea-tree",
       name: t("mindmap.action.convertIdeaTree"),
-      checkCallback: (checking) => {
-        const view = this.activeCanvasView();
+      checkCallback: (checking, target) => {
+        const view = target ?? this.activeCanvasView();
         const canvas = view?.canvas;
         if (!canvas?.getData || !canvas.requestSave) return false;
         const selected = this.activeMindmapSelection(canvas);
@@ -6244,11 +6289,11 @@ class FeuilletsPlugin extends Plugin {
       },
     });
 
-    this.addCommand({
+    register({
       id: "mindmap-toggle-orientation",
       name: t("mindmap.action.toggleOrientation"),
-      checkCallback: (checking) => {
-        const view = this.activeCanvasView();
+      checkCallback: (checking, target) => {
+        const view = target ?? this.activeCanvasView();
         const canvas = view?.canvas;
         if (!canvas?.getData || !canvas.requestSave) return false;
         const selected = this.activeMindmapSelection(canvas);
@@ -6256,7 +6301,7 @@ class FeuilletsPlugin extends Plugin {
         let data: CanvasData;
         try { data = canvas.getData(); } catch { return false; }
         const node = data.nodes.find((candidate) => candidate.id === selected.id);
-        if (!node || typeof node.feuillets_block_id !== "string") return false;
+        if (!node || typeof node.feuillets_block_id !== "string" || !findMindmapGroup(data, node.feuillets_block_id)) return false;
         if (checking) return true;
         const blockId = node.feuillets_block_id;
         const next = toggleMindmapOrientation(data, blockId);
@@ -6297,14 +6342,15 @@ class FeuilletsPlugin extends Plugin {
   }
 
   /** Ajoute explicitement un feuillet au Carnet sans modifier le Binder. */
-  async addFileToNotebook(file: TFile): Promise<void> {
+  async addFileToNotebook(file: TFile, target?: TFile): Promise<void> {
     if (file.extension !== "md") return;
     const root = this.getProjectFolder();
     if (!root || !file.path.startsWith(`${root.path}/`)) return;
     const opLocale = getLocale();
-    const result = await generateCanvasBoard(this.app, this.settings, opLocale);
+    if (target && !this.isExistingCarnetTarget(target)) return;
+    const result = target ? { file: target } : await generateCanvasBoard(this.app, this.settings, opLocale);
     if (!result) return;
-    const session = await resolveCanvasSession(this.app, result.file);
+    const session = await this.resolveCarnetToolSession(result.file);
     const outcome = await addFileNodeToNotebook(this.app, result.file, file.path, session.view);
     if (outcome === "duplicate") {
       new Notice(t("main.notice.sheetAlreadyInNotebook"));
@@ -6352,8 +6398,9 @@ class FeuilletsPlugin extends Plugin {
   /** « Noter une idée » — facteur commun : la commande Cmd+P ET le menu
    *  contextuel de l'éditeur appellent CETTE même méthode, jamais l'une
    *  dupliquée pour l'autre. */
-  openCaptureIdeaModal(): void {
-    new CaptureIdeaModal(this.app, (text) => void this.captureIdeaToNotebook(text)).open();
+  openCaptureIdeaModal(target?: TFile): void {
+    if (target && !this.isExistingCarnetTarget(target)) return;
+    new CaptureIdeaModal(this.app, (text) => void this.captureIdeaToNotebook(text, target)).open();
   }
 
   /** Lot 6 (« Carnet : noter une idée ») — ajoute un TextNode LIBRE au
@@ -6364,40 +6411,43 @@ class FeuilletsPlugin extends Plugin {
    * exactement comme `addFileToNotebook` ci-dessus (invariant du Lot 4).
    * Aucune association au feuillet en cours d'écriture — voir tête de
    * fichier `addTextNodeToCanvas`. */
-  async captureIdeaToNotebook(rawText: string): Promise<void> {
+  async captureIdeaToNotebook(rawText: string, target?: TFile): Promise<void> {
     const root = this.getProjectFolder();
     if (!root) return;
     const opLocale = getLocale();
-    const result = await generateCanvasBoard(this.app, this.settings, opLocale);
+    if (target && !this.isExistingCarnetTarget(target)) return;
+    const result = target ? { file: target } : await generateCanvasBoard(this.app, this.settings, opLocale);
     if (!result) return;
-    const session = await resolveCanvasSession(this.app, result.file);
-    await addTextNodeToNotebook(this.app, result.file, rawText, session.view);
+    const session = await this.resolveCarnetToolSession(result.file);
+    await addTextNodeToNotebook(this.app, result.file, rawText, session.view, this.settings.carnetDefaultStyles?.note);
   }
 
   /** Ouvre le pont Canvas → manuscrit/recherche (repli universel, sans
    * Advanced Canvas) : lit le Tableau brainstorming.canvas du projet actif,
    * et laisse la modale choisir/ordonner les idées à convertir. N'agit que
    * sur CE tableau précis — jamais un autre .canvas du coffre. */
-  async openCanvasBridge(mode: BridgeMode): Promise<void> {
+  async openCanvasBridge(mode: BridgeMode, target?: TFile): Promise<void> {
     const root = this.getProjectFolder();
     if (!root) {
       new Notice(t("main.notice.projectFolderNotFound"));
       return;
     }
     const path = canvasPathFor(this.app, root);
-    const file = this.app.vault.getAbstractFileByPath(path);
+    if (target && !this.isExistingCarnetTarget(target)) return;
+    const file = target ?? this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
       new Notice(t("main.notice.canvasBoardMissing"));
       return;
     }
     let session: CanvasSession;
     try {
-      session = await resolveCanvasSession(this.app, file);
+      session = await this.resolveCarnetToolSession(file);
     } catch {
       new Notice(t("main.notice.canvasUnreadable"));
       return;
     }
-    new CanvasBridgeModal(this.app, this.settings, file, session.data, mode, { persist: session.persist, runtimeCanvas: session.runtimeCanvas }).open();
+    new CanvasBridgeModal(this.app, this.settings, file, session.data, mode, { persist: session.persist, runtimeCanvas: session.runtimeCanvas,
+      validate: target ? this.carnetSessionValidator(file, session) : undefined }).open();
   }
 
   /** Commande palette « Carnet : créer un chapitre… » (section 4) — repli
@@ -6405,26 +6455,28 @@ class FeuilletsPlugin extends Plugin {
    * Carnet du projet actif, l'auteur choisit un groupe existant ou coche
    * manuellement des éléments admissibles (voir CanvasChapterModal,
    * contexte "command"). */
-  async openCanvasChapterModal(): Promise<void> {
+  async openCanvasChapterModal(target?: TFile): Promise<void> {
     const root = this.getProjectFolder();
     if (!root) {
       new Notice(t("main.notice.projectFolderNotFound"));
       return;
     }
     const path = canvasPathFor(this.app, root);
-    const file = this.app.vault.getAbstractFileByPath(path);
+    if (target && !this.isExistingCarnetTarget(target)) return;
+    const file = target ?? this.app.vault.getAbstractFileByPath(path);
     if (!(file instanceof TFile)) {
       new Notice(t("main.notice.canvasBoardMissing"));
       return;
     }
     let session: CanvasSession;
     try {
-      session = await resolveCanvasSession(this.app, file);
+      session = await this.resolveCarnetToolSession(file);
     } catch {
       new Notice(t("main.notice.canvasUnreadable"));
       return;
     }
     new CanvasChapterModal(this.app, this.settings, session.data, { source: "command" }, {
+      validate: target ? this.carnetSessionValidator(file, session) : undefined,
       persist: session.persist,
       saveSettings: () => this.saveSettings(),
       runtimeCanvas: session.runtimeCanvas,
@@ -6595,7 +6647,7 @@ class FeuilletsPlugin extends Plugin {
   async activateSidebarView(tabId = "project"): Promise<void> {
     if (
       (tabId === "notes" || tabId === "research" || tabId === "journal" ||
-        tabId === "project" || tabId === "analyse" || tabId === "relecture") &&
+        tabId === "project" || tabId === "analyse" || tabId === "relecture" || tabId === "carnets") &&
       this.isPanelHidden(tabId)
     ) {
       new Notice(t("sidebar.notice.tabHidden"));

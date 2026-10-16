@@ -1,6 +1,7 @@
 export type CarnetTextStyle = { size?: number; align?: "left" | "center" | "right" | "justify"; color?: "red" | "orange" | "green" | "cyan" | "purple" };
 export type CarnetNoteStyle = "plain" | "outline" | "rounded" | "filled" | "classic";
 export type CarnetEdgePattern = "solid" | "dashed" | "dotted";
+export type CarnetEdgeGeometry = "curved" | "straight" | "map";
 export type CarnetEdgeWidth = "thin" | "regular" | "thick";
 
 /** Types shared by the Canvas boundary.  Canvas is deliberately permissive:
@@ -54,7 +55,7 @@ export type CanvasNode = {
 export type CanvasEdge = {
   id: string;
   color?: string;
-  feuillets_edge_style?: { pattern?: CarnetEdgePattern; width?: CarnetEdgeWidth };
+  feuillets_edge_style?: { pattern?: CarnetEdgePattern; width?: CarnetEdgeWidth; geometry?: CarnetEdgeGeometry };
   fromNode?: string;
   toNode?: string;
   fromSide?: "top" | "right" | "bottom" | "left";

@@ -1,9 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Menu } from "obsidian";
-import { applyEdgeStyle, registerCarnetEdgeStyleMenu } from "../src/carnet/canvas/edge-style.js";
+import { applyEdgeStyle, getEdgeAppearance, registerCarnetEdgeStyleMenu } from "../src/carnet/canvas/edge-style.js";
 import { isFreeNote } from "../src/carnet/canvas/note-style.js";
 import { addDropLinks, toggleDropLink } from "../src/carnet/canvas/drop-links.js";
+import { t } from "../src/i18n/index.js";
 
 function fixture() {
   const raw = { nodes: ["a", "b", "c"].map((id, i) => ({ id, type: "text", text: "**Note**", x: i * 200, y: 0, width: 100, height: 60 })), edges: [{ id: "ab", fromNode: "a", toNode: "b", toEnd: "none", label: "Keep label" }, { id: "cb", fromNode: "c", toNode: "b", toEnd: "none" }] };
@@ -67,7 +68,7 @@ test("managed nodes, managed edges, external styles and incomplete runtimes are 
     const canvas = fixture(); Object.assign(canvas.edges.get("ab").raw, metadata);
     const before = canvas.getData(); assert.equal(applyEdgeStyle(canvas, "ab", { pattern: "solid" }), false); assert.deepEqual(canvas.getData(), before);
   }
-  for (const metadata of [{ type: "file" }, { type: "group" }, { feuillets_plan_version: 1 }, { mindmapCollapsed: [] }]) {
+  for (const metadata of [{ feuillets_managed: "research" }, { feuillets_block: "relations" }, { feuillets_plan_version: 1 }, { mindmapCollapsed: [] }]) {
     const canvas = fixture(); Object.assign(canvas.root.nodes[0], metadata); assert.equal(applyEdgeStyle(canvas, "ab", "reset"), false);
   }
   for (const method of ["markDirty", "pushHistory", "requestSave", "requestPushHistory"]) { const canvas = fixture(); delete canvas[method]; assert.equal(applyEdgeStyle(canvas, "ab", "reset"), false); }
@@ -77,11 +78,115 @@ test("native edge menu is view-scoped and rejects stale edge objects", () => {
   const canvas = fixture(), file = { path: "Carnet.canvas" }, events = new Map(); canvas.view = { file };
   const plugin = { app: { workspace: { on(name, callback) { events.set(name, callback); return {}; } } }, registerEvent() {} };
   registerCarnetEdgeStyleMenu(plugin, (f) => f === file);
-  const menu = new Menu(); events.get("canvas:edge-menu")(menu, canvas.edges.get("ab"));
-  assert.equal(menu.items.length, 1); const appearance = menu.items[0].submenu;
-  assert.deepEqual(appearance.items.slice(0, 3).map((i) => i.submenu.items.length), [3, 3, 4]);
-  appearance.items[0].submenu.items[2].click(); assert.equal(canvas.getData().edges[0].feuillets_edge_style.pattern, "dotted");
-  const saves = canvas.saves; canvas.view.file = { path: "Ordinary.canvas" }; appearance.items[1].submenu.items[2].click(); assert.equal(canvas.saves, saves);
+  const menu = new Menu(); menu.addItem((item) => item.setTitle("Native action"));
+  const native = menu.items[0]; events.get("canvas:edge-menu")(menu, canvas.edges.get("ab"));
+  events.get("canvas:edge-menu")(menu, canvas.edges.get("ab"));
+  assert.equal(menu.items.length, 2); assert.equal(menu.items[0], native);
+  const appearance = menu.items[1].submenu;
+  assert.equal(menu.items[1].title, t("carnet.edgeStyle.menu"));
+  assert.deepEqual(appearance.items.filter((i) => i.submenu).map((i) => i.submenu.items.length), [3, 3, 3, 4, 7]);
+  const line = appearance.items.find((i) => i.title === t("carnet.edgeStyle.line")).submenu;
+  const dotted = line.items.find((i) => i.title === t("carnet.edgeStyle.dotted"));
+  dotted.click(); assert.equal(canvas.getData().edges[0].feuillets_edge_style.pattern, "dotted");
+  const saves = canvas.saves; canvas.view.file = { path: "Ordinary.canvas" }; dotted.click(); assert.equal(canvas.saves, saves);
   const ordinary = new Menu(); events.get("canvas:edge-menu")(ordinary, canvas.edges.get("ab")); assert.equal(ordinary.items.length, 0);
-  canvas.view.file = file; canvas.edges.set("ab", { ...canvas.edges.get("ab") }); appearance.items[1].submenu.items[2].click(); assert.equal(canvas.saves, saves);
+  canvas.view.file = file; canvas.edges.set("ab", { ...canvas.edges.get("ab") }); dotted.click(); assert.equal(canvas.saves, saves);
+});
+
+for (const type of ["text", "file"]) test(`native edge menus customize ${type} connections with checked state, history and persistence`, () => {
+  const canvas = fixture(), file = { path: "Carnet.canvas" }, events = new Map(); canvas.view = { file }; canvas.root.nodes[0].type = type;
+  const before = canvas.getData(); canvas.history[0] = structuredClone(before);
+  registerCarnetEdgeStyleMenu({ app: { workspace: { on(name, callback) { events.set(name, callback); return {}; } } }, registerEvent() {} }, (f) => f === file);
+  const open = () => { const menu = new Menu(); events.get("canvas:edge-menu")(menu, canvas.edges.get("ab")); return menu.items[0].submenu; };
+  const choice = (group, value) => open().items.find((i) => i.title === t(`carnet.edgeStyle.${group}`)).submenu.items.find((i) => i.title === t(`carnet.edgeStyle.${value}`));
+  const change = (group, value, expected) => {
+    const previous = canvas.getData(), index = canvas.index;
+    choice(group, value).click();
+    assert.equal(canvas.index, index + 1); assert.equal(choice(group, value).checked, true);
+    assert.equal(open().items.find((i) => i.title === t(`carnet.edgeStyle.${group}`)).submenu.items.filter((i) => i.checked).length, 1);
+    const after = canvas.getData(); expected(after.edges[0]);
+    assert.deepEqual(after.nodes, before.nodes); assert.deepEqual(after.edges[1], before.edges[1]);
+    assert.equal(after.edges[0].id, "ab"); assert.equal(after.edges[0].label, "Keep label");
+    canvas.undo(); assert.deepEqual(canvas.getData(), previous); canvas.redo(); assert.deepEqual(canvas.getData(), after);
+    const reopened = fixture(); reopened.importData(JSON.parse(JSON.stringify(after))); assert.deepEqual(reopened.getData(), after);
+    choice(group, value).click(); assert.equal(canvas.index, index + 1);
+  };
+  assert.equal(choice("geometry", type === "text" ? "straight" : "curved").checked, true);
+  for (const geometry of ["map", "curved", "straight"]) change("geometry", geometry, (e) => assert.equal(e.feuillets_edge_style.geometry, geometry));
+  for (const pattern of type === "text" ? ["solid", "dotted", "dashed"] : ["dotted", "dashed", "solid"]) change("line", pattern, (e) => assert.equal(getEdgeAppearance(e, canvas.getData()).pattern, pattern));
+  for (const width of ["thick", "regular", "thin"]) change("width", width, (e) => assert.equal(getEdgeAppearance(e, canvas.getData()).width, width));
+  for (const arrows of ["both", "start", "end", "none"]) change("arrows", arrows, (e) => assert.equal(getEdgeAppearance(e).arrows, arrows));
+  for (const [index, color] of ["red", "orange", "yellow", "green", "cyan", "purple"].entries()) change("color", color, (e) => assert.equal(e.color, String(index + 1)));
+  change("color", "defaultColor", (e) => assert.equal(e.color, undefined));
+});
+
+test("edge menus exclude structural connections, readonly views and stale edges", () => {
+  const canvas = fixture(), file = { path: "Carnet.canvas" }, events = new Map(); canvas.view = { file };
+  registerCarnetEdgeStyleMenu({ app: { workspace: { on(name, callback) { events.set(name, callback); return {}; } } }, registerEvent() {} }, (f) => f === file);
+  const edge = canvas.edges.get("ab");
+  const excluded = () => { const menu = new Menu(); events.get("canvas:edge-menu")(menu, edge); assert.equal(menu.items.length, 0); };
+  for (const metadata of [{ feuillets_managed: "mindmap" }, { feuillets_managed: "relations" }, { feuillets_relation: "parent-child", feuillets_block_id: "family" }]) {
+    const raw = edge.raw; edge.raw = { ...raw, ...metadata }; excluded(); edge.raw = raw;
+  }
+  canvas.readonly = true; excluded(); canvas.readonly = false;
+  canvas.edges.set("ab", { ...edge }); excluded();
+  assert.deepEqual([...events.keys()], ["canvas:edge-menu"]);
+});
+
+for (const type of ["file", "group"]) test(`native ${type} endpoints share appearance transactions without changing geometry data`, () => {
+  const canvas = fixture(); canvas.root.nodes[0].type = type; canvas.root.nodes[0].file = "Image.png";
+  const before = canvas.getData(); canvas.history[0] = structuredClone(before);
+  assert.deepEqual(getEdgeAppearance(before.edges[0], before), { pattern: "solid", width: "regular", color: "", arrows: "none", geometry: "curved" });
+  assert(applyEdgeStyle(canvas, "ab", { pattern: "dotted", width: "thick", arrows: "both", color: "4" }));
+  const after = canvas.getData();
+  assert.deepEqual(after.nodes, before.nodes);
+  assert.deepEqual(after.edges[0], { ...before.edges[0], feuillets_edge_style: { pattern: "dotted", width: "thick" }, fromEnd: "arrow", toEnd: "arrow", color: "4" });
+  assert.equal(canvas.history.length, 2); canvas.undo(); assert.deepEqual(canvas.getData(), before); canvas.redo(); assert.deepEqual(canvas.getData(), after);
+  const reopened = fixture(); reopened.importData(JSON.parse(JSON.stringify(after))); assert.deepEqual(reopened.getData(), after);
+  assert(applyEdgeStyle(canvas, "ab", { pattern: "dashed", width: "thin" }));
+  assert.deepEqual(canvas.getData().edges[0].feuillets_edge_style, { pattern: "dashed", width: "thin" });
+});
+test("native file endpoints with structural metadata or managed incident edges stay protected", () => {
+  for (const metadata of [{ feuillets_managed: "research" }, { feuillets_block_id: "relations" }, { mindmapOrientation: "vertical" }]) {
+    const canvas = fixture(); Object.assign(canvas.root.nodes[0], { type: "file", ...metadata }); const before = canvas.getData();
+    assert(!applyEdgeStyle(canvas, "ab", { pattern: "dotted" })); assert.deepEqual(canvas.getData(), before);
+  }
+  const canvas = fixture(); canvas.root.nodes[0].type = "file"; canvas.edges.get("cb").raw.feuillets_managed = "relations";
+  const before = canvas.getData(); assert(!applyEdgeStyle(canvas, "ab", { width: "thick" })); assert.deepEqual(canvas.getData(), before);
+});
+
+for (const [type, file] of [["text", undefined], ["file", "Note.md"], ["file", "Image.png"]]) test(`geometry changes preserve appearance and native identity for ${file ?? type} and support persistence and Undo/Redo`, () => {
+  const canvas = fixture(); Object.assign(canvas.root.nodes[0], { type, ...(file ? { file } : {}) });
+  const edge = canvas.edges.get("ab"); Object.assign(edge.raw, { color: "4", fromEnd: "arrow", toEnd: "arrow", feuillets_edge_style: { pattern: "dotted", width: "thick" } });
+  const before = canvas.getData(); canvas.history[0] = structuredClone(before);
+  assert.equal(getEdgeAppearance(edge.raw, before).geometry, type === "text" ? "straight" : "curved");
+  for (const geometry of ["straight", "map", "curved", "map", "straight"]) {
+    const previous = canvas.getData(); assert(applyEdgeStyle(canvas, "ab", { geometry })); const after = canvas.getData();
+    assert.deepEqual(after, { ...previous, edges: previous.edges.map((raw) => raw.id === "ab" ? { ...raw, feuillets_edge_style: { ...raw.feuillets_edge_style, geometry } } : raw) });
+    canvas.undo(); assert.deepEqual(canvas.getData(), previous); canvas.redo(); assert.deepEqual(canvas.getData(), after);
+    const reopened = fixture(); reopened.importData(JSON.parse(JSON.stringify(after))); assert.deepEqual(reopened.getData(), after);
+    assert.equal(getEdgeAppearance(reopened.getData().edges[0], reopened.getData()).geometry, geometry);
+    const entries = canvas.history.length; assert(applyEdgeStyle(canvas, "ab", { geometry })); assert.equal(canvas.history.length, entries);
+  }
+});
+test("appearance edits and reset retain explicit geometry until another geometry is chosen", () => {
+  const canvas = fixture(); applyEdgeStyle(canvas, "ab", { geometry: "curved", pattern: "dotted", width: "thick", arrows: "both", color: "3" });
+  applyEdgeStyle(canvas, "ab", { pattern: "solid" }); assert.equal(canvas.edges.get("ab").raw.feuillets_edge_style.geometry, "curved");
+  applyEdgeStyle(canvas, "ab", "reset"); assert.deepEqual(canvas.edges.get("ab").raw.feuillets_edge_style, { geometry: "curved" });
+  const entries = canvas.history.length; applyEdgeStyle(canvas, "ab", "reset"); assert.equal(canvas.history.length, entries);
+});
+test("geometry choices reject structural edges without changing their data", () => {
+  for (const metadata of [{ feuillets_managed: "mindmap" }, { feuillets_block_id: "relations" }]) {
+    const canvas = fixture(); Object.assign(canvas.edges.get("ab").raw, metadata); const before = canvas.getData();
+    for (const geometry of ["straight", "curved", "map"]) assert(!applyEdgeStyle(canvas, "ab", { geometry })); assert.deepEqual(canvas.getData(), before);
+  }
+});
+
+test("geometry changes invalidate the native spatial index without extra saves or history entries", () => {
+  const canvas = fixture(), moved = []; canvas.markMoved = (edge) => moved.push(edge);
+  for (const geometry of ["map", "curved", "straight"]) {
+    const previous = canvas.history.length; applyEdgeStyle(canvas, "ab", { geometry });
+    assert.equal(moved.at(-1), canvas.edges.get("ab")); assert.equal(canvas.history.length, previous + 1);
+  }
+  assert.equal(moved.length, 3); applyEdgeStyle(canvas, "ab", { width: "thick" }); assert.equal(moved.length, 3);
 });
