@@ -2456,7 +2456,7 @@ test("sync — un fichier hors projet n'est jamais suivi", withRender(async () =
   view.bindSourcePane();
 
   assert.equal(view.syncScroller, null, "aucun panneau suivi hors du projet");
-  assert.equal(view.followedEl.textContent, "Aucun éditeur suivi");
+  assert.equal(view.syncSourcePath, null, "no source path retained outside the project");
   assert.equal((foreign._eventListeners.get("scroll") || []).length, 0, "aucun écouteur posé");
 }));
 
@@ -2595,7 +2595,8 @@ test("sync — Scrivening : ignoré hors mode Feuillet", withBlockRender(async (
   });
   view.bindSourcePane();
   assert.equal(view.syncScroller, null, "aucun suivi continu dans le manuscrit");
-  assert.equal(view.followedEl.textContent, "", "aucun faux état de synchronisation");
+  assert.equal(view.syncSourcePath, null, "no source path retained in manuscript mode");
+  assert.equal((scroll._eventListeners.get("scroll") || []).length, 0, "no source scroll listener attached");
 
   const before = viewport.scrollTop;
   scroll.scrollTop = 1200;
@@ -2970,9 +2971,11 @@ test("première page — exclue, elle disparaît de l'aperçu ET de l'export, sa
   assert.match(titlePage.content, /:::titre: Grand Roman/, "le contenu du feuillet Front est conservé");
 }));
 
-test("barre — l'indicateur de fichier suivi reflète la synchronisation de portée", withRender(async () => {
-  const { view } = await openWithEditor("scene");
-  assert.match(view.followedEl.textContent, /01-scene\.md$/);
+test("sync follows the scene editor and source path without a toolbar toggle", withRender(async () => {
+  const { view, editor, sceneFile } = await openWithEditor("scene");
+  assert.equal(view.syncScroller, editor);
+  assert.equal(view.syncSourcePath, sceneFile.path);
+  assert.equal((editor._eventListeners.get("scroll") || []).length, 1, "one source scroll listener attached");
 
   assert.equal(view.syncScrollEnabled, true);
   assert.equal(view.contentEl.querySelectorAll(`[aria-label="${SYNC_LABEL}"]`).length, 0);

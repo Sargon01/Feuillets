@@ -13,11 +13,9 @@ class FakeElement {
   setText() { return this; }
 }
 
-/* Capture à la fois les toggles et les dropdowns posés pendant un rendu —
-   les toggles des 6 panneaux de l'Inspecteur et le dropdown « onglet
-   initial ». Retourne `{ toggles, dropdowns, restore }` ; les toggles sont
-   filtrés par libellé dans les tests (la catégorie contient aussi les
-   modes de Cartes, etc.). */
+/* Capture the seven Inspector toggles and initial-tab dropdown. Tests
+   filter toggles by their localized labels because this category also
+   contains controls for other views. */
 function captureControls() {
   const methods = ["setName", "setDesc", "addToggle", "addSlider", "addDropdown", "addText", "addButton"];
   const previous = Object.fromEntries(methods.map((name) => [name, Setting.prototype[name]]));
@@ -67,6 +65,7 @@ const PANEL_LABELS = new Set([
   t("sidebar.tab.edition"),
   t("sidebar.tab.stats"),
   t("sidebar.tab.proofreading"),
+  t("sidebar.tab.carnets"),
 ]);
 const panelToggles = (toggles) => toggles.filter((c) => PANEL_LABELS.has(c.name));
 const initialTabDropdown = (dropdowns) =>
@@ -97,7 +96,7 @@ function createTab(settings) {
   return { tab: new FeuilletsSettingTab({}, plugin), calls };
 }
 
-test("Réglages : l'Inspecteur expose exactement 6 panneaux dans l'ordre de SIDEBAR_TABS", () => {
+test("Settings expose exactly seven Inspector panels in SIDEBAR_TABS order", () => {
   const { tab } = createTab(createSettings("notes", []));
   const { toggles, restore } = captureControls();
   try {
@@ -114,6 +113,7 @@ test("Réglages : l'Inspecteur expose exactement 6 panneaux dans l'ordre de SIDE
     t("sidebar.tab.edition"),
     t("sidebar.tab.stats"),
     t("sidebar.tab.proofreading"),
+    t("sidebar.tab.carnets"),
   ]);
 });
 
@@ -126,7 +126,7 @@ test("Réglages : Statistiques utilise la clé sidebar.tab.stats", () => {
     restore();
   }
 
-  assert.equal(panelToggles(toggles).length, 6);
+  assert.equal(panelToggles(toggles).length, 7);
   assert.ok(panelToggles(toggles).some((control) => control.name === t("sidebar.tab.stats")));
 });
 
@@ -141,8 +141,14 @@ test("Réglages : le dropdown de l'onglet initial contient stats entre project e
 
   const initialTab = initialTabDropdown(dropdowns);
   assert.ok(initialTab, "dropdown « onglet initial » présent");
-  assert.deepEqual(initialTab.options.map(([key]) => key), [
-    "notes", "research", "journal", "project", "stats", "relecture",
+  assert.deepEqual(initialTab.options, [
+    ["notes", t("sidebar.tab.notes")],
+    ["research", t("sidebar.tab.research")],
+    ["journal", t("sidebar.tab.journal")],
+    ["project", t("sidebar.tab.edition")],
+    ["stats", t("sidebar.tab.stats")],
+    ["relecture", t("sidebar.tab.proofreading")],
+    ["carnets", t("sidebar.tab.carnets")],
   ]);
   const statsOption = initialTab.options.find(([key]) => key === "stats");
   assert.deepEqual(statsOption, ["stats", t("sidebar.tab.stats")]);
@@ -274,7 +280,8 @@ test("Réglages : masquer l'onglet actif choisit le premier onglet Inspecteur vi
 });
 
 test("Réglages : le dernier onglet Inspecteur visible ne peut pas être masqué", async () => {
-  const settings = createSettings("notes", ["research", "journal", "project", "stats", "relecture"]);
+  const hiddenPanels = ["research", "journal", "project", "stats", "relecture", "carnets"];
+  const settings = createSettings("notes", [...hiddenPanels]);
   const { tab, calls } = createTab(settings);
   const { toggles, restore } = captureControls();
   const notices = [];
@@ -287,9 +294,10 @@ test("Réglages : le dernier onglet Inspecteur visible ne peut pas être masqué
     restore();
   }
 
-  assert.equal(settings.hiddenPanels.includes("notes"), false);
+  assert.deepEqual(settings.hiddenPanels, hiddenPanels);
+  assert.equal(settings.activeRightPanelTab, "notes");
   assert.deepEqual(calls, { save: 0, render: 0 });
-  assert.equal(notices.length, 1);
+  assert.deepEqual(notices, [t("settings.inspector.keepOneTab")]);
 });
 
 test("Réglages : l'UI ne propose ni n'écrit jamais \"analyse\"", async () => {
@@ -308,5 +316,5 @@ test("Réglages : l'UI ne propose ni n'écrit jamais \"analyse\"", async () => {
     restore();
   }
 
-  assert.equal(calls.save, 6, "un seul enregistrement par choix du dropdown");
+  assert.equal(calls.save, 7, "one save per dropdown choice");
 });
