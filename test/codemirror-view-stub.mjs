@@ -107,7 +107,7 @@ function makeDoc(text) {
           docChanged: Boolean(tr.changes),
           selectionSet: Boolean(tr.selection),
           changes: tr.changes,
-          transactions: [tr],
+          transactions: [{ ...tr, effects }],
         });
       }
     }

@@ -1,6 +1,6 @@
 import { Notice, setIcon, setTooltip, TFolder, type App } from "obsidian";
 import { t } from "../i18n/index.js";
-import { annexesFolder, annexesFiles } from "../services/compile-export.js";
+import { annexesFolder, annexesFiles } from "../services/annexes.js";
 import { ensureFolder } from "../services/project-files.js";
 import type { OuvrageCompositionBinding } from "../services/ouvrage-composition.js";
 

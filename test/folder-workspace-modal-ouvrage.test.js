@@ -133,7 +133,7 @@ function installWindowStub() {
   return () => { globalThis.window = previous; };
 }
 
-const OUVRAGE_LABEL = "Définir ce dossier comme ouvrage";
+const OUVRAGE_LABEL = fr["modal.folderWorkspace.defineAsOuvrage"];
 
 function ouvrageSetting(modal) {
   const setting = findSettingByName(modal.contentEl, OUVRAGE_LABEL);

@@ -306,6 +306,8 @@ function createCslContinuFixture(options = {}) {
 
   const settings = {
     projectFolder: project.path,
+    orders: {},
+    folderPositions: {},
     projectMeta: {
       [project.path]: {
         pandocCitationPreviewStyle: options.previewStyle ?? "csl",

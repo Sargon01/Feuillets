@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { setImmediate } from "node:timers/promises";
 import { TFile, TFolder } from "obsidian";
 import { ReferenceCitationSettingsModal } from "../src/ui/reference-citation-settings.js";
 import { FolderWorkspaceModal } from "../src/ui/folder-workspace-modal.js";
 import { isDeclaredWorkspaceRoot } from "../src/services/folder-workspaces.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { fr } from "../src/i18n/fr.js";
-import { setImmediate } from "node:timers/promises";
+import { resolveReferenceCitationContext } from "../src/services/research-reference-search.js";
 
 
 const modalSource = readFileSync("src/ui/folder-workspace-modal.ts", "utf8");
@@ -78,6 +79,7 @@ test("workspace modal : l'option ouvrage exclut la racine globale, Front et ses 
 test("workspace modal embeds shared citation controls without duplicating resolution", () => {
   assert.match(modalSource, /ReferenceCitationSettingsControls/);
   assert.doesNotMatch(modalSource, /renderCitations|listWorkspaceCitationCandidates|resolveWorkspaceCitationResources|citekeyBibliographyPath|citekeyCslPath|pandocCitationPreviewStyle/);
+  assert.match(modalSource, /modal\.folderWorkspace\.references/);
   assert.match(modalSource, /this\.renderStatuses\(workflow[\s\S]*?this\.renderGoals\(goals/);
 });
 
@@ -285,8 +287,8 @@ function openWorkspaceModal(app, plugin, folder) {
   return modal;
 }
 
-function openReferenceModal(app, plugin, folder) {
-  const modal = new ReferenceCitationSettingsModal(app, plugin, { projectRoot: plugin.getProjectFolder(), scopeRoot: folder, targetScope: folder }, () => true);
+function openReferenceModal(app, plugin, folder, context = { projectRoot: plugin.getProjectFolder(), scopeRoot: folder, targetScope: folder }) {
+  const modal = new ReferenceCitationSettingsModal(app, plugin, context, () => true);
   modal.contentEl = new FakeElement("div");
   modal.onOpen();
   return modal;
@@ -300,6 +302,9 @@ test("workspace modal: rendering causes zero settings mutation and does not alte
   assert.ok(modal.contentEl.querySelector(".feuillets-reference-setting-select"));
   assert.ok(!modal.contentEl.textContent.includes(fr["modal.folderWorkspace.bibliography"]));
   assert.ok(!modal.contentEl.textContent.includes(fr["modal.folderWorkspace.csl"]));
+  assert.equal(modal.contentEl.querySelectorAll(".feuillets-reference-setting-select").length, 3);
+  assert.ok(modal.contentEl.textContent.includes(fr["shared.research.citationBibliography"]));
+  assert.ok(modal.contentEl.textContent.includes(fr["shared.research.citationCslStyle"]));
 
   assert.equal(JSON.stringify(f.settings), snapshotBefore);
   assert.deepEqual(
@@ -592,6 +597,67 @@ async function changeCitation(modal, field, value) {
   select.value = value; select.dispatch("change"); await settle();
 }
 
+test("folder identity-only configuration inherits the parent's preset and fields in the actual modal", () => {
+  const f = buildWorkspaceCitationFixture({
+    "Article-A": { version: 1, preset: "nonfiction", wordGoal: 2000 },
+    "Article-A/Section-1": { version: 1, workspaceRoot: true, ouvrage: { version: 1 } },
+  });
+  const before = structuredClone(f.settings); const modal = openWorkspaceModal(f.app, f.plugin, f.section1);
+  assert.equal(findFolderSetting(modal.contentEl, fr["modal.folderWorkspace.preset"]).querySelector("select").value, "nonfiction");
+  assert.equal(findFolderSetting(modal.contentEl, fr["settings.wordGoal.name"]).querySelector("input").value, "2000");
+  assert.ok(modal.contentEl.textContent.includes(fr["modal.folderWorkspace.inheritedFromParent"].replace("{name}", "Article-A")));
+  assert.deepEqual(f.settings, before); modal.onClose();
+});
+
+for (const identity of [{ workspaceRoot: true }, { ouvrage: { version: 1 } }, { workspaceRoot: true, ouvrage: { version: 1 } }]) {
+  test(`folder reset preserves structural identities ${Object.keys(identity).join(" + ")}`, async () => {
+    const restore = installWindowStub();
+    try {
+      const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, ...identity, wordGoal: 5000,
+        preset: "fiction", liveJustify: false, favoriteTags: ["tag"], statuses: [], labels: [],
+        citekeyBibliographyPath: "articleA.bib", citekeyCslPath: "articleA.csl", pandocCitationPreviewStyle: "csl",
+        futureLocalOverride: "remove" }, "Article-A/Section-1": { version: 1, wordGoal: 1000 } });
+      const parent = structuredClone(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A/Section-1"]);
+      const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+      const reference = openReferenceModal(f.app, f.plugin, f.articleA);
+      await modal.resetLocalConfig(f.project.path, "Article-A");
+      assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], { version: 1, ...identity });
+      assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A/Section-1"], parent);
+      assert.equal(citationSelect(reference, "citekeyBibliographyPath").getAttribute("data-effective-value"), "project.bib");
+      modal.onClose(); reference.onClose();
+    } finally { restore(); }
+  });
+}
+
+test("folder reset removes an override-only entry but never its descendants", async () => {
+  const restore = installWindowStub();
+  try {
+    const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, wordGoal: 2000 },
+      "Article-A/Section-1": { version: 1, workspaceRoot: true } });
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA); await modal.resetLocalConfig(f.project.path, "Article-A");
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces, { "Article-A/Section-1": { version: 1, workspaceRoot: true } });
+    modal.onClose();
+  } finally { restore(); }
+});
+
+test("folder context toggles are independent, preserve overrides and never activate isolation", async () => {
+  const restore = installWindowStub();
+  try {
+    const f = buildWorkspaceCitationFixture({ "Article-A": { version: 1, wordGoal: 2000 } });
+    f.plugin.workspaceFolderPath = f.section1.path;
+    f.plugin.setWorkspaceFolder = () => assert.fail("declaring an identity must not isolate a folder");
+    const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
+    const toggle = async (key) => { findFolderSetting(modal.contentEl, fr[key]).querySelector(".checkbox-container").click(); await settle(); };
+    await toggle("modal.folderWorkspace.defineAsWorkspace"); await toggle("modal.folderWorkspace.defineAsOuvrage");
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], { version: 1, wordGoal: 2000, workspaceRoot: true, ouvrage: { version: 1 } });
+    await toggle("modal.folderWorkspace.defineAsWorkspace");
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], { version: 1, wordGoal: 2000, ouvrage: { version: 1 } });
+    await toggle("modal.folderWorkspace.defineAsWorkspace"); await toggle("modal.folderWorkspace.defineAsOuvrage");
+    assert.deepEqual(f.settings.projectMeta[f.project.path].folderWorkspaces["Article-A"], { version: 1, wordGoal: 2000, workspaceRoot: true });
+    assert.equal(f.plugin.workspaceFolderPath, f.section1.path); modal.onClose();
+  } finally { restore(); }
+});
+
 test("folder reference selectors expose only the receiving folder's Research candidates", () => {
   const f = buildWorkspaceCitationFixture(); const modal = openWorkspaceModal(f.app, f.plugin, f.articleA);
   const bib = citationSelect(modal, "citekeyBibliographyPath"); const csl = citationSelect(modal, "citekeyCslPath");
@@ -609,7 +675,13 @@ test("folder and References modals immediately share bibliography, CSL and every
     const identities = { version: 1, workspaceRoot: true, ouvrage: { version: 1, composition: { outputBasename: "Local work" } },
       wordGoal: 2300, liveJustify: false };
     const f = buildWorkspaceCitationFixture({ "Article-A": structuredClone(identities) });
-    const folder = openWorkspaceModal(f.app, f.plugin, f.articleA); const reference = openReferenceModal(f.app, f.plugin, f.articleA);
+    const scene = await f.app.vault.create(`${f.articleA.path}/Scene.md`, "Body");
+    const context = resolveReferenceCitationContext(f.app, f.settings, {
+      projectRoot: f.project, scopeRoot: f.project, workspaceRoot: null, mode: "project", files: [scene],
+    }, scene);
+    assert.equal(context.scopeRoot, f.articleA);
+    assert.equal(context.targetScope, scene);
+    const folder = openWorkspaceModal(f.app, f.plugin, f.articleA); const reference = openReferenceModal(f.app, f.plugin, f.articleA, context);
     await changeCitation(folder, "citekeyBibliographyPath", "articleA.bib");
     assert.equal(citationSelect(reference, "citekeyBibliographyPath").value, "articleA.bib");
     await changeCitation(folder, "citekeyCslPath", "articleA.csl");

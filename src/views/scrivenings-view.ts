@@ -56,6 +56,7 @@ import { t } from "../i18n/index.js";
 import type { TextAnalysisProvider } from "../api/text-analysis.js";
 import { ScriveningsGrammarChecker } from "../utils/cm-scrivenings-grammar.js";
 import { ScriveningsSegmentEditorAdapter, offsetToLineCol } from "../utils/scrivenings-editor-adapter.js";
+import { createCrossReferenceExtension, notifyCrossReferenceEditors, CROSS_REFERENCE_DEBOUNCE_MS } from "../utils/cm-cross-references.js";
 
 /**
  * ScriveningsView — LOT 1 (cœur technique uniquement).
@@ -177,6 +178,7 @@ export type ScriveningsViewPlugin = {
     workspaceFolder: TFolder | null,
     triggerType?: CitekeyTriggerType,
   ) => Promise<void>;
+  readCrossReferenceContent?: (file: TFile) => Promise<string>;
 };
 
 /** LOT 1.4 (§7) : contexte résolu d'un clic droit dans Continu — le segment
@@ -719,6 +721,10 @@ export class ScriveningsView extends ItemView {
     let referencePath: string | null = document.segments[0]?.path ?? null;
     const extensions = [
       EditorViewCtorTyped.scrollHandler.of((_view, range) => this.handleFocusScroll(range.head)),
+      createCrossReferenceExtension(this.plugin.app, () => this.plugin.settings,
+        (file) => this.plugin.readCrossReferenceContent?.(file) ?? this.plugin.app.vault.read(file),
+        () => this._compileScope && this.session.document ? { scope: this._compileScope, document: this.session.document } : null,
+        () => this.plugin.getWorkspaceFolder?.() ?? null),
       ...createScriveningsExtensions(imageResolver),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
       createScriveningsCitationExtension(
@@ -856,6 +862,7 @@ export class ScriveningsView extends ItemView {
   private handleEditorChanges(changes: readonly ScriveningsChange[]): void {
     const result = this.session.handleChanges(changes);
     if (!result || result.touchedPaths.length === 0) return;
+    notifyCrossReferenceEditors(this.plugin.app, CROSS_REFERENCE_DEBOUNCE_MS, result.touchedPaths);
 
     this.wordCounts = updateScriveningsWordCounts(result.document, result.touchedPaths, this.wordCounts);
     void this.plugin.updateStatusBar?.();
@@ -1295,6 +1302,18 @@ export class ScriveningsView extends ItemView {
    * dispatches. */
   getSegmentByPath(path: string): ScriveningsSegment | null {
     return this.session.document?.segments.find((s) => s.path === path) ?? null;
+  }
+
+  /** Resolves the current selection through the existing composite source map. */
+  resolveCursorEditorContext(): ScriveningsEditorContext | null {
+    const document = this.session.document;
+    if (!this.cm || !document) return null;
+    const main = this.cm.state.selection.main;
+    const location = compositeOffsetToLocation(document, main.from);
+    const end = compositeOffsetToLocation(document, main.to);
+    if (!location || !end || location.segment.path !== end.segment.path) return null;
+    return { file: location.segment.file, segment: location.segment, compositeOffset: main.from,
+      bodyOffset: location.offset, fileOffset: location.segment.frontmatter.length + location.offset };
   }
 
   /**
