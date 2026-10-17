@@ -3039,6 +3039,7 @@ export const fr = {
   "export.pdf.windowPrepFailed": "Impossible de préparer la fenêtre d'impression PDF.",
   "export.pdf.htmlSkeletonIncomplete": "Squelette HTML d'impression incomplet.",
   "export.pdf.printBoxHint": "Choisis « Enregistrer au format PDF » dans la boîte d'impression.",
+  "export.odt.unavailableImages": "Export ODT : images non incorporées (ressource indisponible ou format non pris en charge) : {list}",
   "export.render.missingImages": "Export : {count} image(s) introuvable(s) dans le coffre : {list}{more}",
   "shared.research.citeSource": "Citer cette source…",
   "shared.contextMenu.versions": "Versions…",

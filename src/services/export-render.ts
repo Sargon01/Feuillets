@@ -52,7 +52,7 @@ type ImageDimensions = {
 
 type ImageMime = "image/jpeg" | "image/png" | "image/gif" | "image/svg+xml" | "image/webp";
 
-const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, ImageMime>> = {
+export const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, ImageMime>> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
   png: "image/png",

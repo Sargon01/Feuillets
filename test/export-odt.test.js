@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import JSZip from "jszip";
-import { MarkdownRenderer } from "obsidian";
+import { MarkdownRenderer, Notice, TFile } from "obsidian";
 import { exportOdt } from "../src/services/export-odt.js";
 import { EXPORT_TEMPLATES } from "../src/utils/export-templates.js";
 
@@ -64,6 +64,14 @@ class FakeElement {
     child.parentElement = this;
     this.children.push(child);
     return child;
+  }
+  closest() { return null; }
+  replaceWith(node) {
+    const parent = this.parentElement;
+    const index = parent.children.indexOf(this);
+    parent.children[index] = node;
+    node.parentElement = parent;
+    this.parentElement = null;
   }
   remove() {
     if (!this.parentElement) return;
@@ -409,4 +417,73 @@ test("exportOdt : sans séparateur défini par le gabarit, repli \"* * *\" (mêm
     restoreRenderer();
     restoreDom();
   }
+});
+
+
+test("exportOdt embeds distinct images and preserves structured formatted tables in document order", async () => {
+  const restoreDom = installDom();
+  const previousImage = globalThis.Image;
+  globalThis.Image = class { set src(_source) { this.naturalWidth = 1600; this.naturalHeight = 800; queueMicrotask(() => this.onload()); } };
+  const files = [new TFile("first.png"), new TFile("second.png")];
+  const binaries = [new Uint8Array([137, 80, 78, 71, 1]), new Uint8Array([137, 80, 78, 71, 2])];
+  const app = { vault: { getAbstractFileByPath: (path) => files.find((f) => f.path === path), readBinary: async (f) => binaries[files.indexOf(f)].buffer },
+    metadataCache: { getFirstLinkpathDest: (path) => files.find((f) => f.path === path) } };
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    container.appendChild(element("p", "Before objects — figure 2"));
+    for (const [index, file] of files.entries()) {
+      const paragraph = element("p"); paragraph.appendChild(element("img", "", { src: file.path, alt: index ? "second.png" : "Current map caption" })); container.appendChild(paragraph);
+    }
+    const table = element("table"), header = element("thead"), head = element("tr");
+    head.appendChild(element("th", "Résumé")); head.appendChild(element("th", "Valeur", { style: "text-align: right" })); header.appendChild(head); table.appendChild(header);
+    const body = element("tbody"), first = element("tr"), formatted = element("td");
+    formatted.appendChild(element("strong", "Bold")); formatted.appendChild(element("em", "italique")); first.appendChild(formatted); first.appendChild(element("td", "Tableau 1", { align: "center" })); body.appendChild(first);
+    const last = element("tr"); last.appendChild(element("td")); last.appendChild(element("td", "東京 — 3")); body.appendChild(last); table.appendChild(body); container.appendChild(table);
+    container.appendChild(element("p", "After objects"));
+  });
+  try {
+    const zip = await JSZip.loadAsync(await exportOdt(app, {}, { markdown: "Fixture", title: "Audit", author: "Author", sourcePath: "Manuscript.md" }));
+    const xml = await zip.file("content.xml").async("string"), manifest = await zip.file("META-INF/manifest.xml").async("string");
+    const images = Object.keys(zip.files).filter((name) => name.startsWith("Pictures/") && !name.endsWith("/"));
+    assert.equal(images.length, 2);
+    for (const [index, path] of images.entries()) {
+      assert.deepEqual(await zip.file(path).async("uint8array"), binaries[index]);
+      assert.ok(manifest.includes(`manifest:full-path="${path}" manifest:media-type="image/png"`));
+      assert.ok(xml.includes(`xlink:href="${path}"`));
+    }
+    assert.equal((xml.match(/<draw:frame /g) || []).length, 2);
+    assert.equal((xml.match(/<draw:image /g) || []).length, 2);
+    assert.match(xml, /Current map caption/);
+    for (const [, width, height] of xml.matchAll(/svg:width="([\d.]+)cm" svg:height="([\d.]+)cm"/g)) { assert.ok(Number(width) <= 16); assert.equal(Number(width) / Number(height), 2); }
+    assert.match(xml, /<table:table /); assert.match(xml, /<table:table-header-rows>/);
+    assert.equal((xml.match(/<table:table-row>/g) || []).length, 3); assert.equal((xml.match(/<table:table-cell /g) || []).length, 6);
+    assert.match(xml, /text:style-name="Bold"/); assert.match(xml, /text:style-name="Italic"/);
+    for (const text of ["Résumé", "Valeur", "Tableau 1", "東京 — 3"]) assert.ok(xml.includes(text));
+    assert.ok(xml.indexOf("Before objects") < xml.indexOf("<table:table ")); assert.ok(xml.indexOf("After objects") > xml.indexOf("</table:table>"));
+    assert.doesNotMatch(xml, /app:\/\/|file:\/\/|data:image/);
+  } finally { restoreRenderer(); restoreDom(); globalThis.Image = previousImage; }
+});
+
+
+test("exportOdt reports unsupported images and retains the shared missing-resource warning", async () => {
+  const restoreDom = installDom(), previousImage = globalThis.Image, previousNotice = Notice.onCreate;
+  globalThis.Image = class { set src(_source) { this.naturalWidth = 100; this.naturalHeight = 100; queueMicrotask(() => this.onload()); } };
+  const notices = []; Notice.onCreate = (message) => notices.push(String(message));
+  const unsupported = new TFile("unsupported.webp");
+  const app = { vault: { getAbstractFileByPath: (path) => path === unsupported.path ? unsupported : null, readBinary: async () => new Uint8Array([1, 2]).buffer },
+    metadataCache: { getFirstLinkpathDest: (path) => path === unsupported.path ? unsupported : null } };
+  const restoreRenderer = setRenderer(async (_app, _markdown, container) => {
+    for (const [src, alt] of [["unsupported.webp", "Unsupported picture"], ["absent.png", "Missing picture"]]) {
+      const p = element("p"); p.appendChild(element("img", "", { src, alt })); container.appendChild(p);
+    }
+  });
+  try {
+    const zip = await JSZip.loadAsync(await exportOdt(app, {}, { markdown: "Fixture", title: "Audit", author: "", sourcePath: "Manuscript.md" }));
+    assert.equal(Object.keys(zip.files).filter((path) => path.startsWith("Pictures/")).length, 0);
+    const xml = await zip.file("content.xml").async("string");
+    assert.doesNotMatch(xml, /<draw:image|data:image|app:\/\//);
+    assert.match(xml, /Unsupported picture/); assert.match(xml, /Missing picture/);
+    assert.equal(notices.length, 2);
+    assert.ok(notices.some((text) => text.includes("absent.png")));
+    assert.ok(notices.some((text) => text.includes("Unsupported picture")));
+  } finally { restoreRenderer(); restoreDom(); globalThis.Image = previousImage; Notice.onCreate = previousNotice; }
 });

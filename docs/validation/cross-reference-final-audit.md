@@ -2,6 +2,8 @@
 
 Audit du 17 octobre 2026 sur `feat/3.7-cross-references`. **Verdict : non prêt à fusionner selon le critère de conformité complète des exports demandé.** Les trois défauts de références croisées reproduits sont corrigés et validés. Le contrôle final révèle toutefois des pertes de contenu préexistantes dans les exporteurs DOCX et ODT, détaillées ci-dessous ; elles empêchent de déclarer toute la chaîne éditoriale conforme. Les exporteurs n’ont pas été étendus dans cet audit.
 
+La [recette de finition des éditeurs et exports](cross-reference-export-finish.md), réalisée ensuite à partir de `9f17487`, corrige les pertes DOCX/ODT signalées ici et ajoute l’identification visuelle des références. Le verdict ci-dessus reste celui de cet audit historique ; le rapport de finition donne le verdict actualisé et distingue les contrôles structurels des vérifications visuelles.
+
 ## État initial et réconciliation
 
 Le dépôt était propre, sur la branche attendue, au commit `b5f0238ca740e4361564d5ac6cfc0a8828998ef6`. Les développements précédents sont présents : `b59612b` (modèle), `453f1dd` (insertion), `228f3be` (périmètres), les corrections jusqu’à `c98f0b1`, puis `b5f0238` (composition).

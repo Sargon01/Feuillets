@@ -4,6 +4,8 @@ Validation du 17 octobre 2026 sur `feat/3.7-cross-references`, à partir de `c98
 
 Ce rapport décrit la validation du commit `b5f0238`. La [recette finale](cross-reference-final-audit.md) étend ces contrôles aux insertions concurrentes, aux substitutions couvrant plusieurs paragraphes et aux modifications externes avec une vue Lecture ouverte ; elle documente les trois corrections nécessaires, leurs nouvelles validations et les pertes de contenu préexistantes découvertes dans les exporteurs DOCX/ODT. Les contrôles positifs ci-dessous concernent les valeurs des références, pas une fidélité complète des documents exportés.
 
+La [recette de finition des éditeurs et exports](cross-reference-export-finish.md) documente ensuite la correction des tableaux DOCX, des images et tableaux ODT, ainsi que les contrôles sur les six formats.
+
 ## Audit préalable et défauts reproduits
 
 L’audit a suivi les dix points de la chaîne éditoriale avant l’intégration :

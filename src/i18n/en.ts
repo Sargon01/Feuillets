@@ -3039,6 +3039,7 @@ export const en = {
   "export.pdf.windowPrepFailed": "Unable to prepare PDF print window.",
   "export.pdf.htmlSkeletonIncomplete": "Incomplete HTML print skeleton.",
   "export.pdf.printBoxHint": "Choose “Save as PDF” in the print dialog.",
+  "export.odt.unavailableImages": "ODT export: images not embedded (unavailable resource or unsupported format): {list}",
   "export.render.missingImages": "Export: {count} image(s) not found in vault: {list}{more}",
   "shared.research.citeSource": "Cite this source…",
   "shared.contextMenu.versions": "Versions…",

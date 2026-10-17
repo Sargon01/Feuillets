@@ -3926,3 +3926,33 @@ test("exportWithScope : pandocCitationPreviewStyle = 'off' conserve les citekeys
     dom.restore();
   }
 });
+
+test("Native exports resolve homonymous image paths from each source segment before static rendering", async () => {
+  const { app, settings, manuscript, vault } = makeExportFixture();
+  settings.folderPositions = {};
+  const first = manuscript.children[0].children[0];
+  await vault.modify(first, '![First](<map image.png> "Current title")\n\n![[map image.png|300]]\n\n![[map image.png]]\n\n`![literal](map.png)`\n\n![Unresolved](missing%ZZ.png)');
+  const folder = await vault.createFolder(manuscript.path + "/Other");
+  const second = await vault.create(folder.path + "/Second.md", '![Second](<map image.png>)');
+  const firstImage = await vault.create(first.parent.path + "/map image.png", "first image bytes");
+  const secondImage = await vault.create(folder.path + "/map image.png", "second image bytes");
+  app.metadataCache.getFirstLinkpathDest = (target, source) => vault.getAbstractFileByPath(target)
+    || vault.getAbstractFileByPath(source.slice(0, source.lastIndexOf("/")) + "/" + target) || null;
+  const raw = [first.content, second.content];
+  const restoreDom = installMinimalDom(), previousRender = MarkdownRenderer.render;
+  const rendered = [];
+  MarkdownRenderer.render = async (_app, markdown) => { rendered.push(markdown); };
+  try {
+    for (const format of ["pdf", "docx", "odt", "epub"]) await exportWithScope(app, settings, { type: "project", projectRoot: manuscript.path }, format, "Media-" + format);
+    assert.equal(rendered.length, 4);
+    for (const markdown of rendered) {
+      assert.ok(markdown.includes(`![First](<${firstImage.path}> "Current title")`));
+      assert.ok(markdown.includes(`![Second](<${secondImage.path}>)`));
+      assert.ok(markdown.includes(`![[${firstImage.path}|300]]`));
+      assert.ok(markdown.includes(`![](<${firstImage.path}>)`));
+      assert.ok(markdown.includes('`![literal](map.png)`'));
+      assert.ok(markdown.includes('![Unresolved](missing%ZZ.png)'));
+    }
+    assert.deepEqual([first.content, second.content], raw);
+  } finally { MarkdownRenderer.render = previousRender; restoreDom(); }
+});

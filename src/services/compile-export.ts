@@ -1224,7 +1224,7 @@ async function transformSegmentMedia(
   app: App,
   text: string,
   sourceFilePath: string,
-  mediaState: MediaCollectorState
+  mediaState: MediaCollectorState | null
 ): Promise<string> {
   if (!text) return text;
 
@@ -1248,7 +1248,12 @@ async function transformSegmentMedia(
       return alt ? `![${alt}](${target})` : `![](${target})`;
     }
 
-    const decoded = decodeURIComponent(target);
+    let decoded: string;
+    try { decoded = decodeURIComponent(target); }
+    catch (error: unknown) {
+      if (mediaState) throw error;
+      return fullMatch;
+    }
     const candidateFile = app.metadataCache?.getFirstLinkpathDest
       ? app.metadataCache.getFirstLinkpathDest(decoded, sourceFilePath)
       : null;
@@ -1256,6 +1261,11 @@ async function transformSegmentMedia(
     const directFile = candidateFile ?? (directPathFile instanceof TFile ? directPathFile : null);
 
     if (directFile instanceof TFile) {
+      if (!mediaState) {
+        return rawAlt?.trim()
+          ? `![[${directFile.path}|${rawAlt}]]`
+          : `![](${formatImageTarget(directFile.path)})`;
+      }
       let finalName = mediaState.mediaVaultMap.get(directFile.path);
       if (!finalName) {
         const safeBase = sanitizeArchiveSegment(directFile.name);
@@ -1280,7 +1290,7 @@ async function transformSegmentMedia(
       return `![${effectiveAlt}](${formatImageTarget(`media/${finalName}`)})`;
     }
 
-    mediaState.warnings.push(`Missing media asset: ${target}`);
+    mediaState?.warnings.push(`Missing media asset: ${target}`);
     return fullMatch;
   });
 
@@ -1295,11 +1305,16 @@ async function transformSegmentMedia(
     const title = match[4];
     const target = rawTarget.trim();
 
-    if (isRemoteUrl(target) || target.startsWith("data:") || isRegisteredPackageMedia(target, mediaState.mediaFiles)) {
+    if (isRemoteUrl(target) || target.startsWith("data:") || (mediaState && isRegisteredPackageMedia(target, mediaState.mediaFiles))) {
       return fullMatch;
     }
 
-    const decoded = decodeURIComponent(target);
+    let decoded: string;
+    try { decoded = decodeURIComponent(target); }
+    catch (error: unknown) {
+      if (mediaState) throw error;
+      return fullMatch;
+    }
     const candidateFile = app.metadataCache?.getFirstLinkpathDest
       ? app.metadataCache.getFirstLinkpathDest(decoded, sourceFilePath)
       : null;
@@ -1307,6 +1322,7 @@ async function transformSegmentMedia(
     const directFile = candidateFile ?? (directPathFile instanceof TFile ? directPathFile : null);
 
     if (directFile instanceof TFile) {
+      if (!mediaState) return `![${alt}](${formatImageTarget(directFile.path)}${title ? ` "${title}"` : ""})`;
       let finalName = mediaState.mediaVaultMap.get(directFile.path);
       if (!finalName) {
         const safeBase = sanitizeArchiveSegment(directFile.name);
@@ -1331,7 +1347,7 @@ async function transformSegmentMedia(
         : `![${alt}](${formatImageTarget(`media/${finalName}`)})`;
     }
 
-    mediaState.warnings.push(`Missing media asset: ${target}`);
+    mediaState?.warnings.push(`Missing media asset: ${target}`);
     return fullMatch;
   });
 
@@ -1767,6 +1783,12 @@ async function exportViaNative(
     const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType, sceneBreakBefore }) =>
       frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) } : { path, text, frontType, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) }
     );
+    // Resolve media before sources share one render context; a null collector keeps vault paths.
+    for (const segment of segments) {
+      if (!segment.path) continue;
+      segment.text = await transformSegmentMedia(app, segment.text, segment.path, null);
+      if (segment.renderText !== undefined) segment.renderText = await transformSegmentMedia(app, segment.renderText, segment.path, null);
+    }
     const contentVariant = await selectedContentVariant(app, settings);
 
     let citationBibliographyPath = "";
@@ -1784,7 +1806,7 @@ async function exportViaNative(
     };
 
     const ctx: NativeExportContext = {
-      markdown: result.manuscript,
+      markdown: joinCompiledSegments(segments, composition.separator),
       title,
       author,
       sourcePath,

@@ -1,7 +1,8 @@
 import { footnoteCallId, isFootnoteCall } from "./footnote-dom.js";
 import JSZip from "jszip";
-import type { App, TFolder } from "obsidian";
-import { renderManuscriptHtmlWithFrontPages, type RenderedFootnote } from "./export-render.js";
+import { Notice, type App, type TFolder } from "obsidian";
+import { IMAGE_MIME_BY_EXTENSION, renderManuscriptHtmlWithFrontPages, type RenderedFootnote } from "./export-render.js";
+import { t } from "../i18n/index.js";
 import { applyPandocCitationPreview, type ExportCitationSettings } from "./pandoc-citation-preview.js";
 import type { CslCitationHost } from "./csl-citation-host.js";
 import {
@@ -83,7 +84,15 @@ type OdtOptions = {
   footnotes?: ReadonlyMap<string, RenderedFootnote>;
   emittedFootnotes?: Map<string, number>;
   paragraphStyles?: Map<string, OdtParagraphLayoutStyle>;
+  images?: ReadonlyMap<Element, OdtImage>;
+  imageSources?: ReadonlyMap<string, OdtImage>;
+  unavailableImages?: Map<string, string>;
+  inParagraph?: boolean;
+  cellStyle?: string;
+  tables?: Map<Element, string>;
 };
+
+type OdtImage = { path: string; bytes: Uint8Array; mime: string; widthCm: number; heightCm: number };
 
 export interface OdtParagraphLayoutStyle { parent: string; properties: ParagraphLayoutProperties; pageBreak: boolean; }
 
@@ -128,6 +137,40 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   const tag = element.tagName.toLowerCase();
   if (element.getAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR) !== null) return "";
 
+  if (tag === "img") {
+    const source = element.getAttribute("src") ?? "";
+    const image = opts.images?.get(element) ?? opts.imageSources?.get(source);
+    let content: string;
+    if (image) {
+      content = `<draw:frame draw:name="${escapeXml(image.path)}" text:anchor-type="as-char" svg:width="${image.widthCm}cm" svg:height="${image.heightCm}cm"><draw:image xlink:href="${escapeXml(image.path)}" xlink:type="simple" xlink:show="embed" xlink:actuate="onLoad"/></draw:frame>`;
+    } else {
+      const label = element.getAttribute("alt") || (source.startsWith("data:") ? source.slice(0, source.indexOf(",")) : source);
+      opts.unavailableImages?.set(source, label);
+      content = escapeXml(label);
+    }
+    return opts.inParagraph ? content : `<text:p text:style-name="FeuilletsImage">${content}</text:p>`;
+  }
+
+  if (tag === "table") {
+    const rows = Array.from(element.children).flatMap((child) => child.tagName === "TR" ? [child]
+      : ["THEAD", "TBODY", "TFOOT"].includes(child.tagName) ? Array.from(child.children).filter((row) => row.tagName === "TR") : []);
+    const cells = rows.map((row) => Array.from(row.children).filter((cell) => cell.tagName === "TH" || cell.tagName === "TD"));
+    const columns = Math.max(0, ...cells.map((row) => row.length));
+    if (!columns) return "";
+    const name = `Table${(opts.tables?.size ?? 0) + 1}`;
+    opts.tables?.set(element, name);
+    const rowXml = cells.map((row) => `<table:table-row>${row.map((cell) => {
+      const align = (cell.getAttribute("align") ?? /text-align\s*:\s*(left|center|right)/i.exec(cell.getAttribute("style") ?? "")?.[1] ?? "left").toLowerCase();
+      const cellStyle = `FeuilletsTable${cell.tagName === "TH" ? "Header" : "Cell"}${align === "right" ? "Right" : align === "center" ? "Center" : "Left"}`;
+      const hasBlocks = Array.from(cell.children).some((child) => ["P", "UL", "OL", "BLOCKQUOTE"].includes(child.tagName));
+      const content = Array.from(cell.childNodes).map((child) => domToOdtContent(child, { ...opts, cellStyle, inParagraph: !hasBlocks })).join("");
+      return `<table:table-cell table:style-name="FeuilletsTableCell" office:value-type="string">${hasBlocks ? content : `<text:p text:style-name="${cellStyle}">${content}</text:p>`}</table:table-cell>`;
+    }).join("")}</table:table-row>`);
+    let headers = 0;
+    while (headers < cells.length && cells[headers].length > 0 && cells[headers].every((cell) => cell.tagName === "TH")) headers++;
+    return `<table:table table:name="${name}" table:style-name="FeuilletsTable"><table:table-column table:style-name="FeuilletsTableColumn" table:number-columns-repeated="${columns}"/>${headers ? `<table:table-header-rows>${rowXml.slice(0, headers).join("")}</table:table-header-rows>` : ""}${rowXml.slice(headers).join("")}</table:table>`;
+  }
+
   if (isFootnoteCall(element) && opts.footnotes && opts.emittedFootnotes) {
     const id = footnoteCallId(element);
     const note = id ? opts.footnotes.get(id) : undefined;
@@ -164,7 +207,8 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
       .join("\n");
   }
 
-  const childrenXml = Array.from(element.childNodes).map((n) => domToOdtContent(n, opts)).join("");
+  const inParagraph = opts.inParagraph || ["p", "blockquote", "li", "h1", "h2", "h3", "h4", "h5", "h6"].includes(tag);
+  const childrenXml = Array.from(element.childNodes).map((n) => domToOdtContent(n, { ...opts, inParagraph })).join("");
   const manualBreak = element.classList?.contains("feuillets-page-break-before") ? ' fo:break-before="page"' : "";
 
   let styledChildren = childrenXml;
@@ -201,6 +245,10 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
   if (tag === "code") {
     return `<text:span text:style-name="Source_20_Text">${styledChildren}</text:span>`;
   }
+  if (tag === "figcaption") {
+    return opts.inParagraph ? `<text:line-break/><text:span text:style-name="Italic">${styledChildren}</text:span>`
+      : `<text:p text:style-name="FeuilletsCaption">${styledChildren}</text:p>`;
+  }
   if (tag === "a") {
     const href = element.getAttribute("href") || "#";
     return `<text:a xlink:type="simple" xlink:href="${escapeXml(href)}">${styledChildren}</text:a>`;
@@ -210,7 +258,7 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
     return `<text:h text:style-name="Heading_20_${level}" text:outline-level="${level}"${manualBreak}>${styledChildren}</text:h>`;
   }
   if (tag === "p") {
-    const parent = opts.frontStyle || "Standard";
+    const parent = opts.cellStyle || opts.frontStyle || (element.querySelector("img") ? "FeuilletsImage" : "Standard");
     const properties = paragraphLayoutPropertiesOf(element);
     if (opts.paragraphStyles && (hasParagraphLayoutProperties(properties) || manualBreak)) {
       const style: OdtParagraphLayoutStyle = { parent, properties, pageBreak: !!manualBreak };
@@ -266,10 +314,27 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
         }
       }
     : undefined;
-  const { containerEl, footnotes } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, afterVariant, separator);
+  const { containerEl, footnotes, images, missingResources } = await renderManuscriptHtmlWithFrontPages(app, markdown, segments, sourcePath, contentVariant ?? null, undefined, afterVariant, separator);
 
   const fontName = primaryFontName(template.body.fontFamily);
   const { body, page, headings } = template;
+  const dimensions = pageSize(page.size, page.orientation);
+  const columns = Math.max(1, page.columns?.count ?? 1);
+  const contentWidthCm = Math.max(1, (parseFloat(dimensions.width) - page.marginsCm.left - page.marginsCm.right
+    - (columns - 1) * (page.columns?.gutterPt ?? 0) * 2.54 / 72) / columns);
+  const contentHeightCm = Math.max(1, parseFloat(dimensions.height) - page.marginsCm.top - page.marginsCm.bottom - 1);
+  const odtImages = new Map<Element, OdtImage>();
+  const imageSources = new Map<string, OdtImage>();
+  for (const [element, image] of images) {
+    const mime = IMAGE_MIME_BY_EXTENSION[image.ext];
+    if (!mime || mime === "image/webp") continue;
+    const width = image.width * 2.54 / 96, height = image.height * 2.54 / 96;
+    const scale = Math.min(1, contentWidthCm / width, contentHeightCm / height);
+    const resource: OdtImage = { path: `Pictures/image${odtImages.size + 1}.${image.ext}`, bytes: image.bytes, mime,
+      widthCm: Number((width * scale).toFixed(4)), heightCm: Number((height * scale).toFixed(4)) };
+    odtImages.set(element, resource);
+    imageSources.set(element.getAttribute("src") ?? "", resource);
+  }
   const bodyAlign = body.align;
   const indentRule = `fo:text-indent="${body.firstLineIndentPt}pt"`;
   const paragraphSpacingRule = `fo:margin-top="${body.paragraphSpacingBeforePt}pt" fo:margin-bottom="${body.paragraphSpacingAfterPt}pt"`;
@@ -296,9 +361,12 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   const bibliographyStyles = new Map<string, BibliographyLayout>();
   const paragraphStyles = new Map<string, OdtParagraphLayoutStyle>();
   const sceneDividerOpts: OdtOptions = { sceneDivider: template.sceneDivider, bibliographyStyles, paragraphStyles,
-    footnotes: new Map(footnotes.map((note) => [note.id, note])), emittedFootnotes: new Map() };
+    footnotes: new Map(footnotes.map((note) => [note.id, note])), emittedFootnotes: new Map(),
+    images: odtImages, imageSources, unavailableImages: new Map(), tables: new Map() };
   const bodyXml =
     Array.from(containerEl.childNodes).map((node) => domToOdtContent(node, sceneDividerOpts)).join("\n");
+  const unavailable = [...(sceneDividerOpts.unavailableImages ?? [])].filter(([source]) => !missingResources.includes(source)).map(([, label]) => label);
+  if (unavailable.length) new Notice(t("export.odt.unavailableImages", { list: unavailable.slice(0, 5).join(", ") }));
   /* Pas de page de titre générique si l'autrice a déjà composé sa propre
      page Front de type "titre" — voir même choix dans export-docx.js. */
   const hasAuthoredTitlePage = !!(segments && segments.some((s) => s.frontType === "titre"));
@@ -322,6 +390,7 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
   <manifest:file-entry manifest:full-path="styles.xml" manifest:media-type="text/xml"/>
   <manifest:file-entry manifest:full-path="meta.xml" manifest:media-type="text/xml"/>
+  ${[...odtImages.values()].map((image) => `<manifest:file-entry manifest:full-path="${escapeXml(image.path)}" manifest:media-type="${image.mime}"/>`).join("\n")}
 </manifest:manifest>`;
 
   const metaXml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -361,11 +430,17 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
 </office:document-styles>`;
 
   const contentXml = `<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" office:version="1.2">
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" office:version="1.2">
   <office:font-face-decls>
     <style:font-face style:name="${fontName}" svg:font-family="'${fontName}'"/>
   </office:font-face-decls>
   <office:automatic-styles>
+    <style:style style:name="FeuilletsTable" style:family="table"><style:table-properties style:width="${contentWidthCm}cm" table:align="left"/></style:style>
+    <style:style style:name="FeuilletsTableColumn" style:family="table-column"><style:table-column-properties style:rel-column-width="1*"/></style:style>
+    <style:style style:name="FeuilletsTableCell" style:family="table-cell"><style:table-cell-properties fo:padding="0.08cm" fo:border="0.5pt solid #b0b0b0"/></style:style>
+    ${["Cell", "Header"].flatMap((kind) => ["Left", "Center", "Right"].map((align) => `<style:style style:name="FeuilletsTable${kind}${align}" style:family="paragraph"><style:paragraph-properties fo:text-align="${align.toLowerCase()}" fo:text-indent="0cm" fo:margin-top="0cm" fo:margin-bottom="0cm"/>${kind === "Header" ? '<style:text-properties fo:font-weight="bold"/>' : ""}</style:style>`)).join("\n")}
+    <style:style style:name="FeuilletsImage" style:family="paragraph"><style:paragraph-properties fo:text-align="center" fo:text-indent="0cm"/></style:style>
+    <style:style style:name="FeuilletsCaption" style:family="paragraph"><style:paragraph-properties fo:text-align="center" fo:text-indent="0cm"/><style:text-properties fo:font-style="italic"/></style:style>
     ${[...bibliographyStyles].map(([name, layout]) => cslBibliographyStyleXml(name, layout, body.fontSizePt)).join("\n")}
     ${[...paragraphStyles].map(([name, style]) => paragraphLayoutStyleXml(name, style)).join("\n")}
     <style:style style:name="Bold" style:family="text">
@@ -440,6 +515,7 @@ export async function exportOdt(app: App, settings: FeuilletsSettings, { markdow
   zip.file("meta.xml", metaXml);
   zip.file("styles.xml", stylesXml);
   zip.file("content.xml", contentXml);
+  for (const image of odtImages.values()) zip.file(image.path, image.bytes);
 
   return await zip.generateAsync({ type: "uint8array" });
 }
