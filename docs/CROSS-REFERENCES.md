@@ -26,4 +26,4 @@ Markdown, PDF, DOCX, ODT, EPUB et ZIP Pandoc emploient les valeurs de la composi
 
 Markdown et le manuscrit du ZIP Pandoc conservent les citekeys. Les formats natifs utilisent le rendu CSL configuré. Le ZIP embarque les bibliographies, styles et ressources nécessaires sans lancer Pandoc. Une citation CSL non résolue conserve sa notation existante.
 
-Les exporteurs existants ont des limites : le DOCX omet les tableaux ; l’ODT omet les images et aplatit le texte des tableaux. Une référence numérotée ne garantit donc pas la présence de son objet dans ces deux formats. La portée des vérifications et les limites propres aux lecteurs sont détaillées dans le [rapport de recette final](validation/cross-reference-final-audit.md).
+Le DOCX conserve les tableaux dans leur structure Word native. L’exporteur ODT omet encore les images et aplatit les tableaux ; une référence numérotée ne garantit donc pas la présence de son objet dans ce format. La portée des vérifications et les limites propres aux lecteurs sont détaillées dans le [rapport de recette final](validation/cross-reference-final-audit.md).

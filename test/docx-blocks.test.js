@@ -405,3 +405,29 @@ test("regression: a plain (uncaptioned) image inside a <figure> still produces e
   const paragraphs = blockToParagraphs(paragraph, noFootnotes, TPL, {}, images);
   assert.equal(paragraphs.length, 1, "no dedicated caption paragraph when there is no caption");
 });
+
+test("DOCX tables retain native structure, cell formatting and surrounding block order", async () => {
+  const cell = (tag, content, attrs = {}) => el(tag, { childNodes: content, attrs });
+  const row = (cells) => el("TR", { children: cells });
+  const table = el("TABLE", { children: [
+    el("THEAD", { children: [row([cell("TH", [texte("Résumé")]), cell("TH", [texte("Valeur")], { style: "text-align: right" })])] }),
+    el("TBODY", { children: [
+      row([cell("TD", [el("STRONG", { childNodes: [texte("Bold") ] }), texte(" et "), el("EM", { childNodes: [texte("italique")] })]), cell("TD", [texte("Tableau 2")], { align: "center" })]),
+      row([cell("TD", []), cell("TD", [texte("東京 — 3")])]),
+    ] }),
+  ] });
+  const children = [p([texte("Before table")]), table, p([texte("After table")])].flatMap((node) => blockToParagraphs(node, noFootnotes, TPL));
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(new Document({ sections: [{ children }] })));
+  const xml = await zip.file("word/document.xml").async("string");
+  assert.equal((xml.match(/<w:tbl>/g) || []).length, 1);
+  assert.equal((xml.match(/<w:tr>/g) || []).length, 3);
+  assert.equal((xml.match(/<w:tc>/g) || []).length, 6);
+  const tableXml = xml.match(/<w:tbl>[\s\S]*?<\/w:tbl>/)[0];
+  assert.match(tableXml, /<w:tblHeader/);
+  for (const text of ["Résumé", "Valeur", "Bold", "italique", "Tableau 2", "東京 — 3"]) assert.ok(tableXml.includes(text), text);
+  assert.match(tableXml, /<w:b\/>/); assert.match(tableXml, /<w:i\/>/);
+  assert.match(tableXml, /w:jc w:val="right"/); assert.match(tableXml, /w:jc w:val="center"/);
+  assert.ok(xml.indexOf("Before table") < xml.indexOf("<w:tbl>"));
+  assert.ok(xml.indexOf("After table") > xml.indexOf("</w:tbl>"));
+  assert.equal((tableXml.match(/<w:tc>[\s\S]*?<w:p[\s>]/g) || []).length, 6);
+});

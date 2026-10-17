@@ -31,6 +31,10 @@ import {
   TabStopType,
   LineRuleType,
   Tab,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
 } from "docx";
 import { readCslBibliographyLayout, cslBibliographyTabPositionPt } from "./csl-bibliography-layout.js";
 import { normalizeFootnoteFragment } from "./footnote-dom.js";
@@ -53,6 +57,7 @@ type ExportImage = {
 };
 
 type ExportImages = Map<unknown, ExportImage>;
+export type DocxBlock = Paragraph | Table;
 
 type InlineMarks = {
   bold?: boolean;
@@ -320,24 +325,9 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
 }
 
 /**
- * Un bloc du DOM rendu → les paragraphes `docx` correspondants. Un élément
- * inconnu n'est pas perdu : ses enfants sont traités récursivement.
- *
- * `frontOverride` marque un bloc appartenant à une page Front spéciale
- * (titre/dédicace/épigraphe) : le texte est centré, l'alinéa de paragraphe
- * retiré et l'interligne ramené à simple — une dédicace n'a pas la mise en
- * page d'une scène de roman. Chaque page Front devient sa propre section Word,
- * centrée verticalement (voir exportDocx), donc rien n'est à compter ni à
- * ancrer à la main ici. `isTitleLine` impose la taille de titre au seul
- * premier bloc d'une page de titre sans style de rôle défini.
- *
- * @param {any} el
- * @param {Map<string, number>} footnoteIdByHref
- * @param {ExportTemplate} tpl
- * @param {{ h1?: HeadingStyle, h2?: HeadingStyle, h3?: HeadingStyle }} [headings]
- * @param {ExportImages} [images]
- * @param {{ style?: TitlePageStyle|null, isTitleLine?: boolean }|null} [frontOverride]
- * @returns {any[]}
+ * Converts a rendered block into Word paragraphs or tables, traversing unknown containers.
+ * Front-page overrides retain their existing typography; vertical placement belongs to
+ * the Word section. A title line without a role uses the title-size fallback.
  */
 export function blockToParagraphs(
   el: ExportDomElement,
@@ -346,7 +336,7 @@ export function blockToParagraphs(
   headings: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle } = {},
   images: ExportImages = new Map(),
   frontOverride: { style?: TitlePageStyle | null; isTitleLine?: boolean; manualPageBreak?: boolean } | null = null,
-): Paragraph[] {
+): DocxBlock[] {
   if (!el || el.nodeType !== ELEMENT_NODE) return [];
   if (el.getAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR) !== null) return [];
   const tag = el.tagName;
@@ -367,6 +357,33 @@ export function blockToParagraphs(
       ...(layout.secondFieldAlign ? { tabStops: [{ type: TabStopType.LEFT, position: left }] } : {}),
       children: inlineChildren(el, footnoteIdByHref, images),
     })];
+  }
+
+  if (tag === "TABLE") {
+    const rows = Array.from(el.children).flatMap((child) => child.tagName === "TR" ? [child]
+      : ["THEAD", "TBODY", "TFOOT"].includes(child.tagName) ? Array.from(child.children).filter((row) => row.tagName === "TR") : []);
+    const cells = rows.map((row) => Array.from(row.children).filter((cell) => cell.tagName === "TH" || cell.tagName === "TD"));
+    const columns = Math.max(0, ...cells.map((row) => row.length));
+    if (!columns) return [];
+    const table = new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: cells.map((row) => new TableRow({
+        tableHeader: row.length > 0 && row.every((cell) => cell.tagName === "TH"),
+        children: row.map((cell) => {
+          const alignment = (cell.getAttribute("align") ?? /text-align\s*:\s*(left|center|right)/i.exec(cell.getAttribute("style") ?? "")?.[1] ?? "left").toLowerCase();
+          return new TableCell({
+            width: { size: 100 / columns, type: WidthType.PERCENTAGE },
+            children: [new Paragraph({
+              alignment: alignment === "right" ? AlignmentType.RIGHT : alignment === "center" ? AlignmentType.CENTER : AlignmentType.LEFT,
+              indent: { firstLine: 0 },
+              spacing: { before: 0, after: 0 },
+              children: inlineChildren(cell, footnoteIdByHref, images, { bold: cell.tagName === "TH" }),
+            })],
+          });
+        }),
+      })),
+    });
+    return manualPageBreak ? [new Paragraph({ pageBreakBefore: true }), table] : [table];
   }
 
   if (["H1", "H2", "H3", "H4", "H5", "H6"].includes(tag)) {

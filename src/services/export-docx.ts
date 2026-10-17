@@ -41,7 +41,7 @@ import {
   wordLocale,
   titleRoleOf,
 } from "./export-docx-style.js";
-import { inlineChildren, blockToParagraphs, headingPageBreakBefore } from "./docx-blocks.js";
+import { inlineChildren, blockToParagraphs, headingPageBreakBefore, type DocxBlock } from "./docx-blocks.js";
 import { generatedContentsDescriptor, type GeneratedContentsKind } from "./generated-contents.js";
 import type { ContentVariant } from "./content-variants.js";
 
@@ -237,7 +237,12 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     const id = i + 1;
     footnoteIdByHref.set(f.id, id);
     const blocks = Array.from(f.contentElement.children);
-    const paragraphs = blocks.flatMap((block) => blockToParagraphs(block, new Map(), tpl, {}, images));
+    const paragraphs = blocks.flatMap((block) => {
+      const children = blockToParagraphs(block, new Map(), tpl, {}, images);
+      // The library's footnote API accepts paragraphs only; retain text from unsupported blocks.
+      return children.every((child): child is Paragraph => child instanceof Paragraph)
+        ? children : [new Paragraph({ children: inlineChildren(block, new Map(), images) })];
+    });
     footnoteMap[id] = { children: paragraphs.length ? paragraphs : [new Paragraph({ children: inlineChildren(f.contentElement, new Map(), images) })] };
   });
 
@@ -259,7 +264,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
   if (generateGenericTitlePage) {
     genericTitleParagraphs.push(new Paragraph({ pageBreakBefore: true, children: [] }));
   }
-  const bodyParagraphs: Paragraph[] = [];
+  const bodyParagraphs: DocxBlock[] = [];
   let bibliographyParagraphIndex: number | null = null;
 
   /* Chaque page Front (titre/dédicace/épigraphe) devient sa PROPRE section
@@ -271,7 +276,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
      finalisées ; `bodyParagraphs` ne garde que le contenu du manuscrit
      normal (avant ET après les pages Front, le cas échéant). */
   const frontSections: ISectionOptions[] = [];
-  let currentFrontBuffer: Paragraph[] | null = null;
+  let currentFrontBuffer: DocxBlock[] | null = null;
   /* Une page de titre à rôles positionne ses éléments par des marges venues du
      modèle (marginTopPt/marginBottomPt), mesurées depuis le HAUT de la page —
      elle est donc ancrée en haut (verticalAlign TOP), comme le modèle Word de
