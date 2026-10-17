@@ -143,7 +143,9 @@ export type SourceLineCol = { line: number; col: number };
 
 /** Position d'un bloc dans le fichier Markdown ORIGINAL — copie directe de
  * `SectionCache.position`, jamais une position recalculée. */
-export type SourceBlockPosition = { start: SourceLineCol; end: SourceLineCol; text?: string };
+export type SourceTextReplacement = { from: number; to: number; text: string };
+
+export type SourceBlockPosition = { start: SourceLineCol; end: SourceLineCol; text?: string; replacements?: readonly SourceTextReplacement[] };
 
 /** Repères d'un feuillet : ses sections réelles, dans l'ordre du fichier
  * (frontmatter déjà exclu), et le nombre de blocs de titre ARTIFICIELS que
@@ -169,6 +171,22 @@ export const SOURCE_START_COL_ATTR = "data-source-start-col";
 export const SOURCE_END_LINE_ATTR = "data-source-end-line";
 export const SOURCE_END_COL_ATTR = "data-source-end-col";
 export const SOURCE_TEXT_ATTR = "data-source-text";
+const SOURCE_REPLACEMENTS_ATTR = "data-source-replacements";
+
+export function blockSourceReplacements(element: Pick<Element, "getAttribute">): SourceTextReplacement[] {
+  const json = element.getAttribute(SOURCE_REPLACEMENTS_ATTR);
+  if (!json) return [];
+  try {
+    const value: unknown = JSON.parse(json);
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry: unknown): entry is SourceTextReplacement => {
+      if (!entry || typeof entry !== "object") return false;
+      return "from" in entry && typeof entry.from === "number" && Number.isInteger(entry.from) && entry.from >= 0
+        && "to" in entry && typeof entry.to === "number" && Number.isInteger(entry.to) && entry.to > entry.from
+        && "text" in entry && typeof entry.text === "string";
+    });
+  } catch { return []; }
+}
 
 export function applyBlockSourceMarkers(
   containerEl: MarkerHost,
@@ -203,6 +221,7 @@ export function applyBlockSourceMarkers(
       el.setAttribute(SOURCE_END_LINE_ATTR, String(pos.end.line));
       el.setAttribute(SOURCE_END_COL_ATTR, String(pos.end.col));
       if (pos.text !== undefined) el.setAttribute(SOURCE_TEXT_ATTR, pos.text);
+      if (pos.replacements?.length) el.setAttribute(SOURCE_REPLACEMENTS_ATTR, JSON.stringify(pos.replacements));
     });
   }
 }
@@ -280,12 +299,35 @@ function verifiedTextOffsets(source: string, rendered: string): TextOffsets | nu
   return null;
 }
 
-export function sourceOffsetToRenderedOffset(source: string, rendered: string, offset: number): number | null {
-  if (source === rendered) return offset;
-  return verifiedTextOffsets(source, rendered)?.source[offset] ?? null;
+function substitutedText(source: string, replacements: readonly SourceTextReplacement[]): string {
+  let text = source;
+  for (const replacement of [...replacements].sort((a, b) => b.from - a.from)) {
+    text = text.slice(0, replacement.from) + replacement.text + text.slice(replacement.to);
+  }
+  return text;
 }
 
-export function renderedOffsetToSourceOffset(source: string, rendered: string, offset: number): number | null {
-  if (source === rendered) return offset;
-  return verifiedTextOffsets(source, rendered)?.rendered[offset] ?? null;
+function substitutedOffset(offset: number, replacements: readonly SourceTextReplacement[], reverse = false): number {
+  let shift = 0;
+  for (const replacement of [...replacements].sort((a, b) => a.from - b.from)) {
+    const start = replacement.from + (reverse ? shift : 0);
+    const end = reverse ? start + replacement.text.length : replacement.to;
+    if (offset < start) break;
+    if (offset < end) return reverse ? replacement.from : replacement.from + shift;
+    shift += replacement.text.length - (replacement.to - replacement.from);
+  }
+  return offset + (reverse ? -shift : shift);
+}
+
+export function sourceOffsetToRenderedOffset(source: string, rendered: string, offset: number, replacements: readonly SourceTextReplacement[] = []): number | null {
+  const text = substitutedText(source, replacements);
+  const transformed = substitutedOffset(offset, replacements);
+  if (text === rendered) return transformed;
+  return verifiedTextOffsets(text, rendered)?.source[transformed] ?? null;
+}
+
+export function renderedOffsetToSourceOffset(source: string, rendered: string, offset: number, replacements: readonly SourceTextReplacement[] = []): number | null {
+  const text = substitutedText(source, replacements);
+  const transformed = text === rendered ? offset : verifiedTextOffsets(text, rendered)?.rendered[offset];
+  return transformed === null || transformed === undefined ? null : substitutedOffset(transformed, replacements, true);
 }

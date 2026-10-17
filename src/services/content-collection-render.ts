@@ -41,8 +41,11 @@ function joinMarkdownParts(parts: string[], lineEnding: string): string {
   }, "");
 }
 
-export function renderContentCollectionMarkdown(markdown: string, collection: ContentCollection): string | null {
-  const items = collectSemanticRoleBlocks(markdown, collection.roles);
+export function renderContentCollectionMarkdown(
+  markdown: string, collection: ContentCollection, includeRange?: (start: number, end: number) => void,
+): string | null {
+  const sources: { start: number; end: number; headings: { start: number; end: number }[] }[] = [];
+  const items = collectSemanticRoleBlocks(markdown, collection.roles, (start, end, headings) => sources.push({ start, end, headings }));
   if (items.length === 0) return null;
 
   const lineEnding = lineEndingOf(markdown);
@@ -50,13 +53,15 @@ export function renderContentCollectionMarkdown(markdown: string, collection: Co
   let previousHeadingPath: Heading[] = [];
   let searchStart = 0;
 
-  for (const item of items) {
+  for (const [index, item] of items.entries()) {
     const commonCount = commonHeadingCount(previousHeadingPath, item.headingPath);
     const headingStart = item.headingPath.length < previousHeadingPath.length
       && commonCount === item.headingPath.length
       && item.headingPath.length > 0
       ? commonCount - 1
       : commonCount;
+    includeRange?.(sources[index].start, sources[index].end);
+    for (const heading of sources[index].headings.slice(headingStart)) includeRange?.(heading.start, heading.end);
     const headings = item.headingPath.slice(headingStart).map((heading) => headingMarkdownForOutput(heading.markdown, lineEnding));
     const itemStart = markdown.indexOf(item.markdown, searchStart);
     const markers = itemStart >= 0 ? layoutMarkerImmediatelyBefore(markdown, searchStart, itemStart) : [];

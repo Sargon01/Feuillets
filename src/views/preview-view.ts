@@ -28,7 +28,9 @@ import {
 import { resolveWorkspaceCitationResources } from "../services/workspace-citations.js";
 import { resolveDocumentCitationStyle } from "../services/document-citation-style.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
-import { activePresetConfig, compile, joinCompiledSegments, resolvedFileTitleMarkdown } from "../services/compile-export.js";
+import { activePresetConfig, compile, effectiveComposition, joinCompiledSegments, resolvedFileTitleMarkdown } from "../services/compile-export.js";
+import { footnotePrefixFor } from "../utils/compile-text.js";
+import { renamespaceFootnotes, renumberFootnotesAcrossTexts } from "../utils/footnotes.js";
 import { selectedContentVariant } from "../services/content-variants.js";
 import { runExportWorkflow } from "../services/export-workflow.js";
 import { depthOf, flattenFiles, getOrderedChildren, isFrontMatter, roleOfFile, roleOfFolder } from "../services/folder-structure.js";
@@ -36,7 +38,9 @@ import { compiledTitleFor, fmOf, shortTitleFor, splitFrontmatter, stripFrontmatt
 import { readTitleRoleValue, setTitleRoleValue } from "../utils/title-roles.js";
 import { countWords } from "../utils/core.js";
 import { promptText } from "../ui/basic-modals.js";
-import { t } from "../i18n/index.js";
+import { getLocale, t } from "../i18n/index.js";
+import { compositionCrossReferenceReplacements, applySourceCrossReferenceReplacements, type CrossReferenceCompositionSource } from "../services/cross-reference-composition.js";
+import type { CrossReferenceReplacement } from "../services/cross-reference-render.js";
 import { mountTemplatePreview } from "../ui/template-preview.js";
 import { frontTitleCandidates } from "../ui/first-page-panel.js";
 import {
@@ -51,6 +55,7 @@ import {
   SOURCE_START_COL_ATTR,
   SOURCE_START_LINE_ATTR,
   SOURCE_TEXT_ATTR,
+  blockSourceReplacements,
   sourceOffsetToRenderedOffset,
   renderedOffsetToSourceOffset,
   type SourceBlockMap,
@@ -72,6 +77,8 @@ type PreviewCompileSegment = {
   path: string | null;
   text: string;
   renderText?: string;
+  crossReferenceReplacements?: readonly CrossReferenceReplacement[];
+  sourceContent?: string;
   frontType?: string | null;
   /** Nombre de blocs de TITRE ARTIFICIEL (titre de scène, éventuel
    * sous-titre) que PreviewView a insérés en tête de `text`, avant le corps
@@ -1211,7 +1218,7 @@ export class PreviewView extends ItemView {
         citationScopeFolderPath,
         projectRootPath: activeScope.projectRoot,
       };
-      return this.applySourceModeTransformation(source);
+      return source;
     }
 
     if (this.mode === "manuscript") {
@@ -1241,7 +1248,7 @@ export class PreviewView extends ItemView {
         citationScopeFolderPath: null,
         projectRootPath: root.path,
       };
-      return this.applySourceModeTransformation(source);
+      return source;
     }
 
     const active = this.app.workspace.getActiveFile();
@@ -1262,7 +1269,8 @@ export class PreviewView extends ItemView {
          avant tout h1/h2. Le premier mot du feuillet se retrouvait donc
          page 2 alors que l'éditeur était ligne 1 : c'était LA cause du
          décalage constaté, pas une page de titre. */
-      const body = stripFrontmatter(await this.readFileForPreview(active)).trim();
+      const sourceContent = await this.readFileForPreview(active);
+      const body = stripFrontmatter(sourceContent).trim();
       const title = this.sceneTitleMarkdown(active, 1);
       const resolvedScope = typeof this.plugin.compileScopeForFile === "function" ? this.plugin.compileScopeForFile(active) : null;
       const projectRootPath = resolvedScope?.projectRoot ?? root.path;
@@ -1285,7 +1293,7 @@ export class PreviewView extends ItemView {
         citationScopeFolderPath: active.parent ? active.parent.path : null,
         projectRootPath,
       };
-      return this.applySourceModeTransformation(source);
+      return this.resolveLocalCrossReferences(source, sourceContent);
     }
 
     // --- Modes Chapitre et Partie ----------------------------------------
@@ -1320,13 +1328,14 @@ export class PreviewView extends ItemView {
       citationScopeFolderPath: scope.path,
       projectRootPath,
     };
-    return this.applySourceModeTransformation(source);
+    return this.resolveLocalCrossReferences(source);
   }
 
   /** Un chapitre peut être stocké dans un seul feuillet : il reste une
    * portée Chapitre valide, sans inventer de scènes enfants. */
   private async collectSingleFileSource(file: TFile): Promise<PreviewSource> {
-    const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
+    const sourceContent = await this.readFileForPreview(file);
+    const body = stripFrontmatter(sourceContent).trim();
     const title = this.sceneTitleMarkdown(file, 1);
     const text = title ? `${title}\n\n${body}` : body;
     const resolvedScope = typeof this.plugin.compileScopeForFile === "function" ? this.plugin.compileScopeForFile(file) : null;
@@ -1334,21 +1343,53 @@ export class PreviewView extends ItemView {
     const projectRootPath = resolvedScope?.projectRoot ?? (root ? root.path : (file.parent ? file.parent.path : file.path));
     const source: PreviewSource = {
       markdown: text,
-      segments: [{ path: file.path, text, frontType: null, titleBlockCount: title ? 1 : 0 }],
+      segments: [{ path: file.path, text, sourceContent, frontType: null, titleBlockCount: title ? 1 : 0 }],
       sourcePath: file.path,
       title: this.binderFileTitle(file),
       subtitle: file.path,
       citationScopeFolderPath: file.parent ? file.parent.path : null,
       projectRootPath,
     };
-    return this.applySourceModeTransformation(source);
+    return this.resolveLocalCrossReferences(source);
   }
 
-  /** Point de passage commun à `collectSource()` — n'applique plus AUCUNE
-   * transformation du Markdown : le Markdown collecté reste STRICTEMENT
-   * celui que verrait le mode document, quel que soit `sourceMode`.
-   *   * transformer le Markdown passerait par ici. */
-  private applySourceModeTransformation(source: PreviewSource): PreviewSource {
+  /** Local preview modes share compilation resolution while retaining their presentation. */
+  private async resolveLocalCrossReferences(source: PreviewSource, singleContent?: string): Promise<PreviewSource> {
+    const paths = source.segments ? source.segments.flatMap((segment) => segment.path ? [segment.path] : []) : [source.sourcePath];
+    const sources: CrossReferenceCompositionSource[] = source.segments
+      ? source.segments.flatMap((segment) => segment.path && segment.sourceContent !== undefined ? [{ path: segment.path, content: segment.sourceContent }] : [])
+      : singleContent !== undefined ? [{ path: source.sourcePath, content: singleContent }] : [];
+    const replacements = await compositionCrossReferenceReplacements(this.app, this.plugin.settings,
+      { type: "selection", projectRoot: source.projectRootPath, paths }, sources, getLocale(), (file) => this.readFileForPreview(file));
+    for (const snapshot of sources) {
+      const fileReplacements = replacements.filter((entry) => entry.sourceFile === snapshot.path);
+      if (!fileReplacements.length) continue;
+      const body = stripFrontmatter(snapshot.content).trim();
+      const renderedBody = stripFrontmatter(applySourceCrossReferenceReplacements(snapshot.content, snapshot.path, fileReplacements)).trim();
+      if (source.segments) {
+        for (const segment of source.segments) {
+          if (segment.path !== snapshot.path || !segment.text.endsWith(body)) continue;
+          segment.text = segment.text.slice(0, segment.text.length - body.length) + renderedBody;
+          segment.crossReferenceReplacements = fileReplacements;
+        }
+      } else if (source.markdown.endsWith(body)) {
+        source.markdown = source.markdown.slice(0, source.markdown.length - body.length) + renderedBody;
+      }
+    }
+    if (source.segments) {
+      if (sources.length > 1) {
+        for (const segment of source.segments) {
+          if (segment.path) segment.text = renamespaceFootnotes(segment.text, footnotePrefixFor(segment.path));
+        }
+        const root = this.plugin.getProjectFolder();
+        const editorial = this.app.vault.getAbstractFileByPath(source.projectRootPath);
+        if (root && editorial instanceof TFolder && effectiveComposition(this.plugin.settings, root, editorial).footnoteRenumberOnCompile) {
+          const texts = renumberFootnotesAcrossTexts(source.segments.map((segment) => segment.text));
+          source.segments.forEach((segment, index) => { segment.text = texts[index]; });
+        }
+      }
+      source.markdown = joinCompiledSegments(source.segments, activePresetConfig(this.plugin.settings).separator || "\n\n");
+    }
     return source;
   }
 
@@ -1398,12 +1439,14 @@ export class PreviewView extends ItemView {
       for (const file of flattenFiles(this.app, settings, folder)) {
         if (isFrontMatter(this.app, settings, file)) continue;
         if (fmOf(this.app, file).compile === false) continue;
-        const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
+        const sourceContent = await this.readFileForPreview(file);
+        const body = stripFrontmatter(sourceContent).trim();
         if (!body) continue;
         const title = this.sceneTitleMarkdown(file, level);
         segments.push({
           text: title ? `${title}\n\n${body}` : body,
           path: file.path,
+          sourceContent,
           frontType: null,
           titleBlockCount: title ? title.split("\n\n").length : 0,
           sceneBreakBefore: previousWasScene,
@@ -1431,12 +1474,14 @@ export class PreviewView extends ItemView {
           for (const file of flattenFiles(this.app, settings, child)) {
             if (isFrontMatter(this.app, settings, file)) continue;
             if (fmOf(this.app, file).compile === false) continue;
-            const body = stripFrontmatter(await this.readFileForPreview(file)).trim();
+            const sourceContent = await this.readFileForPreview(file);
+            const body = stripFrontmatter(sourceContent).trim();
             if (!body) continue;
             const title = this.partFileTitleMarkdown(file, body, level);
             segments.push({
               text: title ? `${title}\n\n${body}` : body,
               path: file.path,
+              sourceContent,
               frontType: null,
               titleBlockCount: title ? title.split("\n\n").length : 0,
               sceneBreakBefore: previousWasSceneInChapter,
@@ -1448,13 +1493,15 @@ export class PreviewView extends ItemView {
       } else if (child instanceof TFile && child.extension === "md") {
         if (isFrontMatter(this.app, settings, child)) continue;
         if (fmOf(this.app, child).compile === false) continue;
-        const body = stripFrontmatter(await this.readFileForPreview(child)).trim();
+        const sourceContent = await this.readFileForPreview(child);
+        const body = stripFrontmatter(sourceContent).trim();
         if (!body) continue;
         const level = headingLevelOf(depthOf(this.app, settings, child));
         const title = this.partFileTitleMarkdown(child, body, level);
         segments.push({
           text: title ? `${title}\n\n${body}` : body,
           path: child.path,
+          sourceContent,
           frontType: null,
           titleBlockCount: title ? title.split("\n\n").length : 0,
           sceneBreakBefore: previousWasScene,
@@ -1525,10 +1572,14 @@ export class PreviewView extends ItemView {
       if (!(file instanceof TFile)) continue;
       const sections = this.realSectionsFor(file);
       if (!sections.length) continue;
-      const raw = await this.readFileForPreview(file);
+      const raw = seg.sourceContent ?? await this.readFileForPreview(file);
       for (const section of sections) {
-        section.text = raw.slice(lineColToOffset(raw, { line: section.start.line, ch: section.start.col }),
-          lineColToOffset(raw, { line: section.end.line, ch: section.end.col }));
+        const start = lineColToOffset(raw, { line: section.start.line, ch: section.start.col });
+        const end = lineColToOffset(raw, { line: section.end.line, ch: section.end.col });
+        section.text = raw.slice(start, end);
+        section.replacements = seg.crossReferenceReplacements
+          ?.filter((entry) => entry.from >= start && entry.to <= end)
+          .map((entry) => ({ from: entry.from - start, to: entry.to - start, text: entry.text }));
       }
       const leadingSkip = typeof seg.titleBlockCount === "number"
         ? seg.titleBlockCount
@@ -3120,7 +3171,7 @@ export class PreviewView extends ItemView {
       line: position.line - startLine,
       ch: position.ch - (position.line === startLine ? Number(first.getAttribute(SOURCE_START_COL_ATTR)) : 0),
     });
-    let offset = sourceOffsetToRenderedOffset(source, nodes.map((node) => node.data).join(""), sourceOffset);
+    let offset = sourceOffsetToRenderedOffset(source, nodes.map((node) => node.data).join(""), sourceOffset, blockSourceReplacements(first));
     if (offset === null) return null;
     for (const node of nodes) {
       if (offset < node.length || node === nodes[nodes.length - 1]) {
@@ -3203,7 +3254,7 @@ export class PreviewView extends ItemView {
       offset += node.length;
     }
     const source = fragments[0].getAttribute(SOURCE_TEXT_ATTR) || "";
-    const sourceOffset = renderedOffsetToSourceOffset(source, nodes.map((node) => node.data).join(""), offset);
+    const sourceOffset = renderedOffsetToSourceOffset(source, nodes.map((node) => node.data).join(""), offset, blockSourceReplacements(fragments[0]));
     if (sourceOffset === null) return { line, ch };
     const position = offsetToLineCol(source, sourceOffset);
     return { line: line + position.line, ch: position.ch + (position.line === 0 ? ch : 0) };

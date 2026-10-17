@@ -1,5 +1,5 @@
 import { parser } from "@lezer/markdown";
-import { stripFrontmatter } from "./frontmatter.js";
+import { splitFrontmatter, stripFrontmatter } from "./frontmatter.js";
 import { SEMANTIC_ROLES, type SemanticRole } from "../utils/semantic-roles.js";
 
 export type ExtractedSection = {
@@ -63,6 +63,7 @@ function stripInheritedBlockquoteDepth(markdown: string, inheritedDepth: number)
 export function extractSectionsByRoles(
   markdown: string,
   triggerRoles: readonly SemanticRole[],
+  includeRange?: (start: number, end: number) => void,
 ): ExtractedSection[] {
   validateTriggerRoles(triggerRoles);
   if (triggerRoles.length === 0) return [];
@@ -124,7 +125,11 @@ export function extractSectionsByRoles(
   }
 
   if (roleLines.length === 0) return [];
-  if (headings.length === 0) return [{ markdown: body, heading: null, level: null }];
+  const sourceBase = splitFrontmatter(markdown).frontmatter.length;
+  if (headings.length === 0) {
+    includeRange?.(sourceBase, markdown.length);
+    return [{ markdown: body, heading: null, level: null }];
+  }
 
   const sections = new Map<number, ExtractedSection>();
   for (const roleLine of roleLines) {
@@ -143,6 +148,7 @@ export function extractSectionsByRoles(
       end = headings[0].start;
     }
     if (!sections.has(start)) {
+      includeRange?.(sourceBase + start, sourceBase + end);
       sections.set(start, {
         markdown: body.slice(start, end),
         heading: previousHeading?.title || null,
@@ -157,6 +163,7 @@ export function extractSectionsByRoles(
 export function collectSemanticRoleBlocks(
   markdown: string,
   roles: readonly SemanticRole[],
+  includeSource?: (start: number, end: number, headings: { start: number; end: number }[]) => void,
 ): SemanticCollectionItem[] {
   validateTriggerRoles(roles);
   if (roles.length === 0) return [];
@@ -205,15 +212,21 @@ export function collectSemanticRoleBlocks(
       ancestor !== blockquote && ancestor.from < blockquote.from && ancestor.to >= blockquote.to))
     .sort((a, b) => a.from - b.from);
 
+  const sourceBase = splitFrontmatter(markdown).frontmatter.length;
   return selected.map((blockquote) => {
     const headingPath: { level: number; markdown: string }[] = [];
+    const retainedHeadings: Heading[] = [];
     for (const heading of headings) {
       if (heading.start >= blockquote.from) break;
       while (headingPath.length > 0 && headingPath[headingPath.length - 1].level >= heading.level) {
         headingPath.pop();
+        retainedHeadings.pop();
       }
       headingPath.push({ level: heading.level, markdown: heading.text });
+      retainedHeadings.push(heading);
     }
+    includeSource?.(sourceBase + blockquote.from, sourceBase + blockquote.to,
+      retainedHeadings.map((heading) => ({ start: sourceBase + heading.start, end: sourceBase + heading.end })));
     const collectedMarkdown = stripInheritedBlockquoteDepth(
       body.slice(blockquote.from, blockquote.to),
       blockquote.inheritedDepth,

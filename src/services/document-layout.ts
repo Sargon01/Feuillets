@@ -113,9 +113,11 @@ function markerFor(override: LayoutOverride): string | null {
   }
 }
 
-export function injectDocumentLayoutMarkers(markdown: string, overrides: LayoutOverride[]): string {
+export function injectDocumentLayoutMarkers(
+  markdown: string, overrides: LayoutOverride[], replacements: readonly { from: number; to: number; text: string }[] = [],
+): string {
   const blocks = documentLayoutBlocks(markdown);
-  const insertions: Array<{ offset: number; text: string; order: number }> = [];
+  const insertions: Array<{ offset: number; end?: number; text: string; order: number }> = [];
   for (const override of overrides) {
     const resolved = resolveLayoutOverride(override, markdown);
     if (!resolved) continue;
@@ -132,9 +134,10 @@ export function injectDocumentLayoutMarkers(markdown: string, overrides: LayoutO
       insertions.push({ offset: target.startOffset, text: `${marker}\n\n`, order: override.kind === "page-break-before" ? 0 : 2 });
     }
   }
+  for (const replacement of replacements) insertions.push({ offset: replacement.from, end: replacement.to, text: replacement.text, order: -1 });
   insertions.sort((a, b) => b.offset - a.offset || a.order - b.order);
   let result = markdown;
-  for (const insertion of insertions) result = result.slice(0, insertion.offset) + insertion.text + result.slice(insertion.offset);
+  for (const insertion of insertions) result = result.slice(0, insertion.offset) + insertion.text + result.slice(insertion.end ?? insertion.offset);
   return result;
 }
 

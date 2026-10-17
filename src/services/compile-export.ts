@@ -53,6 +53,8 @@ import { extractSectionsByRoles } from "./content-section-extraction.js";
 import type { ContentCollection } from "./content-collections.js";
 import { renderContentCollectionMarkdown } from "./content-collection-render.js";
 import { joinCompiledSegments } from "./compile-segments.js";
+import { compositionCrossReferenceReplacements, applySourceCrossReferenceReplacements, type CrossReferenceCompositionSource, type CompositionSourceRange } from "./cross-reference-composition.js";
+import type { CrossReferenceReplacement } from "./cross-reference-render.js";
 import { formatImageTarget } from "./image-markdown.js";
 export { joinCompiledSegments } from "./compile-segments.js";
 import { effectiveComposition } from "./ouvrage-composition.js";
@@ -79,7 +81,7 @@ export const SUPPORTED_EXPORT_FORMATS: ExportFormat[] = ["epub", "docx", "odt", 
 /** @typedef {{ filPlaceholders: Record<string, string>; filOrigins: Record<string, string>; filResolved: string[] }} NarrativeThreadState */
 
 /** @typedef {{ name: string; fileName: string; folderTitles: boolean; chapterTitles: boolean; sceneTitles: boolean; separator: string; [key: string]: unknown }} PresetConfig */
-type CompileSegment = { path: string | null; text: string; renderText?: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part"; sceneBreakBefore?: boolean; titleBlockCount?: number };
+type CompileSegment = { path: string | null; text: string; renderText?: string; frontType: string | null; generatedType?: GeneratedContentsKind; sourceTitle?: string | null; sourceSubtitle?: string | null; startsWithGeneratedTitle?: boolean; structuralType?: "part"; sceneBreakBefore?: boolean; titleBlockCount?: number; sourceContent?: string; crossReferenceReplacements?: readonly CrossReferenceReplacement[] };
 /** @typedef {{ outPath: string; manuscript: string; segments: CompileSegment[]; compiledFilePaths: readonly string[] }} CompileResult */
 /** @typedef {{ markdown: string; title: string; author: string; sourcePath: string; segments?: CompileSegment[] }} ExportContext */
 
@@ -480,41 +482,31 @@ export async function compile(
   let count = 0;
   const fileSet = new Set(filesToCompile.map((f) => f.path));
 
-  /**
-   * @param {TFile} file
-   * @param {string|null|undefined} frontType
-   * @returns {Promise<{ text: string; renderText: string } | null>}
-   */
-  const readBody = async (file: TFile, frontType: string | null | undefined = null): Promise<{ text: string; renderText: string } | null> => {
+  const sourceSnapshots = new Map<string, string>();
+  const sourceRanges = new Map<string, CompositionSourceRange[]>();
+  const segmentBodies = new Map<CompileSegment, { file: TFile; frontType: string | null; title: string | null }>();
+
+  const transformBody = (
+    file: TFile, raw: string, frontType: string | null = null,
+    includeRange?: (start: number, end: number) => void, replacements: readonly CrossReferenceReplacement[] = [],
+  ): { text: string; renderText: string } | null => {
     const isFrontPage = !!frontType;
-    let content: string;
-    try {
-      content = await app.vault.cachedRead(file);
-    } catch (e) {
-      // Un feuillet manquant/illisible ne doit jamais faire échouer toute
-      // la compilation avec un message vague : celle-ci s'arrête, mais le
-      // message nomme CE feuillet précisément (voir compile(), plus bas,
-      // qui affiche describe() et n'attribue jamais l'erreur au projet entier).
-      throw new CompileError(t("compile.step.readSheet"), t("compile.error.fileNotFoundOrUnreadable"), {
-        filePath: file.path,
-        cause: e,
-      });
-    }
+    let content = applySourceCrossReferenceReplacements(raw, file.path, replacements);
     /* Découpage du frontmatter : helper CENTRAL (services/frontmatter.ts),
        partagé avec l'aperçu — deux expressions régulières concurrentes,
        c'était le défaut où l'aperçu affichait un YAML absent de l'export.
        Il corrige au passage le frontmatter VIDE (`---` suivi de `---`), que
        l'expression locale précédente laissait fuir dans le texte compilé. */
     const relativeLayoutPath = relativeLayoutFilePath(globalRoot.path, file.path) || file.path;
-    let renderSource = injectDocumentLayoutMarkers(content, layoutOverridesForFile(layoutStore, relativeLayoutPath));
+    let renderSource = injectDocumentLayoutMarkers(raw, layoutOverridesForFile(layoutStore, relativeLayoutPath), replacements);
     if (options?.contentExtraction) {
-      const extracted = extractSectionsByRoles(content, options.contentExtraction.triggerRoles);
+      const extracted = extractSectionsByRoles(content, options.contentExtraction.triggerRoles, includeRange);
       if (extracted.length === 0) return null;
       content = extracted.map((section) => section.markdown).join("\n\n");
       const renderSections = extractSectionsByRoles(renderSource, options.contentExtraction.triggerRoles);
       renderSource = renderSections.map((section) => section.markdown).join("\n\n");
     } else if (options?.contentCollection) {
-      const collected = renderContentCollectionMarkdown(content, options.contentCollection);
+      const collected = renderContentCollectionMarkdown(content, options.contentCollection, includeRange);
       if (collected === null) return null;
       content = collected;
       const renderCollected = renderContentCollectionMarkdown(renderSource, options.contentCollection);
@@ -582,6 +574,20 @@ export async function compile(
        (interligne, alinéa) et non par des lignes vides. */
     if (isFrontPage) { content = preserveBlankLinesForFrontPage(content); renderContent = preserveBlankLinesForFrontPage(renderContent); }
     return { text: embedHardBreaks(content), renderText: embedHardBreaks(renderContent) };
+  };
+
+  const readBody = async (file: TFile, frontType: string | null = null): Promise<{ text: string; renderText: string } | null> => {
+    let content: string;
+    try {
+      content = await app.vault.cachedRead(file);
+    } catch (cause) {
+      throw new CompileError(t("compile.step.readSheet"), t("compile.error.fileNotFoundOrUnreadable"), { filePath: file.path, cause });
+    }
+    sourceSnapshots.set(file.path, content);
+    const ranges: CompositionSourceRange[] = [];
+    const body = transformBody(file, content, frontType, (start, end) => ranges.push({ start, end }));
+    if (options?.contentExtraction || options?.contentCollection) sourceRanges.set(file.path, ranges);
+    return body;
   };
 
   /* En parallèle de `parts` (texte plat, inchangé — utilisé par Pandoc/EPUB
@@ -661,6 +667,8 @@ export async function compile(
       push(body.text, file.path, normalizedFrontType, targetParts, targetSegments);
       targetSegments[targetSegments.length - 1].renderText = body.renderText;
       Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
+      segmentBodies.set(targetSegments[targetSegments.length - 1], { file, frontType: normalizedFrontType, title: null });
+      targetSegments[targetSegments.length - 1].sourceContent = sourceSnapshots.get(file.path);
       count++;
       compiledFilePaths.push(file.path);
       return true;
@@ -688,6 +696,8 @@ export async function compile(
       targetSegments[targetSegments.length - 1].renderText = body.renderText;
     }
     Object.assign(targetSegments[targetSegments.length - 1], { sourceTitle, sourceSubtitle });
+    segmentBodies.set(targetSegments[targetSegments.length - 1], { file, frontType: null, title });
+    targetSegments[targetSegments.length - 1].sourceContent = sourceSnapshots.get(file.path);
     if (title) targetSegments[targetSegments.length - 1].startsWithGeneratedTitle = true;
     targetSegments[targetSegments.length - 1].titleBlockCount = title ? title.split("\n\n").length : 0;
     count++;
@@ -856,6 +866,26 @@ export async function compile(
         }
       }
     }
+    // Resolve on the retained file order before generated contents and final footnote numbering.
+    const compositionSources: CrossReferenceCompositionSource[] = [...segments, ...annexSegments].flatMap((segment) => {
+      if (!segment.path) return [];
+      const content = sourceSnapshots.get(segment.path);
+      return content === undefined ? [] : [{ path: segment.path, content, includedRanges: sourceRanges.get(segment.path) }];
+    });
+    const replacements = await compositionCrossReferenceReplacements(app, settings, compilationScope, compositionSources, opLocale);
+    for (const [segment, { file, frontType, title }] of segmentBodies) {
+      const fileReplacements = replacements.filter((replacement) => replacement.sourceFile === file.path);
+      if (!fileReplacements.length) continue;
+      const raw = sourceSnapshots.get(file.path);
+      if (raw === undefined) continue;
+      const body = transformBody(file, raw, frontType, undefined, fileReplacements);
+      if (!body) continue;
+      segment.text = title ? `${title}\n\n${body.text}` : body.text;
+      segment.renderText = title ? `${title}\n\n${body.renderText}` : body.renderText;
+      segment.crossReferenceReplacements = fileReplacements;
+    }
+    parts.splice(0, parts.length, ...segments.map((segment) => segment.text));
+    annexParts.splice(0, annexParts.length, ...annexSegments.map((segment) => segment.text));
   } catch (e) {
     // Jamais une exception non gérée qui remonterait comme un plantage
     // générique : un message contextualisé (feuillet + étape), le reste du

@@ -58,3 +58,18 @@ test("Typography preserves code exclusions and rejects unrelated smart quotes", 
   assert.equal(sourceOffsetToRenderedOffset(source, rendered, source.lastIndexOf("autres")), rendered.lastIndexOf("autres"));
   assert.equal(renderedOffsetToSourceOffset('Une "voix".', 'Une “voix”.', 6), null);
 });
+
+test("Cross-reference offsets preserve real source positions before, within and after substitutions and typography", () => {
+  const source = "Avant... old figure puis *suite* et old title. Fin.";
+  const replacements = [
+    { from: source.indexOf("old figure"), to: source.indexOf("old figure") + 10, text: "image 2" },
+    { from: source.indexOf("old title"), to: source.indexOf("old title") + 9, text: "A much longer current title" },
+  ];
+  const rendered = "Avant… image 2 puis suite et A much longer current title. Fin.";
+  for (const word of ["Avant", "puis", "suite", "Fin"]) {
+    assert.equal(sourceOffsetToRenderedOffset(source, rendered, source.indexOf(word) + 1, replacements), rendered.indexOf(word) + 1);
+    assert.equal(renderedOffsetToSourceOffset(source, rendered, rendered.indexOf(word) + 1, replacements), source.indexOf(word) + 1);
+  }
+  assert.equal(renderedOffsetToSourceOffset(source, rendered, rendered.indexOf("image 2") + 4, replacements), source.indexOf("old figure"));
+  assert.equal(sourceOffsetToRenderedOffset(source, rendered, source.indexOf("old title") + 5, replacements), rendered.indexOf("A much"));
+});
