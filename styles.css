@@ -11865,11 +11865,10 @@ body.feuillets-text-width
 /* These editor-only marks preserve text metrics and never enter static renders. */
 .feuillets-cross-reference,
 .feuillets-cross-reference-source {
-  text-decoration-line: underline;
-  text-decoration-style: dotted;
-  text-decoration-color: var(--text-faint);
-  text-decoration-thickness: 1px;
-  text-underline-offset: 0.18em;
+  background-image: radial-gradient(circle at 0.5px 0.5px, var(--text-faint) 0.5px, transparent 0.5px);
+  background-size: 2px 1px;
+  background-repeat: repeat-x;
+  background-position: left bottom;
 }
 
 .feuillets-pandoc-citation {
@@ -12557,11 +12556,19 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
 }
 
 .feuillets-carnets-text-sample {
+  position: relative;
   font-size: 18px;
   font-weight: var(--font-semibold);
   line-height: 1;
-  text-decoration: underline;
-  text-decoration-thickness: 3px;
+}
+
+.feuillets-carnets-text-sample::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -2px;
+  border-bottom: 3px solid currentColor;
 }
 
 .feuillets-carnets .feuillets-carnets-canvas-sample {

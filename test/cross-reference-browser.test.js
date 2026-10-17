@@ -74,7 +74,11 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
   assert.ok(first.text.includes("image 2")); assert.ok(first.text.includes("Current map")); assert.ok(!first.text.includes("linked text"));
   assert.equal(first.source, "See figure 99\nlinked text.\n\n[^1]: See figure 88.");
   const mark = page.locator(".feuillets-cross-reference").first();
-  assert.equal(await mark.evaluate((node) => getComputedStyle(node).textDecorationStyle), "dotted");
+  assert.match(await mark.evaluate((node) => getComputedStyle(node).backgroundImage), /^radial-gradient\(/);
+  assert.deepEqual(await mark.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return [style.backgroundSize, style.backgroundRepeat];
+  }), ["2px 1px", "repeat-x"]);
   await mark.hover();
   const tooltip = page.locator("body > .feuillets-cross-reference-tooltip");
   await tooltip.waitFor({ state: "visible" });

@@ -117,8 +117,8 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
     if (edges.has(edge as AnchorEdge) || !edge.from || !edge.to || typeof (edge as Partial<AnchorEdge>).updatePath !== "function" || typeof (edge as Partial<AnchorEdge>).getBBox !== "function") return;
     const target = edge as AnchorEdge;
     const original = target.updatePath;
-    const originalBounds = target.getBBox;
-    const originalCenter = target.getCenter;
+    const originalBounds: { (): CanvasBBox; call(thisArg: AnchorEdge): CanvasBBox } = target.getBBox;
+    const originalCenter: { (): RoutePoint; call(thisArg: AnchorEdge): RoutePoint } | undefined = target.getCenter;
     let cachedKey = "", cachedRoute: RoutePoint[] | undefined;
     const mapRoute = (): RoutePoint[] | undefined => {
       const from = attachment(target.from), to = attachment(target.to);
@@ -186,11 +186,11 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
     target.getBBox = () => {
       const points = eligible(target) && geometry(target) === "map" ? mapRoute() : undefined;
       return points ? { minX: Math.min(...points.map((point) => point.x)), minY: Math.min(...points.map((point) => point.y)),
-        maxX: Math.max(...points.map((point) => point.x)), maxY: Math.max(...points.map((point) => point.y)) } : withAnchors(() => originalBounds.call(target) as CanvasBBox);
+        maxX: Math.max(...points.map((point) => point.x)), maxY: Math.max(...points.map((point) => point.y)) } : withAnchors(() => originalBounds.call(target));
     };
     if (originalCenter) target.getCenter = () => {
       const points = eligible(target) && geometry(target) === "map" ? mapRoute() : undefined;
-      return points ? routeCenter(points) : originalCenter.call(target) as RoutePoint;
+      return points ? routeCenter(points) : originalCenter.call(target);
     };
     const wrapped = target.updatePath, wrappedBounds = target.getBBox, wrappedCenter = target.getCenter;
     edges.set(target, () => {
