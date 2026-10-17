@@ -32,8 +32,13 @@ export function resolveCrossReferenceTarget(
     && (!target.anchor.suffix || content.slice(candidate.anchor.end, candidate.anchor.end + target.anchor.suffix.length) === target.anchor.suffix)
   );
   if (result.status === "resolved") {
-    if ((target.anchor.prefix || target.anchor.suffix) && matches.some((candidate) =>
-      candidate.anchor.start !== result.range.start || candidate.anchor.end !== result.range.end)) return { status: "ambiguous" };
+    // With competing structural targets, a unique quote also needs contextual support.
+    const supported = matches.length ? matches : candidates.filter((candidate) =>
+      (target.anchor.prefix.length > 0 && content.slice(Math.max(0, candidate.anchor.start - target.anchor.prefix.length), candidate.anchor.start) === target.anchor.prefix)
+      || (target.anchor.suffix.length > 0 && content.slice(candidate.anchor.end, candidate.anchor.end + target.anchor.suffix.length) === target.anchor.suffix)
+    );
+    if (candidates.length > 1 && (supported.length !== 1 || supported[0].anchor.start !== result.range.start
+      || supported[0].anchor.end !== result.range.end)) return { status: "ambiguous" };
     const detectedTarget = candidates.find((candidate) => candidate.anchor.start === result.range.start && candidate.anchor.end === result.range.end);
     return detectedTarget ? { ...result, detectedTarget } : { status: "missing" };
   }

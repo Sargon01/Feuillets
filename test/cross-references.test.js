@@ -603,6 +603,36 @@ test("XRef target: a surviving old title cannot override conflicting context aft
   assert.equal(first.target.anchor.quote, "# Destination");
 });
 
+test("XRef target: a renamed section with an edited following paragraph cannot redirect to its old title elsewhere", () => {
+  const first = linked();
+  const snapshot = serializeCrossReferenceStore(first.store);
+  const edited = targetContent.replace("# Destination", "# Renamed destination")
+    .replace("Texte après le titre.", "Rewritten following paragraph.");
+  for (const text of [edited, edited.replace("Introduction", "Rewritten introduction")]) {
+    const current = text + "\n# Destination\n\nAn unrelated section.\n";
+    const strict = resolveSourceAnchorStrict(first.target.anchor, current);
+    assert.equal(strict.status, "resolved");
+    assert.equal(strict.range.start, current.lastIndexOf("# Destination"));
+    const detected = detectCrossReferenceTargets(first.target.sourceFile, current);
+    assert.deepEqual(detected.map((target) => target.titleOrCaption), ["Renamed destination", "Destination"]);
+    assert.deepEqual(resolveCrossReferenceTarget(first.target, current), { status: "ambiguous" });
+    assert.deepEqual(resolveCrossReferenceTarget(first.target, current, detected), { status: "ambiguous" });
+  }
+  assert.equal(serializeCrossReferenceStore(first.store), snapshot);
+});
+
+test("XRef target: changing either side of an unchanged heading preserves its resolution among other sections", () => {
+  const original = targetContent + "\n# Another section\n\nUnrelated body.\n";
+  const first = linked(emptyCrossReferenceStore(), original);
+  for (const current of [original.replace("Introduction", "Changed introduction"),
+    original.replace("Texte après le titre.", "Changed following paragraph.")]) {
+    const result = resolveCrossReferenceTarget(first.target, current);
+    assert.equal(result.status, "resolved");
+    assert.equal(result.detectedTarget.titleOrCaption, "Destination");
+    assert.equal(result.range.start, current.indexOf("# Destination"));
+  }
+});
+
 test("XRef detection: Obsidian comments stay excluded with UTF-16 and CRLF offsets", () => {
   const text = "---\r\ntitle: é😀\r\n---\r\n\r\n`%%`\r\n\r\n%%\r\n# Hidden 😀\r\n![Hidden](a.png)\r\n| A | B |\r\n| --- | --- |\r\n%%\r\n\r\n# Visible é😀\r\n\r\n![Visible caption](b.png)\r\n";
   const targets = detectCrossReferenceTargets("A.md", text);
