@@ -2,6 +2,8 @@
 
 Validation du 17 octobre 2026 sur `feat/3.7-cross-references`, à partir de `c98f0b13bc1a5827936142af1f1489014ddd6a4f`. Version du plugin inchangée. Aucun push, merge ou travail de release.
 
+Ce rapport décrit la validation du commit `b5f0238`. La [recette finale](cross-reference-final-audit.md) étend ces contrôles aux insertions concurrentes, aux substitutions couvrant plusieurs paragraphes et aux modifications externes avec une vue Lecture ouverte ; elle documente les trois corrections nécessaires, leurs nouvelles validations et les pertes de contenu préexistantes découvertes dans les exporteurs DOCX/ODT. Les contrôles positifs ci-dessous concernent les valeurs des références, pas une fidélité complète des documents exportés.
+
 ## Audit préalable et défauts reproduits
 
 L’audit a suivi les dix points de la chaîne éditoriale avant l’intégration :
@@ -89,7 +91,7 @@ Chaque ligne a été générée et inspectée dans les trois compositions : Chic
 | --- | --- | --- | --- | --- | --- |
 | Markdown | Conforme | Conforme | Conforme | Citekeys simples, groupées, narratives et inconnues conservées | Lecture du Markdown produit. |
 | PDF | Conforme | Conforme | Conforme | CSL et bibliographie présents ; citation inconnue conservée | Fichiers PDF réels, extraction PDFKit et rasterisation : 13, 13 et 11 pages. |
-| DOCX | Conforme | Conforme | Conforme | CSL présent, citation inconnue conservée, deux médias | OOXML `word/document.xml`, `word/footnotes.xml`, médias et lecture par le convertisseur natif macOS. |
+| DOCX | Conforme | Conforme | Conforme | CSL présent, citation inconnue conservée, deux occurrences d’image | OOXML `word/document.xml`, `word/footnotes.xml`, deux occurrences d’image partageant un PNG et lecture par le convertisseur natif macOS. |
 | ODT | Conforme | Conforme | Conforme | CSL présent, citation inconnue conservée | `content.xml`, vrais éléments de notes et type MIME ODT. |
 | EPUB | Conforme | Conforme | Conforme | CSL présent, citation inconnue conservée | XHTML, navigation et type MIME EPUB dans le paquet réel. |
 | ZIP Pandoc | Conforme | Conforme | Conforme | Citekeys conservées, un `.bib`, un `.csl`, deux PNG | `manuscript.md` et ressources extraits du ZIP. |
@@ -100,7 +102,7 @@ Après inversion des chapitres, le passage inspecté contient `Section: Updated 
 
 Le PDF natif produit normalement une iframe d’impression et ouvre la boîte système. Pour automatiser sa sauvegarde, le test capture uniquement cette dernière action et imprime le document natif déjà paginé avec Electron `printToPDF`. Le PDF final a été relu et rasterisé ; la boîte d’impression système n’a pas été pilotée.
 
-LibreOffice/Word ne sont pas disponibles dans cet environnement. Les DOCX et ODT ont été inspectés structurellement et textuellement ; leur mise en page dans ces applications n’est donc pas déclarée vérifiée. L’EPUB a été inspecté dans son paquet, sans ouverture dans une liseuse. Aucun exécutable Pandoc n’a été appelé ou ajouté.
+Cette validation n’a pas inclus de lecture visuelle sous Word ou LibreOffice. Les DOCX et ODT ont été inspectés structurellement et textuellement ; leur mise en page dans ces applications n’est donc pas déclarée vérifiée. La recette finale précise la présence de Word et l’échec de ses tentatives d’automatisation. L’EPUB a été inspecté dans son paquet, sans ouverture dans une liseuse. Aucun exécutable Pandoc n’a été appelé ou ajouté.
 
 Preuves temporaires conservées dans `/private/tmp/feuillets-xref-composition` : `result.json` (contrôles, chemins d’export, SHA-256 avant/après), `inspection.json` (contenus des archives), les scripts de scénario, les PDF et leurs textes/images de contrôle. Les autres exports sont dans `/private/tmp/feuillets-xref-integrity/vault/CompositionAuditVerified/_Feuillets/Output`.
 

@@ -130,6 +130,41 @@ function continuous(state, entries, from, to = from) {
   return { view, cm, context, adapter, read };
 }
 
+for (const secondEditor of ["native", "continu"]) {
+  test(`XRef concurrent insertion: native and ${secondEditor} selections cannot persist overlapping occurrences`, async () => {
+    const state = await fixture();
+    const from = state.ref.content.indexOf("figure 99");
+    const to = from + "figure 99".length;
+    const first = editor(state.ref.content, from, to);
+    const composed = continuous(state, [{ file: state.ref, content: state.ref.content }], from, to);
+    const second = secondEditor === "native" ? editor(state.ref.content, from, to) : composed.adapter;
+    const ready = deferred();
+    let arrived = 0;
+    const chooseMode = async () => {
+      if (++arrived === 2) ready.resolve();
+      await ready.promise;
+      return "title";
+    };
+    const actions = [controller(state, { chooseMode }), controller(state, { chooseMode })];
+    const original = state.ref.content;
+    await Promise.all([
+      actions[0].instance.insert(first, state.ref, state.scope),
+      actions[1].instance.insert(second, state.ref, state.scope),
+    ]);
+    const store = await loadCrossReferenceStore(state.app, state.settings);
+    assert.equal(store.occurrences.length, 1);
+    assert.equal(store.targets.length, 1);
+    assert.equal(first.getValue(), original);
+    assert.equal(second.getValue(), original);
+    assert.equal(state.ref.content, original);
+    assert.equal(first.getSelection(), "figure 99");
+    assert.equal(second.getSelection(), "figure 99");
+    assert.equal(actions.flatMap((action) => action.notices).length, 1);
+    const resolution = await resolveCrossReferencesInContext(state.app, state.settings, state.scope, store);
+    assert.equal(crossReferenceReplacements(store, resolution, "fr").length, 1);
+  });
+}
+
 test("XRef context: all detected targets count with independent flat numeric sequences", async () => {
   const state = await fixture(); const context = await loadCrossReferenceContext(state.app, state.settings, state.scope);
   for (const [type, numbers] of [["section", [1, 2, 3, 4]], ["figure", [1, 2]], ["table", [1]], ["appendix", [1, 2]]]) {
@@ -572,9 +607,10 @@ test("XRef insertion: rejected delayed store write keeps inserted text and the u
   assert.equal(action.notices.length, 1); assert.match(action.notices[0], /conservé/);
 });
 
-test("XRef store: explicit live-content additions retain atomic target reuse under concurrency", async () => {
+test("XRef store: disjoint live-content additions retain atomic target reuse under concurrency", async () => {
   const state = await fixture(); const target = detectCrossReferenceTargets(state.b.path, state.b.content).find((target) => target.type === "figure");
-  await Promise.all(["number", "title"].map((mode) => addCrossReferenceLinkFromContents(state.app, state.settings, target, state.b.content, state.ref, "see map", 4, 7, mode)));
+  await Promise.all([[4, 7, "number"], [12, 17, "title"]].map(([from, to, mode]) =>
+    addCrossReferenceLinkFromContents(state.app, state.settings, target, state.b.content, state.ref, "see map and chart", from, to, mode)));
   const store = await loadCrossReferenceStore(state.app, state.settings);
   assert.equal(store.targets.length, 1); assert.equal(store.occurrences.length, 2);
 });
@@ -1214,6 +1250,24 @@ test("XRef Continu: external changes refresh target labels without applying stal
   assert.equal(plugin.decorations.length, 0);
   assert.equal(view.state.doc.toString(), current.session.document.text);
 });
+
+for (const active of [true, false]) {
+  test(`XRef content reader: ${active ? "active" : "inactive"} Reading mode buffers cannot hide external source changes`, async () => {
+    const state = await fixture();
+    const reading = Object.create(MarkdownView.prototype);
+    reading.file = state.ref;
+    reading.editor = editor(state.ref.content);
+    reading.getMode = () => "preview";
+    state.app.workspace = {
+      getActiveViewOfType: () => active ? reading : null,
+      getLeavesOfType: (type) => type === "markdown" ? [{ view: reading }] : [],
+    };
+    state.ref.content = "External introduction.\n" + state.ref.content;
+    assert.equal(await FeuilletsPlugin.prototype.readCrossReferenceContent.call({ app: state.app }, state.ref), state.ref.content);
+    reading.getMode = () => "source";
+    assert.equal(await FeuilletsPlugin.prototype.readCrossReferenceContent.call({ app: state.app }, state.ref), reading.editor.getValue());
+  });
+}
 
 test("XRef command: the Continu target picker reads external changes to clean segments", async (t) => {
   const state = await fixture();

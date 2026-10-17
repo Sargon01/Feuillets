@@ -6,6 +6,7 @@ import { resolveCompileScopeFiles, type CompileScope } from "./compile-scope.js"
 import { resolveEditorialRoot } from "./editorial-roots.js";
 import { resolveDeclaredWorkspaceRoot } from "./folder-workspaces.js";
 import { remapPath } from "../carnet/core/path-reference-maintenance.js";
+import { selectionOverlaps } from "../utils/cm-selection-overlap.js";
 import { detectCrossReferenceTargets } from "./cross-reference-detection.js";
 import {
   CrossReferenceStoreCorruptedError, emptyCrossReferenceStore, parseCrossReferenceStore, serializeCrossReferenceStore,
@@ -22,6 +23,13 @@ export function crossReferenceStorePath(app: App, settings: FeuilletsSettings | 
 }
 
 const pending = new WeakMap<App, Map<string, Promise<unknown>>>();
+
+export class CrossReferenceOverlapError extends Error {
+  constructor() {
+    super("Cross-reference occurrence overlaps an existing relation");
+    this.name = "CrossReferenceOverlapError";
+  }
+}
 
 /** Serializes sidecar operations per project, including consecutive rename events. */
 function inStore<T>(app: App, path: string, action: () => Promise<T>): Promise<T> {
@@ -125,6 +133,12 @@ export async function addCrossReferenceLink(
     const targetContent = await readContent(targetFile);
     const content = sourceFile === targetFile ? targetContent : await readContent(sourceFile);
     const store = await readStore(app, path);
+    // Recheck after queued additions; editor preflight alone cannot prevent concurrent overlaps.
+    if (store.occurrences.some((occurrence) => {
+      if (occurrence.sourceFile !== sourceFile.path) return false;
+      const attached = resolveCrossReferenceOccurrence(occurrence, content);
+      return attached.status === "attached" && selectionOverlaps({ ranges: [{ from: start, to: end }] }, attached.range.start, attached.range.end);
+    })) throw new CrossReferenceOverlapError();
     const result = createCrossReferenceLink(store, detected, targetContent, sourceFile.path, content, start, end, displayMode);
     await writeStore(app, path, result.store, store);
     return result;

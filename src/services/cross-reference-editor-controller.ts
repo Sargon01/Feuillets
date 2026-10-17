@@ -3,7 +3,7 @@ import { translate, type Locale } from "../i18n/index.js";
 import { compileScopesEqual, type CompileScope } from "./compile-scope.js";
 import { crossReferenceBoundaryScope, crossReferenceProjectSettings, loadCrossReferenceContext, type NumberedCrossReferenceTarget } from "./cross-reference-context.js";
 import { formatCrossReference } from "./cross-reference-format.js";
-import { addCrossReferenceLinkFromContents, loadCrossReferenceStore, type CrossReferenceContentReader } from "./cross-reference-store.js";
+import { addCrossReferenceLinkFromContents, CrossReferenceOverlapError, loadCrossReferenceStore, type CrossReferenceContentReader } from "./cross-reference-store.js";
 import { resolveCrossReferenceOccurrence } from "./cross-reference-resolution.js";
 import { selectionOverlaps } from "../utils/cm-selection-overlap.js";
 import type { CrossReferenceDisplayMode } from "./cross-reference-model.js";
@@ -84,6 +84,10 @@ export class CrossReferenceEditorController {
         this.deps.notify(translate(locale, "xref.notice.failed"));
       }
     } catch (error: unknown) {
+      if (error instanceof CrossReferenceOverlapError) {
+        this.deps.notify(translate(locale, "xref.notice.overlap"));
+        return;
+      }
       console.error("Feuillets cross-reference insertion", error);
       this.deps.notify(translate(locale, "xref.notice.failed"));
     }

@@ -11,6 +11,7 @@ import { writeGeneratedIncluded } from "../src/services/book-composition.js";
 import { PreviewView } from "../src/views/preview-view.js";
 import { injectDocumentLayoutMarkers } from "../src/services/document-layout.js";
 import { createSourceAnchor } from "../src/services/source-anchor.js";
+import { renderedOffsetToSourceOffset } from "../src/views/preview-source-map.js";
 
 function fixture() {
   const root = new TFolder("Book/Manuscript");
@@ -182,4 +183,24 @@ test("Local chapter preview keeps references in distinct notes when several sour
   assert.match(preview.markdown, /\[\^2\]: Independent note \[@other\]/);
   const compiled = await f.run({ type: "folder", projectRoot: f.root.path, path: f.first.path });
   assert.equal(preview.markdown.match(/\[\^\d+\]:[^\n]+/g).join("\n"), compiled.manuscript.match(/\[\^\d+\]:[^\n]+/g).join("\n"));
+});
+
+test("Preview source blocks retain the following paragraph and merged text offsets when a reference spans two paragraphs", async () => {
+  const f = fixture();
+  const raw = '---\ntitle: Generated\n---\n\nFirst selected first passage\n\nselected second passage suffix.\n\nTail stays on its real line.';
+  const from = raw.indexOf("selected first passage");
+  const to = raw.indexOf("selected second passage") + "selected second passage".length;
+  f.app.metadataCache.getFileCache = () => ({ sections: [4, 6, 8].map((line) => ({ type: "paragraph", position: {
+    start: { line, col: 0 }, end: { line, col: raw.split("\n")[line].length },
+  } })) });
+  const view = new PreviewView({ app: f.app }, { settings: f.settings, getProjectFolder: () => f.root });
+  const byPath = await view.buildBlocksByPath([{ path: f.reference.path, text: "", sourceContent: raw, titleBlockCount: 1,
+    crossReferenceReplacements: [{ sourceFile: f.reference.path, from, to, text: "1" }],
+  }]);
+  const mapped = byPath.get(f.reference.path);
+  assert.equal(mapped.leadingSkip, 1);
+  assert.deepEqual(mapped.sections.map((section) => [section.start.line, section.end.line]), [[4, 6], [8, 8]]);
+  const merged = mapped.sections[0];
+  const rendered = "First 1 suffix.";
+  assert.equal(renderedOffsetToSourceOffset(merged.text, rendered, rendered.indexOf("suffix"), merged.replacements), merged.text.indexOf("suffix"));
 });

@@ -360,11 +360,11 @@ test("XRef renames: folder rename updates multiple targets and occurrences with 
   assert.equal(store.occurrences.every((occurrence) => occurrence.sourceFile === "Elsewhere/B.md"), true);
 });
 
-test("XRef persistence: concurrent links and consecutive renames do not lose sidecar updates", async () => {
+test("XRef persistence: disjoint concurrent links and consecutive renames do not lose sidecar updates", async () => {
   const state = fixture(); const detected = detectCrossReferenceTargets(state.a.path, state.a.content)[0];
   await Promise.all([
     addCrossReferenceLink(state.app, state.settings, detected, state.b, 5, 18, "title"),
-    addCrossReferenceLink(state.app, state.settings, detected, state.b, 5, 18, "type-number"),
+    addCrossReferenceLink(state.app, state.settings, detected, state.b, 0, 4, "type-number"),
   ]);
   let store = await loadCrossReferenceStore(state.app, state.settings);
   assert.equal(store.targets.length, 1); assert.equal(store.occurrences.length, 2);
@@ -685,7 +685,7 @@ test("XRef persistence: a competing external relation is never lost during a que
     });
   }
   const detected = detectCrossReferenceTargets(state.a.path, state.a.content)[0];
-  await assert.rejects(addCrossReferenceLink(state.app, state.settings, detected, state.b, 5, 18), /changed during update/);
+  await assert.rejects(addCrossReferenceLink(state.app, state.settings, detected, state.b, 0, 4), /changed during update/);
   assert.equal(file.content, externalJson);
 });
 

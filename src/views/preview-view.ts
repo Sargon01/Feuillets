@@ -1570,12 +1570,21 @@ export class PreviewView extends ItemView {
       if (map.has(seg.path)) continue; // un feuillet n'apparaît qu'une fois
       const file = this.app.vault.getAbstractFileByPath(seg.path);
       if (!(file instanceof TFile)) continue;
-      const sections = this.realSectionsFor(file);
-      if (!sections.length) continue;
+      const sourceSections = this.realSectionsFor(file);
+      if (!sourceSections.length) continue;
       const raw = seg.sourceContent ?? await this.readFileForPreview(file);
-      for (const section of sections) {
+      const blocks: { section: SourceBlockPosition; start: number; end: number }[] = [];
+      for (const section of sourceSections) {
         const start = lineColToOffset(raw, { line: section.start.line, ch: section.start.col });
         const end = lineColToOffset(raw, { line: section.end.line, ch: section.end.col });
+        const previous = blocks[blocks.length - 1];
+        // A replacement spanning the entire separator merges the rendered source blocks.
+        if (previous && seg.crossReferenceReplacements?.some((entry) => entry.from <= previous.end && entry.to >= start)) {
+          previous.section.end = section.end;
+          previous.end = end;
+        } else blocks.push({ section, start, end });
+      }
+      for (const { section, start, end } of blocks) {
         section.text = raw.slice(start, end);
         section.replacements = seg.crossReferenceReplacements
           ?.filter((entry) => entry.from >= start && entry.to <= end)
@@ -1584,7 +1593,7 @@ export class PreviewView extends ItemView {
       const leadingSkip = typeof seg.titleBlockCount === "number"
         ? seg.titleBlockCount
         : await this.titleLeadingSkipFor(file);
-      map.set(seg.path, { leadingSkip, sections });
+      map.set(seg.path, { leadingSkip, sections: blocks.map((block) => block.section) });
     }
     return map;
   }

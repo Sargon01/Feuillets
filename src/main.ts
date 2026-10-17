@@ -2629,9 +2629,9 @@ class FeuilletsPlugin extends Plugin {
 
   async readCrossReferenceContent(file: TFile): Promise<string> {
     const active = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (active?.file?.path === file.path) return active.editor.getValue();
+    if (active?.file?.path === file.path && active.getMode() === "source") return active.editor.getValue();
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
-      if (leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path) return leaf.view.editor.getValue();
+      if (leaf.view instanceof MarkdownView && leaf.view.file?.path === file.path && leaf.view.getMode() === "source") return leaf.view.editor.getValue();
     }
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SCRIVENINGS)) {
       if (!(leaf.view instanceof ScriveningsView)) continue;
