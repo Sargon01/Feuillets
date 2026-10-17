@@ -3069,6 +3069,7 @@ export const fr = {
   "genealogy.error.invalidRelations": "parents ou enfants invalides",
   "genealogy.error.cycleDetected": "cycle généalogique détecté",
   "xref.command": "Référence croisée…",
+  "xref.tooltip": "Référence croisée · {reference}",
   "xref.pickTarget": "Choisir une cible de référence croisée…",
   "xref.pickMode": "Choisir le mode d’affichage…",
   "xref.type.section": "section",

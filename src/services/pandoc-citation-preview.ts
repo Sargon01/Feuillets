@@ -771,9 +771,9 @@ export const TOOLTIP_CLOSE_GRACE_MS = 200;
  * of `citation` — registered in citationTooltipCleanups under `citation`,
  * retrieved by disposePandocCitationElement().
  */
-function attachCitationTooltipBehavior(citation: HTMLElement, tooltip: HTMLElement): void {
-  const doc = citation.ownerDocument;
-  const win = doc.defaultView;
+export function attachCitationTooltipBehavior(citation: HTMLElement, tooltip: HTMLElement): void {
+  let doc = citation.ownerDocument;
+  let win = doc.defaultView;
 
   const openReasons = new Set<string>();
   let visible = false;
@@ -815,6 +815,13 @@ function attachCitationTooltipBehavior(citation: HTMLElement, tooltip: HTMLEleme
   const onScrollOrResize = (): void => reposition();
 
   const show = (): void => {
+    // Obsidian can adopt an existing widget when moving its editor to a popout.
+    if (doc !== citation.ownerDocument) {
+      clearScheduledClose();
+      hide();
+      doc = citation.ownerDocument;
+      win = doc.defaultView;
+    }
     if (visible) return;
     doc.body.appendChild(tooltip);
     tooltip.classList.add(PANDOC_CITATION_TOOLTIP_VISIBLE_CLASS);

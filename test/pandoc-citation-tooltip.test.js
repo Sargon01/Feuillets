@@ -1054,3 +1054,20 @@ test("buildPandocCitationElement: a secondary-window citation's grace-period clo
   secondary.win.advanceTimers(TOOLTIP_CLOSE_GRACE_MS);
   assert.equal(tooltip.classList.contains(PANDOC_CITATION_TOOLTIP_VISIBLE_CLASS), false);
 });
+
+test("An existing tooltip follows its widget when Obsidian adopts the editor into a popout document", () => {
+  const main = installFakeEnvironment();
+  const citation = buildCitation(main.doc);
+  const tooltip = citation.querySelector(".feuillets-pandoc-citation-tooltip");
+  const secondary = installFakeEnvironment();
+  citation.ownerDocument = secondary.doc;
+  tooltip.ownerDocument = secondary.doc;
+  secondary.body.appendChild(citation);
+  citation.dispatch("mouseenter");
+  assert.equal(tooltip.parentElement, secondary.body);
+  assert.equal(main.win.listenerCount("scroll"), 0);
+  assert.ok(secondary.win.listenerCount("scroll") > 0);
+  disposePandocCitationElement(citation);
+  assert.equal(secondary.win.listenerCount("scroll"), 0);
+  assert.equal(tooltip.parentElement, citation);
+});

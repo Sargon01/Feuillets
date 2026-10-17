@@ -1,14 +1,18 @@
 import { Decoration, ViewPlugin, WidgetType, EditorView } from "@codemirror/view";
 import { StateEffect, StateField } from "@codemirror/state";
 import { editorInfoField, editorLivePreviewField, TFile, type App, type TFolder } from "obsidian";
-import { getLocale } from "../i18n/index.js";
+import { getLocale, translate } from "../i18n/index.js";
 import { createCrossReferenceDetectionSession, crossReferenceBoundaryScope, crossReferenceProjectSettings, resolveCrossReferencesInContext } from "../services/cross-reference-context.js";
 import { loadCrossReferenceStore, type CrossReferenceContentReader } from "../services/cross-reference-store.js";
 import { crossReferenceReplacements, compositeCrossReferenceReplacements, type CrossReferenceReplacement } from "../services/cross-reference-render.js";
 import type { CompileScope } from "../services/compile-scope.js";
 import type { ScriveningsDocument } from "../services/scrivenings-document.js";
 import { selectionOverlaps, type CrossEditorSelection } from "./cm-selection-overlap.js";
-import { createPandocCitationSpan } from "../services/pandoc-citation-preview.js";
+import { attachCitationTooltipBehavior, createPandocCitationSpan, disposePandocCitationElement, PANDOC_CITATION_TOOLTIP_CLASS } from "../services/pandoc-citation-preview.js";
+
+type CrossReferenceTooltip = readonly [string, string, string];
+type EditorReplacement = CrossReferenceReplacement & { tooltip?: CrossReferenceTooltip };
+let tooltipId = 0;
 
 interface CrossReferenceEditorView {
   state: {
@@ -23,6 +27,7 @@ interface CrossReferenceUpdate { view: CrossReferenceEditorView; docChanged?: bo
 interface DecorationStatic {
   none: unknown;
   replace(spec: { widget: WidgetType; inclusive: boolean }): { range(from: number, to: number): unknown };
+  mark(spec: { class: string }): { range(from: number, to: number): unknown };
   set(ranges: unknown[], sort: boolean): unknown;
 }
 interface PluginStatic {
@@ -40,13 +45,32 @@ export function notifyCrossReferenceEditors(app: App, delay = 0, paths?: readonl
 }
 
 export class CrossReferenceWidget extends WidgetType {
-  constructor(readonly text: string) { super(); }
-  eq(other: WidgetType): boolean { return other instanceof CrossReferenceWidget && other.text === this.text; }
+  constructor(readonly text: string, readonly tooltip?: CrossReferenceTooltip) { super(); }
+  eq(other: WidgetType): boolean {
+    return other instanceof CrossReferenceWidget && other.text === this.text
+      && this.tooltip?.every((line, index) => line === other.tooltip?.[index]) !== false
+      && !!this.tooltip === !!other.tooltip;
+  }
   toDOM(view?: { dom: HTMLElement }): HTMLElement {
-    const span = createPandocCitationSpan(view?.dom.ownerDocument ?? document, "");
+    const owner = view?.dom.ownerDocument ?? document;
+    const span = createPandocCitationSpan(owner, "feuillets-cross-reference");
     span.textContent = this.text;
+    if (this.tooltip) {
+      const tooltip = createPandocCitationSpan(owner, `${PANDOC_CITATION_TOOLTIP_CLASS} feuillets-cross-reference-tooltip`);
+      tooltip.setAttribute("role", "tooltip");
+      tooltip.id = `feuillets-cross-reference-tooltip-${++tooltipId}`;
+      this.tooltip.forEach((text, index) => {
+        const line = createPandocCitationSpan(owner, `feuillets-pandoc-citation-notice-line${index === 0 ? " is-primary" : ""}`);
+        line.textContent = text;
+        tooltip.appendChild(line);
+      });
+      span.appendChild(tooltip);
+      span.setAttribute("aria-describedby", tooltip.id);
+      attachCitationTooltipBehavior(span, tooltip);
+    }
     return span;
   }
+  destroy(dom: HTMLElement): void { disposePandocCitationElement(dom); }
   ignoreEvent(): boolean { return false; }
 }
 
@@ -66,15 +90,18 @@ export function createCrossReferenceExtension(
   getWorkspaceFolder: () => TFolder | null = () => null,
 ): unknown {
   if (typeof plugins?.fromClass !== "function") return [];
-  const setRows = (StateEffect as { define<T>(): { of(value: T): unknown } }).define<readonly CrossReferenceReplacement[]>();
-  const build = (rows: readonly CrossReferenceReplacement[], state: CrossReferenceEditorView["state"]): unknown => decorations.set(
-    visibleCrossReferenceReplacements(rows, state.selection, !!getContinuousHost || state.field<boolean>(editorLivePreviewField, false) !== false)
-      .filter((range) => range.from >= 0 && range.to <= state.doc.length)
-      .map((range) => decorations.replace({ widget: new CrossReferenceWidget(range.text), inclusive: false }).range(range.from, range.to)), true);
-  type FieldValue = { rows: readonly CrossReferenceReplacement[]; decorations: unknown };
+  const setRows = (StateEffect as { define<T>(): { of(value: T): unknown } }).define<readonly EditorReplacement[]>();
+  const build = (rows: readonly EditorReplacement[], state: CrossReferenceEditorView["state"]): unknown => {
+    if (!getContinuousHost && state.field<boolean>(editorLivePreviewField, false) === false) return decorations.set([], true);
+    return decorations.set(rows.filter((range) => range.from >= 0 && range.to <= state.doc.length).map((range) =>
+      selectionOverlaps(state.selection, range.from, range.to)
+        ? decorations.mark({ class: "feuillets-cross-reference-source" }).range(range.from, range.to)
+        : decorations.replace({ widget: new CrossReferenceWidget(range.text, range.tooltip), inclusive: false }).range(range.from, range.to)), true);
+  };
+  type FieldValue = { rows: readonly EditorReplacement[]; decorations: unknown };
   const field = (StateField as { define<T>(spec: {
     create(): T;
-    update(value: T, transaction: { docChanged: boolean; startState?: CrossReferenceEditorView["state"]; state: CrossReferenceEditorView["state"]; effects: readonly { is(type: unknown): boolean; value: readonly CrossReferenceReplacement[] }[] }): T;
+    update(value: T, transaction: { docChanged: boolean; startState?: CrossReferenceEditorView["state"]; state: CrossReferenceEditorView["state"]; effects: readonly { is(type: unknown): boolean; value: readonly EditorReplacement[] }[] }): T;
     provide(field: unknown): unknown;
   }): unknown }).define<FieldValue>({
     create: () => ({ rows: [], decorations: decorations.none }),
@@ -89,7 +116,7 @@ export function createCrossReferenceExtension(
   });
   const plugin = plugins.fromClass(class {
     decorations: unknown = decorations.none;
-    private replacements: CrossReferenceReplacement[] = [];
+    private replacements: EditorReplacement[] = [];
     private timer: number | null = null;
     private generation = 0;
     private readonly contents = new Map<string, Promise<string>>();
@@ -174,7 +201,20 @@ export function createCrossReferenceExtension(
         const store = await loadCrossReferenceStore(app, storeSettings);
         const resolution = await resolveCrossReferencesInContext(app, settings, scope, store, read, this.detect);
         if (this.destroyed || generation !== this.generation || source !== this.view.state.doc.toString()) return;
-        const local = crossReferenceReplacements(store, resolution, getLocale()).filter((range) => !staleSources.has(range.sourceFile));
+        const locale = getLocale();
+        const details = new Map<string, CrossReferenceTooltip>();
+        for (const occurrence of store.occurrences) {
+          const attached = resolution.occurrences.get(occurrence.id);
+          const target = resolution.targets.get(occurrence.targetId);
+          if (attached?.status !== "attached" || target?.status !== "resolved") continue;
+          const detected = target.detectedTarget;
+          details.set(`${occurrence.sourceFile}:${attached.range.start}:${attached.range.end}`, [
+            translate(locale, "xref.tooltip", { reference: `${translate(locale, `xref.type.${detected.type}`)} ${target.number}` }),
+            detected.titleOrCaption, detected.sourceFile.split("/").pop()?.replace(/\.md$/i, "") ?? detected.sourceFile,
+          ]);
+        }
+        const local = crossReferenceReplacements(store, resolution, locale).filter((range) => !staleSources.has(range.sourceFile))
+          .map((range) => ({ ...range, tooltip: details.get(`${range.sourceFile}:${range.from}:${range.to}`) }));
         this.replacements = host ? compositeCrossReferenceReplacements(host.document, local) : local.filter((range) => range.sourceFile === file?.path);
       } catch (error: unknown) {
         if (this.destroyed || generation !== this.generation) return;

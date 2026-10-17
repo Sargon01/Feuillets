@@ -3069,6 +3069,7 @@ export const en = {
   "genealogy.error.invalidRelations": "invalid parents or children",
   "genealogy.error.cycleDetected": "genealogy cycle detected",
   "xref.command": "Cross-reference…",
+  "xref.tooltip": "Cross-reference · {reference}",
   "xref.pickTarget": "Choose a cross-reference target…",
   "xref.pickMode": "Choose the display mode…",
   "xref.type.section": "section",

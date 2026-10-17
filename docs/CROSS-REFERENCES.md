@@ -6,7 +6,7 @@ Les relations sont conservées dans `cross-references.json`, dans les ressources
 
 ## Affichage et périmètre
 
-Dans l’aperçu en direct de l’éditeur Markdown et dans Continu, les décorations affichent les valeurs résolues. Une sélection ou le curseur dans une référence révèle son texte source pour permettre l’édition. Le mode source sans aperçu en direct et le mode Lecture affichent le texte humain ; le mode Lecture ne propose pas l’insertion de références.
+Dans l’aperçu en direct de l’éditeur Markdown et dans Continu, les décorations affichent les valeurs résolues. Un soulignement pointillé discret identifie les références valides. Leur infobulle présente le type, le numéro contextuel, le titre ou la légende actuelle et le nom du fichier cible, sans action de navigation. Une sélection ou le curseur dans une référence révèle son texte source pour permettre l’édition ; le soulignement reste sur la plage source tant qu’elle est rattachée. Les références non résolues ne reçoivent pas cette marque de validité. Le mode source sans aperçu en direct et le mode Lecture affichent le texte humain ; le mode Lecture ne propose pas l’insertion de références.
 
 L’Aperçu paginé et les exports utilisent le contexte de leur composition. Une cible extérieure au feuillet ou au chapitre composé conserve donc son texte humain, même si elle est résolue dans le manuscrit complet. Les pages annexes participent au contexte seulement lorsqu’elles sont incluses.
 

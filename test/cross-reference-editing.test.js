@@ -737,7 +737,7 @@ test("XRef widget: textContent creates plain text, with no HTML interpretation o
 test("XRef widget uses the owning window's span helper and preserves plain text", (t) => {
   const span = { textContent: "" };
   let calls = 0;
-  const owningWindow = { createSpan(options) { calls++; assert.deepEqual(options, { cls: "" }); return span; } };
+  const owningWindow = { createSpan(options) { calls++; assert.deepEqual(options, { cls: "feuillets-cross-reference" }); return span; } };
   const ownerDocument = { defaultView: owningWindow };
   const previous = Object.getOwnPropertyDescriptor(globalThis, "document");
   Object.defineProperty(globalThis, "document", { configurable: true, value: {
@@ -939,8 +939,11 @@ test("XRef CodeMirror: live widget, raw Source mode, cursor reveal and read-only
   assert.ok(plugin.decorations[0].widget instanceof CrossReferenceWidget); assert.equal(plugin.decorations[0].widget.text, "image 2");
   let fieldValue = field.update(field.create(), { state: view.state, docChanged: false, effects: [view.effects.at(-1)] });
   assert.equal(fieldValue.decorations.length, 1);
-  view.selection([{ from: 6, to: 6 }]); plugin.update({ view, selectionSet: true }); assert.equal(plugin.decorations.length, 0);
-  fieldValue = field.update(fieldValue, { state: view.state, docChanged: false, effects: [] }); assert.equal(fieldValue.decorations.length, 0);
+  view.selection([{ from: 6, to: 6 }]); plugin.update({ view, selectionSet: true }); assert.equal(plugin.decorations.length, 1);
+  assert.equal(plugin.decorations[0].widget, undefined);
+  assert.equal(plugin.decorations[0].class, "feuillets-cross-reference-source");
+  fieldValue = field.update(fieldValue, { state: view.state, docChanged: false, effects: [] }); assert.equal(fieldValue.decorations.length, 1);
+  assert.equal(fieldValue.decorations[0].class, "feuillets-cross-reference-source");
   view.selection([{ from: 0, to: 0 }]); view.live(false); plugin.update({ view }); assert.equal(plugin.decorations.length, 0);
   notifyCrossReferenceEditors(state.app); await waitFor(() => view.effects.length >= 2);
   assert.equal(modify.mock.callCount(), 0); assert.equal(create.mock.callCount(), 0);

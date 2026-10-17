@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { builtinModules } from "node:module";
 import { build } from "esbuild";
@@ -40,9 +40,11 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
   });
   const browser = await chromium.launch({ headless: true }); t.after(() => browser.close());
   const page = await browser.newPage(); const errors = []; page.on("pageerror", (error) => errors.push(error.message));
+  await page.addStyleTag({ content: readFileSync(resolve("styles.css"), "utf8") });
+  await page.addStyleTag({ content: "body { --text-faint: rgb(120, 120, 120); } .cm-editor { height: 300px; }" });
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
   await page.evaluate(() => {
-    window.createSpan = () => document.createElement("span");
+    window.createSpan = ({ cls }) => { const span = document.createElement("span"); span.className = cls; return span; };
     const api = window.CrossReferenceBrowser;
     const root = new api.TFolder("Manuscript");
     const a = new api.TFile("Manuscript/A.md", "![First map](a.png)");
@@ -66,10 +68,23 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
       extensions: [api.editorInfoField, api.editorLivePreviewField, api.createCrossReferenceExtension(app, () => settings)] }), parent: document.body });
     window.browserXref = { view, source, noteStart, app, path, files, json, writes: () => writes };
   });
-  await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("Current map") && document.querySelector(".cm-content")?.textContent.includes("image 2"));
+  await page.waitForFunction(() => document.querySelector(".cm-content")?.innerText.includes("Current map") && document.querySelector(".cm-content")?.innerText.includes("image 2"));
+  assert.equal(await page.locator(".feuillets-cross-reference").count(), 2);
   const first = await page.evaluate(() => ({ text: document.querySelector(".cm-content").textContent, source: window.browserXref.view.state.doc.toString() }));
   assert.ok(first.text.includes("image 2")); assert.ok(first.text.includes("Current map")); assert.ok(!first.text.includes("linked text"));
   assert.equal(first.source, "See figure 99\nlinked text.\n\n[^1]: See figure 88.");
+  const mark = page.locator(".feuillets-cross-reference").first();
+  assert.equal(await mark.evaluate((node) => getComputedStyle(node).textDecorationStyle), "dotted");
+  await mark.hover();
+  const tooltip = page.locator("body > .feuillets-cross-reference-tooltip");
+  await tooltip.waitFor({ state: "visible" });
+  assert.match(await tooltip.textContent(), /(?:Référence croisée|Cross-reference) · image 2/);
+  assert.ok((await tooltip.textContent()).includes("Current map"));
+  assert.ok((await tooltip.textContent()).endsWith("B"));
+  await tooltip.hover();
+  assert.equal(await tooltip.isVisible(), true);
+  await page.mouse.move(700, 400);
+  await tooltip.waitFor({ state: "detached" });
   const switched = await page.evaluate(() => {
     const { view, source, files } = window.browserXref;
     const api = window.CrossReferenceBrowser;
@@ -78,17 +93,33 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
     view.dispatch({ effects: api.setBrowserFile.of(other) });
     return view.dom.textContent;
   });
+  assert.equal(await page.locator(".feuillets-cross-reference").count(), 0);
+  assert.equal(await page.locator("body > .feuillets-cross-reference-tooltip").count(), 0);
   assert.ok(switched.includes("linked text")); assert.ok(switched.includes("figure 88"));
   await page.evaluate(() => window.browserXref.view.dispatch({ effects:
     window.CrossReferenceBrowser.setBrowserFile.of(window.browserXrefFile) }));
-  await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("Current map"));
+  await page.waitForFunction(() => document.querySelector(".cm-content")?.innerText.includes("Current map"));
   await page.evaluate(() => window.browserXref.view.dispatch({ selection: { anchor: 7 } }));
-  await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("linked text"));
+  await page.waitForFunction(() => document.querySelector(".cm-content")?.innerText.includes("linked text"));
+  assert.equal(await page.locator(".feuillets-cross-reference-source").count() > 0, true);
+  assert.equal(await page.evaluate(() => window.browserXref.view.state.selection.main.head), 7);
+  await page.evaluate(() => {
+    window.browserXref.files.get("Manuscript/B.md").content = "![Renamed current map](b.png)";
+    window.CrossReferenceBrowser.notifyCrossReferenceEditors(window.browserXref.app);
+    window.browserXref.view.dispatch({ selection: { anchor: 0 } });
+  });
+  await page.waitForFunction(() => document.querySelector(".cm-content")?.innerText.includes("Renamed current map"));
+  await page.locator(".feuillets-cross-reference").first().hover();
+  await tooltip.waitFor({ state: "visible" });
+  assert.ok((await tooltip.textContent()).includes("Renamed current map"));
   await page.evaluate(() => {
     window.browserXref.view.dispatch({ selection: { anchor: 0 }, effects: window.CrossReferenceBrowser.setBrowserPreview.of(false) });
   });
-  await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("figure 88"));
+  await page.waitForFunction(() => document.querySelector(".cm-content")?.innerText.includes("figure 88"));
   const final = await page.evaluate(() => ({ source: window.browserXref.view.state.doc.toString(), store: window.browserXref.files.get(window.browserXref.path).content, original: window.browserXref.json, writes: window.browserXref.writes() }));
   assert.equal(final.source, first.source); assert.equal(final.store, final.original); assert.equal(final.writes, 0);
+  assert.equal(await page.locator("body > .feuillets-cross-reference-tooltip").count(), 0);
+  await page.evaluate(() => window.browserXref.view.destroy());
+  assert.equal(await page.locator(".feuillets-cross-reference-tooltip").count(), 0);
   assert.deepEqual(errors, []);
 });

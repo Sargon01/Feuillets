@@ -11862,6 +11862,16 @@ body.feuillets-text-width
    avec les variables du thème actif — clair ou sombre. L'Aperçu Feuillets
    (PreviewView) ne produit jamais cette classe : il ne transforme les
    citations qu'en texte brut. */
+/* These editor-only marks preserve text metrics and never enter static renders. */
+.feuillets-cross-reference,
+.feuillets-cross-reference-source {
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--text-faint);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
 .feuillets-pandoc-citation {
   position: relative;
   border-bottom: 1px dotted var(--text-faint);
