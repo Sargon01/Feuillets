@@ -3079,5 +3079,6 @@ export const en = {
   "xref.mode.number": "Number",
   "xref.mode.title": "Title or caption",
   "xref.notice.changed": "The text or selection changed. Run the cross-reference command again.",
+  "xref.notice.overlap": "This passage already contains a cross-reference. Select text outside existing references.",
   "xref.notice.failed": "The cross-reference relation could not be created. Any text already inserted has been kept.",
 } satisfies Record<keyof typeof fr, string>;

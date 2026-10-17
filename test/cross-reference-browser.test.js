@@ -16,7 +16,7 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
       export { createCrossReferenceLink } from "./services/cross-reference-resolution.ts";
       export { emptyCrossReferenceStore, serializeCrossReferenceStore } from "./services/cross-reference-model.ts";
       export { detectCrossReferenceTargets } from "./services/cross-reference-detection.ts";
-      export { TFile, TFolder, editorInfoField, editorLivePreviewField, setBrowserPreview } from "obsidian";
+      export { TFile, TFolder, editorInfoField, editorLivePreviewField, setBrowserPreview, setBrowserFile } from "obsidian";
     ` },
     bundle: true, write: false, format: "iife", globalName: "CrossReferenceBrowser",
     external: ["electron", ...builtinModules, ...builtinModules.map((name) => `node:${name}`)],
@@ -26,7 +26,11 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
         export * from ${JSON.stringify(resolve("test/obsidian-runtime-stub.mjs"))};
         import { StateField, StateEffect } from "@codemirror/state";
         export const setBrowserPreview = StateEffect.define();
-        export const editorInfoField = StateField.define({ create: () => ({ file: globalThis.browserXrefFile }), update: v => v });
+        export const setBrowserFile = StateEffect.define();
+        export const editorInfoField = StateField.define({ create: () => ({ file: globalThis.browserXrefFile }), update: (v, tr) => {
+          for (const e of tr.effects) if (e.is(setBrowserFile)) v = { file: e.value };
+          return v;
+        } });
         export const editorLivePreviewField = StateField.define({ create: () => true, update: (v, tr) => {
           for (const e of tr.effects) if (e.is(setBrowserPreview)) v = e.value;
           return v;
@@ -66,6 +70,18 @@ test("XRef browser: real CodeMirror renders multiline selections and notes witho
   const first = await page.evaluate(() => ({ text: document.querySelector(".cm-content").textContent, source: window.browserXref.view.state.doc.toString() }));
   assert.ok(first.text.includes("image 2")); assert.ok(first.text.includes("Current map")); assert.ok(!first.text.includes("linked text"));
   assert.equal(first.source, "See figure 99\nlinked text.\n\n[^1]: See figure 88.");
+  const switched = await page.evaluate(() => {
+    const { view, source, files } = window.browserXref;
+    const api = window.CrossReferenceBrowser;
+    const other = new api.TFile("Manuscript/Other.md", source);
+    files.set(other.path, other);
+    view.dispatch({ effects: api.setBrowserFile.of(other) });
+    return view.dom.textContent;
+  });
+  assert.ok(switched.includes("linked text")); assert.ok(switched.includes("figure 88"));
+  await page.evaluate(() => window.browserXref.view.dispatch({ effects:
+    window.CrossReferenceBrowser.setBrowserFile.of(window.browserXrefFile) }));
+  await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("Current map"));
   await page.evaluate(() => window.browserXref.view.dispatch({ selection: { anchor: 7 } }));
   await page.waitForFunction(() => document.querySelector(".cm-content")?.textContent.includes("linked text"));
   await page.evaluate(() => {

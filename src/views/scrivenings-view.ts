@@ -723,7 +723,8 @@ export class ScriveningsView extends ItemView {
       EditorViewCtorTyped.scrollHandler.of((_view, range) => this.handleFocusScroll(range.head)),
       createCrossReferenceExtension(this.plugin.app, () => this.plugin.settings,
         (file) => this.plugin.readCrossReferenceContent?.(file) ?? this.plugin.app.vault.read(file),
-        () => this._compileScope && this.session.document ? { scope: this._compileScope, document: this.session.document } : null,
+        () => this._compileScope && this.session.document ? { scope: this._compileScope, document: this.session.document,
+          isDirty: (path) => this.isCrossReferenceFileDirty(path) } : null,
         () => this.plugin.getWorkspaceFolder?.() ?? null),
       ...createScriveningsExtensions(imageResolver),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
@@ -1302,6 +1303,10 @@ export class ScriveningsView extends ItemView {
    * dispatches. */
   getSegmentByPath(path: string): ScriveningsSegment | null {
     return this.session.document?.segments.find((s) => s.path === path) ?? null;
+  }
+
+  isCrossReferenceFileDirty(path: string): boolean {
+    return this.session.isDirty(path);
   }
 
   /** Resolves the current selection through the existing composite source map. */

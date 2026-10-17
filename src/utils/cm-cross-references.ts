@@ -56,7 +56,7 @@ export function visibleCrossReferenceReplacements(
   return livePreview ? replacements.filter((range) => !selectionOverlaps(selection, range.from, range.to)) : [];
 }
 
-export interface ContinuousCrossReferenceHost { scope: CompileScope; document: ScriveningsDocument }
+export interface ContinuousCrossReferenceHost { scope: CompileScope; document: ScriveningsDocument; isDirty?(path: string): boolean }
 
 /** A single text widget pipeline for native Markdown editors and continuous compositions. */
 export function createCrossReferenceExtension(
@@ -74,12 +74,14 @@ export function createCrossReferenceExtension(
   type FieldValue = { rows: readonly CrossReferenceReplacement[]; decorations: unknown };
   const field = (StateField as { define<T>(spec: {
     create(): T;
-    update(value: T, transaction: { docChanged: boolean; state: CrossReferenceEditorView["state"]; effects: readonly { is(type: unknown): boolean; value: readonly CrossReferenceReplacement[] }[] }): T;
+    update(value: T, transaction: { docChanged: boolean; startState?: CrossReferenceEditorView["state"]; state: CrossReferenceEditorView["state"]; effects: readonly { is(type: unknown): boolean; value: readonly CrossReferenceReplacement[] }[] }): T;
     provide(field: unknown): unknown;
   }): unknown }).define<FieldValue>({
     create: () => ({ rows: [], decorations: decorations.none }),
     update(value, transaction) {
-      let rows = transaction.docChanged ? [] : value.rows;
+      const changedFile = transaction.startState && transaction.startState.field<{ file: TFile | null }>(editorInfoField, false)?.file
+        !== transaction.state.field<{ file: TFile | null }>(editorInfoField, false)?.file;
+      let rows = transaction.docChanged || changedFile ? [] : value.rows;
       for (const effect of transaction.effects) if (effect.is(setRows)) rows = effect.value;
       return { rows, decorations: build(rows, transaction.state) };
     },
@@ -156,20 +158,23 @@ export function createCrossReferenceExtension(
       if (!scope || (!getContinuousHost && this.view.state.field<boolean>(editorLivePreviewField, false) === false)) {
         this.replacements = []; this.rebuild(); this.view.dispatch({ effects: setRows.of([]) }); return;
       }
+      const staleSources = new Set<string>();
       const read: CrossReferenceContentReader = async (target) => {
         const segment = host?.document.segments.find((entry) => entry.path === target.path);
-        if (segment) return segment.frontmatter + segment.body;
+        if (segment && host?.isDirty?.(target.path) !== false) return segment.frontmatter + segment.body;
         if (target.path === file?.path && !getContinuousHost) return source;
         let content = this.contents.get(target.path);
         if (!content) { content = readContent(target); this.contents.set(target.path, content); }
-        return content;
+        const current = await content;
+        if (segment && current !== segment.frontmatter + segment.body) staleSources.add(target.path);
+        return current;
       };
       try {
         const storeSettings = crossReferenceProjectSettings(app, settings, scope.projectRoot);
         const store = await loadCrossReferenceStore(app, storeSettings);
         const resolution = await resolveCrossReferencesInContext(app, settings, scope, store, read, this.detect);
         if (this.destroyed || generation !== this.generation || source !== this.view.state.doc.toString()) return;
-        const local = crossReferenceReplacements(store, resolution, getLocale());
+        const local = crossReferenceReplacements(store, resolution, getLocale()).filter((range) => !staleSources.has(range.sourceFile));
         this.replacements = host ? compositeCrossReferenceReplacements(host.document, local) : local.filter((range) => range.sourceFile === file?.path);
       } catch (error: unknown) {
         if (this.destroyed || generation !== this.generation) return;

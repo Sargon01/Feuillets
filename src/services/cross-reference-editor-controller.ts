@@ -3,7 +3,9 @@ import { translate, type Locale } from "../i18n/index.js";
 import { compileScopesEqual, type CompileScope } from "./compile-scope.js";
 import { crossReferenceBoundaryScope, crossReferenceProjectSettings, loadCrossReferenceContext, type NumberedCrossReferenceTarget } from "./cross-reference-context.js";
 import { formatCrossReference } from "./cross-reference-format.js";
-import { addCrossReferenceLinkFromContents, type CrossReferenceContentReader } from "./cross-reference-store.js";
+import { addCrossReferenceLinkFromContents, loadCrossReferenceStore, type CrossReferenceContentReader } from "./cross-reference-store.js";
+import { resolveCrossReferenceOccurrence } from "./cross-reference-resolution.js";
+import { selectionOverlaps } from "../utils/cm-selection-overlap.js";
 import type { CrossReferenceDisplayMode } from "./cross-reference-model.js";
 import type { FeuilletsEditorSurface } from "../utils/scrivenings-editor-adapter.js";
 
@@ -47,11 +49,19 @@ export class CrossReferenceEditorController {
       const modes: CrossReferenceDisplayMode[] = ["type-number", "number", "title"];
       const mode = await this.deps.chooseMode(modes.map((mode) => ({ mode, text: formatCrossReference(initial, mode, locale) })));
       if (!mode) return;
+      const store = await loadCrossReferenceStore(app, settings);
       const currentBoundary = crossReferenceBoundaryScope(app, this.deps.getSettings(), file, this.deps.getWorkspaceFolder?.() ?? null);
       if (!currentBoundary || !compileScopesEqual(rootScope, currentBoundary)
         || !isCurrent() || editor.getValue() !== before || editor.posToOffset(editor.getCursor("from")) !== start
         || editor.posToOffset(editor.getCursor("to")) !== end) {
         this.deps.notify(translate(locale, "xref.notice.changed")); return;
+      }
+      if (store.occurrences.some((occurrence) => {
+        if (occurrence.sourceFile !== file.path) return false;
+        const attached = resolveCrossReferenceOccurrence(occurrence, before);
+        return attached.status === "attached" && selectionOverlaps({ ranges: [{ from: start, to: end }] }, attached.range.start, attached.range.end);
+      })) {
+        this.deps.notify(translate(locale, "xref.notice.overlap")); return;
       }
       const text = formatCrossReference(initial, mode, locale);
       if (start === end) {
@@ -68,8 +78,11 @@ export class CrossReferenceEditorController {
       const targetFile = app.vault.getAbstractFileByPath(selected.detectedTarget.sourceFile);
       if (!(targetFile instanceof TFile) || targetFile.extension !== "md") throw new Error("Cross-reference target file is unavailable");
       const targetContent = targetFile.path === file.path ? content : await read(targetFile);
-      await addCrossReferenceLinkFromContents(app, settings, selected.detectedTarget, targetContent, file, content, start, occurrenceEnd, mode);
+      const result = await addCrossReferenceLinkFromContents(app, settings, selected.detectedTarget, targetContent, file, content, start, occurrenceEnd, mode);
       this.deps.changed();
+      if (resolveCrossReferenceOccurrence(result.occurrence, editor.getValue()).status === "detached") {
+        this.deps.notify(translate(locale, "xref.notice.failed"));
+      }
     } catch (error: unknown) {
       console.error("Feuillets cross-reference insertion", error);
       this.deps.notify(translate(locale, "xref.notice.failed"));

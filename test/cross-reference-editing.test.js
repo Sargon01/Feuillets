@@ -1105,3 +1105,128 @@ test("XRef store: a sidecar modification refreshes every registered editor witho
   await renderTick(t, [first, second], 350);
   assert.equal(a.decorations[0].widget.text, "Map B"); assert.equal(b.decorations[0].widget.text, "Map B");
 });
+
+test("XRef insertion: linking an already linked selection does not create overlapping relations", async () => {
+  const state = await fixture(); const value = "Voir ce passage précis.";
+  const surface = editor(value, 5, 22); const action = controller(state, { mode: "title" });
+  await action.instance.insert(surface, state.ref, state.scope);
+  const before = await loadCrossReferenceStore(state.app, state.settings);
+  await action.instance.insert(surface, state.ref, state.scope);
+  const after = await loadCrossReferenceStore(state.app, state.settings);
+  assert.deepEqual(after, before);
+  assert.equal(action.notices.length, 1);
+  assert.equal(surface.value, value); assert.deepEqual([surface.from, surface.to], [5, 22]);
+  const resolution = await resolveCrossReferencesInContext(state.app, state.settings, state.scope, after,
+    async (file) => file === state.ref ? value : file.content);
+  assert.equal(crossReferenceReplacements(after, resolution, "fr").length, 1);
+});
+
+test("XRef command: recomposing Continu while the mode picker is open cancels the captured editor", async (t) => {
+  const state = await fixture(); const current = continuous(state, [{ file: state.ref, content: "Voir " }], 5);
+  state.app.workspace = { getActiveViewOfType: (type) => type === ScriveningsView ? current.view : null };
+  const commands = []; const plugin = { app: state.app, settings: state.settings, addCommand: (command) => commands.push(command) };
+  const done = deferred(); const original = CrossReferenceEditorController.prototype.insert;
+  t.mock.method(CrossReferenceEditorController.prototype, "insert", async function (surface, file, scope, _read, isCurrent) {
+    const action = controller(state, { chooseMode: () => {
+      current.view.cm = { ...current.cm };
+      current.view._compileScope = createProjectScope(state.root.path);
+      return "type-number";
+    } });
+    await original.call(action.instance, surface, file, scope, current.read, isCurrent); done.resolve(action);
+  });
+  FeuilletsPlugin.prototype.registerCrossReferenceCommand.call(plugin);
+  assert.equal(commands[0].checkCallback(false), true); const action = await done.promise;
+  assert.equal(current.adapter.getValue(), "Voir ");
+  assert.deepEqual(await loadCrossReferenceStore(state.app, state.settings), emptyCrossReferenceStore());
+  assert.equal(action.notices.length, 1);
+});
+
+test("XRef command: moving to another Continu segment while a picker is open never inserts at a clamped boundary", async (t) => {
+  const state = await fixture(); const current = continuous(state, [{ file: state.ref, content: "Voir " }, { file: state.b, content: state.b.content }], 5);
+  state.app.workspace = { getActiveViewOfType: (type) => type === ScriveningsView ? current.view : null };
+  const commands = []; const plugin = { app: state.app, settings: state.settings, addCommand: (command) => commands.push(command) };
+  const done = deferred(); const original = CrossReferenceEditorController.prototype.insert;
+  t.mock.method(CrossReferenceEditorController.prototype, "insert", async function (surface, file, scope, _read, isCurrent) {
+    const action = controller(state, { chooseMode: () => {
+      const next = current.view.getSegmentByPath(state.b.path);
+      current.cm.dispatch({ selection: { anchor: next.from } });
+      return "number";
+    } });
+    await original.call(action.instance, surface, file, scope, current.read, isCurrent); done.resolve(action);
+  });
+  FeuilletsPlugin.prototype.registerCrossReferenceCommand.call(plugin);
+  assert.equal(commands[0].checkCallback(false), true); const action = await done.promise;
+  assert.equal(current.adapter.getValue(), "Voir "); assert.equal(current.view.getLiveBody(state.b.path), state.b.content);
+  assert.deepEqual(await loadCrossReferenceStore(state.app, state.settings), emptyCrossReferenceStore());
+  assert.equal(action.notices.length, 1);
+});
+
+test("XRef CodeMirror: destroying an editor during a read prevents late dispatches and removes its subscription", async () => {
+  const state = await fixture(); await saveCrossReferenceStore(state.app, state.settings, link(state).store);
+  const entered = deferred(); const release = deferred(); let reads = 0;
+  const [, Plugin] = createCrossReferenceExtension(state.app, () => state.settings, async (file) => {
+    reads++;
+    if (file === state.b) { entered.resolve(); await release.promise; }
+    return file.content;
+  });
+  const view = fakeRenderView(state, state.ref.content); const plugin = new Plugin(view);
+  await entered.promise; plugin.destroy(); release.resolve();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const before = reads; notifyCrossReferenceEditors(state.app);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(view.effects.length, 0); assert.equal(reads, before);
+});
+
+test("XRef insertion: deleting inserted text during persistence never links identical unrelated text", async (t) => {
+  const state = await fixture(); const before = "Unrelated Map B.\n\nSee ";
+  const surface = editor(before); const action = controller(state, { mode: "title" }); const gate = delayedStoreWrite(t, state);
+  const pending = action.instance.insert(surface, state.ref, state.scope); await gate.entered;
+  assert.equal(surface.value, before + "Map B");
+  surface.setValue(before); surface.setCursor(surface.offsetToPos(before.length));
+  gate.release.resolve(); await pending;
+  const store = await loadCrossReferenceStore(state.app, state.settings);
+  const resolution = await resolveCrossReferencesInContext(state.app, state.settings, state.scope, store,
+    async (file) => file === state.ref ? surface.value : file.content);
+  assert.equal(resolution.occurrences.get(store.occurrences[0].id).status, "detached");
+  assert.equal(crossReferenceReplacements(store, resolution, "fr").length, 0);
+  assert.equal(surface.value, before); assert.equal(surface.from, before.length);
+  assert.equal(action.notices.length, 1);
+});
+
+test("XRef Continu: external changes refresh target labels without applying stale source offsets", async (t) => {
+  const state = await fixture(); const created = link(state, "figure", state.b, state.ref.content, "title");
+  await saveCrossReferenceStore(state.app, state.settings, created.store);
+  const current = acceptedContinu(state, [state.a, state.b, state.ref].map((file) => ({ file, content: file.content })));
+  state.app.workspace = { getActiveViewOfType: () => null,
+    getLeavesOfType: (type) => type === "feuillets-scrivenings" ? [{ view: current }] : [] };
+  const view = fakeRenderView(state, current.session.document.text, null);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const [, Plugin] = createCrossReferenceExtension(state.app, () => state.settings,
+    (file) => FeuilletsPlugin.prototype.readCrossReferenceContent.call({ app: state.app }, file),
+    () => ({ scope: state.scope, document: current.session.document, isDirty: (path) => current.session.isDirty(path) }));
+  const plugin = new Plugin(view); t.after(() => plugin.destroy()); await renderTick(t, view, 0);
+  assert.equal(plugin.decorations[0].widget.text, "Map B");
+  state.b.content = state.b.content.replace("Map B", "External map");
+  notifyCrossReferenceEditors(state.app, 0, [state.b.path]); await renderTick(t, view, 0);
+  assert.equal(plugin.decorations[0].widget.text, "External map");
+  state.ref.content = "An external introduction.\n" + state.ref.content;
+  notifyCrossReferenceEditors(state.app, 0, [state.ref.path]); await renderTick(t, view, 0);
+  assert.equal(plugin.decorations.length, 0);
+  assert.equal(view.state.doc.toString(), current.session.document.text);
+});
+
+test("XRef command: the Continu target picker reads external changes to clean segments", async (t) => {
+  const state = await fixture();
+  const current = continuous(state, [{ file: state.ref, content: "Voir " }, { file: state.b, content: state.b.content }], 5);
+  current.view.session.isDirty = () => false;
+  state.b.content = state.b.content.replace("Map B", "External map");
+  state.app.workspace = { getActiveViewOfType: (type) => type === ScriveningsView ? current.view : null,
+    getLeavesOfType: (type) => type === "feuillets-scrivenings" ? [{ view: current.view }] : [] };
+  const commands = []; const plugin = { app: state.app, settings: state.settings, addCommand: (command) => commands.push(command),
+    readCrossReferenceContent: (file) => FeuilletsPlugin.prototype.readCrossReferenceContent.call({ app: state.app }, file) };
+  const done = deferred();
+  t.mock.method(CrossReferenceEditorController.prototype, "insert", async (_editor, _file, _scope, read) => done.resolve(await read(state.b)));
+  FeuilletsPlugin.prototype.registerCrossReferenceCommand.call(plugin);
+  assert.equal(commands[0].checkCallback(false), true);
+  assert.equal(await done.promise, state.b.content);
+});

@@ -52,7 +52,12 @@ export function resolveCrossReferenceTarget(
 export function resolveCrossReferenceOccurrence(occurrence: CrossReferenceOccurrence, content: string | null): CrossReferenceOccurrenceResolution {
   if (content === null) return { status: "detached" };
   const result = resolveSourceAnchorStrict(occurrence.anchor, content);
-  return result.status === "resolved" ? { status: "attached", range: result.range } : { status: "detached" };
+  if (result.status !== "resolved") return { status: "detached" };
+  const { prefix, suffix } = occurrence.anchor;
+  if ((prefix || suffix)
+    && !(prefix && content.slice(Math.max(0, result.range.start - prefix.length), result.range.start) === prefix)
+    && !(suffix && content.slice(result.range.end, result.range.end + suffix.length) === suffix)) return { status: "detached" };
+  return { status: "attached", range: result.range };
 }
 
 export interface CrossReferenceLink {

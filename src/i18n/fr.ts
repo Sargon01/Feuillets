@@ -3079,5 +3079,6 @@ export const fr = {
   "xref.mode.number": "Numéro",
   "xref.mode.title": "Titre ou légende",
   "xref.notice.changed": "Le texte ou la sélection a changé. Relancez la commande de référence croisée.",
+  "xref.notice.overlap": "Ce passage contient déjà une référence croisée. Choisissez un texte qui ne chevauche pas une référence existante.",
   "xref.notice.failed": "La relation de référence croisée n’a pas pu être créée. Tout texte déjà inséré est conservé.",
 } as const;

@@ -13,7 +13,7 @@
  */
 
 import { DEFAULT_SETTINGS, type DefaultSettings } from "./default-settings.js";
-import { type CompileScope, createProjectScope, createFolderScope, createFileScope, createSelectionScope } from "./services/compile-scope.js";
+import { type CompileScope, compileScopesEqual, createProjectScope, createFolderScope, createFileScope, createSelectionScope } from "./services/compile-scope.js";
 import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
 import { migrateLegacyProjectTypes, migrateLegacyTaxonomyEntries } from "./services/project-settings.js";
@@ -2636,7 +2636,7 @@ class FeuilletsPlugin extends Plugin {
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SCRIVENINGS)) {
       if (!(leaf.view instanceof ScriveningsView)) continue;
       const segment = leaf.view.getSegmentByPath(file.path);
-      if (segment) return segment.frontmatter + segment.body;
+      if (segment && leaf.view.isCrossReferenceFileDirty(file.path)) return segment.frontmatter + segment.body;
     }
     return this.app.vault.read(file);
   }
@@ -2648,14 +2648,16 @@ class FeuilletsPlugin extends Plugin {
       checkCallback: (checking) => {
         const continuous = this.app.workspace.getActiveViewOfType(ScriveningsView);
         const context = continuous?.resolveCursorEditorContext();
+        const continuousEditor = continuous?.editorView;
         const native = this.app.workspace.getActiveViewOfType(MarkdownView);
         if (!continuous && native?.getMode() !== "source") return false;
         const file = context?.file ?? native?.file;
         const scope = continuous ? continuous.compileScope : file ? crossReferenceBoundaryScope(this.app, this.settings, file, this.getWorkspaceFolder?.() ?? null) : null;
         if (!file || !scope || (continuous && !context)) return false;
         if (!checking) {
-          const editor = continuous?.editorView && context
-            ? new ScriveningsSegmentEditorAdapter(continuous.editorView, file.path, (path) => continuous.getSegmentByPath(path))
+          const editor = continuousEditor && context
+            ? new ScriveningsSegmentEditorAdapter(continuousEditor, file.path, (path) =>
+              continuous?.editorView === continuousEditor ? continuous.getSegmentByPath(path) : null)
             : native?.editor;
           if (!editor) return false;
           const controller = new CrossReferenceEditorController({
@@ -2668,9 +2670,12 @@ class FeuilletsPlugin extends Plugin {
           });
           void controller.insert(editor, file, scope, async (target) => {
             const segment = continuous?.getSegmentByPath(target.path);
-            return segment ? segment.frontmatter + segment.body : this.readCrossReferenceContent(target);
-          }, () => continuous ? this.app.workspace.getActiveViewOfType(ScriveningsView) === continuous && continuous.getSegmentByPath(file.path) !== null
-            : this.app.workspace.getActiveViewOfType(MarkdownView) === native && native?.file?.path === file.path && native.getMode() === "source");
+            return segment && continuous?.isCrossReferenceFileDirty(target.path)
+              ? segment.frontmatter + segment.body : this.readCrossReferenceContent(target);
+          }, () => continuous ? this.app.workspace.getActiveViewOfType(ScriveningsView) === continuous
+            && continuous.editorView === continuousEditor && continuous.compileScope !== null && compileScopesEqual(scope, continuous.compileScope)
+            && continuous.resolveCursorEditorContext()?.file === file
+            : this.app.workspace.getActiveViewOfType(MarkdownView) === native && native?.file === file && native.editor === editor && native.getMode() === "source");
         }
         return true;
       },
