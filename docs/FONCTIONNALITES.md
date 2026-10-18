@@ -73,6 +73,15 @@ Dans l’éditeur Markdown natif, le menu contextuel propose selon le contexte *
 - conversion explicite d’une ancienne branche d’Arbre d’idées en mindmap ;
 - fonctionnement de base indépendant d’Advanced Canvas.
 
+- notes libres façon Scapple et connexions par dépôt simple ou multiple ; les relations enrichies ne sont pas supprimées par le raccourci simple ;
+- habillages sans cadre, contour, coins arrondis, fond coloré ou carte Canvas classique ;
+- taille, alignement et couleurs de texte ; formatage d’une sélection en gras, italique, barré ou soulignement inline sur un paragraphe ;
+- connexions droites, courbes ou Map, traits continus/tirets/pointillés, épaisseurs, flèches, couleurs et ancrages adaptés ;
+- alignement, distribution, justification verticale et empilement ponctuel ; piles dynamiques persistantes et dissociation ;
+- onglet **Carnets**, inspecteur contextuel, barre flottante et styles par défaut réservés aux futurs éléments libres ;
+- commande du Plan Binder explicitement globale : manuscrit entier dans le Carnet global.
+
+
 Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
 
 ### Cartes, Plan, Chemin de fer, Chronologie
@@ -137,6 +146,27 @@ Voir [Un projet, plusieurs espaces de travail](ESPACES-DE-TRAVAIL.md).
 - Continu permet de travailler plusieurs feuillets comme un seul texte tout en conservant les fichiers sources séparés ;
 - vrais fichiers Markdown conservés malgré les réglages visuels.
 
+### Recherche, correction et journal
+
+- recherche/remplacement sur feuillet, dossier, sélection, ouvrage ou projet, avec options de casse/accents, protections, prévisualisation et restauration globale contrôlée ;
+- exceptions locales d’alignement, d’alinéa et d’espacement des paragraphes, stockées hors Markdown ;
+- correction française directe dans l’éditeur et Continu avec Feuillets-Grammalecte facultatif ; analyse en direct limitée aux feuillets visibles dans Continu ;
+- journal d’écriture, statistiques quotidiennes séparées par projet et suffixe facultatif des fichiers du journal, sans renommage des entrées existantes.
+
+Voir [Écrire et corriger](ECRIRE-ET-CORRIGER.md).
+
+## Références croisées internes
+
+- insertion au curseur ou liaison d’un texte sélectionné, sans remplacer la sélection source ;
+- cibles section H1–H6, image Markdown légendée, tableau Markdown et annexe reconnue ;
+- numéro, type et numéro ou titre/légende ; compteurs distincts par type et contexte ;
+- rendu dynamique en Live Preview et Continu, soulignement discret, infobulle, texte source révélé à l’édition ;
+- conservation du texte humain si la cible est absente, ambiguë ou exclue ;
+- résolution dans l’Aperçu et Markdown/DOCX/ODT/EPUB/PDF/paquet Pandoc, sans champs Word recalculables ni mutation des sources ;
+- indépendance des citations bibliographiques CSL.
+
+Voir [Références croisées](CROSS-REFERENCES.md).
+
 ## Révision et collaboration
 
 ### Relecture
@@ -185,7 +215,7 @@ Le panneau Relecture regroupe :
 - composition résolue à la racine éditoriale active, afin de publier séparément articles, modules de cours, tomes ou série complète sans dupliquer les sources ;
 - gabarits V2 partagés avec Aperçu/export ;
 - création/duplication/renommage de gabarits ;
-- import Ulysses et Word.
+- import de styles Ulysses et de propriétés représentables de modèles Word.
 
 ### Rôles sémantiques et publications dérivées
 
@@ -267,3 +297,5 @@ Les citations relient les sources Recherche au manuscrit. Lors d’une compilati
 - relecture collaborative par fichier local explicite ;
 - APIs Obsidian pour les écritures de coffre ;
 - aucun Pandoc ou exécutable de conversion n’est installé, recherché ou exécuté par Feuillets.
+
+Les tableaux DOCX et ODT sont natifs ; l’ODT incorpore les images locales PNG/JPEG/GIF/SVG prises en charge. Les limites par format sont détaillées dans [Composition et export](COMPOSITION-ET-EXPORT.md).

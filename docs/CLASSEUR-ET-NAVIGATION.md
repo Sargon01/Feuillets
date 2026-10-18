@@ -104,3 +104,11 @@ Le Classeur reste la structure réelle. Le Plan et Continu sont d’autres mani�
 L’action dédiée du menu contextuel (ou le glisser-déposer) permet de déplacer facilement un brouillon vers n’importe quel dossier ou chapitre du projet avec un sélecteur guidé et une protection contre les collisions de nom. Le déplacement le transforme en contenu ordinaire du manuscrit sans écraser de fichier existant.
 
 Voir [Du texte court à la série](DU-TEXTE-COURT-A-LA-SERIE.md).
+
+## Repères de progression et numérotation
+
+Le menu d’affichage du Classeur propose les bandes de label, la pastille de statut et la barre de progression. Les métadonnées plus détaillées restent consultables dans Cartes et Plan : une clé historique de réglage ne signifie pas qu’un indicateur est encore affiché sur chaque ligne.
+
+**Numérotation…** dans ce menu ouvre les réglages de structure de la composition du projet global, même si le Classeur affiche un dossier isolé. Cela ne renumérote pas directement les fichiers sur disque et ne définit pas les compteurs des références croisées.
+
+**Copier le contenu** copie un feuillet sans devoir l’ouvrir pour sélectionner tout son texte. Pour rechercher/remplacer dans son contenu ou dans plusieurs chapitres, utilisez le parcours [Écrire et corriger](ECRIRE-ET-CORRIGER.md). Pour organiser des idées et des cartes de fichiers, ouvrez le [Carnet](HOW-TO-CARNET.md).

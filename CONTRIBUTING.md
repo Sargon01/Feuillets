@@ -42,6 +42,7 @@ Do not weaken a test, lint rule or Obsidian review configuration merely to make 
 src/
 ├── main.ts
 ├── api/
+├── carnet/
 ├── integrations/
 ├── i18n/
 ├── services/

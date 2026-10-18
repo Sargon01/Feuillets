@@ -10,13 +10,15 @@ Before writing, an author can keep ideas at project or folder level with the **N
 
 A project Notebook suits the overview; a Notebook attached to a folder focuses on one part of the manuscript. A linked Research folder can share the same logical Notebook. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
+Capture ideas, style or stack free notes and connect dependencies. The **Notebooks** tab brings together contexts, the inspector and creation defaults. Dynamic stacking retains a relationship; a one-time stack only arranges notes. The project Binder Plan prepares the complete manuscript in the project Notebook; converting ideas into manuscript or Research remains an explicit decision.
+
 ## Organize
 
 The **Binder** gives the manuscript a working structure: create, rename, move, search, filter and select sheets. A folder can be isolated for local work, then the author can return to its parent or the whole project; files are neither moved nor copied.
 
 The **Board** reads the same structure through several modes: **Cards**, **Outline**, **Story arcs** and **Timeline**. Story arcs can follow narrative threads, characters or POV, arcs, statuses and labels according to supported properties. One thread can connect several sheets to follow an object, promise, conflict or motif without creating a separate documentation system. Its first and last occurrence can naturally serve as an opening or setup and its resolution or payoff, while intermediate occurrences show development; Feuillets does not automatically assign those roles.
 
-In **Project**, goals, statuses, labels, favorite tags and YAML property mapping can be adapted to the existing vault. Split view adds navigation on the left without replacing the working Binder.
+In **Manage projects…**, goals, statuses, labels, favorite tags and YAML property mapping can be adapted to the existing vault. Split view adds navigation on the left without replacing the working Binder.
 
 ## Document
 
@@ -35,6 +37,8 @@ Write in the native Markdown editor: the files remain real Markdown files. Text 
 **Reorder text** lets you drag and drop a paragraph, or a selection contained within one paragraph. The insertion point is visible, **Escape** leaves this local mode and each move remains one Undo step that preserves exact Markdown.
 
 When splitting the manuscript into files becomes awkward for writing, open a file, folder or selection in **Continuous**. Sheets remain separate, boundaries are protected and edits are written back to the corresponding files: no permanent composite file is created on disk. See [Continuous mode](CONTINUOUS-MODE.md).
+
+For an internal reference such as “see image 2”, use [Cross-reference…](CROSS-REFERENCES-EN.md) at the cursor or on selected text. This does not replace CSL source citations. To rename a term across sheets, follow the preview and undo workflow in [Writing and correction](WRITING-AND-CORRECTION.md).
 
 ## Reread
 

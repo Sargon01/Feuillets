@@ -49,6 +49,12 @@ Le Plan n’écrit jamais dans le Vault depuis son renderer. Toute mutation rée
 
 `src/integrations/advanced-canvas.ts` reste une intégration optionnelle. Le clavier du Plan et le modèle Mindmap ne dépendent pas d’Advanced Canvas ; l’absence du plugin ne doit pas rendre un Carnet inutilisable.
 
+L’atelier libre est porté par `canvas/note-style.ts`, `note-size.ts`, `text-style.ts`, `text-anchors.ts`, `edge-style.ts` et `map-routing.ts`. `drop-links.ts` convertit certains glissements natifs entre notes libres en relations, sans réordonner le Binder. `stack-notes.ts` réalise un placement ponctuel ; `dynamic-stack.ts` stocke l’appartenance persistante et réajuste les hauteurs.
+
+`ui/carnets-content.ts` et `ui/carnet-default-styles.ts` exposent le panneau Carnets. `core/workspace-context.ts` conserve l’identité de la vue ciblée pendant les interactions latérales ; `canvas/workspace-binding.ts` applique les valeurs de création aux nouveaux éléments admissibles, sans restyler les imports, les éléments existants ou les blocs structurés.
+
+Le point d’entrée `main.ts::openVisualOutline()` reconstruit le Plan dans le **Carnet global**, depuis le manuscrit complet. La capacité du modèle à reconnaître un Plan de dossier ne doit pas devenir une promesse de portée locale pour cette commande.
+
 ### Continu — `views/scrivenings-view.ts` + `services/scrivenings-document.ts`
 
 Continu assemble une `CompileScope` dans un seul `EditorView` CodeMirror. Les séparations entre fichiers sont protégées ; les modifications sont redistribuées vers les fichiers sources.
@@ -69,7 +75,7 @@ Pour les grandes portées, une première passe partielle peut précéder une sec
 
 ### Panneau Feuillets — `views/sidebar-feuillets-view.ts`
 
-Les six onglets publics sont :
+Les sept onglets publics sont :
 
 ```text
 notes       → Feuillet
@@ -78,6 +84,7 @@ journal     → Journal
 project     → Édition
 stats       → Statistiques
 relecture   → Relecture
+carnets     → Carnets
 ```
 
 Les anciens identifiants persistés sont migrés/redirigés pour compatibilité ; ils ne doivent pas réintroduire l’ancienne organisation publique.
@@ -197,7 +204,7 @@ La résolution privilégie le mapping explicite, puis les formes canoniques/lega
 
 ## Recherche
 
-`services/research.ts` résout la racine canonique et les variantes legacy. Les nouvelles écritures utilisent `_Feuillets/Recherche` lorsqu’aucune racine reconnue n’existe.
+`services/research.ts` résout la racine canonique et les variantes legacy. Les nouvelles écritures suivent la langue de structure du projet (`_Feuillets/Recherche` ou `_Feuillets/Research`) lorsqu’aucune racine reconnue n’existe. Changer la langue d’interface ne renomme pas les dossiers existants.
 
 `researchFolderLinks` permet d’associer un nœud du Classeur à un dossier existant n’importe où dans le coffre. Le panneau Recherche projette ces dossiers liés sans les déplacer. Les dossiers externes restent navigation-only : leurs fichiers peuvent être ouverts, y compris côte à côte, mais Feuillets n’y expose pas les opérations d’administration du dossier Recherche interne.
 
@@ -293,3 +300,19 @@ npm run lint:obsidian
 ```
 
 Les tests doivent couvrir le comportement final, pas seulement la présence du DOM : l’incident d’export `File already exists` a notamment montré qu’un fake Vault trop permissif peut masquer une différence réelle du filesystem.
+
+## Références croisées et composition
+
+`cross-reference-model.ts`, `source-anchor.ts` et `cross-reference-store.ts` maintiennent les identités et occurrences dans `cross-references.json`. Détection Markdown, résolution prudente et compteurs contextuels sont séparés dans `cross-reference-detection.ts`, `cross-reference-resolution.ts` et `cross-reference-context.ts`. `cross-reference-editor-controller.ts` vérifie le document et la sélection après les sélecteurs asynchrones.
+
+`utils/cm-cross-references.ts` fournit les widgets de valeur résolue, les marques du texte source et les infobulles dans Markdown Live Preview et Continu. Lecture conserve le texte humain. Ce moteur ne dépend pas du fournisseur CSL.
+
+`cross-reference-composition.ts` résout contre les snapshots et plages réellement retenus par la composition avant typographie et mise en page. `preview-source-map.ts` conserve la correspondance vers les offsets source lorsque le remplacement change les longueurs. Les rendus ne sauvegardent pas de nouvelle numérotation dans les sources ou le registre.
+
+## Recherche/remplacement et disposition locale
+
+`global-search-replace.ts` construit une prévisualisation sur une portée éditoriale, revalide les contenus et conserve les originaux dans un enregistrement `SearchReplace`. Les conflits avec Continu, plusieurs vues d’édition ou des fichiers modifiés bloquent l’application/restauration. Une transaction CodeMirror porte les remplacements locaux ; l’annulation globale est une opération dédiée.
+
+Les exceptions de paragraphe sont ancrées et conservées par `layout-store.ts` et `document-layout-actions.ts`. Alignement, alinéa et espacements sont indépendamment réinitialisables. `edition-composition-content.ts` et les panneaux Édition préservent leurs contrôles pendant les rafraîchissements ; il ne faut pas assimiler une mise à jour de l’Aperçu à une réinitialisation du formulaire.
+
+Les tableaux DOCX utilisent les blocs natifs `Table` de `docx-blocks.ts`. L’ODT construit des tableaux ODF et incorpore les médias locaux pris en charge. La préparation des médias utilise le fichier source de chaque segment, sans résoudre toutes les images relativement à un unique chapitre.

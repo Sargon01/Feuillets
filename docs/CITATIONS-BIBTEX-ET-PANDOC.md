@@ -4,7 +4,7 @@
 
 Feuillets conserve les citations universitaires dans du Markdown ordinaire. Il propose trois modes de rendu des citations, dont le CSL natif via le module compagnon facultatif **Feuillets CSL**. Feuillets reste pleinement utilisable sans ce compagnon et n’installe ni n’exécute Zotero, Better BibTeX ou Pandoc.
 
-« Facultatif » signifie que Feuillets fonctionne sans ce plugin. Le mode **CSL natif** nécessite cependant **Feuillets CSL**, installé et activé séparément ; **Auteur-date** ne le nécessite pas. La page **Gérer les projets → Format des citations** configure les deux systèmes de citations.
+« Facultatif » signifie que Feuillets fonctionne sans ce plugin. Le mode **CSL natif** nécessite cependant **Feuillets CSL**, installé et activé séparément ; **Auteur-date** ne le nécessite pas. La page **Gérer les projets… → Citations** configure les deux systèmes de citations.
 
 ## Deux systèmes de citation
 
@@ -45,7 +45,7 @@ CSL natif
 
 Le choix des ressources et le choix du mode d’aperçu sont des réglages distincts.
 
-Ces réglages suivent le contexte du feuillet actif, dans les espaces isolés comme non isolés. La fenêtre affiche les valeurs effectives et leur héritage du projet ou d’un espace parent. Choisissez **Utiliser des réglages propres à cet espace** pour remplacer indépendamment le rendu, la bibliographie ou le style CSL. **Revenir aux réglages hérités** supprime les valeurs locales. À la racine du projet, la fenêtre modifie directement les réglages du projet. Le panneau Références conserve uniquement la recherche et les références citées ; les ressources se configurent ici, plutôt que dans les réglages du projet ou du dossier.
+Ces réglages suivent le contexte du feuillet actif, dans les espaces isolés comme non isolés. La fenêtre affiche les valeurs effectives et leur héritage du projet ou d’un espace parent. Choisissez **Utiliser des réglages propres à cet espace** pour remplacer indépendamment le rendu, la bibliographie ou le style CSL. **Revenir aux réglages hérités** supprime les valeurs locales. À la racine du projet, la fenêtre modifie directement les réglages du projet. Le panneau Références conserve uniquement la recherche et les références citées ; les réglages contextuels s’ouvrent ici. **Gérer les projets… → Citations** propose aussi les ressources et le rendu de référence du projet ; les valeurs propres à un espace ne réécrivent pas le projet.
 
 Le feuillet actif résout d’abord son association directe, puis les dossiers associés sur son chemin physique vers le projet. Une autre branche du Classeur n’est jamais parcourue.
 
@@ -59,7 +59,7 @@ Feuillets assure l’analyse Markdown/Pandoc, la résolution contextuelle des re
 
 ## Citer pendant l’écriture
 
-Ouvrez **Recherche → Références** et utilisez **Rechercher une référence…** pour retrouver les fiches Source disponibles et les entrées de la bibliographie applicable au document courant. Les résultats indiquent leur origine Source ou BibTeX et proposent un bouton **Citer**. La citation Source conserve le style de notes/parenthèses du projet et la demande de page, et fonctionne sans BibTeX ni Feuillets CSL. Une citation BibTeX directe insère `[@citekey]` à la position courante du curseur dans l’éditeur Markdown.
+Ouvrez **Recherche → Références** et utilisez **Rechercher une référence…** pour retrouver les fiches Source disponibles et les entrées de la bibliographie applicable au document courant. Les résultats indiquent leur origine Source ou BibTeX et proposent un bouton **Citer**. La citation Source conserve le style de notes/parenthèses du projet et la demande de page, et fonctionne sans BibTeX ni Feuillets CSL. Une citation BibTeX utilise le mode d’insertion configuré, parenthétique ou note de bas de page, dans l’éditeur Markdown et Continu. En mode note, Feuillets insère atomiquement l’appel et la définition contenant la syntaxe Pandoc ; une citation déjà située dans une note reste dans celle-ci. Un groupe crée une seule note. Annuler le sélecteur ne crée pas de note, et l’insertion s’annule en une opération.
 
 Lorsque la recherche est vide, **Références citées** liste uniquement les références utilisées dans la portée projet/espace affichée, avec leurs compteurs et les avertissements de clés inconnues ; chaque référence connue propose **Citer** pour la réutiliser directement, et son action de génération de bibliographie conserve cette portée. Les clés inconnues restent des avertissements sans action de citation. Une requête remplace temporairement cette liste par au plus 30 résultats parmi les Sources disponibles et le catalogue BibTeX applicable. Effacer la requête rétablit la liste citée. Le catalogue `.bib` complet est recherché à la demande plutôt qu’affiché en permanence dans la barre latérale. **Nouvelle fiche source** reste disponible même sans ressources de références ; l’inspection des notes de bas de page reste dans l’Inspecteur du feuillet.
 
@@ -154,3 +154,7 @@ L’archive contient :
 Feuillets n’installe, ne recherche et ne lance jamais Pandoc. Décompressez le paquet puis traitez-le avec votre propre flux Pandoc. Lorsque la bibliographie est activée dans Composition, le manuscrit contient le marqueur Pandoc `{#refs}`. Lorsqu’elle est désactivée, `pandoc.yaml` demande explicitement la suppression de la bibliographie.
 
 Des citekeys identiques définies dans plusieurs `.bib` inclus bloquent la création du paquet. Corrigez ce doublon dans les bibliographies avant de recommencer l’export.
+
+## Renvois internes distincts
+
+Les [références croisées](CROSS-REFERENCES.md) vers une section, une image, un tableau ou une annexe ne sont pas des citations bibliographiques et ne nécessitent pas le compagnon CSL. Leurs numéros suivent la composition. Une note peut contenir les deux systèmes sans fusion de leurs registres.

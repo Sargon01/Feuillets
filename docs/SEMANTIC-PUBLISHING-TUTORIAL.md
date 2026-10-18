@@ -2,87 +2,176 @@
 
 > [Français](TUTORIEL-PUBLICATION-SEMANTIQUE.md) · **English** · [Documentation index](README.md)
 
-This short tutorial introduces semantic roles, variants, extractions, collections and Presentation using one Markdown source.
+This tutorial explores roles, variants, extractions, collections and Presentation from one Markdown file. Allow about 15 minutes.
 
-## 1. Start with ordinary Markdown
+## 1. Create the document
 
-Create a sheet containing headings, ordinary paragraphs and a few semantic callouts such as:
+Create a sheet and copy:
 
 ```markdown
+# Water and territory
+
+This paragraph is ordinary text.
+
+> [!introduction]
+> This short sequence shows how one Markdown source can supply several publications.
+
+> [!question-directrice]
+> How should competing uses of a limited resource be balanced?
+
+## Concepts
+
 > [!definition]
-> A definition.
+> **Usage conflict**: a situation in which several actors want to use the same resource in incompatible ways.
 
-> [!questions]
-> A question.
+> [!definition]
+> **Arbitration**: a decision between competing interests.
 
-> [!solution]
-> An answer.
+## Activity
+
+Ordinary text introduces the activity.
 
 > [!source]
-> A source.
-```
+> In a fictional town, summer water consumption increases while the river flow decreases.
 
-Semantic roles are optional; ordinary text remains the default.
+> [!questions]
+> 1. What is the main problem?
+> 2. Which actors may be involved?
 
-## 2. Create a student variant
+> [!solution]
+> Demand increases while the available resource decreases.
 
-Open:
+> [!preuve]
+> Records show peak consumption during weeks with many visitors.
 
-**Edition → Composition → Manuscript → Content variants**
+> [!recommandation]
+> Define restriction thresholds and priority uses in advance.
 
-Create `Student` and exclude `solution`.
-
-The structure, ordinary text and questions remain; solutions disappear.
-
-## 3. Create an activity extraction
-
-Open **Content extractions** and create one triggered by `questions`.
-
-The whole structural section containing the questions is kept, including ordinary text and other blocks in that section.
-
-## 4. Create a glossary collection
-
-Open **Content collections** and create `Glossary` using `definition`.
-
-Only definition blocks and the heading context required to understand them remain.
-
-## 5. Use the export toolbar
-
-The compact toolbar follows:
-
-**Scope → Content → Format → Export**
-
-- **Scope** answers “where?”
-- **Content** chooses full document, extraction or collection.
-- **Format** chooses the output format.
-
-## 6. Combine collection and variant
-
-Use a collection containing `definition + source`, then a variant excluding `source`.
-
-Definitions remain and sources disappear.
-
-## 7. Presentation
-
-Use:
-
-```markdown
 ---
+
+# Presenting the problem
+
+> [!point-cle]
+> One Markdown source can produce a document, several versions and a presentation.
+
+> [!speaker-notes]
+> Show the difference between a variant, an extraction and a collection.
 ```
 
-to start a new slide.
+## 2. Understand what you wrote
 
-Use:
+The file contains ordinary text, Markdown headings, several semantic roles, `---` separating slides in Presentation, and speaker notes. You do not need all these mechanisms in an ordinary project. Role identifiers stay canonical even when the prose is English.
+
+## 3. Create a “Student” variant
+
+Open **Edition → Composition → Manuscript → Content variants**.
+
+Create:
+
+- **Name**: `Student`
+- excluded role: `solution`
+
+Expected result:
+
+- headings remain;
+- ordinary text remains;
+- questions remain;
+- the answer disappears.
+
+You have created another publication without copying the manuscript.
+
+## 4. Create an “Activities” extraction
+
+Open **Edition → Composition → Manuscript → Content extractions**.
+
+Create:
+
+- **Name**: `Activities`
+- trigger role: `questions`
+
+Choose `Activities` in the export toolbar’s **Content** menu.
+
+The section containing questions is retained **with its complete context**: ordinary text, source, questions, answer, evidence and recommendation belonging to that section.
+
+## 5. Create a “Glossary” collection
+
+Open **Edition → Composition → Manuscript → Content collections**.
+
+Create:
+
+- **Name**: `Glossary`
+- role: `definition`
+
+Choose `Glossary` in **Content**.
+
+Expected result:
+
+- definitions remain;
+- necessary headings remain;
+- ordinary text outside definitions disappears.
+
+## 6. Create an evidence pack
+
+Create a collection:
+
+- **Name**: `Sources and evidence`
+- roles: `preuve`, `source`, `citation`
+
+This becomes especially useful when a project contains many files.
+
+## 7. Combine a collection and a variant
+
+Create a collection containing `definition` and `source`, then use a variant that excludes `source`.
+
+Definitions remain; sources disappear. The collection first selects useful blocks; the variant can then hide selected roles. An extraction and a collection remain alternative content derivations.
+
+## 8. Choose the scope
+
+Open **Scope** in the Edition toolbar. Depending on context, you can export a project, folder, file or available selection.
+
+Scope answers **where?**
+
+## 9. Choose the content
+
+Open **Content** and choose:
+
+- **Full document**;
+- an extraction;
+- a collection.
+
+Content answers **what?**
+
+## 10. Choose the format
+
+Open **Format** and try PDF on desktop, DOCX, ODT or EPUB. Document formats use the derived manuscript; Markdown export remains a source export.
+
+Use the complete toolbar path **Scope → Content → Format → Export**. Inspect the result rather than expecting every reader to reproduce identical pagination.
+
+## 11. Open Presentation
+
+Switch to Presentation rendering. The file’s `---` separates slides and Feuillets composes the content in 16:9.
+
+The note:
 
 ```markdown
 > [!speaker-notes]
-> Private speaking note.
+> Show the difference between a variant, an extraction and a collection.
 ```
 
-for notes that belong to the slide but are not projected.
+is not projected.
 
-## 8. Remember
+## 12. What you have produced
 
-One Markdown source can produce a full document, a reduced variant, structural extractions, semantic collections, several document formats and a 16:9 presentation.
+You used one source to produce:
+
+- the complete document;
+- a version without the answer;
+- an activity extraction;
+- a glossary;
+- a source/evidence pack;
+- several formats;
+- a presentation.
 
 **Write once, publish in several ways.**
+
+For details, see [Semantic roles](SEMANTIC-ROLES.md), [Content variants, extractions and collections](CONTENT-VARIANTS-EXTRACTIONS-COLLECTIONS.md) and [Presentation](PRESENTATION-EN.md).

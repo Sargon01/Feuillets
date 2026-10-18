@@ -34,7 +34,7 @@ See [Binder and navigation](BINDER-AND-NAVIGATION.md).
 
 ## The right panel
 
-Feuillets has six public right-panel tabs:
+Feuillets has seven public right-panel tabs:
 
 - **Sheet** — synopsis/summary, working notes, properties, annotations, footnotes and Context;
 - **Research** — documentation, Sources/Bibliography and linked folders;
@@ -42,6 +42,7 @@ Feuillets has six public right-panel tabs:
 - **Edition** — Composition, Layout and editorial documents;
 - **Statistics** — sheet, selection and project statistics;
 - **Proofreading** — text analysis, collaborative review, DOCX Review and comparison.
+- **Notebooks** — Notebook contexts, selection inspector, tools, default styles and display.
 
 Project configuration opens from **Manage projects…**. The **Edition** tab contains **Composition**, **Layout** and editorial documents.
 
@@ -92,3 +93,10 @@ No additional plugin is required for the Feuillets core workflow.
 ## General principle
 
 The best Feuillets interface is not the one that displays every tool at once. Text stays central; specialized surfaces appear when their role becomes useful.
+
+## Everyday writing and organization
+
+- [Writing, formatting and correction](WRITING-AND-CORRECTION.md): typography, paragraph exceptions, multi-sheet search/replace and language correction.
+- [Notebook](HOW-TO-NOTEBOOK.md): free notes, relationships, inspector, styles and stacks; this workshop does not require Advanced Canvas.
+- [Internal cross-references](CROSS-REFERENCES-EN.md): insertion, source text, marks and tooltips; separate from bibliographic citations.
+- [BibTeX and CSL citations](BIBTEX-CITATIONS-AND-PANDOC.md): optional CSL companion, contextual resources and bibliography.

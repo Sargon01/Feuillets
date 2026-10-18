@@ -72,7 +72,7 @@ A working annotation is personal and local to your project.
 
 A **collaborative review** note belongs to a reviewer session and travels inside that session's `.feuillets` package.
 
-A **DOCX Revision** comment comes from an imported Word document.
+A **DOCX Review** comment comes from an imported Word document.
 
 Keeping these mechanisms separate prevents a private author note from being confused with outside feedback.
 

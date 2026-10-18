@@ -10,13 +10,15 @@ Avant d’écrire, un auteur peut garder les idées à l’échelle du projet ou
 
 Un Carnet global convient à la vue d’ensemble ; un Carnet attaché à un dossier concentre la réflexion sur une partie du manuscrit. Un dossier Recherche associé peut partager le même Carnet logique. Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
 
+Capturez les idées, habillez ou empilez les notes libres et reliez leurs dépendances. L’onglet **Carnets** réunit les contextes, l’inspecteur et les valeurs de création. Une pile dynamique garde une relation ; un empilement ponctuel ne fait que ranger. Le Plan Binder du projet prépare le manuscrit complet dans le Carnet global ; les conversions vers le manuscrit ou la Recherche restent des décisions explicites.
+
 ## Organiser
 
 Le **Classeur** donne une structure de travail au manuscrit : créer, renommer, déplacer, rechercher, filtrer et sélectionner les feuillets. Un dossier peut être isolé pour travailler localement, puis l’auteur peut revenir au parent ou au projet complet ; cela ne déplace ni ne copie les fichiers.
 
 Le **Tableau** relit cette même structure selon plusieurs modes : **Cartes**, **Plan**, **Chemin de fer** et **Chronologie**. Le Chemin de fer peut suivre des fils narratifs, des personnages ou POV, des arcs, des statuts et des labels selon les propriétés prises en charge. Un fil peut relier plusieurs feuillets pour suivre un objet, une promesse, un conflit ou un motif sans créer un système documentaire séparé. Sa première et sa dernière occurrence peuvent naturellement servir d’ouverture et de résolution, tandis que les occurrences intermédiaires en montrent le développement ; Feuillets n’attribue pas automatiquement ces rôles.
 
-Dans **Projet**, les objectifs, statuts, labels, tags favoris et le remappage des propriétés YAML peuvent être adaptés au coffre existant. La double vue ajoute une navigation à gauche sans remplacer le Classeur de travail.
+Dans **Gérer les projets…**, les objectifs, statuts, labels, tags favoris et le remappage des propriétés YAML peuvent être adaptés au coffre existant. La double vue ajoute une navigation à gauche sans remplacer le Classeur de travail.
 
 ## Documenter
 
@@ -35,6 +37,8 @@ Les **citations** relient les sources Recherche au manuscrit. Le chemin BibTeX/P
 **Réorganiser le texte** permet de déplacer par glisser-déposer un paragraphe, ou une sélection contenue dans un seul paragraphe. Le point d’insertion est visible, **Échap** quitte ce mode local et chaque déplacement reste une étape Annuler qui conserve le Markdown exact.
 
 Lorsque le découpage en fichiers devient gênant pour l’écriture, ouvrez un fichier, un dossier ou une sélection en **Continu**. Les feuillets restent séparés, leurs frontières sont protégées et les modifications repartent vers les fichiers correspondants : aucun fichier composite permanent n’est créé sur disque. Voir [Mode Continu](MODE-CONTINU.md).
+
+Pour un renvoi interne comme « voir image 2 », utilisez [Référence croisée…](CROSS-REFERENCES.md), au curseur ou sur un passage sélectionné. Ce mécanisme ne remplace pas les citations de sources CSL. Pour renommer un terme sur plusieurs feuillets, suivez la prévisualisation et l’annulation décrites dans [Écrire et corriger](ECRIRE-ET-CORRIGER.md).
 
 ## Relire
 

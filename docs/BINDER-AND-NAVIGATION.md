@@ -104,3 +104,11 @@ The Binder remains the real structure. Outline and Continuous are other ways of 
 A dedicated context menu action (or drag and drop) lets you easily move drafts into any project folder or chapter using a guided modal with filename collision protection. Moving a draft promotes it to ordinary manuscript content without overwriting existing files.
 
 See [From a short text to a series](FROM-SHORT-TEXT-TO-SERIES.md).
+
+## Progress indicators and numbering
+
+The Binder display menu offers label stripes, a status dot and progress bars. More detailed metadata remains available in Cards and Outline: a historical settings key does not mean an indicator still appears on every Binder row.
+
+**Numbering…** in this menu opens the global project composition’s structure settings even while the Binder displays an isolated folder. It does not directly renumber files on disk or define cross-reference counters.
+
+**Copy contents** copies a sheet without requiring you to open it and select all its text. For textual search/replace in one or several chapters, follow [Writing and correction](WRITING-AND-CORRECTION.md). To arrange ideas and file cards, open [Notebook](HOW-TO-NOTEBOOK.md).

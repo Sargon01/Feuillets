@@ -25,6 +25,22 @@ Typical uses:
 
 A variant can also keep or hide answer space associated with questions.
 
+### A variant in practice
+
+```markdown
+## Activity
+
+Introductory text.
+
+> [!questions]
+> What is the main problem?
+
+> [!solution]
+> The resource decreases while demand increases.
+```
+
+Create a “Student” variant that excludes `solution`. The heading, ordinary introduction and questions remain; only the answer is removed. Use a variant when you want **the same document** with selected kinds of content hidden.
+
 ## Content extraction
 
 An extraction keeps **whole structural sections** when they contain at least one trigger role.
@@ -39,6 +55,25 @@ Examples:
 - every section containing `methode`;
 - every section containing `recommandation`.
 
+### An extraction in practice
+
+```markdown
+## Activity A
+
+Ordinary text.
+
+> [!source]
+> Document A.
+
+> [!questions]
+> Analyze the document.
+
+> [!solution]
+> Expected answer.
+```
+
+An extraction triggered by `questions` keeps **all of Activity A**: its heading, ordinary text, source, questions, answer and other elements belonging to that section. The role identifies a section to retain, rather than limiting output to the triggering block.
+
 ## Content collection
 
 A collection keeps only blocks carrying selected roles and restores the heading context needed to understand them.
@@ -49,6 +84,34 @@ Typical collections:
 - evidence/document file: `preuve + source + citation`;
 - summary sheet: `synthese + point-cle`;
 - recommendations: `recommandation`.
+
+### A collection in practice
+
+```markdown
+# Chapter 1
+
+## Concepts
+
+Ordinary text.
+
+> [!definition]
+> Arbitration: a decision between competing interests.
+
+More text.
+```
+
+A collection of `definition` produces:
+
+```markdown
+# Chapter 1
+
+## Concepts
+
+> [!definition]
+> Arbitration: a decision between competing interests.
+```
+
+Ordinary text outside the selected blocks disappears. Use a collection when building a new document **from the blocks themselves**, such as a glossary or evidence pack.
 
 ## Combining with a variant
 
@@ -114,3 +177,5 @@ Markdown export remains a source export. An active extraction or collection does
 - **Collection** = role blocks themselves, with heading context.
 
 See [Semantic roles](SEMANTIC-ROLES.md) and the [tutorial](SEMANTIC-PUBLISHING-TUTORIAL.md).
+
+[Internal cross-references](CROSS-REFERENCES-EN.md) resolve against content actually retained in derived renderings: an excluded target leaves human-readable text. Since Markdown export remains a source export, this mechanism does not turn it into a Markdown extraction or collection.

@@ -77,9 +77,9 @@ For the complete workflow in its natural order, see [The author's workflow](AUTH
 
 - **My research already lives elsewhere in the vault.** Do not move it: an existing folder can be **linked as Research** while remaining physically where it is. See [Research and linked folders](RESEARCH-AND-LINKED-FOLDERS.md).
 
-- **I want a visual workspace around one folder.** Use **Create Notebook** from the folder menu, then reopen it with **Open Notebook**. This Canvas can remain entirely free-form or host a **Binder Plan** and **mindmaps**. A linked Research folder can share the same logical Notebook. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
+- **I want a visual workspace around one folder.** Use **Create Notebook** from the folder menu, then reopen it with **Open Notebook**. This Canvas supports free notes, connections, styles, stacks and **mind maps**. The **project Binder Plan** prepares the complete manuscript in the project Notebook. A linked Research folder can share the same logical Notebook. See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
-- **I already use my own YAML properties.** In **Project**, Feuillets can map its logical fields to properties that already exist in your vault. You do not need to rename your properties or migrate your files. See [Project and YAML properties](PROJECT-AND-YAML-PROPERTIES.md).
+- **I already use my own YAML properties.** In **Manage projects…**, Feuillets can map its logical fields to properties that already exist in your vault. You do not need to rename your properties or migrate your files. See [Project and YAML properties](PROJECT-AND-YAML-PROPERTIES.md).
 
 - **I want to move a Feuillets project to another vault or computer.** In **Manage projects**, use **Export as `.feuil`**. The archive keeps the project and supported settings, then can be imported into a new folder without converting the manuscript away from Markdown. See [Portable `.feuil` project](PORTABLE-FEUIL-PROJECT.md).
 
@@ -103,7 +103,7 @@ For the complete workflow in its natural order, see [The author's workflow](AUTH
 - **Annotations** also work in Continuous while remaining outside Markdown.
 - **Snapshot → rewrite → comparison → passage restore** provides a non-destructive rewriting workflow.
 - An existing documentation folder can be **linked as Research** without being moved.
-- A manuscript folder can have its **own Canvas Notebook**, with Binder Plan and mindmaps.
+- A manuscript folder can have its **own Canvas Notebook**, with free notes, relationships and mind maps; the project Binder Plan remains global.
 - **YAML mapping** lets Feuillets adapt to properties already used in the vault.
 - A complete project can be transported as a **`.feuil`** archive and re-imported into a new folder.
 - **Preview is optional for export**: it is for checking composition, not for enabling export.
@@ -136,6 +136,7 @@ Six public tabs accompany the text without replacing the manuscript:
 - **Edition** — Composition, Layout and editorial documents;
 - **Statistics** — sheet, selection and project statistics;
 - **Proofreading** — text analysis, Collaborative Review, DOCX Review and comparison.
+- **Notebooks** — Notebook contexts, selection inspector, tools, default styles and display.
 
 ### Edition
 
@@ -154,3 +155,10 @@ Citations connect Research to the manuscript. Sources can be cited, their citati
 Feuillets is meant to adapt to an existing vault rather than force the writer to rebuild their organization for the plugin: ordinary Markdown files, real folders, manuscript order, YAML properties and existing Research remain under the user's control.
 
 For the complete workflow in its natural order, see [The author's workflow](AUTHOR-WORKFLOW.md).
+
+## Two further experiments
+
+1. Open **Notebooks**, capture three ideas and connect two free notes. Arrange them before converting the ones you want to write; see [the Notebook workflow](HOW-TO-NOTEBOOK.md).
+2. In a sheet, run **Cross-reference…** to a section or captioned image. Compare source text with Live Preview, then compose a chapter alone to understand numbering scope. See [Cross-references](CROSS-REFERENCES-EN.md).
+
+For local typography, language correction and multi-sheet replacement, continue with [Writing and correction](WRITING-AND-CORRECTION.md).

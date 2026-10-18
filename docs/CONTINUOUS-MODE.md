@@ -44,3 +44,11 @@ Continuous can work beside **Preview** on the same scope. Updated source bodies 
 - inspect transitions;
 - work on a collection or selection;
 - keep Binder structure while regaining the feeling of one long document.
+
+## References, citations and correction
+
+**Cross-reference…** works at the cursor or on selected text. Resolved values follow the Continuous scope; placing the cursor inside reveals human-readable source text. Dotted marks and tooltips identify valid references without making them clickable links. After an external change to a source not locally modified, stale marks are removed; recompose the scope to load new content. See [Cross-references](CROSS-REFERENCES-EN.md).
+
+Bibliographic Pandoc citations remain separate: `[@` and **Research → References → Cite** use the current sheet’s context. Insertion follows the selected parenthetical or footnote mode; a citation already inside a note stays there. Frontmatter and sheet boundaries remain protected. See [BibTeX and CSL citations](BIBTEX-CITATIONS-AND-PANDOC.md).
+
+Optional live language checking can follow sheets actually visible. For global search/replace, open a Markdown sheet and close Continuous views containing targets before application or restoration. See [Writing and correction](WRITING-AND-CORRECTION.md).

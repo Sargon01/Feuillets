@@ -209,3 +209,5 @@ Une extraction ou une collection active ne transforme donc pas le `.md` exporté
 - **Collection** = rôles eux-mêmes, avec contexte de titres.
 
 Voir aussi [Rôles sémantiques](ROLES-SEMANTIQUES.md) et [Tutoriel](TUTORIEL-PUBLICATION-SEMANTIQUE.md).
+
+Les [références croisées internes](CROSS-REFERENCES.md) sont résolues dans le contenu réellement retenu des rendus dérivés : une cible exclue conserve le texte humain. L’export Markdown restant un export de la source, il ne devient pas une extraction ou collection Markdown par ce mécanisme.

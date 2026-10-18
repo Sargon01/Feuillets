@@ -50,3 +50,11 @@ Continu est utile pour :
 - vérifier les transitions ;
 - travailler sur un recueil ou une sélection ;
 - conserver la structure du Classeur tout en retrouvant la sensation d’un long document.
+
+## Références, citations et correction
+
+**Référence croisée…** fonctionne au curseur ou sur une sélection. Les valeurs résolues suivent la portée Continu ; le curseur dans une référence révèle le texte humain. Le soulignement pointillé et l’infobulle identifient les références valides sans en faire des liens cliquables. Après modification externe d’un source non modifié localement, les marques périmées sont retirées ; recomposez la portée pour charger le nouveau contenu. Voir [Références croisées](CROSS-REFERENCES.md).
+
+Les citations bibliographiques Pandoc restent distinctes : `[@` et **Recherche → Références → Citer** utilisent le contexte du feuillet courant. L’insertion respecte le mode parenthétique ou note de bas de page choisi ; une citation déjà dans une note reste dans celle-ci. Le frontmatter et les frontières des feuillets sont protégés. Voir [Citations BibTeX et CSL](CITATIONS-BIBTEX-ET-PANDOC.md).
+
+La correction linguistique en direct peut suivre les feuillets réellement visibles avec un fournisseur facultatif. Pour rechercher/remplacer globalement, ouvrez un feuillet Markdown et fermez les vues Continu contenant les cibles avant application ou restauration. Voir [Écrire et corriger](ECRIRE-ET-CORRIGER.md).

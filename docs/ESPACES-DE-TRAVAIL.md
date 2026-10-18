@@ -144,3 +144,9 @@ Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
 Un gros projet peut rester un seul projet sans obliger l’auteur à travailler constamment avec toute sa complexité visible.
 
 **Le projet fournit la continuité ; l’espace fournit le contexte.**
+
+## Isolation, déclaration et ouvrage : trois choix distincts
+
+Isoler un dossier est une navigation temporaire. Déclarer un espace de travail lui donne une identité persistante dans la configuration ; cette identité n’est pas déduite de son dossier Recherche ni de la session actuellement isolée. Deux espaces imbriqués ou partageant la même Recherche restent distincts. Déclarer un **ouvrage** ajoute une frontière éditoriale pour la composition et l’export, sans déplacer les fichiers.
+
+Les [références croisées](CROSS-REFERENCES.md) respectent ces frontières. Les [citations bibliographiques](CITATIONS-BIBTEX-ET-PANDOC.md) suivent les ressources effectives du feuillet courant : partager un `.bib` ne fusionne pas les espaces. Dans le Carnet, **Créer ou actualiser le Plan Binder du projet** reste une action globale, même lorsque le Classeur est isolé.

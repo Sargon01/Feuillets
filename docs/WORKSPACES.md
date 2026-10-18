@@ -145,3 +145,9 @@ See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 A large project can remain one project without forcing the writer to keep its full complexity visible at all times.
 
 **The project provides continuity; the workspace provides context.**
+
+## Isolation, declaration and independent works
+
+Isolating a folder is temporary navigation. Declaring a workspace gives it persistent configuration identity; that identity is not inferred from its Research folder or the currently isolated session. Nested workspaces or workspaces sharing Research remain distinct. Declaring a **work** adds an editorial boundary for composition and export without moving files.
+
+[Cross-references](CROSS-REFERENCES-EN.md) respect those boundaries. [Bibliographic citations](BIBTEX-CITATIONS-AND-PANDOC.md) use the current sheet’s effective resources: sharing a `.bib` does not merge workspaces. In Notebook, **Create or update the project Binder Plan** remains a global action even when the Binder is isolated.

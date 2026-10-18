@@ -126,3 +126,22 @@ Native output: compiled Markdown, DOCX, EPUB, ODT and desktop PDF through the sy
 When an extraction or collection is selected, Markdown export intentionally remains a source export; content derivations apply to the document-format publishing pipeline.
 
 For a guided example, see [Tutorial — publish several outputs from one source](SEMANTIC-PUBLISHING-TUTORIAL.md).
+
+## Internal references, images and tables
+
+[Internal cross-references](CROSS-REFERENCES-EN.md) to sections, captioned images, tables and appendices resolve against the files and ranges actually retained. Targets excluded by scope or content derivation leave human-readable reference text. Reference counters are separate from page numbers and hierarchical heading numbering. Compiled Markdown resolves these references while preserving bibliographic Pandoc citekeys.
+
+Portable images use `![Caption](path)`; resources from several chapters resolve relative to their own source files, including repeated image filenames. Caption/resource actions are described in [Writing and correction](WRITING-AND-CORRECTION.md).
+
+- **DOCX** retains Markdown tables as Word tables, with headers, empty cells, simple alignment and supported inline formatting.
+- **ODT** produces native tables and embeds resolved local PNG, JPEG, GIF and SVG images, with proportional dimensions and captions. This exporter does not embed WebP; missing or unsupported media are reported.
+- **EPUB** is reflowable: page breaks and metrics depend on the reader.
+- **PDF** follows desktop paginated rendering and system printing; an equivalent mobile export is not provided.
+
+Exported references are text, not recalculating Word fields. Tables and media do not guarantee identical layouts across Word, LibreOffice, Pages and ebook readers. Check the document in its destination application. Historical [validation reports](validation/cross-reference-export-finish.md) identify what was actually tested.
+
+## Template imports and Edition stability
+
+Ulysses import concerns **styles** `.ulstyle` / `.ulss`, not complete library import. A Word `.docx` / `.dotx` template supplies properties representable by Feuillets templates, without guaranteeing reproduction of every Word feature. Scrivener project import is a separate desktop workflow.
+
+Automatic Edition refreshes preserve the current subpage, fields and usable focus. Preview can follow reading/caret context without reopening; check scope and template before exporting nonetheless.

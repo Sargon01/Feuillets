@@ -30,7 +30,7 @@ A project can start as ordinary Markdown notes and become a Feuillets project la
 
 ## 2. Find Projects again
 
-The **Project** tab holds settings that truly belong to the project: goals, statuses, labels, favorite tags and YAML property mapping.
+Open **Manage projects…** for goals, statuses, labels, favorite tags and YAML property mapping. These settings are not a separate public Project tab.
 
 ### YAML remapping
 
@@ -40,7 +40,7 @@ If your vault already uses properties such as `State`, `Summary` or `POV`, map t
 
 ## 3. Find groups again
 
-Groups become real **folders**. The same hierarchy feeds Binder, Cards, Outline, Continuous, Storyline, Timeline, Preview and final composition.
+Groups become real **folders**. The same hierarchy feeds Binder, Cards, Outline, Continuous, Story arcs, Timeline, Preview and final composition.
 
 Feuillets preserves explicit manuscript order. Natural sorting is only a fallback when no explicit order exists (`Chapter 2` before `Chapter 10`).
 
@@ -80,13 +80,13 @@ You can also hide sidebars or use Focus Mode when only the editor should remain 
 
 ## 7. Find keywords again
 
-Use tags, labels, statuses, narrative threads, characters, dates and custom properties according to purpose. They can feed filters, Cards, Outline, Storyline, Timeline and Context.
+Use tags, labels, statuses, narrative threads, characters, dates and custom properties according to purpose. They can feed filters, Cards, Outline, Story arcs, Timeline and Context.
 
 ---
 
 ## 8. Find filters again
 
-Ulysses-style filtering needs are covered through Binder search, status/label/progress filters, tags, multi-selection, Outline, Storyline, Timeline and Obsidian search.
+Ulysses-style filtering needs are covered through Binder search, status/label/progress filters, tags, multi-selection, Outline, Story arcs, Timeline and Obsidian search.
 
 Feuillets does not create a proprietary Filter object; the same files and metadata are projected differently depending on the question.
 
@@ -159,7 +159,7 @@ Several views project the **same manuscript**:
 - **Binder**: hierarchy and navigation;
 - **Cards**: visual thinking;
 - **Outline**: structure and metadata in columns;
-- **Storyline**: narrative threads;
+- **Story arcs**: narrative threads;
 - **Timeline**: temporal order;
 - **Continuous**: edit multiple sheets as one text;
 - **Preview**: paginated result before export.
@@ -191,7 +191,7 @@ The comparison view distinguishes additions, deletions, replacements and moved p
 Two workflows exist depending on the source:
 
 - **Collaborative review**: local `.feuillets` package exchange, comments and comparison against both the sent baseline and current manuscript;
-- **DOCX Revision**: compatible Word feedback under Proofreading.
+- **DOCX Review**: compatible Word feedback under Proofreading.
 
 Personal working annotations remain separate from both.
 

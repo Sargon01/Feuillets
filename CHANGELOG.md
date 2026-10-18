@@ -2,6 +2,36 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.7.0 — En préparation
+
+Cette section décrit les changements intégrés après la 3.6.1 ; elle n’annonce pas une version publiée.
+
+### Carnet et atelier Canvas
+
+- Notes libres façon Scapple, connexion par dépôt simple et multiple, et conservation des relations enrichies.
+- Habillages de cartes, typographie de notes et de sélection, dimensions adaptées au contenu et ancrages des connexions.
+- Tracés droits, courbes et Map, couleurs, flèches, traits et épaisseurs configurables.
+- Agencement natif, empilement ponctuel et piles dynamiques persistantes avec dissociation.
+- Onglet Carnets : gestion des contextes, inspecteur de sélection, outils, styles des futurs éléments libres et affichage de la barre flottante.
+
+### Références croisées
+
+- Renvois persistants vers sections, images légendées, tableaux et annexes, par insertion au curseur ou liaison d’une sélection dans Markdown et Continu.
+- Numérotation contextuelle, résolution prudente des cibles renommées, absentes ou ambiguës, contrôle des chevauchements et des enregistrements concurrents.
+- Marques discrètes et infobulles dans les éditeurs, avec accès au texte source à l’édition.
+- Résolution selon la composition dans l’Aperçu et les exports, avec conservation des correspondances vers le texte source pour la navigation.
+
+### Édition et exports
+
+- Conservation de l’état, des champs et du focus pendant les actualisations automatiques d’Édition ; stabilisation des interactions avec l’Aperçu.
+- Tableaux Markdown conservés comme tableaux natifs DOCX et ODT.
+- Images locales prises en charge incorporées dans l’ODT ; résolution des médias selon leur fichier d’origine dans les compositions multifeuillets.
+
+### Documentation et compatibilité
+
+- Documentation cumulative française et anglaise actualisée depuis la préparation 3.0 : guides Carnet, références croisées, édition, recherche/remplacement, parcours et site officiel.
+- Nettoyage ciblé des assertions TypeScript et déclarations CSS signalées par Obsidian Review, sans changement du JavaScript des ancrages Canvas. Le contrôle CSS officiel reste distinct des vérifications ESLint locales.
+
 ## 3.6.1 — 2026-10-12
 
 ### Compatibilité Obsidian

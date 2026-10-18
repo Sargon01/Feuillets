@@ -4,7 +4,7 @@
 
 Feuillets keeps academic citations in ordinary Markdown. It offers three citation rendering modes, including Native CSL through the optional **Feuillets CSL** companion plugin. Feuillets remains fully usable without that companion and never installs or runs Zotero, Better BibTeX or Pandoc.
 
-“Optional” means Feuillets works without this plugin. **Native CSL** mode still requires **Feuillets CSL**, installed and enabled separately; **Author-date** does not require it. **Manage projects → Citation format** configures both citation systems.
+“Optional” means Feuillets works without this plugin. **Native CSL** mode still requires **Feuillets CSL**, installed and enabled separately; **Author-date** does not require it. **Manage projects… → Citations** configures both citation systems.
 
 ## Two citation systems
 
@@ -45,7 +45,7 @@ Native CSL
 
 Selecting resources and selecting the preview mode are separate settings.
 
-These settings follow the active sheet’s context, in both isolated and non-isolated workspaces. The dialog shows the effective values and their inheritance from the project or a parent workspace. Choose **Use settings specific to this workspace** to override rendering, bibliography or CSL style independently. **Return to inherited settings** removes the local overrides. At the project root, the dialog edits project settings directly. The normal References panel keeps only search and cited references visible; resource settings are configured here, rather than in project/folder settings.
+These settings follow the active sheet’s context, in both isolated and non-isolated workspaces. The dialog shows the effective values and their inheritance from the project or a parent workspace. Choose **Use settings specific to this workspace** to override rendering, bibliography or CSL style independently. **Return to inherited settings** removes the local overrides. At the project root, the dialog edits project settings directly. The normal References panel keeps only search and cited references visible; contextual settings open here. **Manage projects… → Citations** also provides the project’s baseline resources and rendering mode; workspace-specific values do not rewrite the project.
 
 The active sheet resolves its direct association first, then the associated folders on its physical ancestor path. Another branch of the Binder is not searched.
 
@@ -59,7 +59,7 @@ Feuillets owns Markdown/Pandoc parsing, contextual workspace/project resource re
 
 ## Cite while writing
 
-Open **Research → References** and use **Search references…** to find available Source sheets and entries in the bibliography applicable to the current document. Results show their Source or BibTeX origin and offer a **Cite** button. Source citation keeps the project’s footnote/parenthetical style and page prompt, and works without BibTeX or Feuillets CSL. A direct BibTeX citation inserts `[@citekey]` at the current cursor in the Markdown editor.
+Open **Research → References** and use **Search references…** to find available Source sheets and entries in the bibliography applicable to the current document. Results show their Source or BibTeX origin and offer a **Cite** button. Source citation keeps the project’s footnote/parenthetical style and page prompt, and works without BibTeX or Feuillets CSL. A BibTeX citation follows the configured parenthetical or footnote insertion mode in the Markdown editor and Continuous. In footnote mode, Feuillets inserts the call and definition containing Pandoc syntax atomically; a citation already inside a note stays there. A group creates one note. Cancelling the picker creates no note, and insertion is one Undo operation.
 
 With an empty search, **Cited references** lists only references used in the displayed project/workspace scope, with counts and unknown citekey warnings; each known reference offers **Cite** to reuse it directly, and its bibliography generation action keeps that scope. Unknown citekeys remain warnings without a citation action. Entering a query temporarily replaces this list with at most 30 results from the available Sources and applicable BibTeX catalogue. Clearing the query restores the cited list. The complete `.bib` catalogue is searched on demand rather than permanently rendered in the sidebar. **New source sheet** remains available even without reference resources; footnote inspection remains in the sheet Inspector.
 
@@ -154,3 +154,7 @@ The archive contains:
 Feuillets never installs, finds or launches Pandoc. Unzip the package and run it through your own Pandoc workflow. If bibliography is enabled in Composition, the manuscript contains the Pandoc `{#refs}` placeholder. If it is disabled, `pandoc.yaml` explicitly suppresses bibliography generation.
 
 Duplicate citekeys defined by more than one included `.bib` file stop package creation. Resolve the collision in the bibliographies before exporting again.
+
+## Internal references are separate
+
+[Cross-references](CROSS-REFERENCES-EN.md) to sections, images, tables or appendices are not bibliographic citations and do not require the CSL companion. Their numbers follow composition. A footnote can contain both systems without merging their stores.

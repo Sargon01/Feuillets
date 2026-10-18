@@ -73,6 +73,15 @@ In the native Markdown editor, the context menu can offer **Footnote >**, **Anno
 - explicit conversion of an older Idea Tree branch into a mindmap;
 - core behavior independent from Advanced Canvas.
 
+- Scapple-style free notes and single/multiple drag-to-connect; enriched relationships are not deleted by the single-note shortcut;
+- frameless, outlined, rounded, colored or classic Canvas card appearances;
+- text size, alignment and colors; selected-text bold, italic, strikethrough and single-paragraph inline underline;
+- straight, curved or Map routing, solid/dashed/dotted lines, thickness, arrows, colors and adapted anchors;
+- alignment, distribution, vertical justification and one-time stacking; persistent dynamic stacks and unstacking;
+- **Notebooks** tab, contextual inspector, floating toolbar and creation defaults for future free elements only;
+- explicitly global Binder Plan command: complete manuscript in the project Notebook.
+
+
 See [Notebook — from ideas to manuscript](HOW-TO-NOTEBOOK.md).
 
 ### Cards, Outline, Story arcs and Timeline
@@ -135,6 +144,27 @@ See [One project, multiple workspaces](WORKSPACES.md).
 - text width, typography, line spacing, indents, Focus Mode and writing aids;
 - Continuous lets the author work across several sheets as one text while keeping the source files separate;
 - real Markdown files remain the source despite visual settings.
+
+### Search, correction and journal
+
+- sheet/folder/selection/work/project search and replacement, with case/accent options, protections, preview and checked global restoration;
+- local paragraph alignment, first-line indent and spacing exceptions stored outside Markdown;
+- direct French correction in the editor and Continuous through optional Feuillets-Grammalecte; Continuous live checks focus on visible sheets;
+- writing journal, daily statistics separated by project and an optional journal filename suffix without renaming existing entries.
+
+See [Writing and correction](WRITING-AND-CORRECTION.md).
+
+## Internal cross-references
+
+- cursor insertion or linking selected text without replacing the source selection;
+- targets: H1–H6 sections, captioned Markdown images, Markdown tables and recognized appendices;
+- number, type and number, or title/caption; separate counters by type and context;
+- dynamic Live Preview/Continuous values, subtle underline, tooltip and source text revealed for editing;
+- human-readable text preserved for missing, ambiguous or excluded targets;
+- resolution in Preview and Markdown/DOCX/ODT/EPUB/PDF/Pandoc package without updating Word fields or source mutation;
+- independence from bibliographic CSL citations.
+
+See [Cross-references](CROSS-REFERENCES-EN.md).
 
 ## Revision and collaboration
 
@@ -258,3 +288,5 @@ Citations connect Research sources to the manuscript. During compilation, Feuill
 - collaborative review is explicit local file exchange;
 - Obsidian APIs for vault writes;
 - no Pandoc/external conversion executable is installed, located or run by Feuillets.
+
+DOCX and ODT tables are native; ODT embeds supported local PNG/JPEG/GIF/SVG images. Per-format limits are explained in [Composition and export](COMPOSITION-AND-EXPORT.md).

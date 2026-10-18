@@ -160,3 +160,22 @@ Choisissez **Paquet Pandoc (.zip)** pour un flux Pandoc/citeproc externe indépe
 Le Markdown source n’est jamais remplacé par l’artefact exporté. Lorsqu’une extraction ou une collection est sélectionnée, l’export Markdown reste volontairement un export de la source ; les dérivations s’appliquent aux formats documentaires.
 
 Pour un parcours guidé, voir [Tutoriel — publier plusieurs documents depuis une seule source](TUTORIEL-PUBLICATION-SEMANTIQUE.md).
+
+## Renvois internes, images et tableaux
+
+Les [références croisées internes](CROSS-REFERENCES.md) vers sections, images légendées, tableaux et annexes sont résolues d’après les fichiers et plages réellement retenus. Une cible exclue par la portée ou la dérivation conserve le texte humain du renvoi. Les compteurs de renvois sont distincts des numéros de page et de la numérotation hiérarchique des titres. Le Markdown compilé résout ces renvois, tout en conservant les citekeys bibliographiques Pandoc.
+
+Les images portables utilisent `![Légende](chemin)` ; les ressources de plusieurs chapitres sont résolues depuis leur fichier d’origine, y compris lorsque des noms d’images se répètent. Les actions de légende et de ressources sont décrites dans [Écrire et corriger](ECRIRE-ET-CORRIGER.md).
+
+- **DOCX** conserve les tableaux Markdown comme tableaux Word, avec en-têtes, cellules vides, alignements simples et mise en forme inline prise en charge.
+- **ODT** produit des tableaux natifs et incorpore les images locales PNG, JPEG, GIF et SVG résolues, avec dimensions proportionnées et légendes. WebP n’est pas incorporé par cet exporteur ; les médias manquants ou non pris en charge sont signalés.
+- **EPUB** est reflowable : ses sauts et métriques dépendent de la liseuse.
+- **PDF** suit le rendu paginé desktop et l’impression système ; il ne s’agit pas d’un export mobile équivalent.
+
+Les renvois exportés sont du texte, pas des champs recalculables Word. Les tableaux et médias ne garantissent pas une identité de mise en page entre Word, LibreOffice, Pages et une liseuse. Vérifiez le document dans l’application de destination. Les anciens [rapports de validation](validation/cross-reference-export-finish.md) précisent ce qui a effectivement été testé.
+
+## Imports de gabarits et stabilisation d’Édition
+
+L’import Ulysses concerne des **styles** `.ulstyle` / `.ulss`, pas l’import complet de sa bibliothèque. Un modèle Word `.docx` / `.dotx` fournit les propriétés représentables par les gabarits Feuillets, sans garantir une reproduction de toutes les fonctions Word. L’import de projet Scrivener est un autre flux, disponible sur ordinateur.
+
+Lors des actualisations automatiques d’Édition, la sous-page, les champs en cours et le focus doivent rester utilisables. L’Aperçu peut se synchroniser avec la lecture et le curseur sans être rouvert ; cela ne dispense pas de vérifier la portée et le gabarit avant l’export.

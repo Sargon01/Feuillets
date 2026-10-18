@@ -1,4 +1,4 @@
-# Sécurité, fichiers externes et échanges — Feuillets 2.5
+# Sécurité, fichiers externes et échanges — Feuillets
 
 > Document de maintenance complémentaire à [`../SECURITY.md`](../SECURITY.md) et [`../PRIVACY.md`](../PRIVACY.md).
 

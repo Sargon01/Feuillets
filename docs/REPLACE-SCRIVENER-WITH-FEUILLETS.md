@@ -52,7 +52,7 @@ The Vault section is only for finding and opening files. An outside document nev
 
 ## 2. Find the Corkboard again
 
-![Cards, Outline, Storyline and Timeline](feuillets-mosaique-narrative.png)
+![Cards, Outline, Story arcs and Timeline](feuillets-mosaique-narrative.png)
 
 Use **Cards** to step away from prose and inspect writing units visually. Cards can show the title, synopsis, status, label and progress, and can be reordered without creating a second manuscript structure.
 
@@ -86,7 +86,7 @@ The **Sheet** tab follows the active text and can contain:
 
 ### Project
 
-The **Project** tab manages project-level information and settings such as statuses, labels, favorite tags, goals and YAML property mapping.
+Open **Manage projects…** for project-level information and settings such as statuses, labels, favorite tags, goals and YAML property mapping. There is no separate public Project tab.
 
 ### Property remapping
 
@@ -100,7 +100,7 @@ Mappings are non-destructive: they tell Feuillets **where to read and write**, r
 
 Feuillets uses human-readable Markdown properties for status, labels, tags, dates, targets, point of view, narrative thread, characters and custom fields.
 
-Those properties can feed Cards, Outline, Storyline, Timeline, filters and Context. YAML remapping lets an established vault keep its existing property names.
+Those properties can feed Cards, Outline, Story arcs, Timeline, filters and Context. YAML remapping lets an established vault keep its existing property names.
 
 ---
 
@@ -207,7 +207,7 @@ Working annotations:
 - are not meant for export;
 - remain temporary authoring tools.
 
-For feedback from another person, Feuillets also provides **collaborative review**, separate from personal annotations and DOCX Revision.
+For feedback from another person, Feuillets also provides **collaborative review**, separate from personal annotations and DOCX Review.
 
 ---
 
@@ -227,13 +227,13 @@ This lets the author keep writing while someone reviews the sent version, withou
 
 ---
 
-## 14. Find DOCX Revision again
+## 14. Find DOCX Review again
 
-Word feedback from an editor or proofreader is handled under **Proofreading → DOCX Revision**.
+Word feedback from an editor or proofreader is handled under **Proofreading → DOCX Review**.
 
 Feuillets imports supported changes/comments and presents them in its review workflow, keeping review decisions separate until they are applied.
 
-Collaborative review and DOCX Revision are distinct workflows and are documented separately.
+Collaborative review and DOCX Review are distinct workflows and are documented separately.
 
 ---
 
@@ -247,7 +247,7 @@ Sheet **Context** can also surface continuity information from your own project 
 
 ## 16. Find narrative-thread tracking again
 
-**Storyline** projects the same manuscript through narrative threads, labels, point-of-view characters and other useful dimensions. It helps inspect thread distribution without imposing a plotting method.
+**Story arcs** projects the same manuscript through narrative threads, labels, point-of-view characters and other useful dimensions. It helps inspect thread distribution without imposing a plotting method.
 
 ---
 
@@ -350,7 +350,7 @@ Open project
 - working annotations outside Markdown;
 - local collaborative review;
 - richer version comparison;
-- integrated Timeline and Storyline;
+- integrated Timeline and Story arcs;
 - composition/export without a proprietary manuscript database.
 
 # What remains different from Scrivener

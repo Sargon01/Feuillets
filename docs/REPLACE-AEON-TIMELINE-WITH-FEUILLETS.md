@@ -4,9 +4,9 @@
 
 You use Aeon Timeline to track events, characters, ages, story threads and the difference between chronological and narrative order. Feuillets covers a large part of that work **when it is directly tied to a manuscript**, but it does not try to replace Aeon's full specialized temporal model.
 
-![Cards, Outline, Storyline and Timeline](feuillets-mosaique-narrative.png)
+![Cards, Outline, Story arcs and Timeline](feuillets-mosaique-narrative.png)
 
-Aeon starts from chronology and entities. Feuillets starts from the text: Timeline, Storyline, Research and Context are projections of the same Markdown project.
+Aeon starts from chronology and entities. Feuillets starts from the text: Timeline, Story arcs, Research and Context are projections of the same Markdown project.
 
 ---
 
@@ -56,7 +56,7 @@ This makes flashbacks, ellipses, anticipations and out-of-order scenes visible w
 
 ## 6. Find Story Arcs again
 
-Feuillets uses **narrative threads** projected in **Storyline**. The view helps reveal where a thread appears, disappears, resolves or leaves a gap across manuscript order.
+Feuillets uses **narrative threads** projected in **Story arcs**. The view helps reveal where a thread appears, disappears, resolves or leaves a gap across manuscript order.
 
 Aeon can model arcs as more general temporal entities; Feuillets deliberately keeps them close to the written book.
 
@@ -88,13 +88,13 @@ Aeon is still much better suited to elaborate fictional calendars, calendar conv
 
 ## 10. Find Relationship View again
 
-There is no single equivalent. Use Obsidian links/backlinks for documentary relationships, Canvas/Notebook for visual thinking, Storyline for narrative relations, Timeline for temporal relations and Sheet → Context for information useful during writing.
+There is no single equivalent. Use Obsidian links/backlinks for documentary relationships, Canvas/Notebook for visual thinking, Story arcs for narrative relations, Timeline for temporal relations and Sheet → Context for information useful during writing.
 
 ---
 
 ## 11. Find Subway View again
 
-**Storyline** is the closest author-oriented analogue: several narrative threads can be inspected across manuscript sequence.
+**Story arcs** is the closest author-oriented analogue: several narrative threads can be inspected across manuscript sequence.
 
 It is not a Subway View clone; its primary axis is the actual book.
 
@@ -110,7 +110,7 @@ Binder split view can keep a folder-only manuscript tree visible on the left whi
 
 ## 13. Find Mindmap again
 
-The **Notebook** uses Canvas for free ideas, groups and Idea Trees. A branch can be turned into an outline and then materialized as real Markdown folders/sheets.
+The **Notebook** uses native Canvas for free notes, file cards, relationships, arrangement and mind maps. Older Idea Tree branches can be explicitly converted to mind maps. Ideas can become Markdown sheets through conversion; the project Binder Plan separately prepares the complete manuscript hierarchy before **Apply to binder**.
 
 Notebook helps you think; Binder remains the real manuscript structure.
 
@@ -134,7 +134,7 @@ These are project-derived checks, not automatic truth claims.
 
 ## 16. Revise without losing chronology
 
-Feuillets 2.5 also strengthens rewriting with snapshots/versions, a comparison view that distinguishes additions/deletions/replacements/moves, working annotations outside Markdown, collaborative review and DOCX Revision.
+Feuillets 2.5 also strengthens rewriting with snapshots/versions, a comparison view that distinguishes additions/deletions/replacements/moves, working annotations outside Markdown, collaborative review and DOCX Review.
 
 Timeline keeps pointing to the same source files while the manuscript evolves.
 
@@ -173,7 +173,7 @@ Update timeline
 ```text
 Choose or write a sheet
 → add useful date/properties
-→ inspect Timeline / Outline / Storyline
+→ inspect Timeline / Outline / Story arcs
 → write alone or in Continuous
 → consult Sheet → Context
 → correct the same Markdown source

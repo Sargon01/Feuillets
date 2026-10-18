@@ -77,9 +77,9 @@ Pour suivre le travail dans son ordre naturel, voir [Le parcours d’un auteur](
 
 - **Ma documentation existe déjà ailleurs dans le coffre.** Ne la déplacez pas : un dossier existant peut être **associé comme Recherche** tout en restant physiquement à son emplacement. Voir [Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md).
 
-- **Je veux réfléchir visuellement autour d’un dossier.** Utilisez **Créer le Carnet** depuis le menu du dossier, puis retrouvez-le avec **Ouvrir le Carnet**. Ce Canvas peut rester entièrement libre ou accueillir un **Plan du Binder** et des **mindmaps**. Un dossier Recherche associé peut partager le même Carnet logique. Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
+- **Je veux réfléchir visuellement autour d’un dossier.** Utilisez **Créer le Carnet** depuis le menu du dossier, puis retrouvez-le avec **Ouvrir le Carnet**. Ce Canvas accueille notes libres, connexions, styles, empilements et **mindmaps**. Le **Plan Binder du projet** prépare le manuscrit entier dans le Carnet global. Un dossier Recherche associé peut partager le même Carnet logique. Voir [Le Carnet — des idées au manuscrit](HOW-TO-CARNET.md).
 
-- **J’utilise déjà mes propres propriétés YAML.** Dans **Projet**, Feuillets peut mapper ses champs logiques vers les propriétés déjà utilisées dans votre coffre. Vous n’avez pas besoin de renommer vos propriétés ni de migrer vos fichiers. Voir [Projet et propriétés YAML](PROJET-ET-PROPRIETES-YAML.md).
+- **J’utilise déjà mes propres propriétés YAML.** Dans **Gérer les projets…**, Feuillets peut mapper ses champs logiques vers les propriétés déjà utilisées dans votre coffre. Vous n’avez pas besoin de renommer vos propriétés ni de migrer vos fichiers. Voir [Projet et propriétés YAML](PROJET-ET-PROPRIETES-YAML.md).
 
 - **Je veux transporter un projet Feuillets vers un autre coffre ou ordinateur.** Dans **Gérer les projets**, utilisez **Exporter en `.feuil`**. L’archive conserve le projet et les réglages pris en charge ; elle peut ensuite être importée dans un nouveau dossier sans convertir le manuscrit hors Markdown. Voir [Projet portable `.feuil`](PROJET-PORTABLE-FEUIL.md).
 
@@ -103,7 +103,7 @@ Pour suivre le travail dans son ordre naturel, voir [Le parcours d’un auteur](
 - Les **annotations** fonctionnent aussi dans Continu tout en restant hors du Markdown.
 - **Instantané → réécriture → comparaison → restauration d’un passage** forme un flux de réécriture non destructif.
 - Un dossier documentaire existant peut être **associé comme Recherche** sans être déplacé.
-- Un dossier du manuscrit peut avoir son **propre Carnet Canvas**, avec Plan du Binder et mindmaps.
+- Un dossier du manuscrit peut avoir son **propre Carnet Canvas**, avec notes libres, relations et mindmaps ; le Plan Binder du projet reste global.
 - Le **remappage YAML** permet à Feuillets de s’adapter aux propriétés déjà présentes dans le coffre.
 - Un projet complet peut être transporté dans une archive **`.feuil`** puis réimporté dans un nouveau dossier.
 - L’**Aperçu est facultatif pour exporter** : il sert à vérifier la composition, pas à autoriser l’export.
@@ -136,6 +136,7 @@ Six onglets publics accompagnent le texte sans remplacer le manuscrit :
 - **Édition** — Composition, Mise en page et documents éditoriaux ;
 - **Statistiques** — statistiques du feuillet, de la sélection et du projet ;
 - **Relecture** — analyse de texte, relecture collaborative, Révision DOCX et comparaison.
+- **Carnets** — Carnets et contextes, inspecteur, outils, styles par défaut et affichage.
 
 ### Édition
 
@@ -154,3 +155,10 @@ Les citations relient la Recherche au manuscrit. Les sources peuvent être cité
 Feuillets doit s’adapter au coffre existant plutôt que demander à l’auteur de reconstruire son organisation pour le plugin : fichiers Markdown ordinaires, dossiers réels, ordre du manuscrit, propriétés YAML et Recherche existante restent sous le contrôle de l’utilisateur.
 
 Pour suivre l’ensemble du travail dans son ordre naturel, voir [Le parcours d’un auteur](PARCOURS-AUTEUR.md).
+
+## Deux essais pour aller plus loin
+
+1. Ouvrez **Carnets**, capturez trois idées et testez une relation entre deux notes libres. Organisez-les avant de convertir celles que vous voulez écrire ; voir [le parcours Carnet](HOW-TO-CARNET.md).
+2. Dans un feuillet, lancez **Référence croisée…** vers une section ou une image légendée. Comparez le texte source et Live Preview, puis composez un chapitre seul pour comprendre la portée du numéro. Voir [Références croisées](CROSS-REFERENCES.md).
+
+Pour la typographie locale, la correction linguistique et les remplacements multifeuillets, poursuivez avec [Écrire et corriger](ECRIRE-ET-CORRIGER.md).

@@ -4,6 +4,8 @@
 
 **Site officiel : https://sargon01.github.io/feuillets-site/**
 
+> Cette documentation décrit le code actuel de `main`, en préparation de **3.7.0**. La dernière version publiée reste **3.6.1**. Les nouveautés du Carnet et des références croisées ci-dessous ne constituent pas une annonce de publication.
+
 ## Écrivez tout votre livre dans Obsidian.
 
 **Feuillets garde Markdown comme manuscrit et construit autour de lui l’environnement de travail de l’auteur.**
@@ -134,7 +136,7 @@ Voir [Le Carnet — des idées au manuscrit](docs/HOW-TO-CARNET.md).
 
 ## Le panneau droit
 
-Le panneau Feuillets réunit désormais six onglets publics :
+Le panneau Feuillets réunit désormais sept onglets publics :
 
 | Onglet | Rôle |
 |---|---|
@@ -144,6 +146,7 @@ Le panneau Feuillets réunit désormais six onglets publics :
 | **Édition** | Composition, Mise en page et documents éditoriaux |
 | **Statistiques** | Statistiques du feuillet, de la sélection et du projet |
 | **Relecture** | Analyse de texte, relecture collaborative, Révision DOCX et comparaison avec un instantané |
+| **Carnets** | Carnets et contextes, inspecteur, outils et styles par défaut |
 
 La configuration du projet s’ouvre depuis **Gérer les projets…** : informations du projet, objectifs, format des citations (fiches Source et BibTeX/Pandoc), propriétés YAML, statuts, labels et tags.
 
@@ -152,6 +155,24 @@ La configuration du projet s’ouvre depuis **Gérer les projets…** : informat
 Feuillets reconnaît ses racines Recherche habituelles, mais vous pouvez aussi **associer n’importe quel dossier existant du coffre** à un dossier ou un feuillet du Classeur. Ces dossiers liés apparaissent dans le panneau Recherche sans être déplacés, copiés ou renommés. Leurs fichiers restent navigables : ils peuvent être ouverts dans un nouvel onglet ou côte à côte, tandis que les opérations d’administration restent désactivées depuis ce point d’entrée.
 
 Voir [Recherche et dossiers associés](docs/RECHERCHE-ET-DOSSIERS-ASSOCIES.md).
+
+## Le Carnet : capturer, relier et préparer le manuscrit
+
+Le Carnet est un atelier visuel dans le Canvas natif : notes sans cadre ou habillées, cartes de fichiers, typographie, connexions droites/courbes/Map, couleurs et flèches. Reliez une note libre à une autre par glissement, ou plusieurs notes à une même destination. L’inspecteur, la barre flottante et les menus proposent les outils adaptés à la sélection.
+
+Alignez, répartissez ou empilez les notes. Un empilement ponctuel les dispose une fois ; un empilement dynamique conserve une relation et suit leurs changements de hauteur. Les styles par défaut concernent les futures cartes et connexions libres, sans transformer les éléments existants ou structurels.
+
+Retrouvez le Carnet global et ceux des dossiers dans **Carnets**. Ajoutez des feuillets, développez une mindmap, convertissez les idées retenues en manuscrit ou en Recherche. **Créer ou actualiser le Plan Binder du projet** travaille sur le manuscrit complet dans le Carnet global, avant **Appliquer au Binder**. Advanced Canvas reste facultatif.
+
+[Suivre le parcours du Carnet](docs/HOW-TO-CARNET.md).
+
+## Références croisées et aides d’édition
+
+**Référence croisée…** insère un renvoi ou lie une sélection à une section, image légendée, tableau ou annexe. Live Preview et Continu affichent la valeur contextuelle avec un soulignement discret et une infobulle ; le Markdown garde le texte humain. L’Aperçu et les exports résolvent le renvoi dans la composition retenue. Ces renvois sont distincts des citations bibliographiques CSL et ne nécessitent pas le compagnon CSL.
+
+La recherche/remplacement multifeuillets propose portée, navigation, protections Markdown, prévisualisation et annulation globale dédiée. Les réglages locaux de paragraphes complètent le gabarit ; la correction linguistique en direct peut utiliser Feuillets-Grammalecte.
+
+Voir [Références croisées](docs/CROSS-REFERENCES.md) et [Écrire et corriger](docs/ECRIRE-ET-CORRIGER.md).
 
 ## Propriétés YAML adaptées au projet
 
@@ -299,7 +320,7 @@ Feuillets fonctionne de manière indépendante et s'associe bien avec :
 
 - **[Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL)** — Moteur natif facultatif Citation Style Language pour les citations BibTeX/Pandoc et les bibliographies CSL.
 - **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** — Correction orthographique et grammaticale française locale et facultative, directement dans l’éditeur et Continu, avec analyse complémentaire dans Relecture.
-- **[Courrier](https://github.com/Sargon01/Courrier)** — Import/export Word et support de la Révision DOCX.
+- **[Courrier](https://github.com/Sargon01/Courrier)** — Suivi facultatif des soumissions et correspondances éditoriales. L’export et la Révision DOCX de Feuillets n’en dépendent pas.
 - **[Advanced Canvas](https://github.com/Sargon01/Advanced-Canvas)** — Fonctionnalités Canvas améliorées pour le Carnet et la visualisation de recherche.
 
 ![Écosystème Feuillets](docs/feuillets-ecosysteme.png)

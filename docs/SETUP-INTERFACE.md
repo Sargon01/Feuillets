@@ -34,7 +34,7 @@ Voir [Classeur et navigation](CLASSEUR-ET-NAVIGATION.md).
 
 ## Le panneau droit
 
-Le panneau Feuillets réunit six onglets publics :
+Le panneau Feuillets réunit sept onglets publics :
 
 - **Feuillet** — synopsis/résumé, notes, propriétés, annotations, notes de bas de page et Contexte ;
 - **Recherche** — documentation, Sources/Bibliographie et dossiers associés ;
@@ -42,6 +42,7 @@ Le panneau Feuillets réunit six onglets publics :
 - **Édition** — Composition, Mise en page et documents éditoriaux ;
 - **Statistiques** — statistiques du feuillet, de la sélection et du projet ;
 - **Relecture** — analyse de texte, relecture collaborative, Révision DOCX et comparaison.
+- **Carnets** — Carnets et contextes, inspecteur, outils, styles par défaut et affichage.
 
 La configuration du projet s’ouvre depuis **Gérer les projets…**. L’onglet **Édition** contient **Composition**, **Mise en page** et les documents éditoriaux.
 
@@ -92,3 +93,10 @@ Aucun module supplémentaire n’est requis pour le cœur de Feuillets.
 ## Principe général
 
 La bonne interface Feuillets n’est pas celle qui montre tous les outils à la fois. Le texte reste au centre ; les surfaces apparaissent quand leur fonction devient utile.
+
+## Pour écrire et organiser au quotidien
+
+- [Écrire, mettre en forme et corriger](ECRIRE-ET-CORRIGER.md) : typographie, exceptions de paragraphes, recherche/remplacement multifeuillets et correction linguistique.
+- [Carnet](HOW-TO-CARNET.md) : notes libres, relations, inspecteur, styles et empilements ; aucune dépendance à Advanced Canvas pour cet atelier.
+- [Références croisées internes](CROSS-REFERENCES.md) : insertion, texte source, marques et infobulles ; distinctes des citations bibliographiques.
+- [Citations BibTeX et CSL](CITATIONS-BIBTEX-ET-PANDOC.md) : compagnon CSL facultatif, ressources contextuelles et bibliographie.

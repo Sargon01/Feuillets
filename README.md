@@ -4,6 +4,8 @@
 
 **Website: https://sargon01.github.io/feuillets-site/**
 
+> This documentation describes current `main` code preparing **3.7.0**. The latest published version remains **3.6.1**. The Notebook and cross-reference additions below are not a release announcement.
+
 ## Write your whole book in Obsidian.
 
 **Feuillets turns ordinary Markdown files into a complete long-form writing workflow inside Obsidian.**
@@ -78,7 +80,7 @@ A sheet may remain an article, short story, column or standalone chapter. Severa
 
 - a hierarchical **Binder**;
 - **Cards**, **Outline**, **Story arcs** and **Timeline**;
-- a visual project or folder **Notebook**, with a **Binder Plan** and **mindmaps**;
+- a project or folder **Notebook** workshop: free notes, connections, inspector, styles, stacks and mind maps; the project Binder Plan opens in the project Notebook;
 - project **Research**;
 - **working annotations**;
 - **Continuous** mode, to write several sheets as one manuscript;
@@ -152,7 +154,7 @@ See [Continuous mode](docs/CONTINUOUS-MODE.md).
 | Read the composed document | Preview |
 | Explore freely or think around a folder | Notebook |
 
-These views do not create parallel databases: they show the same files from different angles. The **Notebook** remains a free-form Canvas; it can be project-wide or attached to a folder and can host a **Binder Plan** or **mindmaps** without changing Markdown until an explicit Binder action is applied.
+These views do not create parallel databases: they show the same files from different angles. The **Notebook** is a visual workshop for free notes, relationships and mind maps at project or folder level. The project Binder Plan targets the complete manuscript in the project Notebook and changes the Binder only through explicit application. Converting an idea into a sheet is a separate explicit action.
 
 See [Notebook — from ideas to manuscript](docs/HOW-TO-NOTEBOOK.md).
 
@@ -160,7 +162,7 @@ See [Notebook — from ideas to manuscript](docs/HOW-TO-NOTEBOOK.md).
 
 ## Right-hand panel
 
-Feuillets now groups six public tabs in the right panel:
+Feuillets now groups seven public tabs in the right panel:
 
 | Tab | Purpose |
 |---|---|
@@ -170,6 +172,7 @@ Feuillets now groups six public tabs in the right panel:
 | **Edition** | Composition, Layout and editorial documents |
 | **Statistics** | Sheet, selection and project statistics |
 | **Proofreading** | Text analysis, collaborative review, DOCX Review and snapshot comparison |
+| **Notebooks** | Notebook contexts, selection inspector, tools and creation defaults |
 
 Project configuration is opened from **Manage projects…**, where project information, goals, Source-sheet citation style, YAML properties, statuses, labels and tags are configured.
 
@@ -178,6 +181,24 @@ Project configuration is opened from **Manage projects…**, where project infor
 Feuillets recognizes its usual Research roots, but you can also **link any existing vault folder** to a Binder folder or sheet. Linked folders appear in the Research panel without being moved, copied or renamed. Their files can be opened in a new tab or side by side, while rename, move, duplicate and trash actions remain unavailable from this external linked-folder entry point.
 
 See [Research and linked folders](docs/RESEARCH-AND-LINKED-FOLDERS.md).
+
+## Notebook: capture, connect and develop the manuscript
+
+Notebook is a visual workshop in native Canvas: frameless or styled notes, file cards, typography, straight/curved/Map connections, colors and arrows. Drag a free note onto another to connect them, or connect several notes to one destination. The inspector, floating toolbar and menus offer tools appropriate to the selection.
+
+Align, distribute or stack notes. A one-time stack arranges them once; a dynamic stack retains a relationship and follows height changes. Default styles apply to future free cards and connections without transforming existing or structural elements.
+
+Find project and folder Notebooks under **Notebooks**. Add sheets, develop a mind map, and convert chosen ideas into manuscript or Research files. **Create or update the project Binder Plan** works on the complete manuscript in the project Notebook, before **Apply to binder**. Advanced Canvas remains optional.
+
+[Follow the Notebook workflow](docs/HOW-TO-NOTEBOOK.md).
+
+## Cross-references and editing tools
+
+**Cross-reference…** inserts a reference or links selected text to a section, captioned image, table or appendix. Live Preview and Continuous show contextual values with a subtle underline and tooltip; Markdown retains human-readable text. Preview and exports resolve references within the retained composition. These references are separate from bibliographic CSL citations and do not require the CSL companion.
+
+Multi-sheet search/replace provides scope selection, occurrence navigation, Markdown protection, preview and dedicated global undo. Local paragraph settings complement the template; live language checking can use Feuillets-Grammalecte.
+
+See [Cross-references](docs/CROSS-REFERENCES-EN.md) and [Writing and correction](docs/WRITING-AND-CORRECTION.md).
 
 ## Project YAML property mapping
 
@@ -327,7 +348,7 @@ Feuillets is designed to work independently, and also pairs well with:
 
 - **[Feuillets CSL](https://github.com/Sargon01/Feuillets-CSL)** — Optional native Citation Style Language engine for BibTeX/Pandoc citations and CSL bibliographies.
 - **[Feuillets-Grammalecte](https://github.com/Sargon01/Feuillets-Grammalecte)** — Optional local French spelling and grammar checking, with live correction in the editor and Continuous mode and additional review support in Proofreading.
-- **[Courrier](https://github.com/Sargon01/Courrier)** — Word import/export and DOCX Review support.
+- **[Courrier](https://github.com/Sargon01/Courrier)** — Optional editorial submissions and correspondence workflow. Feuillets’ DOCX export and review do not require it.
 - **[Advanced Canvas](https://github.com/Sargon01/Advanced-Canvas)** — Enhanced Canvas features for Notebook and research visualization.
 
 ![Feuillets ecosystem](docs/feuillets-ecosysteme.png)
@@ -338,7 +359,7 @@ Feuillets supports French and English interfaces out of the box, with English se
 
 ## Documentation
 
-- **[Release 3.0.2 notes](docs/RELEASE-3.0.2.md)** · [Français](docs/VERSION-3.0.2.md)
+- **[Historical 3.0.2 notes](docs/RELEASE-3.0.2.md)** · [Français](docs/VERSION-3.0.2.md)
 - Complete documentation index: [docs/README.md](docs/README.md).
 
 > **Feuillets — write first, build later.**

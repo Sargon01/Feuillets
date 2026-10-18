@@ -9,7 +9,7 @@ Cette page évite que les prochains correctifs réintroduisent dans la documenta
 - **Plan** : vue tabulaire de la structure et des métadonnées.
 - **Continu** : manuscrit composite éditable en mémoire, fichiers sources séparés.
 - **Aperçu** : document paginé/composé.
-- **Feuillet / Recherche / Journal / Édition / Statistiques / Relecture** : six onglets publics du panneau Feuillets.
+- **Feuillet / Recherche / Journal / Édition / Statistiques / Relecture / Carnets** : sept onglets publics du panneau Feuillets.
 - **Édition** : onglet du panneau contenant Composition, Mise en page et documents éditoriaux.
 - **Exporter** : action de la barre d’Édition, pas troisième mode.
 
@@ -27,7 +27,7 @@ La géographie principale décrite ci-dessus constitue un **contrat d’interfac
 - Projet comme onglet public de configuration ; la gestion du projet se fait depuis **Gérer les projets…** ;
 - onglet public Analyse séparé ;
 - onglet public Notes : le libellé est **Feuillet** ;
-- Révision DOCX dans l’onglet Relecture ;
+- Révision DOCX dans Édition ou dans un ancien panneau autonome : l’entrée actuelle est **Relecture → Révision DOCX**, également accessible par **Ouvrir Relecture — Révision DOCX** ;
 - Composition/Mise en page/Export comme trois onglets centraux ;
 - Première page à la fois dans Composition et Mise en page ;
 - export rapide depuis le Classeur (retiré au profit de Double vue) ;
@@ -57,3 +57,14 @@ Avant chaque release majeure :
 4. chercher les anciens chemins UI dans tous les `.md` ;
 5. vérifier les captures ;
 6. seulement ensuite écrire les notes de release.
+
+## Repères pour la documentation 3.7
+
+- Le Carnet est un atelier visuel majeur ; distinguer notes libres, cartes de fichiers et blocs structurés.
+- L’inspecteur modifie la sélection actuelle ; les styles par défaut concernent les futures cartes et connexions libres.
+- Empiler les notes est ponctuel ; Empiler dynamiquement conserve une relation persistante.
+- `openVisualOutline()` cible le Carnet global et le manuscrit entier. Ne pas déduire la portée de la commande des seuls anciens modèles de Plans de dossier.
+- Les références croisées internes restent distinctes des citations bibliographiques CSL et des wikiliens de navigation.
+- Les notes de version et rapports de validation datés sont des archives. Les guides actuels priment pour décrire l’interface.
+
+Voir [la traçabilité de l’audit 3.7](validation/documentation-3.7-audit.md).

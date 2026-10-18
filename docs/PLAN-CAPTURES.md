@@ -167,4 +167,22 @@ Avant toute intégration dans README.md ou README-fr.md :
 4. vérifier qu’aucune donnée personnelle n’est visible ;
 5. vérifier qu’ils restent lisibles dans une page GitHub.
 
-Le Lot 3B décidera ensuite exactement où les trois démonstrations apparaissent dans les README.
+Les trois démonstrations sont déjà intégrées aux README et au site. Leur présence ne vaut pas validation de leur conformité à l’interface actuelle.
+
+## Recette visuelle à préparer pour 3.7.0
+
+Les fichiers existants sont conservés : aucune capture artificielle ni animation de substitution n’est ajoutée par l’audit documentaire. Les prises de vue ci-dessous doivent être réalisées dans Obsidian réel, avec un projet de démonstration et sans données personnelles.
+
+| Priorité | Scène à montrer | Contrôles visibles |
+|---|---|---|
+| Haute | Carnet comme atelier de notes | Onglet Carnets, contextes, notes sans cadre/contour/fond, cartes de fichiers, inspecteur |
+| Haute | Relier des idées | Dépôt simple et multiple, retour des notes à leur position, relations existantes préservées |
+| Haute | Organiser les notes | Alignement/distribution ; empilement ponctuel comparé à une pile dynamique après édition ; dissociation |
+| Haute | Préparer le livre | Mindmap, conversion d’idées, Plan Binder global et application explicite |
+| Haute | Référence croisée en Live Preview et Continu | Insertion au curseur/sur sélection, texte source révélé, infobulle et numéro après changement de portée |
+| Moyenne | Recherche/remplacement multifeuillets | Portée, résultats, Avant/Après, confirmation et annulation dédiée |
+| Moyenne | Édition et publication | Réglages locaux de paragraphe, actualisation conservant les champs, renvois dans l’Aperçu, tableaux DOCX/ODT et images ODT dans le lecteur réel |
+
+Revoir `feuillets-classeur.gif`, `feuillets-continu.gif` et `feuillets-edition-apercu.gif`, ainsi que leurs copies sous `assets/` dans le site : vocabulaire, onglet Carnets, géographie actuelle de Relecture et Édition. Les PNG de Concentration, Aperçu, comparaison, import et vues narratives restent à comparer à l’interface avant de les certifier actuels.
+
+Les nouvelles sections Carnet et Références du site utilisent du texte et des liens de guides tant qu’aucune prise de vue fiable n’est disponible. Les captures de contrôle du site lui-même servent à vérifier sa mise en page ; elles ne remplacent pas ces captures produit.

@@ -71,6 +71,46 @@ Obsidian fold variants are also recognized:
 
 The role identifiers remain canonical French identifiers in Markdown, independently of the interface language.
 
+## Examples
+
+### Question and answer
+
+```markdown
+> [!questions]
+> Why does the river flow decrease in summer?
+
+> [!solution]
+> The answer depends on rainfall, withdrawals and seasonal conditions.
+```
+
+### Argument, evidence and source
+
+```markdown
+> [!argument]
+> Seasonal restrictions are more appropriate than one rule throughout the year.
+
+> [!preuve]
+> Records show that peak consumption is concentrated in a few weeks.
+
+> [!source]
+> Local water observatory, 2026 statistical series.
+```
+
+### Hypothesis and method
+
+```markdown
+> [!hypothese]
+> Increased consumption mainly comes from summer visitors.
+
+> [!methode]
+> 1. State the hypothesis.
+> 2. Identify available data.
+> 3. Look for evidence supporting or contradicting it.
+> 4. Reach a cautious conclusion.
+```
+
+The identifiers remain the same in an English manuscript; translate the prose, not the canonical role names.
+
 ## Ordinary Obsidian callouts
 
 Not every Obsidian callout is a Feuillets semantic role.
