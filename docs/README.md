@@ -4,9 +4,9 @@ Feuillets est un atelier d’écriture dans Obsidian. Les fichiers Markdown rest
 
 Feuillets is a writing workshop inside Obsidian. Markdown files remain the manuscript source; views, Notebooks and publishing tools work around them.
 
-> Documentation cumulative de `main`, en préparation de **3.7.0**. Dernière version publiée : **3.6.1**. Les notes historiques restent accessibles ci-dessous.
+> Documentation de **Feuillets 3.7.0**. Les notes historiques restent accessibles ci-dessous.
 >
-> Cumulative documentation for `main`, preparing **3.7.0**. Latest published version: **3.6.1**. Historical release notes remain available below.
+> Documentation for **Feuillets 3.7.0**. Historical release notes remain available below.
 
 ## Commencer / Start here
 
@@ -73,7 +73,7 @@ Ces guides expliquent les équivalences et les limites, sans promettre des clone
 
 Les guides ci-dessus décrivent le comportement actuel. Les documents suivants gardent leur contexte historique. / The guides above describe current behavior. The documents below retain their historical context.
 
-- [Changelog et préparation 3.7.0](../CHANGELOG.md)
+- [Changelog / Release notes](../CHANGELOG.md)
 - [Version 3.0.2](VERSION-3.0.2.md) · [English](RELEASE-3.0.2.md)
 - [Version 3.0.0](VERSION-3.0.0.md) · [English](RELEASE-3.0.0.md)
 - [Validation DOCX](DOCX-REVIEW-VALIDATION.md)

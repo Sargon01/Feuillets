@@ -2,9 +2,9 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
-## 3.7.0 — En préparation
+## 3.7.0 — 2026-10-18
 
-Cette section décrit les changements intégrés après la 3.6.1 ; elle n’annonce pas une version publiée.
+Cette version rassemble les changements intégrés après la 3.6.1.
 
 ### Carnet et atelier Canvas
 

@@ -4,7 +4,7 @@
 
 **Site officiel : https://sargon01.github.io/feuillets-site/**
 
-> Cette documentation décrit le code actuel de `main`, en préparation de **3.7.0**. La dernière version publiée reste **3.6.1**. Les nouveautés du Carnet et des références croisées ci-dessous ne constituent pas une annonce de publication.
+> Documentation de **Feuillets 3.7.0**. Consultez les [notes de version](CHANGELOG.md#370--2026-10-18) pour les changements depuis la 3.6.1.
 
 ## Écrivez tout votre livre dans Obsidian.
 

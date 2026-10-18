@@ -4,7 +4,7 @@
 
 **Website: https://sargon01.github.io/feuillets-site/**
 
-> This documentation describes current `main` code preparing **3.7.0**. The latest published version remains **3.6.1**. The Notebook and cross-reference additions below are not a release announcement.
+> Documentation for **Feuillets 3.7.0**. See the [release notes](CHANGELOG.md#370--2026-10-18) for changes since 3.6.1.
 
 ## Write your whole book in Obsidian.
 
