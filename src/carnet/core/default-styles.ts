@@ -1,6 +1,6 @@
 import { normalizeTextStyle } from "../canvas/text-style.js";
-import { isFreeNote } from "../canvas/note-style.js";
-import { getEdgeAppearance, isEligibleEdge, type Arrows } from "../canvas/edge-style.js";
+import { isOrdinaryCard } from "../canvas/ordinary-cards.js";
+import { isEligibleEdge, type Arrows } from "../canvas/edge-style.js";
 import type { CanvasData, CanvasNode, CanvasEdge, CarnetNoteStyle, CarnetTextStyle } from "../canvas/types.js";
 
 export type CarnetNoteDefaults = { style?: Exclude<CarnetNoteStyle, "classic">; color?: string; textStyle?: CarnetTextStyle };
@@ -35,7 +35,7 @@ export function normalizeCarnetDefaultStyles(value: unknown): CarnetDefaultStyle
 
 /** Initialize only missing fields, before the original creation transaction saves. */
 export function withNewNoteDefaults(data: CanvasData, node: CanvasNode, defaults: CarnetNoteDefaults | undefined): CanvasNode {
-  if (!defaults || !isFreeNote(data, node)) return node;
+  if (!defaults || !isOrdinaryCard(data, node)) return node;
   const next = { ...node };
   if (next.feuillets_note_style === undefined && defaults.style) next.feuillets_note_style = defaults.style;
   if (next.color === undefined && defaults.color) next.color = defaults.color;
@@ -50,8 +50,8 @@ export function withNewEdgeDefaults(data: CanvasData, edge: CanvasEdge, defaults
   for (const field of ["geometry", "pattern", "width"] as const) if (style[field] === undefined && defaults[field]) Object.assign(style, { [field]: defaults[field] });
   if (Object.keys(style).length) next.feuillets_edge_style = style;
   if (next.color === undefined && defaults.color) next.color = defaults.color;
-  // Preserve nonstandard native endpoints already chosen during creation.
-  if (defaults.arrows && getEdgeAppearance(edge).arrows === "end") {
+  // Explicit endpoint markers take precedence over creation preferences.
+  if (defaults.arrows && edge.fromEnd === undefined && edge.toEnd === undefined) {
     next.fromEnd = defaults.arrows === "start" || defaults.arrows === "both" ? "arrow" : "none";
     next.toEnd = defaults.arrows === "end" || defaults.arrows === "both" ? "arrow" : "none";
   }

@@ -3,7 +3,7 @@ import { t } from "../../i18n/index.js";
 import type { MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 import { canStackNotes, stackNotes, type StackCanvas } from "./stack-notes.js";
 import { canStackDynamically, canUnstackDynamically, stackDynamically, unstackDynamically } from "./dynamic-stack.js";
-import { isFreeNote } from "./note-style.js";
+import { hasOrdinaryCardOwnership } from "./ordinary-cards.js";
 import type { CanvasNode } from "./types.js";
 
 type ArrangementCanvas = Pick<StackCanvas, "nodes" | "selection" | "getData" | "readonly" | "isDragging" | "isHoldingSpace"> & {
@@ -35,7 +35,7 @@ function hasArrangementContract(value: unknown): value is ArrangementCanvas {
 function eligibleSelection(canvas: ArrangementCanvas): boolean {
   if (canvas.readonly || canvas.isDragging || canvas.isHoldingSpace || !canvas.wrapperEl.isConnected || !canvas.selection.size) return false;
   const data = canvas.getData();
-  const free = (raw: CanvasNode): boolean => ["text", "file", "link", "group"].includes(raw.type ?? "") && isFreeNote(data, { ...raw, type: "text" });
+  const free = (raw: CanvasNode): boolean => ["text", "file", "link", "group"].includes(raw.type ?? "") && hasOrdinaryCardOwnership(data, raw);
   for (const node of canvas.selection) {
     const raw = data.nodes.find((candidate) => candidate.id === node.id);
     if (canvas.nodes.get(node.id) !== node || !raw || !free(raw) || node.isEditing || node.nodeEl?.classList.contains("is-dragging")) return false;

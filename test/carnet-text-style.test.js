@@ -28,7 +28,7 @@ test("scoped typography survives native editor class replacement and cleans up w
   const { refreshTextStyle, bindTextEditor } = await import("../src/carnet/canvas/text-style.js");
   const element = () => { const values = new Map(), attributes = new Map(), classes = new Set(); return { values, attributes, classes, style: { setProperty: (k, v) => values.set(k, v), removeProperty: (k) => values.delete(k) }, setAttribute: (k, v) => attributes.set(k, v), removeAttribute: (k) => attributes.delete(k), classList: { toggle: (k, active) => active ? classes.add(k) : classes.delete(k) } }; };
   const root = element(), dom = element(), editor = { cm: { dom, contentDOM: {}, requestMeasure() {} }, onUpdate() {} };
-  const node = { isEditing: true, nodeEl: root, getData: () => ({ feuillets_text_style: { size: 24, align: "justify", color: "green" } }), child: { editMode: editor } };
+  const node = { isEditing: true, nodeEl: root, getData: () => ({ type: "text", feuillets_text_style: { size: 24, align: "justify", color: "green" } }), child: { editMode: editor } };
   const cleanup = bindTextEditor(node);
   assert.equal(dom.values.get("--feuillets-text-size"), "24px");
   dom.classes.clear(); assert.equal(dom.attributes.get("data-feuillets-typography"), "true");

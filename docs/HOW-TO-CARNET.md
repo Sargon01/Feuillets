@@ -38,7 +38,7 @@ Les notes texte libres reçoivent par défaut une présentation sans cadre. L’
 
 ### Habillage et dimensions
 
-Pour une note texte compatible, choisissez :
+Pour une note ou une carte de fichier ordinaire compatible, choisissez :
 
 | Habillage | Utilisation |
 |---|---|
@@ -48,9 +48,9 @@ Pour une note texte compatible, choisissez :
 | **Fond coloré** | Mettre une note en évidence |
 | **Carte Canvas classique** | Retrouver la présentation native de la carte |
 
-La couleur de carte est distincte de la couleur du texte. Les couleurs suivent la palette Canvas et le thème Obsidian. Les cartes de fichiers et les groupes conservent leurs outils natifs ; les réglages de typographie des notes libres ne constituent pas un éditeur de style du fichier qu’une carte représente.
+La couleur de carte est distincte de la couleur du texte. Les couleurs suivent la palette Canvas et le thème Obsidian. Les cartes de fichiers conservent leur aperçu Markdown, leur défilement, leurs liens et leurs outils natifs. Les réglages typographiques compatibles modifient la présentation de l’aperçu, sans modifier le Markdown ni les contrôles natifs. Les titres, blocs de code et autres éléments ayant leur propre style conservent les règles du rendu Markdown ; les commandes de formatage d’un passage restent réservées aux notes texte.
 
-Le contenu et la typographie font adapter la taille des notes compatibles. Après un redimensionnement manuel en largeur, le texte revient à la ligne dans la largeur choisie et la hauteur s’adapte au contenu. Une modification de taille de police ne doit pas être interprétée comme une mise à l’échelle globale du Canvas. La carte classique conserve le comportement de présentation natif.
+Le contenu et la typographie font adapter la taille des notes texte compatibles. Les cartes de fichiers conservent leurs dimensions et leur défilement natifs. Après un redimensionnement manuel en largeur, le texte revient à la ligne dans la largeur choisie et la hauteur s’adapte au contenu. Une modification de taille de police ne doit pas être interprétée comme une mise à l’échelle globale du Canvas. La carte classique conserve le comportement de présentation natif.
 
 ### Typographie de la note et formatage d’un passage
 
@@ -75,17 +75,17 @@ Ces opérations concernent les notes libres compatibles ; elles ne réorganisent
 
 ## 3. Relier les idées
 
-Les poignées et connexions natives Canvas restent disponibles. Feuillets ajoute un geste façon Scapple sur les **notes texte libres** :
+Les poignées et connexions natives Canvas restent disponibles. Feuillets ajoute un geste façon Scapple sur les **cartes ordinaires**, notes texte et cartes de fichiers :
 
-1. Sortez de l’édition de la note.
-2. Avec la souris, faites glisser son corps sur une autre note texte libre, sans touche modificatrice.
-3. Relâchez : la relation est créée et la note déplacée retrouve sa position de départ.
+1. Sortez de l’édition ou de la lecture interactive de la carte.
+2. Avec la souris, faites glisser la carte depuis sa surface native de déplacement sur une autre carte ordinaire, sans touche modificatrice.
+3. Relâchez : la relation est créée et la carte déplacée retrouve sa position de départ.
 
-Pour une seule note, répéter ce geste peut retirer une relation simple existante : elle doit être unique, sans libellé, couleur, habillage personnalisé ni flèche. Une relation enrichie est conservée ; utilisez alors ses outils Canvas pour la modifier ou la supprimer.
+Pour une seule carte, répéter ce geste peut retirer une relation simple existante : elle doit être unique, sans libellé, couleur, habillage personnalisé ni flèche. Une relation enrichie est conservée ; utilisez alors ses outils Canvas pour la modifier ou la supprimer.
 
-Pour relier plusieurs idées à une même destination, sélectionnez-les puis faites glisser l’une des notes sélectionnées sur une note extérieure à la sélection. Feuillets ajoute les connexions manquantes et **conserve les relations existantes** : le geste multiple ne les bascule pas vers la suppression.
+Pour relier plusieurs idées à une même destination, sélectionnez-les puis faites glisser l’une des cartes sélectionnées sur une carte extérieure à la sélection. Feuillets ajoute les connexions manquantes et **conserve les relations existantes** : le geste multiple ne les bascule pas vers la suppression.
 
-Ce raccourci est limité au Carnet actif, modifiable et à une sélection de notes libres compatibles. Il ne s’applique pas aux cartes de fichiers, groupes, éléments de mindmap, Plan Binder ou cartes structurelles. Une édition en cours, une sélection mixte, le déplacement du fond avec Espace ou un contexte devenu périmé empêchent la conversion du geste. Un Canvas ordinaire du coffre n’est pas transformé en Carnet par ce mécanisme.
+Ce raccourci est limité au Carnet actif, modifiable et à une sélection de cartes ordinaires compatibles, y compris les feuillets et fiches Recherche déposés ou convertis. Il ne s’applique pas aux groupes, éléments de mindmap, Plan Binder ou cartes structurelles. Une édition en cours, une sélection contenant un élément structurel, le déplacement du fond avec Espace ou un contexte devenu périmé empêchent la conversion du geste. Un Canvas ordinaire du coffre n’est pas transformé en Carnet par ce mécanisme.
 
 Une note appartenant à une pile dynamique n’est pas admissible à ce geste de connexion libre tant que sa relation de pile est conservée. Dissociez la pile avant de l’utiliser comme note indépendante.
 
@@ -101,7 +101,7 @@ Sélectionnez une connexion compatible dans l’inspecteur ou ouvrez son menu **
 
 Le tracé **Map** utilise des segments orthogonaux et cherche un passage autour des cartes ; il ne déplace pas les cartes et ne garantit pas un routage parfait dans toute disposition encombrée. Les connexions autour des notes libres suivent leurs limites et leur contenu lorsque les dimensions changent. Les courbes natives gardent leur géométrie native ; les connexions structurelles gérées par un bloc restent protégées.
 
-Les relations ordinaires entre cartes texte libres sont initialement droites, fines et à tirets, sauf réglage explicite. Les connexions vers des cartes de fichiers ou groupes admissibles conservent une base native courbe, continue et normale. Le geste de connexion libre crée des liens sans flèches. **Rétablir l’apparence par défaut de la connexion** retire couleur, flèches et surcharges de trait/épaisseur, mais **conserve le tracé explicitement choisi**.
+Les relations ordinaires entre notes et cartes de fichiers sont initialement droites, fines et pointillées, sauf réglage explicite. Le geste de connexion libre crée des liens sans flèches, sauf préférence de création explicite. Les marqueurs natifs déjà enregistrés, y compris les flèches, restent respectés. **Rétablir l’apparence par défaut de la connexion** retire couleur, flèches et surcharges de trait/épaisseur, mais **conserve le tracé explicitement choisi**.
 
 ## Inspecteur, barre flottante et styles futurs
 
@@ -109,7 +109,7 @@ L’onglet **Carnets** réunit **Carnets disponibles**, **Inspecteur de sélecti
 
 Dans **Affichage**, **Afficher la barre flottante** permet de choisir si ces outils accompagnent aussi la sélection sur le Canvas. Les menus natifs restent distincts des commandes ajoutées par Feuillets.
 
-**Styles par défaut** règle les **nouvelles cartes texte** et les **nouvelles connexions libres** : habillage, couleurs, typographie et propriétés de connexion proposées. Ces préférences ne modifient pas rétroactivement les éléments existants et ne transforment pas les éléments structurels d’une mindmap ou du Plan. Le choix Carte Canvas classique est une apparence de carte existante ; il ne fait pas partie des quatre habillages proposés pour les futures notes libres.
+**Styles par défaut** règle les **nouvelles cartes ordinaires**, y compris les fichiers déposés depuis le Classeur ou Recherche, et les **nouvelles connexions libres** : habillage, couleurs, typographie et propriétés de connexion proposées. Ces préférences ne modifient pas rétroactivement les éléments existants et ne transforment pas les éléments structurels d’une mindmap ou du Plan. Le choix Carte Canvas classique est une apparence de carte existante ; il ne fait pas partie des quatre habillages proposés pour les futures notes libres.
 
 Pour changer une carte déjà présente, utilisez l’inspecteur ; pour préparer les suivantes, utilisez les styles par défaut. **Rétablir les valeurs par défaut** réinitialise les préférences de création, pas l’ensemble du Carnet.
 
@@ -186,7 +186,7 @@ Dans **Outils du Carnet → Convertir / Envoyer**, utilisez :
 - **Carnet : transformer des idées en fiches de recherche…** pour conserver les idées comme documentation ;
 - **Carnet : créer un chapitre…** pour préparer un dossier et les feuillets admissibles à partir d’un groupe ou des éléments choisis.
 
-Les dialogues permettent de vérifier les titres, le choix et l’ordre avant création. Une conversion crée un vrai fichier Markdown et remplace la note convertie par une carte de fichier en conservant le lien visuel avec le travail du Carnet. Les cartes de fichiers existantes ne doivent pas être confondues avec des notes texte à convertir. Vérifiez les destinations proposées : la position spatiale d’une carte ne définit pas à elle seule son futur dossier.
+Les dialogues permettent de vérifier les titres, le choix et l’ordre avant création. Une conversion crée un vrai fichier Markdown et remplace la note convertie par une carte de fichier en conservant sa position, ses dimensions, son habillage, sa typographie compatible et les propriétés de ses connexions. Les cartes de fichiers existantes ne doivent pas être confondues avec des notes texte à convertir. Vérifiez les destinations proposées : la position spatiale d’une carte ne définit pas à elle seule son futur dossier.
 
 **Exemple :** empilez ponctuellement cinq idées pour les lire dans un ordre provisoire ; reliez les pistes qui dépendent les unes des autres ; créez une mindmap pour une branche ; convertissez les idées retenues en feuillets ; ouvrez enfin le Plan Binder global pour préparer la structure réelle. Déplacer librement les autres cartes reste sans effet sur l’ordre du manuscrit.
 

@@ -2,6 +2,8 @@ import type { App, TFile } from "obsidian";
 import { ItemView } from "obsidian";
 import type { MinimalRuntimeCanvas, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 import { findOpenCanvasView } from "./adapter.js";
+import { isOrdinaryCard } from "./ordinary-cards.js";
+import { normalizeCarnetDefaultStyles, withNewEdgeDefaults, type CarnetDefaultStyles, type CarnetEdgeDefaults } from "../core/default-styles.js";
 import type { CanvasData, CanvasEdge, CanvasNode } from "./types.js";
 
 type CanvasHistory = { data: CanvasData[]; current: number };
@@ -53,12 +55,8 @@ function hasContract(value: unknown): value is DropCanvas {
     Array.isArray(c.history?.data) && Number.isInteger(c.history.current) && typeof c.isDragging === "boolean";
 }
 
-function isFreeText(data: CanvasData, node: CanvasNode): boolean {
-  return node.type === "text" && !!node.id &&
-    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width" && key !== "feuillets_text_style") &&
-    !Object.keys(node).some((key) => key.startsWith("mindmap")) &&
-    !data.edges.some((edge) => (edge.fromNode === node.id || edge.toNode === node.id) &&
-      Object.keys(edge).some((key) => key.startsWith("feuillets_") && key !== "feuillets_edge_style"));
+function isDropLinkCard(data: CanvasData, node: CanvasNode): boolean {
+  return isOrdinaryCard(data, node) && node.feuillets_stack === undefined;
 }
 
 function validData(data: CanvasData): boolean {
@@ -91,11 +89,11 @@ function unchanged(canvas: DropCanvas, drag: Drag, current: CanvasData): boolean
 }
 
 /** Only an unlabelled, unstyled, unmanaged line may be toggled off. */
-export function toggleDropLink(data: CanvasData, sourceId: string, targetId: string): CanvasData | null {
+export function toggleDropLink(data: CanvasData, sourceId: string, targetId: string, defaults?: CarnetEdgeDefaults): CanvasData | null {
   if (!validData(data) || sourceId === targetId) return null;
   const source = data.nodes.find((node) => node.id === sourceId);
   const target = data.nodes.find((node) => node.id === targetId);
-  if (!source || !target || !isFreeText(data, source) || !isFreeText(data, target)) return null;
+  if (!source || !target || !isDropLinkCard(data, source) || !isDropLinkCard(data, target)) return null;
   const between = data.edges.filter((edge) =>
     (edge.fromNode === sourceId && edge.toNode === targetId) || (edge.fromNode === targetId && edge.toNode === sourceId));
   if (between.length > 1) return null;
@@ -113,24 +111,24 @@ export function toggleDropLink(data: CanvasData, sourceId: string, targetId: str
     id: crypto.randomUUID().replace(/-/g, "").slice(0, 16), fromNode: sourceId, toNode: targetId,
     fromSide: horizontal ? (dx >= 0 ? "right" : "left") : (dy >= 0 ? "bottom" : "top"),
     toSide: horizontal ? (dx >= 0 ? "left" : "right") : (dy >= 0 ? "top" : "bottom"),
-    fromEnd: "none", toEnd: "none",
   };
   if (data.edges.some((candidate) => candidate.id === edge.id)) return null;
-  return { ...data, edges: [...data.edges, edge] };
+  const initialized = withNewEdgeDefaults(data, edge, defaults);
+  return { ...data, edges: [...data.edges, { ...initialized, fromEnd: initialized.fromEnd ?? "none", toEnd: initialized.toEnd ?? "none" }] };
 }
 
 /** A selection adds missing links without changing existing relationships. */
-export function addDropLinks(data: CanvasData, sourceIds: string[], targetId: string): CanvasData | null {
+export function addDropLinks(data: CanvasData, sourceIds: string[], targetId: string, defaults?: CarnetEdgeDefaults): CanvasData | null {
   if (!validData(data) || sourceIds.length < 2 || new Set(sourceIds).size !== sourceIds.length || sourceIds.includes(targetId)) return null;
   const target = data.nodes.find((node) => node.id === targetId);
-  if (!target || !isFreeText(data, target)) return null;
+  if (!target || !isDropLinkCard(data, target)) return null;
   let next = data;
   for (const sourceId of sourceIds) {
     const source = data.nodes.find((node) => node.id === sourceId);
-    if (!source || !isFreeText(data, source)) return null;
+    if (!source || !isDropLinkCard(data, source)) return null;
     if (data.edges.some((edge) => (edge.fromNode === sourceId && edge.toNode === targetId) ||
       (edge.fromNode === targetId && edge.toNode === sourceId))) continue;
-    const added = toggleDropLink(next, sourceId, targetId);
+    const added = toggleDropLink(next, sourceId, targetId, defaults);
     if (!added) return null;
     next = added;
   }
@@ -141,7 +139,8 @@ export function addDropLinks(data: CanvasData, sourceIds: string[], targetId: st
 export function attachCarnetDropLinks(
   app: Pick<App, "workspace">,
   view: DropLinkView,
-  isCarnet: (file: TFile | null | undefined) => boolean
+  isCarnet: (file: TFile | null | undefined) => boolean,
+  getDefaults: () => CarnetDefaultStyles = () => ({})
 ): (() => void) | null {
   const file = view.file;
   if (!file || !isCarnet(file) || !view.register || !hasContract(view.canvas)) return null;
@@ -176,7 +175,8 @@ export function attachCarnetDropLinks(
       return before ? { ...node, x: before.x, y: before.y } : node;
     }) };
     const sourceIds = [...pending.sources.keys()];
-    const next = sourceIds.length === 1 ? toggleDropLink(restored, sourceIds[0], targetId) : addDropLinks(restored, sourceIds, targetId);
+    const defaults = normalizeCarnetDefaultStyles(getDefaults()).edge;
+    const next = sourceIds.length === 1 ? toggleDropLink(restored, sourceIds[0], targetId, defaults) : addDropLinks(restored, sourceIds, targetId, defaults);
     if (!next) return;
     // Keep the native drag checkpoint out of history and save one final snapshot.
     canvas.requestPushHistory.cancel();
@@ -195,11 +195,11 @@ export function attachCarnetDropLinks(
     if (!validData(data)) return;
     const source = [...canvas.nodes.values()].find((node) => node.nodeEl?.contains(event.target as Node));
     const node = source && data.nodes.find((candidate) => candidate.id === source.id);
-    if (!source || source.isEditing || !node || !isFreeText(data, node)) return;
+    if (!source || source.isEditing || !node || !isDropLinkCard(data, node)) return;
     if (canvas.selection.size > 1 && !canvas.selection.has(source)) return;
     const sources = new Map((canvas.selection.size > 1 ? [...canvas.selection] : [source]).map((candidate) => [candidate.id, candidate]));
     if ([...sources.values()].some((candidate) => canvas.nodes.get(candidate.id) !== candidate || candidate.isEditing ||
-      !data.nodes.some((raw) => raw.id === candidate.id && isFreeText(data, raw)))) return;
+      !data.nodes.some((raw) => raw.id === candidate.id && isDropLinkCard(data, raw)))) return;
     canvas.requestPushHistory.run();
     const history = canvas.history;
     if (history.current < 0 || history.current >= history.data.length) return;
@@ -221,7 +221,7 @@ export function attachCarnetDropLinks(
     const pos = canvas.posFromEvt(event);
     const data = canvas.getData();
     const target = [...data.nodes].reverse().find((node) => {
-      if (pending.sources.has(node.id) || !pending.instances.has(node.id) || !isFreeText(data, node)) return false;
+      if (pending.sources.has(node.id) || !pending.instances.has(node.id) || !isDropLinkCard(data, node)) return false;
       const bbox = canvas.nodes.get(node.id)?.getBBox?.();
       return bbox && pos.x >= bbox.minX && pos.x <= bbox.maxX && pos.y >= bbox.minY && pos.y <= bbox.maxY;
     });

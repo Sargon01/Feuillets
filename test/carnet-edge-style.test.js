@@ -24,11 +24,11 @@ function fixture() {
 for (const pattern of ["solid", "dashed", "dotted"]) test(`pattern ${pattern} changes only the selected edge and supports one undo and redo`, () => {
   const canvas = fixture(), before = canvas.getData();
   assert(applyEdgeStyle(canvas, "ab", { pattern }));
-  assert.equal(canvas.getData().edges[0].feuillets_edge_style?.pattern ?? "dashed", pattern);
+  assert.equal(canvas.getData().edges[0].feuillets_edge_style?.pattern ?? "dotted", pattern);
   assert.deepEqual(canvas.getData().nodes, before.nodes);
   assert.deepEqual(canvas.getData().edges[1], before.edges[1]);
-  assert.equal(canvas.saves, pattern === "dashed" ? 0 : 1);
-  if (pattern !== "dashed") { const after = canvas.getData(); canvas.undo(); assert.deepEqual(canvas.getData(), before); canvas.redo(); assert.deepEqual(canvas.getData(), after); }
+  assert.equal(canvas.saves, pattern === "dotted" ? 0 : 1);
+  if (pattern !== "dotted") { const after = canvas.getData(); canvas.undo(); assert.deepEqual(canvas.getData(), before); canvas.redo(); assert.deepEqual(canvas.getData(), after); }
 });
 for (const width of ["thin", "regular", "thick"]) test(`width ${width} is stored minimally`, () => {
   const canvas = fixture(); assert(applyEdgeStyle(canvas, "ab", { width }));
@@ -87,7 +87,7 @@ test("native edge menu is view-scoped and rejects stale edge objects", () => {
   assert.deepEqual(appearance.items.filter((i) => i.submenu).map((i) => i.submenu.items.length), [3, 3, 3, 4, 7]);
   const line = appearance.items.find((i) => i.title === t("carnet.edgeStyle.line")).submenu;
   const dotted = line.items.find((i) => i.title === t("carnet.edgeStyle.dotted"));
-  dotted.click(); assert.equal(canvas.getData().edges[0].feuillets_edge_style.pattern, "dotted");
+  dotted.click(); assert.equal(getEdgeAppearance(canvas.getData().edges[0], canvas.getData()).pattern, "dotted");
   const saves = canvas.saves; canvas.view.file = { path: "Ordinary.canvas" }; dotted.click(); assert.equal(canvas.saves, saves);
   const ordinary = new Menu(); events.get("canvas:edge-menu")(ordinary, canvas.edges.get("ab")); assert.equal(ordinary.items.length, 0);
   canvas.view.file = file; canvas.edges.set("ab", { ...canvas.edges.get("ab") }); dotted.click(); assert.equal(canvas.saves, saves);
@@ -111,9 +111,9 @@ for (const type of ["text", "file"]) test(`native edge menus customize ${type} c
     const reopened = fixture(); reopened.importData(JSON.parse(JSON.stringify(after))); assert.deepEqual(reopened.getData(), after);
     choice(group, value).click(); assert.equal(canvas.index, index + 1);
   };
-  assert.equal(choice("geometry", type === "text" ? "straight" : "curved").checked, true);
+  assert.equal(choice("geometry", "straight").checked, true);
   for (const geometry of ["map", "curved", "straight"]) change("geometry", geometry, (e) => assert.equal(e.feuillets_edge_style.geometry, geometry));
-  for (const pattern of type === "text" ? ["solid", "dotted", "dashed"] : ["dotted", "dashed", "solid"]) change("line", pattern, (e) => assert.equal(getEdgeAppearance(e, canvas.getData()).pattern, pattern));
+  for (const pattern of ["solid", "dotted", "dashed"]) change("line", pattern, (e) => assert.equal(getEdgeAppearance(e, canvas.getData()).pattern, pattern));
   for (const width of ["thick", "regular", "thin"]) change("width", width, (e) => assert.equal(getEdgeAppearance(e, canvas.getData()).width, width));
   for (const arrows of ["both", "start", "end", "none"]) change("arrows", arrows, (e) => assert.equal(getEdgeAppearance(e).arrows, arrows));
   for (const [index, color] of ["red", "orange", "yellow", "green", "cyan", "purple"].entries()) change("color", color, (e) => assert.equal(e.color, String(index + 1)));
@@ -136,18 +136,18 @@ test("edge menus exclude structural connections, readonly views and stale edges"
 for (const type of ["file", "group"]) test(`native ${type} endpoints share appearance transactions without changing geometry data`, () => {
   const canvas = fixture(); canvas.root.nodes[0].type = type; canvas.root.nodes[0].file = "Image.png";
   const before = canvas.getData(); canvas.history[0] = structuredClone(before);
-  assert.deepEqual(getEdgeAppearance(before.edges[0], before), { pattern: "solid", width: "regular", color: "", arrows: "none", geometry: "curved" });
+  assert.deepEqual(getEdgeAppearance(before.edges[0], before), { pattern: "dotted", width: "thin", color: "", arrows: "none", geometry: "straight" });
   assert(applyEdgeStyle(canvas, "ab", { pattern: "dotted", width: "thick", arrows: "both", color: "4" }));
   const after = canvas.getData();
   assert.deepEqual(after.nodes, before.nodes);
-  assert.deepEqual(after.edges[0], { ...before.edges[0], feuillets_edge_style: { pattern: "dotted", width: "thick" }, fromEnd: "arrow", toEnd: "arrow", color: "4" });
+  assert.deepEqual(after.edges[0], { ...before.edges[0], feuillets_edge_style: { width: "thick" }, fromEnd: "arrow", toEnd: "arrow", color: "4" });
   assert.equal(canvas.history.length, 2); canvas.undo(); assert.deepEqual(canvas.getData(), before); canvas.redo(); assert.deepEqual(canvas.getData(), after);
   const reopened = fixture(); reopened.importData(JSON.parse(JSON.stringify(after))); assert.deepEqual(reopened.getData(), after);
   assert(applyEdgeStyle(canvas, "ab", { pattern: "dashed", width: "thin" }));
-  assert.deepEqual(canvas.getData().edges[0].feuillets_edge_style, { pattern: "dashed", width: "thin" });
+  assert.deepEqual(canvas.getData().edges[0].feuillets_edge_style, { pattern: "dashed" });
 });
 test("native file endpoints with structural metadata or managed incident edges stay protected", () => {
-  for (const metadata of [{ feuillets_managed: "research" }, { feuillets_block_id: "relations" }, { mindmapOrientation: "vertical" }]) {
+  for (const metadata of [{ feuillets_managed: "thread" }, { feuillets_block_id: "relations" }, { mindmapOrientation: "vertical" }]) {
     const canvas = fixture(); Object.assign(canvas.root.nodes[0], { type: "file", ...metadata }); const before = canvas.getData();
     assert(!applyEdgeStyle(canvas, "ab", { pattern: "dotted" })); assert.deepEqual(canvas.getData(), before);
   }
@@ -159,7 +159,7 @@ for (const [type, file] of [["text", undefined], ["file", "Note.md"], ["file", "
   const canvas = fixture(); Object.assign(canvas.root.nodes[0], { type, ...(file ? { file } : {}) });
   const edge = canvas.edges.get("ab"); Object.assign(edge.raw, { color: "4", fromEnd: "arrow", toEnd: "arrow", feuillets_edge_style: { pattern: "dotted", width: "thick" } });
   const before = canvas.getData(); canvas.history[0] = structuredClone(before);
-  assert.equal(getEdgeAppearance(edge.raw, before).geometry, type === "text" ? "straight" : "curved");
+  assert.equal(getEdgeAppearance(edge.raw, before).geometry, "straight");
   for (const geometry of ["straight", "map", "curved", "map", "straight"]) {
     const previous = canvas.getData(); assert(applyEdgeStyle(canvas, "ab", { geometry })); const after = canvas.getData();
     assert.deepEqual(after, { ...previous, edges: previous.edges.map((raw) => raw.id === "ab" ? { ...raw, feuillets_edge_style: { ...raw.feuillets_edge_style, geometry } } : raw) });
@@ -190,3 +190,14 @@ test("geometry changes invalidate the native spatial index without extra saves o
   }
   assert.equal(moved.length, 3); applyEdgeStyle(canvas, "ab", { width: "thick" }); assert.equal(moved.length, 3);
 });
+
+for (const from of [{ type: "text" }, { type: "file", feuillets_managed: "manuscript" }, { type: "file", feuillets_managed: "research" }, { type: "file" }]) {
+  for (const to of [{ type: "text" }, { type: "file", feuillets_managed: "manuscript" }, { type: "file", feuillets_managed: "research" }, { type: "file" }]) test(`ordinary connectors share defaults: ${JSON.stringify([from, to])}`, () => {
+    const c = fixture(); Object.assign(c.root.nodes[0], from); Object.assign(c.root.nodes[1], to);
+    const before = c.getData();
+    assert.deepEqual(getEdgeAppearance(before.edges[0], before), { pattern: "dotted", width: "thin", color: "", arrows: "none", geometry: "straight" });
+    assert(applyEdgeStyle(c, "ab", { geometry: "map", pattern: "dashed", width: "thick", arrows: "both", color: "3" }));
+    const after = c.getData(); assert.deepEqual(after.nodes, before.nodes); assert.equal(after.edges[0].label, "Keep label");
+    assert.deepEqual(getEdgeAppearance(after.edges[0], after), { pattern: "dashed", width: "thick", color: "3", arrows: "both", geometry: "map" });
+  });
+}

@@ -6,7 +6,8 @@ import { openFileActivating } from "../utils/dom.js";
 import { listCarnetWorkspaceEntries, type CarnetWorkspaceEntry } from "../carnet/core/workspace-entries.js";
 import type { CarnetLifecycle } from "../carnet/core/lifecycle.js";
 import type { CarnetSelection, CarnetWorkspaceContext } from "../carnet/core/workspace-context.js";
-import { applyNoteAppearance, isFreeNote } from "../carnet/canvas/note-style.js";
+import { applyNoteAppearance } from "../carnet/canvas/note-style.js";
+import { isOrdinaryCard } from "../carnet/canvas/ordinary-cards.js";
 import { applyEdgeStyle, getEdgeAppearance, isEligibleEdge } from "../carnet/canvas/edge-style.js";
 import { normalizeTextStyle, textAlignments, textColors } from "../carnet/canvas/text-style.js";
 import { getCarnetArrangementActions } from "../carnet/canvas/arrangement-menu.js";
@@ -128,7 +129,7 @@ export class CarnetsContent extends Component {
     const objects = current?.objects ?? [];
     const key = JSON.stringify([current?.target.file.path, objects.map((object) => object.getData().id),
       objects.map((object) => { const raw = object.getData(), data = current?.target.canvas.getData() ?? { nodes: [], edges: [] };
-        return [raw.type, isFreeNote(data, raw), current?.target.canvas.edges.get(raw.id) === object && isEligibleEdge(data, raw), raw.feuillets_stack];
+        return [raw.type, isOrdinaryCard(data, raw), current?.target.canvas.edges.get(raw.id) === object && isEligibleEdge(data, raw), raw.feuillets_stack];
       })]);
     const sameObjects = this.selection?.target === current?.target && this.selection?.objects.length === objects.length && objects.every((object, i) => this.selection?.objects[i] === object);
     if (key !== this.selectionKey || !sameObjects) {
@@ -257,7 +258,7 @@ export class CarnetsContent extends Component {
       return row.createDiv({ cls: "feuillets-appearance-row" });
     };
     const [object] = selection.objects, raw = object.getData(), data = canvas.getData();
-    const note = selection.objects.length === 1 && canvas.nodes.get(raw.id) === object && isFreeNote(data, raw);
+    const note = selection.objects.length === 1 && canvas.nodes.get(raw.id) === object && isOrdinaryCard(data, raw);
     const edge = selection.objects.length === 1 && canvas.edges.get(raw.id) === object && isEligibleEdge(data, raw);
     if (note) {
       const appearance = group(t("carnet.noteStyle.title"));

@@ -97,7 +97,7 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
           dropLinks.delete(view);
         }
         if (!dropLinks.has(view)) {
-          const cleanup = attachCarnetDropLinks(app, view, isCarnet);
+          const cleanup = attachCarnetDropLinks(app, view, isCarnet, () => preferences?.().defaultStyles ?? {});
           if (cleanup) dropLinks.set(view, { canvas: view.canvas, file: view.file, cleanup });
         }
       }

@@ -332,7 +332,7 @@ test("empty-space and selected-node drops preserve ordinary multi-node movement"
   }
 });
 
-for (const type of ["file", "group", "managed", "mindmap", "editing"]) {
+for (const type of ["group", "managed", "mindmap", "editing"]) {
   test(`a mixed selection containing a ${type} node is left to native Canvas`, () => {
     const f = multiFixture();
     if (type === "managed") f.nodes.get("c").raw.feuillets_block_id = "map";
@@ -396,4 +396,65 @@ test("invalid multi-note requests never partially create links or mutate input d
   const data = initial(), before = clone(data);
   for (const ids of [["a"], ["a", "a"], ["a", "missing"], ["a", "b"]]) assert.equal(addDropLinks(data, ids, "b"), null);
   assert.deepEqual(data, before);
+});
+
+const ordinaryCards = [
+  { type: "text", text: "Free note" },
+  { type: "file", file: "Sheet.md", feuillets_managed: "manuscript" },
+  { type: "file", file: "Research.md", feuillets_managed: "research" },
+  { type: "file", file: "Ordinary.md" },
+];
+for (const source of ordinaryCards) for (const target of ordinaryCards) test(`native drop links ${source.file ?? "text"} to ${target.file ?? "text"} with history and persistence`, () => {
+  const f = fixture();
+  Object.assign(f.nodes.get("a").raw, source); Object.assign(f.nodes.get("b").raw, target);
+  const before = f.canvas.getData(); f.canvas.history.data = [clone(before)];
+  f.start(); f.release(); f.flush();
+  const after = f.canvas.getData();
+  assert.deepEqual(after.nodes, before.nodes); assert.equal(after.edges.length, 1);
+  assert.equal(after.edges[0].fromEnd, "none"); assert.equal(after.edges[0].toEnd, "none");
+  assert.equal(f.canvas.history.data.length, 2);
+  f.canvas.undo(); assert.deepEqual(f.canvas.getData(), before);
+  f.canvas.redo(); assert.deepEqual(f.canvas.getData(), after);
+  f.canvas.importData(JSON.parse(JSON.stringify(after)), true); assert.deepEqual(f.canvas.getData(), after);
+  f.cleanup(); assert.equal(f.listeners.size, 0);
+});
+
+test("mixed document selections add only missing links and preserve customized relationships", () => {
+  const f = multiFixture(2);
+  Object.assign(f.nodes.get("a").raw, ordinaryCards[1]); Object.assign(f.nodes.get("c").raw, ordinaryCards[2]);
+  Object.assign(f.nodes.get("b").raw, ordinaryCards[3]);
+  const edge = { id: "existing", fromNode: "b", toNode: "a", label: "Keep", color: "4", fromEnd: "arrow", toEnd: "none", feuillets_edge_style: { geometry: "curved", width: "thick" } };
+  f.canvas.root.edges = [edge]; const before = f.canvas.getData(); f.canvas.history.data = [clone(before)];
+  f.start(); f.release(); f.flush();
+  const after = f.canvas.getData();
+  assert.deepEqual(after.nodes, before.nodes); assert.equal(after.edges.length, 2); assert.deepEqual(after.edges[0], edge);
+  f.canvas.undo(); assert.deepEqual(f.canvas.getData(), before); f.canvas.redo(); assert.deepEqual(f.canvas.getData(), after);
+});
+
+test("drop import initializes only the new edge with current defaults in one history action", () => {
+  const f = fixture(), defaults = { edge: { geometry: "map", pattern: "solid", width: "thick", arrows: "both", color: "5" } };
+  f.cleanup();
+  const cleanup = attachCarnetDropLinks(f.app, f.view, f.isCarnet, () => defaults);
+  Object.assign(f.nodes.get("a").raw, ordinaryCards[1]); Object.assign(f.nodes.get("b").raw, ordinaryCards[2]);
+  const before = f.canvas.getData(); f.canvas.history.data = [clone(before)];
+  f.start(); f.release(); f.flush(); const saved = f.canvas.getData();
+  assert.deepEqual(saved.nodes, before.nodes);
+  assert.deepEqual(saved.edges[0].feuillets_edge_style, { geometry: "map", pattern: "solid", width: "thick" });
+  assert.equal(saved.edges[0].fromEnd, "arrow"); assert.equal(saved.edges[0].toEnd, "arrow"); assert.equal(saved.edges[0].color, "5");
+  assert.equal(f.canvas.history.data.length, 2);
+  defaults.edge = { width: "thin", arrows: "none", color: "1" };
+  f.canvas.undo(); assert.deepEqual(f.canvas.getData(), before); f.canvas.redo(); assert.deepEqual(f.canvas.getData(), saved);
+  f.start(); f.release(); f.flush(); assert.equal(f.canvas.getData().edges.length, 1);
+  cleanup();
+});
+
+for (const patch of [{ feuillets_block_id: "map" }, { feuillets_plan_version: 2 }, { feuillets_managed: "thread" }, { mindmapRoot: true }, { feuillets_unknown: true }]) test(`documentary ownership does not bypass structural protection: ${JSON.stringify(patch)}`, () => {
+  const data = initial(); Object.assign(data.nodes[0], ordinaryCards[1], patch);
+  const before = clone(data); assert.equal(toggleDropLink(data, "a", "b"), null); assert.deepEqual(data, before);
+});
+
+test("dynamic stack movement remains native while ordinary card styling stays eligible", () => {
+  const f = fixture(); f.nodes.get("a").raw.feuillets_stack = { id: "stack", order: 0 };
+  assert.equal(toggleDropLink(f.canvas.getData(), "a", "b"), null);
+  f.start(); f.release(); f.flush(); assert.equal(f.canvas.getData().edges.length, 0); assert.equal(f.nodes.get("a").raw.x, 310);
 });

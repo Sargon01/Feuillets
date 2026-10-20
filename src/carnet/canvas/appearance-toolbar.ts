@@ -2,7 +2,8 @@ import { Notice, setIcon, setTooltip } from "obsidian";
 import { t } from "../../i18n/index.js";
 import type { MinimalRuntimeEdge, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 import { applyEdgeStyle, getEdgeAppearance, isEligibleEdge } from "./edge-style.js";
-import { applyNoteAppearance, applyNoteStyle, isFreeNote } from "./note-style.js";
+import { applyNoteAppearance, applyNoteStyle } from "./note-style.js";
+import { isOrdinaryCard } from "./ordinary-cards.js";
 import { canStackDynamically, canUnstackDynamically, stackDynamically, unstackDynamically } from "./dynamic-stack.js";
 import { canStackNotes, stackNotes } from "./stack-notes.js";
 import { formatNoteSelection, getFormattingEditor, normalizeTextStyle, textAlignments, textColors } from "./text-style.js";
@@ -33,7 +34,7 @@ function selected(canvas: ToolbarCanvas): Selection | null {
   const [target] = canvas.selection, data = canvas.getData(), raw = target.getData();
   if (canvas.nodes.get(raw.id) === target) {
     const node = data.nodes.find((candidate) => candidate.id === raw.id);
-    return node && isFreeNote(data, node) ? { kind: "note", target: target as MinimalRuntimeNode } : null;
+    return node && isOrdinaryCard(data, node) ? { kind: "note", target: target as MinimalRuntimeNode } : null;
   }
   const edge = data.edges.find((candidate) => candidate.id === raw.id);
   return canvas.edges.get(raw.id) === target && edge && isEligibleEdge(data, edge) ? { kind: "edge", target } : null;

@@ -163,8 +163,10 @@ test("temporary native endpoints are restored even when native drawing fails", (
   binding.cleanup();
 });
 
-test("structural edges and nodes outside the free-note set remain native", () => {
-  const f = runtimeFixture(), drawing = f.edge.updatePath, binding = attachTextAnchors(f.canvas);
+test("structural edges and nodes remain native independently of the text sizing set", () => {
+  const f = runtimeFixture(), drawing = f.edge.updatePath, raw = f.b.getData.bind(f.b);
+  f.b.getData = () => ({ ...raw(), feuillets_block_id: "block" });
+  const binding = attachTextAnchors(f.canvas);
   binding.refresh(new Set(["a"]));
   assert.equal(f.edge.updatePath, drawing);
   f.edge.getData = () => ({ id: "ab", feuillets_managed: "mindmap" });
@@ -227,9 +229,10 @@ for (const type of ["file", "group"]) test(`native ${type} curves retain paths, 
   const nativePath = "M400 100 C500 100 500 150 600 150", bezier = { path: nativePath, cp1: { x: 500, y: 100 }, cp2: { x: 500, y: 150 } };
   f.edge.updatePath = function () { this.path.display.setAttribute("d", nativePath); this.path.interaction.setAttribute("d", nativePath); this.bezier = bezier; this.toLineEnd.el.style.transform = "native transform"; };
   const bounds = f.edge.getBBox(); const raw = f.edge.getData.bind(f.edge);
+  f.edge.getData = () => ({ ...raw(), feuillets_edge_style: { geometry: "curved" } });
   const binding = attachTextAnchors(f.canvas); binding.refresh(new Set(["b"])); f.edge.updatePath();
-  assert.equal(f.edge.lineGroupEl.classes.size, 0);
-  f.edge.getData = () => ({ ...raw(), feuillets_edge_style: { pattern: "dotted", width: "thick" } }); f.edge.updatePath();
+  assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-pattern"), "dotted");
+  f.edge.getData = () => ({ ...raw(), feuillets_edge_style: { geometry: "curved", pattern: "dotted", width: "thick" } }); f.edge.updatePath();
   assert.equal(f.edge.path.display.attributes.get("d"), nativePath); assert.equal(f.edge.path.interaction.attributes.get("d"), nativePath);
   assert.equal(f.edge.bezier, bezier); assert.deepEqual(f.edge.getBBox(), bounds); assert.equal(f.edge.toLineEnd.el.style.transform, "native transform");
   assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-pattern"), "dotted"); assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-width"), "thick");
@@ -250,7 +253,7 @@ for (const [type, file] of [["text", undefined], ["file", "Note.md"], ["file", "
     this.bezier = { path: curve(), cp1: { x: 500, y: 20 }, cp2: { x: 550, y: 150 } }; this.toLineEnd.el.style.transform = "native arrow transform";
   };
   const original = f.edge.updatePath, binding = attachTextAnchors(f.canvas); binding.refresh(new Set(type === "text" ? ["a", "b"] : ["b"]));
-  f.edge.updatePath(); assert.equal(f.edge.path.display.attributes.get("d").includes("C"), type !== "text");
+  f.edge.updatePath(); assert.equal(f.edge.path.display.attributes.get("d").includes("C"), false);
   const before = f.edge.getData();
   for (const mode of ["straight", "curved", "straight", "curved"]) {
     geometry = mode; f.edge.updatePath();
@@ -380,4 +383,26 @@ test("dynamic stack reflow invalidates Map routes through native follower moveme
   const binding = attachTextAnchors(f.canvas); binding.refresh(new Set(["a", "b", "d", "e"])); f.edge.updatePath(); const before = f.path();
   d.box = rect(450, 0, 550, 300); f.canvas.markMoved(d); assert.equal(reflowStack(f.canvas, "stack"), 1); assert.equal(e.box.minY, 300);
   f.edge.updatePath(); assert.notEqual(f.path(), before); avoids(f.points(), d.box); avoids(f.points(), e.box); binding.cleanup();
+});
+
+for (const from of [undefined, "manuscript", "research"]) for (const to of [undefined, "manuscript", "research"]) test(`ordinary file endpoints share default runtime paths without text observers: ${from}-${to}`, () => {
+  const f = mapFixture();
+  for (const [node, managed] of [[f.a, from], [f.b, to]]) {
+    const getData = node.getData.bind(node);
+    node.getData = () => ({ ...getData(), type: "file", file: `${node.id}.md`, ...(managed ? { feuillets_managed: managed } : {}) });
+  }
+  f.edge.getData = () => ({ id: "ab", fromNode: "a", toNode: "b", fromEnd: "none", toEnd: "none" });
+  f.edge.from.end = "none"; f.edge.to.end = "none";
+  const before = structuredClone(f.edge.getData()), native = f.edge.updatePath;
+  const binding = attachTextAnchors(f.canvas, () => { throw Error("FileNodes must never use text sizing"); });
+  binding.refresh(new Set()); f.edge.updatePath();
+  assert.equal(f.observers.length, 0); assert.notEqual(f.edge.updatePath, native);
+  assert.equal(f.edge.path.display.attributes.get("d"), "M400 100 L600 100");
+  assert.equal(f.edge.path.interaction.attributes.get("d"), f.path());
+  assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-pattern"), "dotted");
+  assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-width"), "thin");
+  assert.equal(f.edge.lineEndGroupEl.attributes.get("data-feuillets-arrows"), "false");
+  f.a.width += 40; f.a.height += 80; f.canvas.markMoved(f.a); f.edge.updatePath();
+  assert.notEqual(f.path(), "M400 100 L600 100"); assert.equal(f.path(), f.edge.path.interaction.attributes.get("d"));
+  assert.deepEqual(f.edge.getData(), before); binding.cleanup(); assert.equal(f.edge.updatePath, native);
 });

@@ -68,17 +68,11 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
   const originalMoved = runtime.markMoved;
   let geometryVersion = 0;
   let freeIds = new Set<string>();
-  const anchored = (edge: MinimalRuntimeEdge): boolean => {
-    if (!edge.from || !edge.to || !freeIds.has(edge.from.node.id) || !freeIds.has(edge.to.node.id)) return false;
-    return isOrdinaryEdge(edge.getData());
-  };
-
   const appearanceData = (from: MinimalRuntimeNode, to: MinimalRuntimeNode): CanvasData => ({
     nodes: [from.getData(), to.getData()],
     edges: [...runtime.getEdgesForNode(from), ...runtime.getEdgesForNode(to)].map((edge) => edge.getData()),
   });
   const eligible = (edge: MinimalRuntimeEdge): boolean => !!edge.from && !!edge.to &&
-    (anchored(edge) || [edge.from.node, edge.to.node].some((node) => node.getData().type !== "text")) &&
     isEligibleEdge(appearanceData(edge.from.node, edge.to.node), edge.getData());
 
   const geometry = (edge: AnchorEdge): CarnetEdgeGeometry => getEdgeAppearance(edge.getData(), appearanceData(edge.from.node, edge.to.node)).geometry;
@@ -172,7 +166,6 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
         if (target.toLineEnd?.el) target.toLineEnd.el.style.transform = `translate(${to.x}px, ${to.y}px) rotate(${endAngle + 90}deg)`;
       }
       // Appearance decorates native curves without replacing their path, bounds or arrow transforms.
-      if (!anchored(target) && !target.getData().feuillets_edge_style) { clearAppearance(target); return; }
       target.lineGroupEl?.classList.add("feuillets-note-connection");
       target.lineEndGroupEl?.classList.add("feuillets-note-connection-ends");
       const data: CanvasEdge = target.getData();

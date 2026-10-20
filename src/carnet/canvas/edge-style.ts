@@ -1,7 +1,7 @@
 import { Menu, Notice, type App, type EventRef, type TFile } from "obsidian";
 import { t } from "../../i18n/index.js";
 import type { MinimalRuntimeCanvas, MinimalRuntimeEdge } from "../../services/canvas-runtime.js";
-import { isFreeNote } from "./note-style.js";
+import { hasOrdinaryCardOwnership, isOrdinaryCard } from "./ordinary-cards.js";
 import { isOrdinaryEdge } from "./text-anchors.js";
 import type { CanvasData, CanvasEdge, CarnetEdgeGeometry, CarnetEdgePattern, CarnetEdgeWidth } from "./types.js";
 
@@ -33,8 +33,7 @@ export function isEligibleEdge(data: CanvasData, edge: CanvasEdge): boolean {
   if (!isOrdinaryEdge(edge)) return false;
   return [edge.fromNode, edge.toNode].every((id) => {
     const node = data.nodes.find((candidate) => candidate.id === id);
-    // Reuse free-note ownership checks for ordinary native file/image and group endpoints.
-    return !!node && ["text", "file", "group"].includes(node.type ?? "") && isFreeNote(data, { ...node, type: "text" });
+    return !!node && (isOrdinaryCard(data, node) || (node.type === "group" && hasOrdinaryCardOwnership(data, node)));
   });
 }
 
@@ -44,8 +43,8 @@ function arrowStyle(edge: CanvasEdge): Arrows {
 }
 
 export function getEdgeAppearance(edge: CanvasEdge, data?: CanvasData): EdgeAppearance {
-  const native = data && ![edge.fromNode, edge.toNode].every((id) => data.nodes.some((node) => node.id === id && isFreeNote(data, node)));
-  return { pattern: edge.feuillets_edge_style?.pattern ?? (native ? "solid" : "dashed"), width: edge.feuillets_edge_style?.width ?? (native ? "regular" : "thin"), color: edge.color ?? "", arrows: arrowStyle(edge),
+  const native = data && !isEligibleEdge(data, edge);
+  return { pattern: edge.feuillets_edge_style?.pattern ?? (native ? "solid" : "dotted"), width: edge.feuillets_edge_style?.width ?? (native ? "regular" : "thin"), color: edge.color ?? "", arrows: arrowStyle(edge),
     geometry: edge.feuillets_edge_style?.geometry === "curved" || edge.feuillets_edge_style?.geometry === "straight" || edge.feuillets_edge_style?.geometry === "map" ? edge.feuillets_edge_style.geometry : native ? "curved" : "straight" };
 }
 

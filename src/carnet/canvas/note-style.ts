@@ -1,5 +1,6 @@
 import { bindTextEditor, normalizeTextStyle, refreshTextStyle, textAlignments, textColors } from "./text-style.js";
 import { attachDynamicStacks } from "./dynamic-stack.js";
+import { isOrdinaryCard } from "./ordinary-cards.js";
 import { attachNoteSizing } from "./note-size.js";
 import { attachTextAnchors } from "./text-anchors.js";
 import { Menu, Notice, type App, type EventRef, type TFile } from "obsidian";
@@ -31,11 +32,7 @@ function hasStyleContract(value: unknown): value is StyleCanvas {
 }
 
 export function isFreeNote(data: CanvasData, node: CanvasNode): boolean {
-  return node.type === "text" && !!node.id &&
-    !Object.keys(node).some((key) => key.startsWith("feuillets_") && key !== "feuillets_note_style" && key !== "feuillets_note_width" && key !== "feuillets_text_style" && key !== "feuillets_stack") &&
-    !Object.keys(node).some((key) => key.startsWith("mindmap")) &&
-    !data.edges.some((edge) => (edge.fromNode === node.id || edge.toNode === node.id) &&
-      Object.keys(edge).some((key) => key.startsWith("feuillets_") && key !== "feuillets_edge_style"));
+  return node.type === "text" && isOrdinaryCard(data, node);
 }
 
 export function applyNoteStyle(value: unknown, nodeId: string, style: CarnetNoteStyle | undefined): boolean {
@@ -47,7 +44,7 @@ export function applyNoteAppearance(value: unknown, nodeId: string, change: { st
   const node = value.nodes.get(nodeId);
   const data = value.getData();
   const current = data.nodes.find((candidate) => candidate.id === nodeId);
-  if (!node || !current || !isFreeNote(data, current)) return false;
+  if (!node || !current || !isOrdinaryCard(data, current)) return false;
   const next = { ...node.getData() };
   if (Object.prototype.hasOwnProperty.call(change, "style")) {
     if (change.style === undefined) delete next.feuillets_note_style;
@@ -88,11 +85,11 @@ export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => v
     const free = new Set(data.nodes.filter((node) => isFreeNote(data, node)).map((node) => node.id));
     for (const node of data.nodes) {
       const runtime = canvas.nodes.get(node.id);
-      if (runtime && refreshTextStyle(runtime, free.has(node.id))) typographyChanges.push(runtime);
+      if (runtime && refreshTextStyle(runtime, isOrdinaryCard(data, node))) typographyChanges.push(runtime);
       const el = runtime?.nodeEl;
       if (!el?.classList) continue;
       current.add(el);
-      const style = free.has(node.id) ? (node.feuillets_note_style ?? "plain") : undefined;
+      const style = isOrdinaryCard(data, node) ? (node.feuillets_note_style ?? "plain") : undefined;
       styles.forEach((candidate, index) => el.classList.toggle(classes[index], style === candidate));
       decorated.add(el);
     }
@@ -144,7 +141,7 @@ export function registerCarnetNoteStyleMenu(plugin: {
     const canvas = node.canvas;
     const file = canvas?.view?.file;
     if (extendedMenus.has(menu) || !file || !isCarnet(file) || !hasStyleContract(canvas) || canvas.readonly ||
-      canvas.nodes.get(node.id) !== node || !isFreeNote(canvas.getData(), node.getData())) return;
+      canvas.nodes.get(node.id) !== node || !isOrdinaryCard(canvas.getData(), node.getData())) return;
     extendedMenus.add(menu);
     const current = node.getData();
     const apply = (change: { style?: CarnetNoteStyle; color?: string; textStyle?: CarnetTextStyle }): void => {

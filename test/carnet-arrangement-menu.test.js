@@ -167,3 +167,12 @@ test("native action discovery bypasses trailing-click suppression and restores t
   assert.throws(() => getCarnetArrangementActions(f.c, () => true), /Builder failure/);
   assert.equal(f.button.parentNode, f.parent); assert.equal(Menu.prototype.showAtPosition, original);
 });
+
+for (const managed of ["manuscript", "research"]) test(`documentary file cards retain native arrangement without text stacking: ${managed}`, () => {
+  const f = fixture(), node = f.c.nodes.get("a");
+  Object.assign(node.raw, { type: "file", file: "Document.md", feuillets_managed: managed, externalPlugin: { retained: true } });
+  const before = f.c.getData(), menu = f.open();
+  assert.equal(f.group("align", menu).items.length, 6); assert.equal(f.group("stack", menu), undefined);
+  f.group("align", menu).items[0].click(); assert.equal(f.calls.length, 1); assert.deepEqual(f.c.getData(), before);
+  node.raw.feuillets_block_id = "mindmap"; assert.equal(f.open().items.length, 0);
+});

@@ -38,7 +38,7 @@ Free text notes have a borderless appearance by default. The **Selection Inspect
 
 ### Appearance and dimensions
 
-For a compatible text note, choose:
+For a compatible ordinary note or file card, choose:
 
 | Appearance | Use |
 |---|---|
@@ -48,9 +48,9 @@ For a compatible text note, choose:
 | **Colored background** | Highlight a note |
 | **Classic Canvas card** | Restore the native card presentation |
 
-Card color and text color are separate. Card colors use the Canvas palette and Obsidian theme. File cards and groups keep their native tools; free-note typography is not a style editor for the file represented by a card.
+Card color and text color are separate. Card colors use the Canvas palette and Obsidian theme. File cards retain their Markdown preview, scrolling, links and native tools. Compatible typography settings style the preview without changing Markdown or native controls. Headings, code blocks and other independently styled elements retain Markdown rendering rules; selection formatting remains specific to text notes.
 
-Content and typography adjust compatible note sizes. After a manual width resize, text wraps within the chosen width and height adapts to content. Changing the font size is not the same as scaling the entire Canvas. The classic card retains native presentation behavior.
+Content and typography adjust compatible text note sizes. File cards retain their native dimensions and scrolling. After a manual width resize, text wraps within the chosen width and height adapts to content. Changing the font size is not the same as scaling the entire Canvas. The classic card retains native presentation behavior.
 
 ### Note typography and passage formatting
 
@@ -75,17 +75,17 @@ These operations apply to compatible free notes; they do not rearrange a Binder 
 
 ## 3. Connect ideas
 
-Native Canvas handles and connections remain available. Feuillets adds a Scapple-style gesture for **free text notes**:
+Native Canvas handles and connections remain available. Feuillets adds a Scapple-style gesture for **ordinary cards**, including text notes and file cards:
 
-1. Leave note editing.
-2. With the mouse, drag the note body onto another free text note, without modifier keys.
-3. Release: the relationship is created and the dragged note returns to its starting position.
+1. Leave card editing or interactive reading.
+2. With the mouse, drag the card from its native move surface onto another ordinary card, without modifier keys.
+3. Release: the relationship is created and the dragged card returns to its starting position.
 
-With a single note, repeating the gesture can remove an existing simple relationship: it must be unique, with no label, color, custom styling or arrows. An enriched relationship is preserved; use its Canvas tools to edit or delete it.
+With a single card, repeating the gesture can remove an existing simple relationship: it must be unique, with no label, color, custom styling or arrows. An enriched relationship is preserved; use its Canvas tools to edit or delete it.
 
-To connect several ideas to one destination, select them and drag one selected note onto a note outside the selection. Feuillets adds missing connections and **preserves existing relationships**: a multiple-note gesture does not toggle them off.
+To connect several ideas to one destination, select them and drag one selected card onto a card outside the selection. Feuillets adds missing connections and **preserves existing relationships**: a multiple-note gesture does not toggle them off.
 
-This shortcut requires the active editable Notebook and compatible free text notes. It does not apply to file cards, groups, mind-map members, Binder Plans or structural cards. Editing text, mixed selections, panning with Space or a stale context prevent the gesture from being converted. This mechanism does not turn ordinary vault Canvases into Feuillets Notebooks.
+This shortcut requires the active editable Notebook and compatible ordinary cards, including dropped or converted manuscript and Research cards. It does not apply to groups, mind-map members, Binder Plans or structural cards. Editing text, selections containing structural objects, panning with Space or a stale context prevent the gesture from being converted. This mechanism does not turn ordinary vault Canvases into Feuillets Notebooks.
 
 A note belonging to a dynamic stack is not eligible for this free-connection gesture while its stack relationship remains. Unstack it first to use it as an independent note.
 
@@ -101,7 +101,7 @@ Select a compatible connection in the inspector or open its **Appearance** menu:
 
 **Map** routing uses orthogonal segments and looks for a path around cards. It does not move cards or guarantee ideal routing in every crowded arrangement. Connections around free notes follow their bounds and content as dimensions change. Native curves retain native geometry; connections managed by structured blocks remain protected.
 
-Ordinary connections between free text notes initially use straight, thin, dashed lines unless explicitly configured. Eligible connections to file cards or groups retain a native curved, solid, regular baseline. The free-note drag gesture creates connections without arrows. **Restore default connection appearance** removes color, arrows and line/width overrides while **preserving explicitly chosen routing**.
+Ordinary connections between notes and file cards initially use straight, thin, dotted lines unless explicitly configured. The drag gesture creates connections without arrows unless a creation preference specifies them. Previously saved native endpoint markers, including arrows, remain respected. **Restore default connection appearance** removes color, arrows and line/width overrides while **preserving explicitly chosen routing**.
 
 ## Inspector, floating toolbar and future styles
 
@@ -109,7 +109,7 @@ The **Notebooks** tab brings together **Available Carnets**, **Selection Inspect
 
 Under **Display**, **Show floating toolbar** controls whether tools also follow the Canvas selection. Native menus remain distinct from Feuillets’ added commands.
 
-**Default Styles** configure **new text cards** and **new free connections**: appearance, colors, typography and the offered connection properties. These preferences do not restyle existing elements or transform structural mind-map or Binder Plan items. Classic Canvas card is an existing-card appearance; it is not one of the four appearances offered for future free notes.
+**Default Styles** configure **new ordinary cards**, including files dropped from the Binder or Research, and **new free connections**: appearance, colors, typography and the offered connection properties. These preferences do not restyle existing elements or transform structural mind-map or Binder Plan items. Classic Canvas card is an existing-card appearance; it is not one of the four appearances offered for future free notes.
 
 Use the inspector to change an existing card; use defaults to prepare future cards. **Restore defaults** resets creation preferences, not the entire Notebook.
 
@@ -186,7 +186,7 @@ Under **Notebook tools → Convert / Send**, use:
 - **Notebook: turn ideas into research files…** to keep ideas as documentation;
 - **Notebook: create a chapter…** to prepare a folder and eligible sheets from a group or chosen items.
 
-The dialogs let you check titles, selection and order before creation. Conversion creates a real Markdown file and replaces the converted note with a file card, retaining its visual connection to the Notebook work. Existing file cards are not text notes awaiting conversion. Check the offered destinations: a card’s spatial position alone does not determine its future folder.
+The dialogs let you check titles, selection and order before creation. Conversion creates a real Markdown file and replaces the converted note with a file card, retaining its position, dimensions, appearance, compatible typography and connection properties. Existing file cards are not text notes awaiting conversion. Check the offered destinations: a card’s spatial position alone does not determine its future folder.
 
 **Example:** stack five ideas once to read them in a provisional order; connect dependent ideas; build a mind map for one branch; convert the selected ideas to sheets; then open the project Binder Plan to prepare the actual structure. Freely moving the other cards still does not change manuscript order.
 

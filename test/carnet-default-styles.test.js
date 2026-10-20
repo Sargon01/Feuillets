@@ -58,7 +58,7 @@ test("new free cards and edges receive defaults exactly once before their origin
   assert.equal(f.styleRefreshes, 2);
 });
 
-test("explicit creation properties, structural objects and non-text cards remain protected", () => {
+test("explicit creation properties, structural objects remain protected", () => {
   const f = fixture(), c = f.canvas;
   const explicit = f.element({ id: "explicit", type: "text", color: "6", feuillets_note_style: "rounded", feuillets_text_style: { size: 30, align: "right", color: "red" } });
   c.addNode(explicit); c.requestSave();
@@ -68,7 +68,7 @@ test("explicit creation properties, structural objects and non-text cards remain
   c.addNode(reset); c.requestSave();
   assert.equal(reset.getData().color, ""); assert.equal(reset.getData().feuillets_note_style, "plain");
   assert.equal(reset.getData().feuillets_text_style.align, undefined);
-  for (const patch of [{ feuillets_plan_version: 2 }, { feuillets_block_id: "mindmap" }, { feuillets_managed: "research" }, { type: "file", file: "Scene.md" }]) {
+  for (const patch of [{ feuillets_plan_version: 2 }, { feuillets_block_id: "mindmap" }, { feuillets_managed: "research" }]) {
     const raw = { id: "protected", type: "text", ...patch }, node = f.element(raw); c.addNode(node); c.requestSave(); assert.deepEqual(node.getData(), raw);
   }
   const raw = { id: "structural-edge", fromNode: "a", toNode: "b", feuillets_managed: "relations", feuillets_block_id: "relations" }, edge = f.element(raw);
@@ -121,4 +121,35 @@ test("capture initializer shares the same defaults and never changes existing ca
   assert.equal(withNewNoteDefaults(data, before, undefined), before);
   const edge = { id: "edge", fromNode: "old", toNode: data.nodes[1].id };
   assert.equal(withNewEdgeDefaults(data, edge, undefined), edge);
+});
+
+for (const managed of [undefined, "manuscript", "research"]) test(`new file cards receive missing defaults once: ${managed ?? "ordinary"}`, () => {
+  const f = fixture(), c = f.canvas;
+  const raw = { id: "file", type: "file", file: "Document.md", x: 10, y: 20, width: 320, height: 220, externalPlugin: { retained: true }, ...(managed ? { feuillets_managed: managed } : {}) };
+  const node = f.element(raw); c.addNode(node); c.requestSave(); const saved = node.getData();
+  assert.deepEqual(saved, { ...raw, feuillets_note_style: "filled", color: "4", feuillets_text_style: defaults.note.textStyle });
+  f.setPreferences({ note: { style: "plain", color: "1" } }); c.requestSave(); assert.deepEqual(node.getData(), saved);
+  c.importData(JSON.parse(JSON.stringify(c.getData())), true); c.requestSave(); assert.deepEqual(c.nodes.get("file").getData(), saved);
+  f.binding.cleanup();
+});
+
+test("file creation from Binder and Research uses the workspace default initializer", async () => {
+  const { createCarnetFileNode } = await import("../src/carnet/canvas/adapter.js");
+  for (const path of ["Manuscript/Sheet.md", "Research/Card.md"]) {
+    const f = fixture(), c = f.canvas;
+    c.createFileNode = ({ pos, size, file }) => {
+      const node = f.element({ id: "dropped", type: "file", file: file.path, ...pos, ...size }); c.addNode(node); return node;
+    };
+    const node = createCarnetFileNode(c, { path }, { x: 500, y: 400 });
+    assert.equal(node.getData().type, "file"); assert.equal(node.getData().file, path);
+    assert.equal(node.getData().feuillets_note_style, "filled"); assert.equal(node.getData().color, "4");
+    assert.equal(node.getData().width, 320); assert.equal(node.getData().height, 220);
+    assert.equal(c.saves, 1); assert.equal(c.history.length, 1); f.binding.cleanup();
+  }
+});
+
+for (const ends of [{ fromEnd: "none", toEnd: "none" }, { toEnd: "arrow" }, { fromEnd: "arrow", toEnd: "none" }]) test(`explicit edge markers survive creation defaults: ${JSON.stringify(ends)}`, () => {
+  const data = { nodes: ["a", "b"].map(id => ({ id, type: "file", file: `${id}.md` })), edges: [] };
+  const edge = { id: "ab", fromNode: "a", toNode: "b", label: "Keep label", color: "3", ...ends, feuillets_edge_style: { geometry: "curved", pattern: "solid", width: "regular" } };
+  assert.deepEqual(withNewEdgeDefaults(data, edge, defaults.edge), edge);
 });

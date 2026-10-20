@@ -65,12 +65,12 @@ for (const kind of ["note", "edge"]) test(`${kind} icon choices apply immediatel
     f.change("style", "filled"); assert.equal(c.saves, 2);
     assert.deepEqual(c.getData().edges, before.edges);
   } else {
-    f.change("pattern", "dashed"); assert.equal(c.saves, 0);
-    f.change("pattern", "dotted"); assert.equal(c.saves, 1);
+    f.change("pattern", "dotted"); assert.equal(c.saves, 0);
+    f.change("pattern", "dashed"); assert.equal(c.saves, 1);
     f.change("width", "thick"); assert.equal(c.saves, 2);
     f.change("arrows", "both"); assert.equal(c.saves, 3);
     f.change("arrows", "both"); assert.equal(c.saves, 3);
-    const edge = c.getData().edges[0]; assert.deepEqual(edge.feuillets_edge_style, { pattern: "dotted", width: "thick" }); assert.equal(edge.fromEnd, "arrow"); assert.equal(edge.toEnd, "arrow");
+    const edge = c.getData().edges[0]; assert.deepEqual(edge.feuillets_edge_style, { pattern: "dashed", width: "thick" }); assert.equal(edge.fromEnd, "arrow"); assert.equal(edge.toEnd, "arrow");
     assert.deepEqual(c.getData().nodes, before.nodes);
   }
   const after = c.getData(); assert.equal(f.panel(), panel);
@@ -102,7 +102,7 @@ test("outside pointer events and selection changes close the panel without dupli
 });
 test("unsupported selections are excluded and native direction controls remain available", () => {
   const f = fixture(), c = f.canvas, a = c.nodes.get("a"), b = c.nodes.get("b");
-  for (const metadata of [{ type: "file" }, { type: "group" }, { feuillets_plan_version: 2 }, { feuillets_block_id: "map" }]) {
+  for (const metadata of [{ type: "group" }, { feuillets_plan_version: 2 }, { feuillets_block_id: "map" }]) {
     const original = a.getData(); Object.assign(a.raw, metadata); f.select(a); assert(!f.button()); a.setData(original);
   }
   f.select(a, b); assert(!f.button()); f.select(); assert(!f.button());
@@ -172,9 +172,9 @@ test("dynamic stacking and dissociation share the native toolbar without replaci
 for (const type of ["file", "group"]) test(`native ${type} connections expose the shared icons and preserve native color control`, () => {
   const f = fixture(), c = f.canvas; c.nodes.get("a").raw.type = type;
   f.select(c.edges.get("ab")); assert(f.button()); f.button().click();
-  assert.equal(walk(f.panel()).find((e) => e.attrs["data-appearance-field"] === "pattern" && e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], "solid");
-  f.change("pattern", "dotted"); f.change("width", "thick"); f.change("arrows", "both");
-  assert.deepEqual(c.edges.get("ab").raw.feuillets_edge_style, { pattern: "dotted", width: "thick" });
+  assert.equal(walk(f.panel()).find((e) => e.attrs["data-appearance-field"] === "pattern" && e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], "dotted");
+  f.change("pattern", "dashed"); f.change("width", "thick"); f.change("arrows", "both");
+  assert.deepEqual(c.edges.get("ab").raw.feuillets_edge_style, { pattern: "dashed", width: "thick" });
   assert.equal(c.edges.get("ab").raw.fromEnd, "arrow"); assert.equal(c.edges.get("ab").raw.toEnd, "arrow");
   assert.equal(f.menuEl.children.filter((e) => e.attrs.native === "color").length, 1); f.binding.cleanup();
 });
@@ -185,8 +185,8 @@ for (const type of ["text", "file"]) test(`geometry icons switch active mode wit
   const controls = () => walk(panel).filter((e) => e.attrs["data-appearance-field"] === "geometry");
   assert.deepEqual(controls().map((e) => e.attrs["data-appearance-value"]), ["curved", "straight", "map"]);
   assert.equal(controls()[2].icon, "map");
-  assert.equal(controls().find((e) => e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], type === "text" ? "straight" : "curved");
-  for (const geometry of type === "text" ? ["map", "curved", "straight", "map"] : ["straight", "map", "curved"]) {
+  assert.equal(controls().find((e) => e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], "straight");
+  for (const geometry of ["map", "curved", "straight", "map"]) {
     f.change("geometry", geometry); assert.equal(f.panel(), panel); assert.equal(c.edges.get("ab").raw.feuillets_edge_style.geometry, geometry);
     assert.equal(controls().find((e) => e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], geometry);
   }

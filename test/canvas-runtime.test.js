@@ -350,3 +350,21 @@ test("TEST A (contrôle, sans Recherche) : scène → feuillet → vrai FileNode
 // Simplification Carnet : une fiche Recherche reliée par edge à une idée en
 // cours de transformation n'est plus jamais déplacée/contextualisée
 // automatiquement — voir test/canvas-notebook-simplification.test.js (TEST 2).
+
+for (const managed of ["manuscript", "research"]) test(`conversion preserves ordinary appearance and real edge references for ${managed}`, async () => {
+  const { isOrdinaryCard } = await import("../src/carnet/canvas/ordinary-cards.js");
+  const { getEdgeAppearance } = await import("../src/carnet/canvas/edge-style.js");
+  const original = { id: "note", type: "text", text: "**A document**", x: -35.5, y: 80, width: 360, height: 240, color: "4", feuillets_note_style: "rounded", feuillets_text_style: { size: 22, align: "center", color: "green" }, externalPlugin: { retained: true } };
+  const other = { id: "other", type: "file", file: "Other.md" };
+  const rawEdge = { id: "edge", fromNode: "note", toNode: "other", label: "Keep label", color: "5", fromEnd: "arrow", toEnd: "none", feuillets_edge_style: { geometry: "curved", pattern: "solid", width: "thick" } };
+  const canvas = makeTrueRuntimeCanvas([original, other], [rawEdge]), edge = canvas.edges.get("edge");
+  const result = replaceTextNodeWithFileNode(canvas, "note", new TFile("Document.md", original.text), managed);
+  const node = canvas.nodes.get(result.newId), raw = node.getData();
+  assert(node instanceof RuntimeFileNode); assert.equal(canvas.nodes.has("note"), false);
+  const { text: _text, ...rest } = original;
+  assert.deepEqual(raw, { ...rest, id: result.newId, type: "file", file: "Document.md", feuillets_managed: managed });
+  assert.equal(canvas.edges.get("edge"), edge); assert.equal(edge.from.node, node); assert.equal(edge.to.node, canvas.nodes.get("other"));
+  assert.deepEqual(edge.getData(), { ...rawEdge, fromNode: result.newId });
+  const data = { nodes: [...canvas.nodes.values()].map(n => n.getData()), edges: [edge.getData()] };
+  assert(isOrdinaryCard(data, raw)); assert.equal(getEdgeAppearance(edge.getData(), data).geometry, "curved");
+});

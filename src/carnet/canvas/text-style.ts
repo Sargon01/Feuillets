@@ -32,7 +32,7 @@ function decorate(element: HTMLElement | undefined, style: CarnetTextStyle | und
 export function refreshTextStyle(node: MinimalRuntimeNode, eligible = true): boolean {
   const style = eligible ? normalizeTextStyle(node.getData().feuillets_text_style) : undefined;
   const changed = decorate(node.nodeEl, style);
-  const mode = node.isEditing ? getNoteEditor(node) : undefined;
+  const mode = node.getData().type === "text" && node.isEditing ? getNoteEditor(node) : undefined;
   if (mode && decorate(mode.cm.dom, style)) {
     mode.cm.requestMeasure({ key: mode, read: () => null, write: () => {} });
   }

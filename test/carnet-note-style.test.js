@@ -66,8 +66,8 @@ test("native history and reopening restore styles and cleanup restores the impor
   assert.equal(instance.getData().feuillets_note_style, "plain");
 });
 
-test("structural nodes, files and incomplete or readonly runtimes are left untouched", () => {
-  for (const metadata of [{ type: "file", file: "Note.md" }, { type: "group" }, { feuillets_plan_version: 1 }, { feuillets_block_id: "block" }, { feuillets_managed: "manuscript" }, { feuillets_internal: true }, { mindmapCollapsed: [] }]) {
+test("structural nodes and incomplete or readonly runtimes are left untouched", () => {
+  for (const metadata of [{ type: "group" }, { feuillets_plan_version: 1 }, { feuillets_block_id: "block" }, { feuillets_managed: "manuscript" }, { feuillets_internal: true }, { mindmapCollapsed: [] }]) {
     const canvas = fixture(); Object.assign(canvas.nodes.get("a").raw, metadata);
     assert.equal(applyNoteStyle(canvas, "a", "plain"), false);
     assert.equal(canvas.saves, 0);
@@ -175,9 +175,9 @@ test("native note appearance and palette choices preserve content, dimensions, t
   f.binding.cleanup();
 });
 
-test("native note menus exclude structural nodes, FileNodes, ordinary files, readonly views and stale targets", () => {
+test("native note menus exclude structural nodes, ordinary Canvases, readonly views and stale targets", () => {
   const f = menuFixture(), c = f.canvas, node = c.nodes.get("a"), raw = node.getData();
-  for (const metadata of [{ type: "file", file: "Note.md" }, { type: "group" }, { feuillets_plan_version: 2 }, { feuillets_block_id: "mindmap" }, { mindmapCollapsed: [] }, { feuillets_managed: "relations" }, { feuillets_block: "relations" }, { feuillets_relation: "parent-child" }, { feuillets_internal: true }]) {
+  for (const metadata of [{ type: "group" }, { feuillets_plan_version: 2 }, { feuillets_block_id: "mindmap" }, { mindmapCollapsed: [] }, { feuillets_managed: "relations" }, { feuillets_block: "relations" }, { feuillets_relation: "parent-child" }, { feuillets_internal: true }]) {
     node.raw = { ...raw, ...metadata }; assert.equal(f.open().items.length, 0);
   }
   node.raw = raw;
@@ -256,4 +256,25 @@ test("native typography protects active editing, stale menus and structural owne
   assert.equal(menu.items.filter((item) => item.title === t("carnet.typography.title")).length, 1);
   assert.equal(f.typography().items.length, 3); assert.equal(f.registered.length, 1);
   f.binding.cleanup();
+});
+
+for (const managed of [undefined, "manuscript", "research"]) test(`file card appearance shares existing classes and native history: ${managed ?? "ordinary"}`, () => {
+  const f = menuFixture(), c = f.canvas, node = c.nodes.get("a");
+  Object.assign(node.raw, { type: "file", file: "Document.md", ...(managed ? { feuillets_managed: managed } : {}), feuillets_text_style: { size: 24, align: "center", color: "green" }, externalPlugin: { retained: true } });
+  delete node.raw.text;
+  const before = c.getData(); c.history[0] = clone(before);
+  assert.equal(isFreeNote(before, node.raw), false);
+  for (const style of ["plain", "outline", "rounded", "filled", "classic"]) {
+    const previous = c.getData(); if (style !== "classic") f.choice(style).click();
+    assert(applyNoteStyle(c, "a", style)); f.binding.refresh();
+    assert(node.classes.has(`feuillets-note-${style}`));
+    const saved = c.getData();
+    assert.deepEqual(saved.nodes[0], { ...previous.nodes[0], feuillets_note_style: style });
+    assert.equal(saved.nodes[0].width, before.nodes[0].width); assert.equal(saved.nodes[0].height, before.nodes[0].height);
+    c.undo(); c.redo(); assert.deepEqual(c.getData(), saved);
+    c.importData(JSON.parse(JSON.stringify(saved)), true); assert(node.classes.has(`feuillets-note-${style}`));
+  }
+  const saved = c.getData(); f.binding.cleanup();
+  const binding = attachCarnetNoteStyles(c); binding.refresh(); assert(node.classes.has("feuillets-note-classic"));
+  assert.deepEqual(c.getData(), saved); binding.cleanup();
 });
