@@ -1,6 +1,7 @@
 import type { CanvasBBox, MinimalRuntimeCanvas, MinimalRuntimeEdge, MinimalRuntimeEdgeEnd, MinimalRuntimeNode } from "../../services/canvas-runtime.js";
 import { getEdgeAppearance, isEligibleEdge } from "./edge-style.js";
 import { findMapRoute, type RoutePoint } from "./map-routing.js";
+import { findSquareRoute } from "./square-routing.js";
 import type { CanvasData, CanvasEdge, CarnetEdgeGeometry } from "./types.js";
 
 type Side = "top" | "right" | "bottom" | "left";
@@ -125,6 +126,13 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
       }
       return cachedRoute;
     };
+    const squareRoute = (): RoutePoint[] | undefined => {
+      const from = attachment(target.from), to = attachment(target.to);
+      const fromBox = target.from.node.getBBox?.(), toBox = target.to.node.getBBox?.();
+      return from && to && fromBox && toBox ? findSquareRoute(
+        { ...from, side: attachmentSide(target.from.side) }, { ...to, side: attachmentSide(target.to.side) }, fromBox, toBox
+      ) ?? undefined : undefined;
+    };
     const withAnchors = <T>(draw: () => T): T => {
       const from = target.from, to = target.to;
       if (!straight(target) || !eligible(target)) return draw();
@@ -149,8 +157,9 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
         return;
       }
       const mode = geometry(target);
-      if (mode === "straight" || mode === "map") {
-        const points = mode === "map" ? mapRoute() : undefined;
+      if (mode === "straight" || mode === "map" || mode === "square") {
+        const points = mode === "map" ? mapRoute() : mode === "square" ? squareRoute() : undefined;
+        if (mode === "square" && !points) return;
         const from = points?.[0] ?? attachment(target.from), to = points?.[points.length - 1] ?? attachment(target.to);
         if (!from || !to) return;
         const route = points ?? [from, to];
@@ -177,12 +186,12 @@ export function attachTextAnchors(value: MinimalRuntimeCanvas, onContentChange?:
       }
     });
     target.getBBox = () => {
-      const points = eligible(target) && geometry(target) === "map" ? mapRoute() : undefined;
+      const points = eligible(target) ? (geometry(target) === "square" ? squareRoute() : geometry(target) === "map" ? mapRoute() : undefined) : undefined;
       return points ? { minX: Math.min(...points.map((point) => point.x)), minY: Math.min(...points.map((point) => point.y)),
         maxX: Math.max(...points.map((point) => point.x)), maxY: Math.max(...points.map((point) => point.y)) } : withAnchors(() => originalBounds.call(target));
     };
     if (originalCenter) target.getCenter = () => {
-      const points = eligible(target) && geometry(target) === "map" ? mapRoute() : undefined;
+      const points = eligible(target) ? (geometry(target) === "square" ? squareRoute() : geometry(target) === "map" ? mapRoute() : undefined) : undefined;
       return points ? routeCenter(points) : originalCenter.call(target);
     };
     const wrapped = target.updatePath, wrappedBounds = target.getBBox, wrappedCenter = target.getCenter;

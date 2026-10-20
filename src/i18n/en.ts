@@ -54,6 +54,7 @@ export const en = {
   "carnet.edgeStyle.geometry": "Geometry",
   "carnet.edgeStyle.curved": "Curved",
   "carnet.edgeStyle.straight": "Straight",
+  "carnet.edgeStyle.square": "Square",
   "carnet.edgeStyle.map": "Map",
   "carnet.edgeStyle.line": "Line style",
   "carnet.edgeStyle.solid": "Solid",

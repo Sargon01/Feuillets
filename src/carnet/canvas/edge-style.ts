@@ -45,7 +45,7 @@ function arrowStyle(edge: CanvasEdge): Arrows {
 export function getEdgeAppearance(edge: CanvasEdge, data?: CanvasData): EdgeAppearance {
   const native = data && !isEligibleEdge(data, edge);
   return { pattern: edge.feuillets_edge_style?.pattern ?? (native ? "solid" : "dotted"), width: edge.feuillets_edge_style?.width ?? (native ? "regular" : "thin"), color: edge.color ?? "", arrows: arrowStyle(edge),
-    geometry: edge.feuillets_edge_style?.geometry === "curved" || edge.feuillets_edge_style?.geometry === "straight" || edge.feuillets_edge_style?.geometry === "map" ? edge.feuillets_edge_style.geometry : native ? "curved" : "straight" };
+    geometry: edge.feuillets_edge_style?.geometry === "curved" || edge.feuillets_edge_style?.geometry === "straight" || edge.feuillets_edge_style?.geometry === "square" || edge.feuillets_edge_style?.geometry === "map" ? edge.feuillets_edge_style.geometry : native ? "curved" : "straight" };
 }
 
 export function applyEdgeStyle(value: unknown, edgeId: string, change: AppearanceChange): boolean {
@@ -125,7 +125,7 @@ export function registerCarnetEdgeStyleMenu(plugin: { app: App; registerEvent(ev
     };
     const appearance = submenu(menu, t("carnet.edgeStyle.menu"));
     const geometryMenu = submenu(appearance, t("carnet.edgeStyle.geometry"));
-    for (const geometry of ["curved", "straight", "map"] as const) geometryMenu.addItem((item) => item
+    for (const geometry of ["curved", "straight", "square", "map"] as const) geometryMenu.addItem((item) => item
       .setTitle(t(`carnet.edgeStyle.${geometry}`)).setChecked(appearanceValue.geometry === geometry).onClick(() => apply({ geometry })));
     const line = submenu(appearance, t("carnet.edgeStyle.line"));
     for (const pattern of ["solid", "dashed", "dotted"] as const) line.addItem((item) => item

@@ -23,7 +23,7 @@ export function normalizeCarnetDefaultStyles(value: unknown): CarnetDefaultStyle
   }
   if (input.edge && typeof input.edge === "object") {
     const raw = input.edge as CarnetEdgeDefaults, edge: CarnetEdgeDefaults = {};
-    if (raw.geometry && ["curved", "straight", "map"].includes(raw.geometry)) edge.geometry = raw.geometry;
+    if (raw.geometry && ["curved", "straight", "square", "map"].includes(raw.geometry)) edge.geometry = raw.geometry;
     if (raw.pattern && ["solid", "dashed", "dotted"].includes(raw.pattern)) edge.pattern = raw.pattern;
     if (raw.width && ["thin", "regular", "thick"].includes(raw.width)) edge.width = raw.width;
     if (raw.arrows && ["none", "start", "end", "both"].includes(raw.arrows)) edge.arrows = raw.arrows;

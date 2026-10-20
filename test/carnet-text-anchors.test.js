@@ -406,3 +406,32 @@ for (const from of [undefined, "manuscript", "research"]) for (const to of [unde
   assert.notEqual(f.path(), "M400 100 L600 100"); assert.equal(f.path(), f.edge.path.interaction.attributes.get("d"));
   assert.deepEqual(f.edge.getData(), before); binding.cleanup(); assert.equal(f.edge.updatePath, native);
 });
+
+for (const type of ["text", "file"]) test(`Square synchronizes runtime paths, bounds, labels and arrows for ${type} cards`, () => {
+  const f = mapFixture(type, "square"); f.b.y = 300;
+  const binding = attachTextAnchors(f.canvas); binding.refresh(new Set(["a", "b"]));
+  const before = f.edge.getData(), original = f.path();
+  const bounds = f.edge.getBBox(); f.edge.updatePath();
+  const points = f.points(); assert(points.length >= 4); avoids(points, f.a.getBBox()); avoids(points, f.b.getBBox());
+  assert.equal(f.path(), f.edge.path.interaction.attributes.get("d")); assert(!/[CQ]|NaN|Infinity/.test(f.path()));
+  assert.deepEqual(bounds, { minX: Math.min(...points.map(p=>p.x)), minY: Math.min(...points.map(p=>p.y)), maxX: Math.max(...points.map(p=>p.x)), maxY: Math.max(...points.map(p=>p.y)) });
+  const label = f.edge.getCenter(); assert(points.slice(1).some((p,i)=>p.x===points[i].x ? label.x===p.x&&label.y>=Math.min(p.y,points[i].y)&&label.y<=Math.max(p.y,points[i].y) : label.y===p.y&&label.x>=Math.min(p.x,points[i].x)&&label.x<=Math.max(p.x,points[i].x)));
+  assert.equal(f.edge.fromLineEnd.el.style.transform, "translate(400px, 100px) rotate(-90deg)");
+  assert.equal(f.edge.toLineEnd.el.style.transform, "translate(600px, 400px) rotate(90deg)");
+  const path = f.path(); f.a.width += 50; f.a.height += 80; f.b.x += 150; f.canvas.markMoved(f.a); f.canvas.markMoved(f.b); f.edge.updatePath();
+  assert.notEqual(f.path(), path); assert.equal(f.path(), f.edge.path.interaction.attributes.get("d")); assert.deepEqual(f.edge.getData(), before);
+  const square = f.path(); const obstacle = f.obstacle("unrelated", rect(460, 150, 550, 250));
+  binding.refresh(new Set(["a", "b"])); f.canvas.markMoved(obstacle); f.edge.updatePath(); assert.equal(f.path(), square);
+  assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-pattern"), "dotted"); assert.equal(f.edge.lineGroupEl.attributes.get("data-feuillets-width"), "thick");
+  assert.equal(f.edge.lineEndGroupEl.attributes.get("data-feuillets-arrows"), "true");
+  assert.notEqual(f.path(), original);
+  f.setGeometry("curved"); f.edge.updatePath(); assert(f.path().includes("C"));
+  f.setGeometry("square"); f.edge.updatePath(); assert.equal(f.path(), square); binding.cleanup();
+});
+
+for (const metadata of [{ styleAttributes: { pathfindingMethod: "square" } }, { styleAttributes: { pathfindingMethod: "direct", foreign: true } }, { feuillets_managed: "mindmap" }, { feuillets_block_id: "relations" }, { anotherPlugin: true }]) test(`Square leaves owned connections under their original renderer: ${JSON.stringify(metadata)}`, () => {
+  const f = mapFixture("text", "square"), raw = f.edge.getData.bind(f.edge), original = f.edge.updatePath;
+  f.edge.getData = () => ({ ...raw(), ...metadata }); const before = f.edge.getData();
+  const binding = attachTextAnchors(f.canvas); binding.refresh(new Set(["a", "b"])); assert.equal(f.edge.updatePath, original);
+  assert.deepEqual(f.edge.getData(), before); binding.cleanup();
+});

@@ -153,3 +153,13 @@ for (const ends of [{ fromEnd: "none", toEnd: "none" }, { toEnd: "arrow" }, { fr
   const edge = { id: "ab", fromNode: "a", toNode: "b", label: "Keep label", color: "3", ...ends, feuillets_edge_style: { geometry: "curved", pattern: "solid", width: "regular" } };
   assert.deepEqual(withNewEdgeDefaults(data, edge, defaults.edge), edge);
 });
+
+test("Square defaults survive settings serialization and initialize only new ordinary connections", () => {
+  const preferences = normalizeCarnetDefaultStyles(JSON.parse(JSON.stringify({ edge: { geometry: "square", pattern: "dotted", arrows: "both" } })));
+  assert.equal(preferences.edge.geometry, "square");
+  const f = fixture(), c = f.canvas; f.setPreferences(preferences);
+  const edge = f.element({ id: "square", fromNode: "a", toNode: "b" }); c.addEdge(edge); c.requestSave();
+  assert.equal(edge.getData().feuillets_edge_style.geometry, "square"); assert.equal(edge.getData().fromEnd, "arrow"); assert.equal(edge.getData().toEnd, "arrow");
+  const saved = c.getData(); f.setPreferences({ edge: { geometry: "curved" } }); c.importData(JSON.parse(JSON.stringify(saved)), true); c.requestSave(false);
+  assert.deepEqual(c.getData(), saved); f.binding.cleanup();
+});

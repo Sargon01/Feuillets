@@ -55,7 +55,7 @@ for (const kind of ["note", "edge"]) test(`${kind} icon choices apply immediatel
   f.select(target); const before = c.getData(); assert.equal(f.button().attrs["data-appearance-kind"], kind);
   assert.deepEqual(f.menuEl.children.filter((e) => e.attrs.native).map((e) => e.attrs.native), ["remove", "color", "zoom"]);
   f.button().click(); const panel = f.panel(); assert(panel);
-  const controls = byClass(panel, "feuillets-appearance-option"); assert.equal(controls.length, kind === "note" ? 5 : 13);
+  const controls = byClass(panel, "feuillets-appearance-option"); assert.equal(controls.length, kind === "note" ? 5 : 14);
   assert(controls.every((button) => button.attrs["aria-label"] && button.textContent === "" && (button.children.length || button.icon)));
   assert.equal(walk(panel).filter((e) => e.tag === "select" || e.attrs["data-appearance-field"] === "color").length, 0);
   if (kind === "note") {
@@ -183,10 +183,11 @@ for (const type of ["text", "file"]) test(`geometry icons switch active mode wit
   const f = fixture(), c = f.canvas; c.nodes.get("a").raw.type = type;
   f.select(c.edges.get("ab")); f.button().click(); const panel = f.panel();
   const controls = () => walk(panel).filter((e) => e.attrs["data-appearance-field"] === "geometry");
-  assert.deepEqual(controls().map((e) => e.attrs["data-appearance-value"]), ["curved", "straight", "map"]);
-  assert.equal(controls()[2].icon, "map");
+  assert.deepEqual(controls().map((e) => e.attrs["data-appearance-value"]), ["curved", "straight", "square", "map"]);
+  assert.equal(controls()[3].icon, "map");
+  assert.equal(walk(controls()[2]).find(e => e.tag === "path").attrs.d, "M3 18 H16 V6 H29");
   assert.equal(controls().find((e) => e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], "straight");
-  for (const geometry of ["map", "curved", "straight", "map"]) {
+  for (const geometry of ["square", "map", "curved", "straight", "map"]) {
     f.change("geometry", geometry); assert.equal(f.panel(), panel); assert.equal(c.edges.get("ab").raw.feuillets_edge_style.geometry, geometry);
     assert.equal(controls().find((e) => e.attrs["aria-pressed"] === "true").attrs["data-appearance-value"], geometry);
   }

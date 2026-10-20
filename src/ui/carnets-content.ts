@@ -290,7 +290,7 @@ export class CarnetsContent extends Component {
     } else if (edge) {
       const appearance = () => getEdgeAppearance(object.getData(), canvas.getData());
       for (const field of ["geometry", "pattern", "width", "arrows"] as const) {
-        const choices = { geometry: ["curved", "straight", "map"], pattern: ["solid", "dashed", "dotted"], width: ["thin", "regular", "thick"], arrows: ["none", "start", "end", "both"] } as const;
+        const choices = { geometry: ["curved", "straight", "square", "map"], pattern: ["solid", "dashed", "dotted"], width: ["thin", "regular", "thick"], arrows: ["none", "start", "end", "both"] } as const;
         const row = group(t(`carnet.edgeStyle.${field === "pattern" ? "line" : field}`));
         for (const value of choices[field]) {
           const button = option(row, field, value, t(`carnet.edgeStyle.${value}`), () => appearance()[field] === value,

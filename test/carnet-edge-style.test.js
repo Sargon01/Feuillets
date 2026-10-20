@@ -84,7 +84,7 @@ test("native edge menu is view-scoped and rejects stale edge objects", () => {
   assert.equal(menu.items.length, 2); assert.equal(menu.items[0], native);
   const appearance = menu.items[1].submenu;
   assert.equal(menu.items[1].title, t("carnet.edgeStyle.menu"));
-  assert.deepEqual(appearance.items.filter((i) => i.submenu).map((i) => i.submenu.items.length), [3, 3, 3, 4, 7]);
+  assert.deepEqual(appearance.items.filter((i) => i.submenu).map((i) => i.submenu.items.length), [4, 3, 3, 4, 7]);
   const line = appearance.items.find((i) => i.title === t("carnet.edgeStyle.line")).submenu;
   const dotted = line.items.find((i) => i.title === t("carnet.edgeStyle.dotted"));
   dotted.click(); assert.equal(getEdgeAppearance(canvas.getData().edges[0], canvas.getData()).pattern, "dotted");
@@ -112,7 +112,7 @@ for (const type of ["text", "file"]) test(`native edge menus customize ${type} c
     choice(group, value).click(); assert.equal(canvas.index, index + 1);
   };
   assert.equal(choice("geometry", "straight").checked, true);
-  for (const geometry of ["map", "curved", "straight"]) change("geometry", geometry, (e) => assert.equal(e.feuillets_edge_style.geometry, geometry));
+  for (const geometry of ["square", "map", "curved", "straight"]) change("geometry", geometry, (e) => assert.equal(e.feuillets_edge_style.geometry, geometry));
   for (const pattern of ["solid", "dotted", "dashed"]) change("line", pattern, (e) => assert.equal(getEdgeAppearance(e, canvas.getData()).pattern, pattern));
   for (const width of ["thick", "regular", "thin"]) change("width", width, (e) => assert.equal(getEdgeAppearance(e, canvas.getData()).width, width));
   for (const arrows of ["both", "start", "end", "none"]) change("arrows", arrows, (e) => assert.equal(getEdgeAppearance(e).arrows, arrows));
@@ -160,7 +160,7 @@ for (const [type, file] of [["text", undefined], ["file", "Note.md"], ["file", "
   const edge = canvas.edges.get("ab"); Object.assign(edge.raw, { color: "4", fromEnd: "arrow", toEnd: "arrow", feuillets_edge_style: { pattern: "dotted", width: "thick" } });
   const before = canvas.getData(); canvas.history[0] = structuredClone(before);
   assert.equal(getEdgeAppearance(edge.raw, before).geometry, "straight");
-  for (const geometry of ["straight", "map", "curved", "map", "straight"]) {
+  for (const geometry of ["straight", "square", "map", "curved", "map", "straight"]) {
     const previous = canvas.getData(); assert(applyEdgeStyle(canvas, "ab", { geometry })); const after = canvas.getData();
     assert.deepEqual(after, { ...previous, edges: previous.edges.map((raw) => raw.id === "ab" ? { ...raw, feuillets_edge_style: { ...raw.feuillets_edge_style, geometry } } : raw) });
     canvas.undo(); assert.deepEqual(canvas.getData(), previous); canvas.redo(); assert.deepEqual(canvas.getData(), after);
@@ -178,17 +178,17 @@ test("appearance edits and reset retain explicit geometry until another geometry
 test("geometry choices reject structural edges without changing their data", () => {
   for (const metadata of [{ feuillets_managed: "mindmap" }, { feuillets_block_id: "relations" }]) {
     const canvas = fixture(); Object.assign(canvas.edges.get("ab").raw, metadata); const before = canvas.getData();
-    for (const geometry of ["straight", "curved", "map"]) assert(!applyEdgeStyle(canvas, "ab", { geometry })); assert.deepEqual(canvas.getData(), before);
+    for (const geometry of ["straight", "curved", "square", "map"]) assert(!applyEdgeStyle(canvas, "ab", { geometry })); assert.deepEqual(canvas.getData(), before);
   }
 });
 
 test("geometry changes invalidate the native spatial index without extra saves or history entries", () => {
   const canvas = fixture(), moved = []; canvas.markMoved = (edge) => moved.push(edge);
-  for (const geometry of ["map", "curved", "straight"]) {
+  for (const geometry of ["square", "map", "curved", "straight"]) {
     const previous = canvas.history.length; applyEdgeStyle(canvas, "ab", { geometry });
     assert.equal(moved.at(-1), canvas.edges.get("ab")); assert.equal(canvas.history.length, previous + 1);
   }
-  assert.equal(moved.length, 3); applyEdgeStyle(canvas, "ab", { width: "thick" }); assert.equal(moved.length, 3);
+  assert.equal(moved.length, 4); applyEdgeStyle(canvas, "ab", { width: "thick" }); assert.equal(moved.length, 4);
 });
 
 for (const from of [{ type: "text" }, { type: "file", feuillets_managed: "manuscript" }, { type: "file", feuillets_managed: "research" }, { type: "file" }]) {

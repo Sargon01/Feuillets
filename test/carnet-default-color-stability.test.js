@@ -15,6 +15,10 @@ class Element {
   createDiv(options) { return this.createEl("div", options); }
   createSpan(options) { return this.createEl("span", options); }
   addClass(name) { this.classes.add(name); }
+  removeClass(name) { this.classes.delete(name); }
+  empty() { this.children = []; }
+  setText(text) { this.textContent = text; }
+  get childElementCount() { return this.children.length; }
   setAttribute(key, value) { if (key === "aria-pressed") this.pressedWrites++; this.attributes.set(key, value); }
   getAttribute(key) { return this.attributes.get(key) ?? null; }
   addEventListener(type, callback) { this.events.set(type, callback); }
@@ -107,4 +111,34 @@ test("the five main Carnets sections retain their order and accessible section h
     const wasHidden = body.hidden;
     head.click(); assert.equal(body.hidden, !wasHidden); assert.equal(head.getAttribute("aria-expanded"), String(wasHidden));
   }
+});
+
+test("default geometry selector offers Square in order and persists it without changing other preferences", () => {
+  const f = fixture({ edge: { geometry: "map", pattern: "dashed", color: "4" } });
+  const control = f.host.all().find(e=>e.getAttribute("data-default-field")==="geometry");
+  assert.deepEqual(control.children.map(e=>e.value), ["", "curved", "straight", "square", "map"]);
+  control.value = "square"; control.events.get("change")();
+  assert.deepEqual(f.settings.carnetDefaultStyles.edge, { geometry: "square", pattern: "dashed", color: "4" });
+  const reopened = fixture(JSON.parse(JSON.stringify(f.settings.carnetDefaultStyles)));
+  assert.equal(reopened.host.all().find(e=>e.getAttribute("data-default-field")==="geometry").value, "square");
+  assert.equal(reopened.saves, 0);
+});
+
+test("connection inspector selects Square through its mounted controls without resetting appearance", async () => {
+  const host = new Element(), file = { path: "Carnet.canvas" };
+  const nodes = ["a", "b"].map(id=>({ id, type: "text" }));
+  let raw = { id: "ab", fromNode: "a", toNode: "b", label: "Keep label", color: "4", fromEnd: "arrow", toEnd: "none", feuillets_edge_style: { pattern: "dashed", width: "thick" } };
+  const edge = { getData: ()=>structuredClone(raw), setData: value=>{ raw=structuredClone(value); } };
+  const history = [], canvas = { nodes: new Map(), edges: new Map([["ab",edge]]), getData: ()=>({ nodes, edges: [structuredClone(raw)] }), markDirty() {}, requestSave() {}, pushHistory: data=>history.push(data), requestPushHistory: Object.assign(()=>{}, { run() {}, cancel() {} }) };
+  const target = { file, canvas }, selection = { target, objects: [edge] };
+  const context = { current: ()=>target, snapshot: ()=>selection, subscribe: ()=>()=>{}, valid: value=>value===selection };
+  const app = { workspace: { on: ()=>({}), getActiveFile: ()=>null }, vault: { on: ()=>({}), getAbstractFileByPath: path=>path===file.path?file:null } };
+  const plugin = { settings: {}, saveSettings: async()=>{}, carnetLifecycle: { context, refresh() {} }, getProjectFolder: ()=>null, isFeuilletsCarnetFile: candidate=>candidate===file, isSceneFile: ()=>false, isGlobalCarnetFile: ()=>false, resolveCarnetTitleForFile: ()=>"Carnet" };
+  const content = new CarnetsContent(app, plugin, host), cleanups = [];
+  content.register = callback=>cleanups.push(callback); content.registerEvent = ()=>{}; content.onload();
+  const controls = host.all().filter(e=>e.getAttribute("data-inspector-field")==="geometry");
+  assert.deepEqual(controls.map(e=>e.getAttribute("data-inspector-value")), ["curved", "straight", "square", "map"]);
+  const before = structuredClone(raw); controls[2].click(); await Promise.resolve();
+  assert.deepEqual(raw, { ...before, feuillets_edge_style: { ...before.feuillets_edge_style, geometry: "square" } });
+  assert.equal(history.length, 1); assert.equal(controls[2].getAttribute("aria-pressed"), "true"); content.onunload(); cleanups.forEach(callback=>callback());
 });

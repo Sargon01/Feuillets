@@ -34,7 +34,7 @@ export class CarnetDefaultStylesContent {
       () => this.current().note?.textStyle?.align ?? "", (align) => this.note({ textStyle: { ...this.current().note?.textStyle, align } }));
 
     const edge = createCarnetSection(host, settings, save, "defaults.connections", t("carnet.defaults.connections"), "git-branch", true, true);
-    this.select(edge, "geometry", t("carnet.edgeStyle.geometry"), ["curved", "straight", "map"] as const,
+    this.select(edge, "geometry", t("carnet.edgeStyle.geometry"), ["curved", "straight", "square", "map"] as const,
       (value) => t(`carnet.edgeStyle.${value}`), () => this.current().edge?.geometry ?? "", (geometry) => this.edge({ geometry }));
     this.select(edge, "pattern", t("carnet.edgeStyle.line"), ["solid", "dashed", "dotted"] as const,
       (value) => t(`carnet.edgeStyle.${value}`), () => this.current().edge?.pattern ?? "", (pattern) => this.edge({ pattern }));

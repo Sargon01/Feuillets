@@ -93,13 +93,15 @@ Une note appartenant à une pile dynamique n’est pas admissible à ce geste de
 
 Sélectionnez une connexion compatible dans l’inspecteur ou ouvrez son menu **Apparence** :
 
-- **Tracé** : **Droite**, **Courbe** ou **Map** ;
+- **Tracé** : **Courbe**, **Droite**, **Square** ou **Parcours** ;
 - **Trait** : **Continu**, **Tirets** ou **Pointillés** ;
 - **Épaisseur** : **Fin**, **Normal** ou **Épais** ;
 - **Flèches** : aucune, début, fin ou les deux ;
 - couleur par défaut ou l’une des six couleurs Canvas.
 
-Le tracé **Map** utilise des segments orthogonaux et cherche un passage autour des cartes ; il ne déplace pas les cartes et ne garantit pas un routage parfait dans toute disposition encombrée. Les connexions autour des notes libres suivent leurs limites et leur contenu lorsque les dimensions changent. Les courbes natives gardent leur géométrie native ; les connexions structurelles gérées par un bloc restent protégées.
+**Square** trace des segments horizontaux et verticaux à angles droits, sans arrondis. Il choisit un trajet simple en L, Z ou U selon les faces d’attache et les deux cartes reliées ; des faces opposées inversées peuvent exiger un retour extérieur supplémentaire. Il ne recherche pas de passage autour des autres cartes.
+
+Le tracé **Parcours** utilise des segments orthogonaux et cherche un passage autour des cartes ; il ne déplace pas les cartes et ne garantit pas un routage parfait dans toute disposition encombrée. Les connexions autour des notes libres suivent leurs limites et leur contenu lorsque les dimensions changent. Une connexion portant des attributs de style tiers explicites, notamment un tracé Advanced Canvas, conserve son moteur de rendu et ses propriétés. Les courbes natives gardent leur géométrie native ; les connexions structurelles gérées par un bloc restent protégées.
 
 Les relations ordinaires entre notes et cartes de fichiers sont initialement droites, fines et pointillées, sauf réglage explicite. Le geste de connexion libre crée des liens sans flèches, sauf préférence de création explicite. Les marqueurs natifs déjà enregistrés, y compris les flèches, restent respectés. **Rétablir l’apparence par défaut de la connexion** retire couleur, flèches et surcharges de trait/épaisseur, mais **conserve le tracé explicitement choisi**.
 

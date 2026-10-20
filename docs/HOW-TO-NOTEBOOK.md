@@ -93,13 +93,15 @@ A note belonging to a dynamic stack is not eligible for this free-connection ges
 
 Select a compatible connection in the inspector or open its **Appearance** menu:
 
-- **Geometry**: **Straight**, **Curved** or **Map**;
+- **Geometry**: **Curved**, **Straight**, **Square** or **Map**;
 - **Line style**: **Solid**, **Dashed** or **Dotted**;
 - **Thickness**: **Thin**, **Regular** or **Thick**;
 - **Arrows**: none, start, end or both;
 - the default color or one of the six Canvas colors.
 
-**Map** routing uses orthogonal segments and looks for a path around cards. It does not move cards or guarantee ideal routing in every crowded arrangement. Connections around free notes follow their bounds and content as dimensions change. Native curves retain native geometry; connections managed by structured blocks remain protected.
+**Square** uses horizontal and vertical segments with sharp right angles. It chooses a simple L, Z or U route from the attachment faces and the two connected cards; reversed opposing faces can require an additional outer return. It does not search for a path around other cards.
+
+**Map** routing uses orthogonal segments and looks for a path around cards. It does not move cards or guarantee ideal routing in every crowded arrangement. Connections around free notes follow their bounds and content as dimensions change. Connections carrying explicit third-party style attributes, including Advanced Canvas routing, retain their renderer and properties. Native curves retain native geometry; connections managed by structured blocks remain protected.
 
 Ordinary connections between notes and file cards initially use straight, thin, dotted lines unless explicitly configured. The drag gesture creates connections without arrows unless a creation preference specifies them. Previously saved native endpoint markers, including arrows, remain respected. **Restore default connection appearance** removes color, arrows and line/width overrides while **preserving explicitly chosen routing**.
 
