@@ -6,6 +6,7 @@ import { openFileActivating } from "../utils/dom.js";
 import { listCarnetWorkspaceEntries, type CarnetWorkspaceEntry } from "../carnet/core/workspace-entries.js";
 import type { CarnetLifecycle } from "../carnet/core/lifecycle.js";
 import type { CarnetSelection, CarnetWorkspaceContext } from "../carnet/core/workspace-context.js";
+import { normalizeCarnetFont } from "../carnet/canvas/font.js";
 import { applyNoteAppearance } from "../carnet/canvas/note-style.js";
 import { isOrdinaryCard } from "../carnet/canvas/ordinary-cards.js";
 import { applyEdgeStyle, getEdgeAppearance, isEligibleEdge } from "../carnet/canvas/edge-style.js";
@@ -70,6 +71,18 @@ export class CarnetsContent extends Component {
       await this.plugin.saveSettings(); this.plugin.carnetLifecycle?.context.changed();
     });
     const display = this.section("display", "carnet.sections.display", "eye", true);
+    const font = new Setting(display).setName(t("carnet.font.name")).setDesc(t("carnet.font.description"));
+    font.addText((input) => {
+      input.setPlaceholder(t("carnet.font.theme")).setValue(this.plugin.settings.carnetFontFamily ?? "").onChange(async (value) => {
+        this.plugin.settings.carnetFontFamily = normalizeCarnetFont(value);
+        this.plugin.carnetLifecycle?.refresh();
+        await this.plugin.saveSettings();
+      });
+      font.addExtraButton((button) => button.setIcon("reset").setTooltip(t("carnet.font.reset")).onClick(async () => {
+        input.setValue(""); this.plugin.settings.carnetFontFamily = "";
+        this.plugin.carnetLifecycle?.refresh(); await this.plugin.saveSettings();
+      }));
+    });
     new Setting(display).setName(t("carnet.showFloatingToolbar")).addToggle((toggle) => toggle
       .setValue(this.plugin.settings.carnetShowFloatingToolbar !== false).onChange(async (value) => {
         this.plugin.settings.carnetShowFloatingToolbar = value;

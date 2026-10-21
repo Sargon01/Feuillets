@@ -853,7 +853,7 @@ class FeuilletsPlugin extends Plugin {
         this.decoratePlanCanvasView(view, options);
         this.removeRelationsCanvasToolbar(view);
       },
-      () => ({ showFloatingToolbar: this.settings.carnetShowFloatingToolbar, defaultStyles: this.settings.carnetDefaultStyles })
+      () => ({ showFloatingToolbar: this.settings.carnetShowFloatingToolbar, font: this.settings.carnetFontFamily, defaultStyles: this.settings.carnetDefaultStyles })
     );
     this.carnetLifecycle.refresh();
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)) {

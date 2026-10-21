@@ -1,4 +1,6 @@
 import type { App, TFile } from "obsidian";
+import { applyCarnetFont } from "../canvas/font.js";
+import { fmOf } from "../../services/frontmatter.js";
 import { attachCarnetNoteStyles } from "../canvas/note-style.js";
 import { attachCarnetDropLinks, type DropLinkView } from "../canvas/drop-links.js";
 import { attachAppearanceToolbar } from "../canvas/appearance-toolbar.js";
@@ -41,7 +43,7 @@ export type CarnetMindmapDecorator = (view: { file?: TFile | null; canvas?: unkn
  * aucun second lifecycle, aucun nouvel observer global. Idempotent : un
  * refresh répété réapplique le même titre sans jamais l'empiler (le texte
  * d'origine n'est mémorisé qu'une fois, avant la première réécriture). */
-export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (file: TFile | null | undefined) => boolean, resolveTitle?: CarnetTitleResolver, decorateMindmap?: CarnetMindmapDecorator, preferences?: () => { showFloatingToolbar?: boolean; defaultStyles?: CarnetDefaultStyles }): CarnetLifecycle {
+export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (file: TFile | null | undefined) => boolean, resolveTitle?: CarnetTitleResolver, decorateMindmap?: CarnetMindmapDecorator, preferences?: () => { showFloatingToolbar?: boolean; defaultStyles?: CarnetDefaultStyles; font?: string }): CarnetLifecycle {
   const context = new CarnetWorkspaceContext(app.workspace, isCarnet);
   const noteStyles = new Map<CanvasView, { canvas: unknown; file: TFile; binding: NonNullable<ReturnType<typeof attachCarnetNoteStyles>> }>();
   const workspaceBindings = new Map<CanvasView, { canvas: unknown; file: TFile; binding: NonNullable<ReturnType<typeof attachCarnetWorkspaceBinding>> }>();
@@ -61,7 +63,15 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
     for (const leaf of app.workspace.getLeavesOfType("canvas")) {
       const leafWithHeader = leaf as unknown as LeafWithHeader;
       const view = leafWithHeader.view ?? {};
-      if (isCarnet(view.file) && view.file) {
+      const wrapper = view.containerEl ?? view.contentEl;
+      const recognized = isCarnet(view.file);
+      if (wrapper) {
+        current.add(wrapper);
+        wrapper.classList.toggle("feuillets-carnet-canvas", recognized);
+        wrapper.classList.toggle("feuillets-carnet-hide-selection-toolbar", recognized && preferences?.().showFloatingToolbar === false);
+      }
+      const fontChanged = wrapper ? applyCarnetFont(wrapper, recognized ? preferences?.().font : "") : false;
+      if (recognized && view.file) {
         currentViews.add(view);
         const styled = noteStyles.get(view);
         if (styled && (styled.canvas !== view.canvas || styled.file !== view.file)) {
@@ -80,10 +90,19 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
           if (binding) workspaceBindings.set(view, { canvas, file, binding });
         }
         if (!noteStyles.has(view)) {
-          const binding = attachCarnetNoteStyles(view.canvas, () => { toolbars.get(view)?.binding.refresh(); context.changed(); });
+          const file = view.file, canvas = view.canvas;
+          const binding = attachCarnetNoteStyles(canvas, () => { toolbars.get(view)?.binding.refresh(); context.changed(); }, {
+            valid: () => view.file === file && view.canvas === canvas && isCarnet(file) && app.workspace.getLeavesOfType("canvas").some((leaf) => leaf.view as unknown === view),
+            title: (path) => {
+              const fullApp = app as App;
+              const target = fullApp.vault?.getFileByPath(path);
+              const title = target ? fmOf(fullApp, target).short_title : undefined;
+              return typeof title === "string" ? title.trim() : "";
+            },
+          });
           if (binding) noteStyles.set(view, { canvas: view.canvas, file: view.file, binding });
         }
-        noteStyles.get(view)?.binding.refresh();
+        noteStyles.get(view)?.binding.refresh(fontChanged);
         const toolbar = toolbars.get(view);
         if (toolbar && (toolbar.canvas !== view.canvas || toolbar.file !== view.file)) { toolbar.binding.cleanup(); toolbars.delete(view); }
         if (!toolbars.has(view)) {
@@ -101,12 +120,6 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
           if (cleanup) dropLinks.set(view, { canvas: view.canvas, file: view.file, cleanup });
         }
       }
-      const wrapper = view.containerEl ?? view.contentEl;
-      if (wrapper) {
-        current.add(wrapper);
-        wrapper.classList.toggle("feuillets-carnet-canvas", isCarnet(view.file));
-        wrapper.classList.toggle("feuillets-carnet-hide-selection-toolbar", isCarnet(view.file) && preferences?.().showFloatingToolbar === false);
-      }
       if (isCarnet(view.file)) decorateMindmap?.(view);
       if (!resolveTitle) continue;
       const titleEl = leafWithHeader.tabHeaderEl?.querySelector<HTMLElement>(".workspace-tab-header-inner-title");
@@ -120,7 +133,7 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
         restore(titleEl);
       }
     }
-    for (const wrapper of marked) if (!current.has(wrapper)) wrapper.classList.remove("feuillets-carnet-canvas", "feuillets-carnet-hide-selection-toolbar");
+    for (const wrapper of marked) if (!current.has(wrapper)) { wrapper.classList.remove("feuillets-carnet-canvas", "feuillets-carnet-hide-selection-toolbar"); applyCarnetFont(wrapper, ""); }
     marked.clear(); current.forEach((wrapper) => marked.add(wrapper));
     for (const [view, styled] of noteStyles) {
       if (!currentViews.has(view)) {
@@ -153,7 +166,7 @@ export function createCarnetLifecycle(app: Pick<App, "workspace">, isCarnet: (fi
       workspaceBindings.forEach((binding) => binding.binding.cleanup()); workspaceBindings.clear();
       dropLinks.forEach((binding) => binding.cleanup());
       dropLinks.clear();
-      marked.forEach((wrapper) => wrapper.classList.remove("feuillets-carnet-canvas", "feuillets-carnet-hide-selection-toolbar"));
+      marked.forEach((wrapper) => { wrapper.classList.remove("feuillets-carnet-canvas", "feuillets-carnet-hide-selection-toolbar"); applyCarnetFont(wrapper, ""); });
       marked.clear();
       for (const titleEl of [...originalTitles.keys()]) restore(titleEl);
       if (decorateMindmap) {

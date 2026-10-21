@@ -20,6 +20,13 @@ export type CanvasNode = {
   /** Optional persistent vertical relationship between independent text notes. */
   feuillets_stack?: { id: string; order: number };
   feuillets_note_width?: "manual";
+  /** Expanded dimensions while this Markdown FileNode is compact. */
+  feuillets_compact_file?: {
+    width: number;
+    height: number;
+    /** Version 2 preserves the live width, including manual compact resizes. */
+    version?: 2;
+  };
   feuillets_text_style?: CarnetTextStyle;
   feuillets_managed?: "manuscript" | "research" | "thread";
   /** Groupe Canvas natif délimitant un bloc Feuillets, porté UNIQUEMENT par

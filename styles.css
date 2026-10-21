@@ -10270,6 +10270,11 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   height: 100%;
 }
 
+/* The native iframe receives this marker only on its ordinary Carnet editor root. */
+.cm-editor[data-feuillets-carnet-canvas] .cm-scroller {
+  font-family: var(--feuillets-carnet-font, var(--font-text));
+}
+
 .view-content > .markdown-source-view.mod-cm6.feuillets-scrivenings-view .cm-scroller {
   font-family: var(--font-text);
 }
@@ -12732,4 +12737,66 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
 .feuillets-carnets [data-carnet-section="display"] .setting-item-name {
   font-size: var(--font-ui-small);
   line-height: 1.4;
+}
+
+/* Carnet typography is inherited only by ordinary card content. */
+.feuillets-carnet-canvas .canvas-node:is(.feuillets-note-plain, .feuillets-note-outline, .feuillets-note-rounded, .feuillets-note-filled, .feuillets-note-classic) :is(.canvas-node-content, .markdown-preview-view) {
+  font-family: var(--feuillets-carnet-font, var(--font-text));
+}
+
+/* A non-interactive inset stripe identifies ordinary Markdown FileNodes. */
+.feuillets-carnet-canvas .canvas-node.feuillets-markdown-file > .canvas-node-container::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 0;
+  width: 2px;
+  border-radius: 1px;
+  background-color: var(--text-faint);
+  opacity: 0.6;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.feuillets-carnet-canvas .feuillets-compact-file-title {
+  position: absolute;
+  inset: 0;
+  display: none;
+  height: 100%;
+  align-items: center;
+  padding: 8px 12px;
+  pointer-events: none;
+  font-family: var(--feuillets-carnet-font, var(--font-text));
+  font-size: var(--feuillets-text-size, var(--font-text-size));
+  color: var(--feuillets-text-color, var(--text-normal));
+  text-align: var(--feuillets-text-align, left);
+}
+
+.feuillets-carnet-canvas .feuillets-compact-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-carnet-canvas .canvas-node.feuillets-compact-file:is(.feuillets-note-plain, .feuillets-note-outline, .feuillets-note-rounded, .feuillets-note-filled, .feuillets-note-classic) .canvas-node-container {
+  border-radius: 4px;
+  border: 1px solid var(--canvas-color);
+  background-color: var(--canvas-background);
+}
+
+.feuillets-carnet-canvas .canvas-node.feuillets-compact-file.is-themed .canvas-node-container {
+  background-color: color-mix(in srgb, var(--canvas-color) 18%, var(--canvas-background));
+}
+
+.feuillets-carnet-canvas .feuillets-compact-file .feuillets-compact-file-title {
+  display: flex;
+}
+
+.feuillets-carnet-canvas .feuillets-compact-file .canvas-node-content > .markdown-embed-content,
+.feuillets-carnet-canvas .feuillets-compact-file .canvas-node-placeholder,
+.feuillets-carnet-canvas .feuillets-compact-file .canvas-node-label {
+  display: none;
 }

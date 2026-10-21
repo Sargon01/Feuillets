@@ -220,6 +220,7 @@ export type DefaultSettings = {
   hiddenBoardModes: string[];
   hiddenPanels: string[];
   carnetShowFloatingToolbar: boolean;
+  carnetFontFamily: string;
   carnetDefaultStyles: import("./carnet/core/default-styles.js").CarnetDefaultStyles;
   filPlaceholders: NarrativeThreadState["filPlaceholders"];
   filOrigins: NarrativeThreadState["filOrigins"];
@@ -421,6 +422,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   hiddenBoardModes: [],
   hiddenPanels: [],
   carnetShowFloatingToolbar: true,
+  carnetFontFamily: "",
   carnetDefaultStyles: {},
   filPlaceholders: {},
   filOrigins: {},

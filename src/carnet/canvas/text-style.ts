@@ -29,12 +29,28 @@ function decorate(element: HTMLElement | undefined, style: CarnetTextStyle | und
   return previous !== element.style.cssText;
 }
 
+/** Native Canvas editors live in an iframe; relay only this Carnet's variable to its editor root. */
+function refreshEditorFont(node: MinimalRuntimeNode, element: HTMLElement, eligible: boolean): boolean {
+  if (!element.style) return false;
+  const source = eligible ? node.nodeEl?.closest?.(".feuillets-carnet-canvas") : undefined;
+  const font = source ? node.nodeEl?.ownerDocument.defaultView?.getComputedStyle(source).getPropertyValue("--feuillets-carnet-font") ?? "" : "";
+  const previous = element.style.getPropertyValue("--feuillets-carnet-font");
+  // Native CodeMirror replaces editor classes after startup; attributes survive.
+  if (source) element.setAttribute("data-feuillets-carnet-canvas", "true");
+  else element.removeAttribute("data-feuillets-carnet-canvas");
+  if (font) element.style.setProperty("--feuillets-carnet-font", font);
+  else element.style.removeProperty("--feuillets-carnet-font");
+  return previous !== font;
+}
+
 export function refreshTextStyle(node: MinimalRuntimeNode, eligible = true): boolean {
   const style = eligible ? normalizeTextStyle(node.getData().feuillets_text_style) : undefined;
   const changed = decorate(node.nodeEl, style);
   const mode = node.getData().type === "text" && node.isEditing ? getNoteEditor(node) : undefined;
-  if (mode && decorate(mode.cm.dom, style)) {
-    mode.cm.requestMeasure({ key: mode, read: () => null, write: () => {} });
+  if (mode) {
+    const styleChanged = decorate(mode.cm.dom, style);
+    const fontChanged = refreshEditorFont(node, mode.cm.dom, eligible);
+    if (styleChanged || fontChanged) mode.cm.requestMeasure({ key: mode, read: () => null, write: () => {} });
   }
   return changed;
 }
@@ -43,7 +59,7 @@ export function bindTextEditor(node: MinimalRuntimeNode): () => void {
   const mode = getNoteEditor(node);
   if (!mode) return () => {};
   refreshTextStyle(node);
-  return () => { decorate(mode.cm.dom, undefined); };
+  return () => { decorate(mode.cm.dom, undefined); refreshEditorFont(node, mode.cm.dom, false); };
 }
 
 type FormattingEditor = Editor & { toggleMarkdownFormatting?: (format: "bold" | "italic" | "strikethrough") => void };

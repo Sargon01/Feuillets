@@ -26,7 +26,7 @@ test("underline uses only the editor selection and restores the selected range",
 
 test("scoped typography survives native editor class replacement and cleans up without injected styles", async () => {
   const { refreshTextStyle, bindTextEditor } = await import("../src/carnet/canvas/text-style.js");
-  const element = () => { const values = new Map(), attributes = new Map(), classes = new Set(); return { values, attributes, classes, style: { setProperty: (k, v) => values.set(k, v), removeProperty: (k) => values.delete(k) }, setAttribute: (k, v) => attributes.set(k, v), removeAttribute: (k) => attributes.delete(k), classList: { toggle: (k, active) => active ? classes.add(k) : classes.delete(k) } }; };
+  const element = () => { const values = new Map(), attributes = new Map(), classes = new Set(); return { values, attributes, classes, style: { getPropertyValue: (k) => values.get(k) ?? "", setProperty: (k, v) => values.set(k, v), removeProperty: (k) => values.delete(k) }, setAttribute: (k, v) => attributes.set(k, v), removeAttribute: (k) => attributes.delete(k), classList: { toggle: (k, active) => active ? classes.add(k) : classes.delete(k) } }; };
   const root = element(), dom = element(), editor = { cm: { dom, contentDOM: {}, requestMeasure() {} }, onUpdate() {} };
   const node = { isEditing: true, nodeEl: root, getData: () => ({ type: "text", feuillets_text_style: { size: 24, align: "justify", color: "green" } }), child: { editMode: editor } };
   const cleanup = bindTextEditor(node);
@@ -35,4 +35,29 @@ test("scoped typography survives native editor class replacement and cleans up w
   assert.equal(root.values.get("--feuillets-text-align"), "justify");
   cleanup(); assert.equal(dom.values.size, 0); assert.equal(dom.attributes.size, 0);
   refreshTextStyle(node, false); assert.equal(root.values.size, 0); assert.equal(root.attributes.size, 0);
+});
+
+
+test("Carnet font reaches only its ordinary editor root and follows changes without touching the iframe body", async () => {
+  const { refreshTextStyle, bindTextEditor } = await import("../src/carnet/canvas/text-style.js");
+  const make = () => { const values = new Map(), classes = new Set(), attributes = new Map(); return { values, classes, attributes,
+    style: { get cssText() { return JSON.stringify([...values]); }, getPropertyValue: (key) => values.get(key) ?? "", setProperty: (key, value) => values.set(key, value), removeProperty: (key) => values.delete(key) },
+    classList: { toggle: (key, enabled) => enabled ? classes.add(key) : classes.delete(key) }, setAttribute: (key, value) => attributes.set(key, value), removeAttribute: (key) => attributes.delete(key) }; };
+  let family = '"Georgia", theme-font', recognized = true, measures = 0;
+  const source = {}, nodeEl = make(), editorEl = make();
+  nodeEl.closest = () => recognized ? source : null;
+  nodeEl.ownerDocument = { defaultView: { getComputedStyle: (element) => { assert.equal(element, source); return { getPropertyValue: () => family }; } } };
+  const node = { isEditing: true, nodeEl, getData: () => ({ type: "text", text: "unchanged" }),
+    child: { editMode: { cm: { dom: editorEl, contentDOM: {}, requestMeasure: () => measures++ }, onUpdate() {} } } };
+  const cleanup = bindTextEditor(node);
+  assert.equal(editorEl.values.get("--feuillets-carnet-font"), family);
+  assert(editorEl.attributes.has("data-feuillets-carnet-canvas")); assert.equal(measures, 1);
+  refreshTextStyle(node); assert.equal(measures, 1);
+  family = '"Palatino", theme-font'; refreshTextStyle(node);
+  assert.equal(editorEl.values.get("--feuillets-carnet-font"), family); assert.equal(measures, 2);
+  recognized = false; refreshTextStyle(node);
+  assert.equal(editorEl.values.size, 0); assert(!editorEl.attributes.has("data-feuillets-carnet-canvas"));
+  recognized = true; refreshTextStyle(node); cleanup();
+  assert.equal(editorEl.values.size, 0); assert(!editorEl.attributes.has("data-feuillets-carnet-canvas"));
+  assert.deepEqual(node.getData(), { type: "text", text: "unchanged" });
 });

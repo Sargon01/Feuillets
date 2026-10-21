@@ -8,9 +8,9 @@ import { normalizeTextStyle } from "../src/carnet/canvas/text-style.js";
 const clone = (value) => structuredClone(value);
 function fixture() {
   const original = { nodes: ["a", "b", "c", "d"].map((id, index) => ({ id, type: "text", text: "**Bold** *italic* [link](target)\n\n- First\n- Second", x: index * 300, y: 30, width: 240, height: 180, custom: { retained: true } })), edges: [], customRoot: "retained" };
-  const canvas = { nodes: new Map(), history: [clone(original)], index: 0, saves: 0,
-    getData() { return { ...clone(original), nodes: [...this.nodes.values()].map((node) => clone(node.raw)) }; },
-    importData(data) { for (const raw of data.nodes) { const node = this.nodes.get(raw.id); if (node) node.setData(clone(raw)); } },
+  const canvas = { nodes: new Map(), edges: [], history: [clone(original)], index: 0, saves: 0,
+    getData() { return { ...clone(original), edges: clone(this.edges), nodes: [...this.nodes.values()].map((node) => clone(node.raw)) }; },
+    importData(data) { this.edges = clone(data.edges); for (const raw of data.nodes) { const node = this.nodes.get(raw.id); if (node) node.setData(clone(raw)); } },
     requestSave() { this.saves++; },
     pushHistory(data) { this.history.splice(++this.index); this.history.push(clone(data)); },
     undo() { this.importData(this.history[--this.index], true); },
@@ -23,6 +23,36 @@ function fixture() {
   }
   return canvas;
 }
+
+test("Markdown file stripe survives compact imports without changing data and cleans up eligibility changes", () => {
+  const canvas = fixture();
+  const file = canvas.nodes.get("a"), other = canvas.nodes.get("b");
+  Object.assign(file.raw, { type: "file", file: "Document.md", width: 420, color: "4" });
+  const before = canvas.getData(), binding = attachCarnetNoteStyles(canvas);
+  binding.refresh();
+  assert(file.classes.has("feuillets-markdown-file"));
+  assert(!other.classes.has("feuillets-markdown-file"));
+  assert.deepEqual(canvas.getData(), before);
+  const compact = clone(before);
+  Object.assign(compact.nodes[0], { height: 56, feuillets_compact_file: { width: 420, height: 180, version: 2 } });
+  canvas.importData(compact, true);
+  assert(file.classes.has("feuillets-markdown-file"));
+  assert.deepEqual(canvas.getData(), compact);
+  for (const patch of [{ file: "Image.png" }, { type: "text" }, { feuillets_block_id: "protected" }, { feuillets_internal: true }]) {
+    const excluded = clone(before); Object.assign(excluded.nodes[0], patch);
+    canvas.importData(excluded, true);
+    assert(!file.classes.has("feuillets-markdown-file"));
+    assert.deepEqual(canvas.getData(), excluded);
+  }
+  const linked = clone(before);
+  linked.edges.push({ id: "protected", fromNode: "a", toNode: "b", feuillets_block_id: "block" });
+  canvas.importData(linked, true); assert(!file.classes.has("feuillets-markdown-file"));
+  canvas.importData(before, true); assert(file.classes.has("feuillets-markdown-file"));
+  canvas.nodes.delete("a"); binding.refresh(); assert(!file.classes.has("feuillets-markdown-file"));
+  canvas.nodes.set("a", file); binding.refresh(); assert(file.classes.has("feuillets-markdown-file"));
+  binding.cleanup(); assert.equal(file.classes.size, 0);
+  assert.equal(canvas.saves, 0); assert.equal(canvas.history.length, 1);
+});
 
 test("four independent styles preserve all Markdown and unknown properties, default removes only the style", () => {
   const canvas = fixture();

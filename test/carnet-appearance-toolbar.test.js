@@ -193,3 +193,19 @@ for (const type of ["text", "file"]) test(`geometry icons switch active mode wit
   }
   assert.equal(f.menuEl.children.filter((e) => e.attrs.native === "color").length, 1); f.binding.cleanup();
 });
+
+test("compact file selections keep native tools without adding a collapse action", async () => {
+  const { attachCompactFiles, setFilesCompact } = await import("../src/carnet/canvas/compact-files.js");
+  const f = fixture(), c = f.canvas, a = c.nodes.get("a"), b = c.nodes.get("b");
+  for (const node of [a, b]) { node.id = node.raw.id; node.raw.type = "file"; node.raw.file = `${node.id}.md`; }
+  const compact = attachCompactFiles(c, () => true, () => "", () => {});
+  for (const targets of [[a], [a, b]]) {
+    f.select(...targets);
+    assert.equal(byClass(f.menuEl, "feuillets-compact-selection").length, 0);
+    assert(setFilesCompact(c, targets.map((node) => node.id), true));
+    c.menu.render(true);
+    assert.equal(byClass(f.menuEl, "feuillets-compact-selection").length, 0);
+    assert(f.menuEl.children.some((element) => element.attrs.native === "color"));
+  }
+  compact.cleanup(); f.binding.cleanup();
+});

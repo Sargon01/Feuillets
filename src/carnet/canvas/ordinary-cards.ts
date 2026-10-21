@@ -1,6 +1,6 @@
 import type { CanvasData, CanvasNode } from "./types.js";
 
-const appearanceFields = new Set(["feuillets_note_style", "feuillets_note_width", "feuillets_text_style", "feuillets_stack"]);
+const appearanceFields = new Set(["feuillets_note_style", "feuillets_note_width", "feuillets_text_style", "feuillets_stack", "feuillets_compact_file"]);
 
 export function hasOrdinaryCardOwnership(data: CanvasData, node: CanvasNode): boolean {
   return !!node.id && !Object.keys(node).some((key) =>

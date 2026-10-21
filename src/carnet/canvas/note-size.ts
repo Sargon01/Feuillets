@@ -95,6 +95,8 @@ export function attachNoteSizing(value: MinimalRuntimeCanvas, onLiveChange?: (no
     if (!mode) return () => {};
     const cleanupStyle = onEditor?.(node);
     const original = mode.onUpdate, initial = node.getData(), cm = mode.cm;
+    const editorFont = (): string | undefined => cm.contentDOM.ownerDocument?.defaultView?.getComputedStyle(cm.contentDOM).fontFamily;
+    const initialFont = editorFont();
     let active = true;
     const measure = (): void => {
       cm.requestMeasure({ key: node,
@@ -113,7 +115,7 @@ export function attachNoteSizing(value: MinimalRuntimeCanvas, onLiveChange?: (no
           if (!active || !node.isEditing || !canResize(node) || height === null) return;
           const data = node.getData();
           if (data.width && height !== data.height) {
-            const typographyChanged = JSON.stringify(data.feuillets_text_style) !== JSON.stringify(initial.feuillets_text_style);
+            const typographyChanged = JSON.stringify(data.feuillets_text_style) !== JSON.stringify(initial.feuillets_text_style) || editorFont() !== initialFont;
             const committed = typographyChanged && canvasFingerprint(runtime.history.data[runtime.history.current]) === canvasFingerprint(runtime.getData());
             node.resize({ width: data.width, height });
             cm.scrollDOM.scrollTop = 0;
@@ -132,9 +134,10 @@ export function attachNoteSizing(value: MinimalRuntimeCanvas, onLiveChange?: (no
     measure();
     return () => {
       active = false;
+      const sameFont = editorFont() === initialFont;
       cleanupStyle?.();
       if (mode.onUpdate === update) mode.onUpdate = original;
-      if (cm.state.doc.toString() === initial.text && JSON.stringify(node.getData().feuillets_text_style) === JSON.stringify(initial.feuillets_text_style) && initial.width && initial.height && canResize(node)) {
+      if (sameFont && cm.state.doc.toString() === initial.text && JSON.stringify(node.getData().feuillets_text_style) === JSON.stringify(initial.feuillets_text_style) && initial.width && initial.height && canResize(node)) {
         node.resize({ width: initial.width, height: initial.height });
       }
     };

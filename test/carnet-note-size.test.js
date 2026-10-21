@@ -277,3 +277,24 @@ test("native border-box measurements avoid zoom rounding drift in saved typograp
   assert.equal(f.canvas.saves, saves); assert.equal(f.node.getData().height, 302);
   f.binding.cleanup();
 });
+
+
+test("changing the Carnet family during an unchanged editor session preserves new geometry on exit", () => {
+  const f = fixture(), before = f.node.getData();
+  let family = "Georgia";
+  const editor = activeEditor(f);
+  editor.cm.contentDOM.ownerDocument = { defaultView: { getComputedStyle: () => ({ fontFamily: family }) } };
+  editor.cm.state.doc.toString = () => before.text;
+  // Start a new session after attaching the real editor's font contract.
+  f.node.setIsEditing(false); f.node.setIsEditing(true);
+  editor.cm.contentHeight = 240;
+  family = "Palatino";
+  editor.flush();
+  assert.equal(f.node.getData().height, 274);
+  assert.equal(f.canvas.history.data[0].nodes[0].height, 274);
+  f.node.setIsEditing(false);
+  assert.equal(f.node.getData().height, 274);
+  assert.equal(f.node.getData().width, before.width);
+  assert.equal(f.canvas.history.data.length, 1);
+  f.binding.cleanup();
+});

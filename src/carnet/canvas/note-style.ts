@@ -1,4 +1,5 @@
 import { bindTextEditor, normalizeTextStyle, refreshTextStyle, textAlignments, textColors } from "./text-style.js";
+import { attachCompactFiles, compactFileSelection, expandedFileSize, hasCompactFiles, isCompactableFile, setFilesCompact } from "./compact-files.js";
 import { attachDynamicStacks } from "./dynamic-stack.js";
 import { isOrdinaryCard } from "./ordinary-cards.js";
 import { attachNoteSizing } from "./note-size.js";
@@ -70,7 +71,7 @@ export function applyNoteAppearance(value: unknown, nodeId: string, change: { st
 }
 
 /** Bound by the existing Carnet lifecycle, including native reload and undo. */
-export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => void): { refresh(): void; cleanup(): void } | null {
+export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => void, files?: { valid(): boolean; title(path: string): string }): { refresh(typographyChanged?: boolean): void; cleanup(): void } | null {
   if (!hasStyleContract(canvasValue)) return null;
   const canvas = canvasValue;
   const decorated = new Set<HTMLElement>();
@@ -78,7 +79,8 @@ export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => v
   const stacks = attachDynamicStacks(canvas, () => importing);
   const sizing = attachNoteSizing(canvas, (node) => anchors?.update(node), bindTextEditor, onRefresh, stacks ?? undefined);
   const anchors = attachTextAnchors(canvas, (node) => sizing?.update(node));
-  const refresh = (): void => {
+  const compact = files ? attachCompactFiles(canvas, () => files.valid(), (path) => files.title(path), () => refresh()) : null;
+  const refresh = (typographyChanged = false): void => {
     const data = canvas.getData();
     const current = new Set<HTMLElement>();
     const typographyChanges: MinimalRuntimeNode[] = [];
@@ -91,12 +93,14 @@ export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => v
       current.add(el);
       const style = isOrdinaryCard(data, node) ? (node.feuillets_note_style ?? "plain") : undefined;
       styles.forEach((candidate, index) => el.classList.toggle(classes[index], style === candidate));
+      el.classList.toggle("feuillets-markdown-file", isCompactableFile(data, node));
       decorated.add(el);
     }
-    for (const el of decorated) if (!current.has(el)) { el.classList.remove(...classes); decorated.delete(el); }
+    for (const el of decorated) if (!current.has(el)) { el.classList.remove(...classes, "feuillets-markdown-file"); decorated.delete(el); }
+    compact?.refresh();
     sizing?.refresh(free);
     anchors?.refresh(free);
-    for (const node of typographyChanges) if (free.has(node.id)) sizing?.update(node, true);
+    for (const node of canvas.nodes.values()) if (free.has(node.id) && (typographyChanged || typographyChanges.includes(node))) sizing?.update(node, true);
     onRefresh?.();
   };
   const originalAdd = canvas.addNode;
@@ -116,13 +120,14 @@ export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => v
   return {
     refresh,
     cleanup: () => {
+      compact?.cleanup();
       sizing?.cleanup();
       stacks?.cleanup();
       anchors?.cleanup();
       if (canvas.addNode === add) canvas.addNode = originalAdd;
       if (canvas.importData === wrapped) canvas.importData = original;
       for (const node of canvas.nodes.values()) refreshTextStyle(node, false);
-      decorated.forEach((el) => el.classList.remove(...classes));
+      decorated.forEach((el) => el.classList.remove(...classes, "feuillets-markdown-file"));
       decorated.clear();
     },
   };
@@ -144,6 +149,17 @@ export function registerCarnetNoteStyleMenu(plugin: {
       canvas.nodes.get(node.id) !== node || !isOrdinaryCard(canvas.getData(), node.getData())) return;
     extendedMenus.add(menu);
     const current = node.getData();
+    if (hasCompactFiles(canvas) && isCompactableFile(canvas.getData(), current)) {
+      const selected = compactFileSelection(canvas);
+      const targets = selected.includes(node) ? selected : [node];
+      const collapse = targets.some((target) => !expandedFileSize(target.getData()));
+      menu.addItem((item) => item.setTitle(t(collapse ? "carnet.compact.collapse" : "carnet.compact.expand"))
+        .setIcon(collapse ? "chevrons-down-up" : "chevrons-up-down").onClick(() => {
+          if (!isCarnet(canvas.view?.file) || canvas.view?.file !== file || targets.some((target) => canvas.nodes.get(target.id) !== target)) return;
+          if (!setFilesCompact(canvas, targets.map((target) => target.id), collapse)) new Notice(t("carnet.noteStyle.unavailable"));
+          refresh();
+        }));
+    }
     const apply = (change: { style?: CarnetNoteStyle; color?: string; textStyle?: CarnetTextStyle }): void => {
       if (!isCarnet(canvas.view?.file) || canvas.view?.file !== file || canvas.nodes.get(node.id) !== node) return;
       if (Object.prototype.hasOwnProperty.call(change, "textStyle") && node.isEditing) return;
