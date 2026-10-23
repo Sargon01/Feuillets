@@ -738,6 +738,7 @@ declare type FeuilletsSettings = {
 
   /** Typographie en direct (registerLiveTypography/applyLiveTypoClasses). */
   liveApostrophe: boolean;
+  liveEllipsis: boolean;
   liveGuillemets: boolean;
   liveDashes: boolean;
   liveEmptyLines: "normal" | "reduit" | "invisible";

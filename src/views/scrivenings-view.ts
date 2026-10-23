@@ -26,6 +26,7 @@ import { roleOfFile } from "../services/folder-structure.js";
 import { buildScriveningsRangeClipboardText } from "../services/scrivenings-clipboard-source.js";
 import { createScriveningsCopyExtension, createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsBoundariesField, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
 import type { ScriveningsImageResolver } from "../utils/cm-scrivenings-markdown.js";
+import { createLiveTypographyExtension, typographySegmentContext } from "../utils/cm-live-typography.js";
 import { createScriveningsCitationExtension } from "../utils/cm-scrivenings-citations.js";
 import type { CslCitationHost } from "../services/csl-citation-host.js";
 import {
@@ -728,6 +729,10 @@ export class ScriveningsView extends ItemView {
         () => this.plugin.getWorkspaceFolder?.() ?? null),
       ...createScriveningsExtensions(imageResolver),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
+      ...createLiveTypographyExtension(() => this.plugin.settings, (state, from, to) => {
+        const boundaries = (state.field(scriveningsBoundariesField, false) as number[] | undefined) ?? [];
+        return typographySegmentContext(state, boundaries, from, to);
+      }),
       createScriveningsCitationExtension(
         scriveningsBoundariesField,
         this.plugin.app,

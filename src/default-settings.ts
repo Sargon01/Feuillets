@@ -134,6 +134,7 @@ export type DefaultSettings = {
   pdfWidows: number;
   pdfPreventHeadingOrphans: boolean;
   liveApostrophe: boolean;
+  liveEllipsis: boolean;
   liveGuillemets: boolean;
   liveDashes: boolean;
   liveEmptyLines: "normal" | "reduit" | "invisible";
@@ -345,6 +346,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   pdfWidows: 2,
   pdfPreventHeadingOrphans: true,
   liveApostrophe: true,
+  liveEllipsis: true,
   liveGuillemets: true,
   liveDashes: true,
   liveEmptyLines: "normal",

@@ -1537,6 +1537,8 @@ export const fr = {
   "settings.indentParagraphs.name": "Alinéas de paragraphe dans l'éditeur",
   "settings.indentParagraphs.desc": "Retrait de première ligne au début de chaque paragraphe, en édition et en lecture. Purement visuel : n'ajoute rien au texte ni au manuscrit compilé.",
   "settings.liveApostrophe.name": "Apostrophe typographique (' → ’)",
+  "settings.liveEllipsis.name": "Points de suspension (... → …)",
+  "settings.liveEllipsis.desc": "Convertit trois points en points de suspension à la frappe et au collage, dans la prose.",
   "settings.liveApostrophe.desc": "Comportements adaptés du plugin French Typos de Thierry Crouzet. Si French Typos est installé et actif, désactive l'un des deux pour éviter les doubles remplacements.",
   "settings.liveGuillemets.name": "Guillemets français (\" → « »)",
   "settings.liveGuillemets.desc": "Contextuels : ouvrant en début de mot, fermant après un mot — avec espaces insécables.",

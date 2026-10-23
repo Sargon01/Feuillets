@@ -1537,6 +1537,8 @@ export const en = {
   "settings.indentParagraphs.name": "Paragraph indents in the editor",
   "settings.indentParagraphs.desc": "First-line indent at the start of each paragraph, in edit and read mode. Purely visual: adds nothing to the text or the compiled manuscript.",
   "settings.liveApostrophe.name": "Typographic apostrophe (' → ’)",
+  "settings.liveEllipsis.name": "Ellipsis (... → …)",
+  "settings.liveEllipsis.desc": "Converts three dots into an ellipsis when typing or pasting prose.",
   "settings.liveApostrophe.desc": "Behaviors adapted from Thierry Crouzet's French Typos plugin. If French Typos is installed and active, disable one of the two to avoid double replacements.",
   "settings.liveGuillemets.name": "French guillemets (\" → « »)",
   "settings.liveGuillemets.desc": "Contextual: opening at the start of a word, closing after a word — with non-breaking spaces.",

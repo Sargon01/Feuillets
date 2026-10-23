@@ -77,6 +77,7 @@ export interface ScriveningsAdapterEditorView {
     changes?: { from: number; to: number; insert: string } | readonly { from: number; to: number; insert: string }[];
     selection?: { anchor: number; head?: number };
     annotations?: unknown;
+    userEvent?: string;
   }): void;
   focus(): void;
 }
@@ -187,7 +188,7 @@ export class ScriveningsSegmentEditorAdapter implements FeuilletsEditorSurface {
     return offsetToLineCol(segment ? this.fullText(segment) : "", offset);
   }
 
-  replaceRange(replacement: string, from: EditorPos, to: EditorPos = from): void {
+  replaceRange(replacement: string, from: EditorPos, to: EditorPos = from, userEvent?: string): void {
     const segment = this.segment();
     if (!segment) return;
     const full = this.fullText(segment);
@@ -199,14 +200,14 @@ export class ScriveningsSegmentEditorAdapter implements FeuilletsEditorSurface {
     const compositeFrom = segment.from + (fileFrom - segment.frontmatter.length);
     const compositeTo = segment.from + (fileTo - segment.frontmatter.length);
     if (compositeFrom < segment.from || compositeTo > segment.to || compositeFrom > compositeTo) return;
-    this.editorView.dispatch({ changes: { from: compositeFrom, to: compositeTo, insert: replacement } });
+    this.editorView.dispatch({ changes: { from: compositeFrom, to: compositeTo, insert: replacement }, ...(userEvent ? { userEvent } : {}) });
   }
 
-  replaceSelection(replacement: string): void {
+  replaceSelection(replacement: string, userEvent?: string): void {
     const segment = this.segment();
     if (!segment || !this.somethingSelected()) return;
     const range = this.clampedSelection(segment);
-    this.editorView.dispatch({ changes: { from: range.from, to: range.to, insert: replacement } });
+    this.editorView.dispatch({ changes: { from: range.from, to: range.to, insert: replacement }, ...(userEvent ? { userEvent } : {}) });
   }
 
   private toCompositeOffset(segment: ScriveningsSegment, pos: EditorPos): number {

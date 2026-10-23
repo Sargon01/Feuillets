@@ -136,6 +136,7 @@ function makeDoc(text) {
 EditorView.decorations = { from: (field) => field };
 EditorView.editable = { from: (field, get) => ({ facet: "editable", field, get }) };
 EditorView.domEventHandlers = (handlers) => handlers;
+EditorView.domEventObservers = (handlers) => ({ observers: handlers });
 EditorView.updateListener = { of: (fn) => ({ facet: "updateListener", fn }) };
 EditorView.lineWrapping = { facet: "lineWrapping" };
 EditorView.keymap = { of: (bindings) => ({ facet: "keymap", bindings }) };

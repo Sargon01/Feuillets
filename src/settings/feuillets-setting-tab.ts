@@ -243,6 +243,16 @@ export class FeuilletsSettingTab extends PluginSettingTab {
       );
 
     new Setting(container)
+      .setName(t("settings.liveEllipsis.name"))
+      .setDesc(t("settings.liveEllipsis.desc"))
+      .addToggle((t2) =>
+        t2.setValue(S.liveEllipsis).onChange(async (v) => {
+          S.liveEllipsis = v;
+          await this.plugin.saveSettings();
+        })
+      );
+
+    new Setting(container)
       .setName(t("settings.liveGuillemets.name"))
       .setDesc(t("settings.liveGuillemets.desc"))
       .addToggle((t2) =>

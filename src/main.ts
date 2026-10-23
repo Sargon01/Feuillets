@@ -18,6 +18,8 @@ import type { ScriveningsScrollAnchor } from "./utils/cm-scrivenings-scroll.js";
 import { VIEW_SIDEBAR, VIEW_BOARD, VIEW_NOTES, VIEW_PROPERTIES, VIEW_RESEARCH, VIEW_JOURNAL, VIEW_PROJECT, VIEW_DOCX_REVIEW, VIEW_SIDEBAR_FEUILLETS, VIEW_PREVIEW, VIEW_SCRIVENINGS, VIEW_PRESENTATION_PREVIEW, HIDEABLE_PANELS } from "./constants.js";
 import { migrateLegacyProjectTypes, migrateLegacyTaxonomyEntries } from "./services/project-settings.js";
 import { countWords, escapeRegExp, todayKey, parseStoryDate, compactLineBreaks, frenchTypography, isValidHexColor } from "./utils/core.js";
+import { createLiveTypographyExtension } from "./utils/cm-live-typography.js";
+import { isEligibleTypographyTarget } from "./services/typography-scope.js";
 import { dateKey, statsForDay, resolveProjectStats, validateStatsTable, recordDailyTotal, mergeLegacyStats, trimStatsTable, dailyWordDelta } from "./utils/journal-stats.js";
 import { stripWritingNoise, countSentences, countParagraphs, formatNumber } from "./utils/text-metrics.js";
 import {
@@ -273,6 +275,7 @@ import {
   normalizePath,
   Menu,
   MarkdownView,
+  editorInfoField,
   Platform,
   setTooltip,
   type App,
@@ -828,6 +831,15 @@ class FeuilletsPlugin extends Plugin {
     this.registerConcentrationTracking();
     this.registerDragSafetyNet();
     this.registerLiveTypography();
+    this.registerEditorExtension(createLiveTypographyExtension(
+      () => this.settings,
+      (state) => {
+        const info = state.field(editorInfoField, false) as { file?: TFile | null } | undefined;
+        return isEligibleTypographyTarget(this.getProjectFolder(), info?.file)
+          ? { from: 0, to: state.doc.length }
+          : null;
+      },
+    ));
     this.registerStatusBar();
     this.registerTextEditingCommands();
     this.registerFootnoteContextMenu();
@@ -2051,10 +2063,10 @@ class FeuilletsPlugin extends Plugin {
       (event) => {
         const k = event.key;
         if (k !== "Enter") this._pendingParagraphBreak = undefined;
-        if (k !== "'" && k !== '"' && k !== "Enter" && k !== " ") return;
+        if (k !== '"' && k !== "Enter" && k !== " ") return;
+        if (event.defaultPrevented || event.isComposing) return;
         const S = this.settings;
         if (
-          !S.liveApostrophe &&
           !S.liveGuillemets &&
           !S.liveDashes &&
           !S.liveTwoEnters &&
@@ -2094,14 +2106,7 @@ class FeuilletsPlugin extends Plugin {
           }
         }
 
-        if (event.key === "'" && S.liveApostrophe) {
-          event.preventDefault();
-          if (editor.somethingSelected()) editor.replaceSelection("\u2019");
-          else {
-            editor.replaceRange("\u2019", cursor);
-            editor.setCursor({ line: cursor.line, ch: cursor.ch + 1 });
-          }
-        } else if (event.key === '"' && S.liveGuillemets) {
+        if (event.key === '"' && S.liveGuillemets) {
           event.preventDefault();
           const before = cursor.ch > 0
             ? editor.getRange({ line: cursor.line, ch: cursor.ch - 1 }, cursor)
@@ -3568,16 +3573,17 @@ class FeuilletsPlugin extends Plugin {
     adapter: ScriveningsSegmentEditorAdapter
   ): Promise<void> {
     const main = editorView.state.selection.main;
-    if (!main.empty && (main.from < context.segment.from || main.to > context.segment.to)) return;
+    if (main.from < context.segment.from || main.to > context.segment.to) return;
+    const state = editorView.state;
     let text: string;
     try {
       text = await navigator.clipboard.readText();
     } catch {
       return; // §20 : échec clipboard, no-op propre
     }
-    if (!text) return;
-    if (!main.empty) adapter.replaceSelection(text);
-    else adapter.replaceRange(text, adapter.getCursor());
+    if (!text || editorView.state !== state) return;
+    if (!main.empty) adapter.replaceSelection(text, "input.paste");
+    else adapter.replaceRange(text, adapter.getCursor(), undefined, "input.paste");
   }
 
   /** §37 : double-clic sur une annotation DANS Continu — même

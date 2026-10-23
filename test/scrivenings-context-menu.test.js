@@ -236,6 +236,7 @@ test("§59 — Coller : caret vide → UNE insertion", async () => {
   }
   assert.equal(dispatched.length, 1);
   assert.equal(dispatched[0].changes.insert, "XYZ");
+  assert.equal(dispatched[0].userEvent, "input.paste");
 });
 
 test("§59 — Coller : sélection cross-segment → 0 transaction", async () => {
