@@ -4,6 +4,7 @@ import { applyNoteAppearance, applyNoteStyle, attachCarnetNoteStyles, isFreeNote
 import { Menu } from "obsidian";
 import { t } from "../src/i18n/index.js";
 import { normalizeTextStyle } from "../src/carnet/canvas/text-style.js";
+import { isCompactableFile, setFilesCompact } from "../src/carnet/canvas/compact-files.js";
 
 const clone = (value) => structuredClone(value);
 function fixture() {
@@ -52,6 +53,32 @@ test("Markdown file stripe survives compact imports without changing data and cl
   canvas.nodes.set("a", file); binding.refresh(); assert(file.classes.has("feuillets-markdown-file"));
   binding.cleanup(); assert.equal(file.classes.size, 0);
   assert.equal(canvas.saves, 0); assert.equal(canvas.history.length, 1);
+});
+
+test("Excalidraw files lose only the stripe and retain native compact transitions", () => {
+  const canvas = fixture(), file = canvas.nodes.get("a");
+  Object.assign(file.raw, { type: "file", file: "Document.md", width: 420, color: "4" });
+  file.nodeEl.querySelector = () => null;
+  const binding = attachCarnetNoteStyles(canvas, undefined, { valid: () => true, title: (path) => path });
+  binding.refresh(); assert(file.classes.has("feuillets-markdown-file"));
+  for (const path of ["Drawings/Sketch.excalidraw.md", "Drawings/Sketch.EXCALIDRAW.MD"]) {
+    file.raw.file = path;
+    const before = canvas.getData();
+    binding.refresh();
+    assert(!file.classes.has("feuillets-markdown-file"));
+    assert.deepEqual(canvas.getData(), before);
+    assert(isCompactableFile(before, file.raw));
+    assert(setFilesCompact(canvas, ["a"], true));
+    assert(!file.classes.has("feuillets-markdown-file"));
+    assert.equal(file.raw.height, 56); assert.equal(file.raw.width, 420);
+    assert.equal(file.raw.file, path); assert.equal(file.raw.color, "4");
+    assert(setFilesCompact(canvas, ["a"], false));
+    assert(!file.classes.has("feuillets-markdown-file"));
+    assert.deepEqual(canvas.getData(), before);
+  }
+  file.raw.file = "Document.md"; binding.refresh();
+  assert(file.classes.has("feuillets-markdown-file"));
+  binding.cleanup(); assert.equal(file.classes.size, 0);
 });
 
 test("four independent styles preserve all Markdown and unknown properties, default removes only the style", () => {

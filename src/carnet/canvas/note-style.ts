@@ -93,7 +93,7 @@ export function attachCarnetNoteStyles(canvasValue: unknown, onRefresh?: () => v
       current.add(el);
       const style = isOrdinaryCard(data, node) ? (node.feuillets_note_style ?? "plain") : undefined;
       styles.forEach((candidate, index) => el.classList.toggle(classes[index], style === candidate));
-      el.classList.toggle("feuillets-markdown-file", isCompactableFile(data, node));
+      el.classList.toggle("feuillets-markdown-file", isCompactableFile(data, node) && !/\.excalidraw\.md$/i.test(node.file ?? ""));
       decorated.add(el);
     }
     for (const el of decorated) if (!current.has(el)) { el.classList.remove(...classes, "feuillets-markdown-file"); decorated.delete(el); }
