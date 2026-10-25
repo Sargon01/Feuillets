@@ -2,6 +2,24 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.7.1 — 2026-10-25
+
+**Carnet**
+
+- Ajout de connecteurs à angles droits pour organiser les relations entre les cartes.
+- Ajout de cartes de fichiers Markdown compactes et d’un réglage de police pour le Carnet.
+- Harmonisation des interactions avec les cartes ordinaires et du style de leurs connexions.
+- Exclusion des dessins Excalidraw de la bande visuelle des cartes de fichiers Markdown.
+
+**Écriture et typographie**
+
+- Amélioration de la normalisation des apostrophes, des points de suspension et des espaces issus du collage HTML, en préservant les zones techniques Markdown.
+- Prise en charge des brouillons rapides dans les traitements typographiques à la frappe et au collage.
+
+**Fiabilité**
+
+- Renforcement des tests automatisés du Carnet, des connexions, des cartes et de la typographie, notamment dans CodeMirror et Continu.
+
 ## 3.7.0 — 2026-10-18
 
 Cette version rassemble les changements intégrés après la 3.6.1.
