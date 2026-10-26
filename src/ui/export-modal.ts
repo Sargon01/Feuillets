@@ -65,19 +65,6 @@ export class ExportModal extends Modal {
     // Section des réglages
     const settingsContainer = contentEl.createDiv();
 
-    // Nom de sortie
-    new Setting(settingsContainer)
-      .setName(t("modal.export.outputName"))
-      .setDesc(t("modal.export.outputNameDesc") || "")
-      .addText((text) =>
-        text
-          .setValue(this.outputName)
-          .setPlaceholder(t("modal.export.outputNamePlaceholder"))
-          .onChange((value) => {
-            this.outputName = this.sanitizeFileName(value);
-          })
-      );
-
     // Format d'export
     new Setting(settingsContainer)
       .setName(t("modal.export.format"))
@@ -170,15 +157,6 @@ export class ExportModal extends Modal {
       default:
         return createProjectScope(projectRoot.path);
     }
-  }
-
-  private sanitizeFileName(name: string): string {
-    if (!name) return "";
-    // Enlever l'extension si elle existe
-    let cleaned = name.replace(/\.(epub|docx|pdf|odt|md)$/i, "");
-    // Enlever les caractères interdits dans les noms de fichier
-    cleaned = cleaned.replace(/[<>:"/\\|?*]/g, "");
-    return cleaned.trim();
   }
 
   onClose() {

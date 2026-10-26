@@ -36,7 +36,7 @@ import { resourcesFolderPath, resourcesSubfolderPath, detectProjectStructureLoca
 import { projectCreationNames } from "../i18n/project-creation.js";
 import { addOpenWithPreviewItem, openScopeWithPreviewBesideLeaf } from "./preview-view.js";
 import { openScopeInContinu, openScopeInContinuOnLeaf } from "./scrivenings-view.js";
-import { buildScopeClipboardText } from "../services/scrivenings-clipboard-source.js";
+import { copyScopeContents } from "../services/scrivenings-clipboard-source.js";
 import { createFolderScope, createFileScope, createSelectionScope, compileScopesEqual, resolveCompileScopeFiles, type CompileScope } from "../services/compile-scope.js";
 import {
   RESEARCH_FOLDERS,
@@ -3720,7 +3720,20 @@ export abstract class BaseFeuilletsView extends ItemView {
     this.app.workspace.setActiveLeaf(workLeaf, { focus: true });
   }
 
-  showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[], extraItems?: (menu: Menu) => void, binderRename = false): void {
+  /** Snapshot the explicit Binder selection before the menu can change it. */
+  protected fileClipboardScope(file: TFile): CompileScope | null {
+    const plugin = this.plugin;
+    const root = plugin.getProjectFolder();
+    const paths = [...(plugin._binderMultiSelect ?? [])];
+    if (paths.length > 1 && paths.includes(file.path)) {
+      return plugin.compileScopeForSelection?.(paths)
+        ?? (root ? createSelectionScope(root.path, paths) : null);
+    }
+    return plugin.compileScopeForFile?.(file)
+      ?? (root ? createFileScope(root.path, file.path) : null);
+  }
+
+  showFileContextMenu(e: MouseEvent, file: TFile, parent: ProjectNode, index: number, _siblings: ProjectNode[], extraItems?: (menu: Menu) => void, binderRename = false, copyScope: CompileScope | null = this.fileClipboardScope(file)): void {
     const menu = new Menu();
     const plugin = this.plugin;
 
@@ -4004,32 +4017,14 @@ export abstract class BaseFeuilletsView extends ItemView {
     })));
     menu.addSeparator();
 
-    /* « Copier le contenu » sur un feuillet unique : même pipeline que la
-       copie de dossier (buildScopeClipboardText) and Continu's copy — a file
-       scope built the same way the compile action below builds it
-       (compileScopeForFile, fallback createFileScope), never a raw
-       vault.read(file). Not extended to a multi-selection in this batch: the
-       group case keeps its existing Continu/compilation-only behavior. */
-    if (!isGroup) {
-      const projectRootForCopy = plugin.getProjectFolder();
-      const copyScope = (typeof plugin.compileScopeForFile === "function" ? plugin.compileScopeForFile(file) : null)
-        ?? (projectRootForCopy ? createFileScope(projectRootForCopy.path, file.path) : null);
-      menu.addItem((item) => item
-        .setTitle(t("binder.copyContents"))
-        .setIcon("copy")
-        .setDisabled(!copyScope)
-        .onClick(async () => {
-          if (!copyScope) return;
-          const text = await buildScopeClipboardText(this.app, plugin.settings, copyScope);
-          if (!text) return;
-          try {
-            await navigator.clipboard.writeText(text);
-          } catch {
-            // Same policy as folder copy and scriveningsCopy: clipboard failure is a clean no-op.
-          }
-        })
-      );
-    }
+    menu.addItem((item) => item
+      .setTitle(t("binder.copyContents"))
+      .setIcon("copy")
+      .setDisabled(!copyScope)
+      .onClick(async () => {
+        if (copyScope) await copyScopeContents(this.app, plugin.settings, copyScope);
+      })
+    );
 
     // Compilation libre
     const compilationTitle = isGroup
@@ -4256,25 +4251,20 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
-    /* « Copier le contenu » : même texte qu'un Continu ouvert sur ce dossier
-       après Cmd+A / Cmd+C (buildScopeClipboardText). Ni compilation, ni
-       Continu ouvert ; un dossier sans feuillet n'écrit rien (texte vide). */
-    const copyScope = typeof plugin.compileScopeForFolder === "function"
-      ? plugin.compileScopeForFolder(folder)
-      : (plugin.getProjectFolder() ? createFolderScope(plugin.getProjectFolder()!.path, folder.path) : null);
+    const projectRootForCopy = plugin.getProjectFolder();
+    const groupSel = plugin._binderMultiSelect;
+    const isGroup = !!(groupSel && groupSel.size > 1 && groupSel.has(folder.path));
+    const copyScope = isGroup
+      ? (plugin.compileScopeForSelection?.([...groupSel])
+        ?? (projectRootForCopy ? createSelectionScope(projectRootForCopy.path, [...groupSel]) : null))
+      : (plugin.compileScopeForFolder?.(folder)
+        ?? (projectRootForCopy ? createFolderScope(projectRootForCopy.path, folder.path) : null));
     menu.addItem((item) => item
       .setTitle(t("binder.copyContents"))
       .setIcon("copy")
       .setDisabled(!copyScope)
       .onClick(async () => {
-        if (!copyScope) return;
-        const text = await buildScopeClipboardText(this.app, plugin.settings, copyScope);
-        if (!text) return;
-        try {
-          await navigator.clipboard.writeText(text);
-        } catch {
-          // Same policy as scriveningsCopy: clipboard failure is a clean no-op.
-        }
+        if (copyScope) await copyScopeContents(this.app, plugin.settings, copyScope);
       })
     );
 

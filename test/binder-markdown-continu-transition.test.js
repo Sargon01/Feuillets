@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { TFile, TFolder, MarkdownView } from "obsidian";
+import { TFile, TFolder, MarkdownView, Menu } from "obsidian";
 import { FeuilletsView } from "../src/views/feuillets-view.js";
 import { ScriveningsView } from "../src/views/scrivenings-view.js";
 import { VIEW_SCRIVENINGS } from "../src/constants.js";
+import { createSelectionScope, resolveCompileScopeFiles } from "../src/services/compile-scope.js";
+import { t } from "../src/i18n/index.js";
 import { createFakeVault } from "./helpers/fake-vault.js";
 
 /* Micro-lot delta "bascule Markdown ↔ Continu dans la même leaf" — tests
@@ -197,6 +199,7 @@ function buildHarness(fixture, { workLeafFile = null } = {}) {
     labelsOf: () => [],
     projectDisplayName: () => "Roman",
     roleOfFile: () => "scene",
+    isSceneFile: (file) => file instanceof TFile,
     saveSettings: async () => {},
     generateCanvasBoard() {},
     getLeafForOpeningFile: () => { getLeafForOpeningFileCalls.push(true); return workLeaf; },
@@ -647,4 +650,176 @@ test("§17. Continu A+B, Maj+clic G : Continu A+B+C+D+E+F+G en UNE seule recompo
   );
   assert.equal(h.getLeafForOpeningFileCalls.length, 0);
   assert.equal(h.setViewStateCalls.length, 1, "aucun changement de vue supplémentaire");
+});
+
+
+function copyFixture(nested = false) {
+  const fixture = buildFixture();
+  const files = [fixture.a, fixture.b, fixture.c, fixture.d, fixture.e, fixture.f, fixture.g];
+  for (const file of files) file.content += `\n\nSuite complète de ${file.basename}.\nDernière ligne de ${file.basename}.`;
+  if (!nested) return fixture;
+  const folders = ["First", "Second", "Third"].map((name) => new TFolder(`${fixture.root.path}/${name}`));
+  fixture.root.children = folders;
+  for (const folder of folders) folder.parent = fixture.root;
+  for (const [index, file] of files.entries()) {
+    const folder = folders[index < 2 ? 0 : index < 5 ? 1 : 2];
+    file.parent = folder;
+    file.path = `${folder.path}/${file.name}`;
+    folder.children.push(file);
+  }
+  const { vault } = createFakeVault([fixture.root, ...folders, ...files]);
+  return { ...fixture, vault, folders };
+}
+
+async function selectCopyFixture({ modifier = "metaKey", nested = false, promoted = true } = {}) {
+  const fixture = copyFixture(nested);
+  const h = buildHarness(fixture, { workLeafFile: promoted ? fixture.a : null });
+  await h.view.render(true);
+  const selected = modifier === "shiftKey" ? [fixture.a, fixture.b, fixture.c] : [fixture.a, fixture.d, fixture.g];
+  const clicks = modifier === "shiftKey" ? [fixture.a, fixture.c]
+    : promoted ? [fixture.g, fixture.d] : [fixture.g, fixture.a, fixture.d];
+  for (const file of clicks) {
+    click(itemFor(h.contentEl, file.path), { [modifier]: true });
+    await settle();
+  }
+  return { h, fixture, selected };
+}
+
+function memberPaths(h) {
+  return h.workLeaf.view instanceof ScriveningsView ? [...h.workLeaf.view.getMemberPaths()] : [];
+}
+
+function openCopyMenu(h, file) {
+  itemFor(h.contentEl, file.path).events.get("contextmenu")({ preventDefault() {} });
+  const item = Menu.lastShown.items.find((entry) => entry.title === t("binder.copyContents"));
+  assert.ok(item, "the real context menu must expose Copy contents");
+  assert.equal(item.disabled, false);
+  return item;
+}
+
+async function captureClipboard(callback) {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const copied = [];
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { clipboard: { writeText: async (text) => copied.push(text) } } });
+  try { await callback(); }
+  finally {
+    if (descriptor) Object.defineProperty(globalThis, "navigator", descriptor);
+    else delete globalThis.navigator;
+  }
+  assert.equal(copied.length, 1);
+  return copied[0];
+}
+
+function assertCopiedSheets(text, selected, fixture) {
+  for (const file of [fixture.a, fixture.b, fixture.c, fixture.d, fixture.e, fixture.f, fixture.g]) {
+    assert.equal(text.split(file.content).length - 1, selected.includes(file) ? 1 : 0, `${file.basename}: complete body, exact membership, no duplication`);
+  }
+  for (let index = 1; index < selected.length; index++) {
+    assert.ok(text.indexOf(selected[index - 1].content) < text.indexOf(selected[index].content), "Binder order, never click order");
+  }
+}
+
+test("manual selection → rendered context menu → clipboard copies all three selected sheets", async () => {
+  const { h, fixture, selected } = await selectCopyFixture();
+  assert.deepEqual(memberPaths(h), selected.map((file) => file.path));
+  assert.equal(h.plugin._binderMultiSelect?.size ?? 0, 0, "the existing gesture transferred the group to central membership");
+  const item = openCopyMenu(h, fixture.d);
+  const text = await captureClipboard(() => item.callback());
+  assertCopiedSheets(text, selected, fixture);
+});
+
+for (const [modifier, nested, promoted] of [
+  ["metaKey", false, true],
+  ["ctrlKey", false, true],
+  ["metaKey", true, true],
+  ["metaKey", false, false],
+  ["shiftKey", false, true],
+  ["shiftKey", false, false],
+]) {
+  for (const selectedIndex of [0, 1, 2]) {
+    test(`clipboard through Binder events: ${modifier}, nested=${nested}, promoted=${promoted}, right-click member ${selectedIndex + 1}`, async () => {
+      const { h, fixture, selected } = await selectCopyFixture({ modifier, nested, promoted });
+      const expected = selected.map((file) => file.path);
+      const explicitBefore = [...(h.plugin._binderMultiSelect ?? [])];
+      const membersBefore = memberPaths(h);
+      const scopes = [];
+      h.plugin.compileScopeForSelection = (paths) => {
+        const scope = createSelectionScope(fixture.root.path, paths);
+        scopes.push(scope);
+        return scope;
+      };
+      const item = openCopyMenu(h, selected[selectedIndex]);
+      assert.deepEqual(memberPaths(h), membersBefore, "right-click preserves the highlighted group");
+      assert.deepEqual([...(h.plugin._binderMultiSelect ?? [])], explicitBefore, "right-click preserves the explicit selection state");
+      assert.equal(scopes.length, 1);
+      assert.equal(scopes[0].type, "selection", "never fall back to the clicked file");
+      assert.deepEqual(new Set(scopes[0].paths), new Set(expected));
+      assert.deepEqual(resolveCompileScopeFiles(h.app, h.plugin.settings, scopes[0]).map((file) => file.path), expected);
+      const reads = [];
+      const read = h.app.vault.read;
+      h.app.vault.read = async (file) => { reads.push(file.path); return read(file); };
+      const viewChanges = h.setViewStateCalls.length;
+      const text = await captureClipboard(() => item.callback());
+      assert.deepEqual(reads, expected, "all three sheets reach the structured clipboard assembler exactly once");
+      assertCopiedSheets(text, selected, fixture);
+      assert.equal(h.setViewStateCalls.length, viewChanges, "copy never opens Continu or Preview");
+    });
+  }
+}
+
+for (const promoted of [false, true]) {
+  test(`clipboard scope is frozen at menu opening, promoted=${promoted}`, async () => {
+    const { h, fixture, selected } = await selectCopyFixture({ promoted });
+    const item = openCopyMenu(h, fixture.d);
+    h.plugin._binderMultiSelect ??= new Set();
+    h.plugin._binderMultiSelect.clear();
+    h.plugin._binderMultiSelect.add(fixture.b.path);
+    if (promoted) {
+      await h.workLeaf.view.setMembers([fixture.b.path, fixture.c.path]);
+      await settle();
+    }
+    const text = await captureClipboard(() => item.callback());
+    assertCopiedSheets(text, selected, fixture);
+  });
+}
+
+test("right-click outside the highlighted group keeps the individual copy behavior", async () => {
+  const { h, fixture } = await selectCopyFixture();
+  const item = openCopyMenu(h, fixture.b);
+  const text = await captureClipboard(() => item.callback());
+  assertCopiedSheets(text, [fixture.b], fixture);
+});
+
+test("right-click outside an explicit selection never copies an unrelated central group", async () => {
+  const { h, fixture } = await selectCopyFixture();
+  click(itemFor(h.contentEl, fixture.b.path), { altKey: true });
+  click(itemFor(h.contentEl, fixture.c.path), { altKey: true });
+  const item = openCopyMenu(h, fixture.a);
+  assert.deepEqual([...h.plugin._binderMultiSelect], [fixture.a.path]);
+  const text = await captureClipboard(() => item.callback());
+  assertCopiedSheets(text, [fixture.a], fixture);
+});
+
+test("Cmd-click a folder and its descendant: right-click copies admissible descendants once", async () => {
+  const fixture = copyFixture(true);
+  const h = buildHarness(fixture);
+  await h.view.render(true);
+  const folder = fixture.folders[0];
+  const folderRow = h.contentEl.querySelectorAll("[data-path]").find((row) => row.getAttr("data-path") === folder.path);
+  click(folderRow, { metaKey: true });
+  click(itemFor(h.contentEl, fixture.a.path), { metaKey: true });
+  await settle();
+  const item = openCopyMenu(h, fixture.a);
+  assert.deepEqual(new Set(h.plugin._binderMultiSelect), new Set([folder.path, fixture.a.path]));
+  const text = await captureClipboard(() => item.callback());
+  assertCopiedSheets(text, [fixture.a, fixture.b], fixture);
+});
+
+test("rendered single-sheet context menu keeps individual copy unchanged", async () => {
+  const fixture = copyFixture();
+  const h = buildHarness(fixture);
+  await h.view.render(true);
+  const item = openCopyMenu(h, fixture.d);
+  const text = await captureClipboard(() => item.callback());
+  assertCopiedSheets(text, [fixture.d], fixture);
 });

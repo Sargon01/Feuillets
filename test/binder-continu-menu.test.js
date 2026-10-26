@@ -1,3 +1,4 @@
+import { acceptExportDestination } from "./helpers/export-interactions.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Menu, TFile, TFolder } from "obsidian";
@@ -140,6 +141,7 @@ function buildBinder(project, ViewClass = TestBinderView) {
   /* Les portées Binder viennent des VRAIES méthodes du plugin (main.ts),
      jamais d'une copie locale de leur règle. */
   const plugin = {
+    exportInteractions: acceptExportDestination,
     app,
     settings: project.settings,
     getProjectFolder: () => project.root,

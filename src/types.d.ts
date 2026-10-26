@@ -581,6 +581,8 @@ declare type NarrativeThreadsPluginState = {
  * reste. DEFAULT_SETTINGS (src/default-settings.js) reste la référence
  * exhaustive et commentée — ne pas la dupliquer ici. */
 declare type FeuilletsSettings = {
+  /** Last successful export destination in this vault. */
+  lastExportFolder?: string;
   /** Chemin du dossier projet actif. Réellement optionnel : c'est le seul
    *  champ ci-dessous ABSENT de DEFAULT_SETTINGS, donc undefined tant
    *  qu'aucun projet n'a été choisi — d'où le garde de labelColor(). */

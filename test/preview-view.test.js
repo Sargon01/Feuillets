@@ -1,3 +1,4 @@
+import { acceptExportDestination } from "./helpers/export-interactions.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { MarkdownRenderer, Menu, TFolder, TFile } from "obsidian";
@@ -869,7 +870,7 @@ async function openView(mode = "manuscript") {
   const { app, settings, manuscript, chapterDir, sceneFile, sceneFile2 } = buildProject();
   settings.previewMode = mode;
   const saved = [];
-  const plugin = { settings, getProjectFolder: () => manuscript, saveSettings: async () => { saved.push({ ...settings }); } };
+  const plugin = { exportInteractions: acceptExportDestination, settings, getProjectFolder: () => manuscript, saveSettings: async () => { saved.push({ ...settings }); } };
   plugin.savedCount = () => saved.length;
   const leaf = { contentEl: element("div") };
   const view = new PreviewView(leaf, plugin);
@@ -1834,7 +1835,7 @@ test("bouton Exporter — mode Partie : portée dossier de la Partie courante", 
     const { app, settings, root, p1, s1a } = buildNestedProject();
     settings.previewMode = "part";
     app.setActiveFile(s1a);
-    const plugin = { settings, getProjectFolder: () => root, saveSettings: async () => {} };
+    const plugin = { exportInteractions: acceptExportDestination, settings, getProjectFolder: () => root, saveSettings: async () => {} };
     const view = new PreviewView({ contentEl: element("div") }, plugin);
     view.app = app;
     await view.onOpen();

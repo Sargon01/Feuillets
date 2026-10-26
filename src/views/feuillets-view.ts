@@ -1,3 +1,4 @@
+import { copyScopeContents } from "../services/scrivenings-clipboard-source.js";
 import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, BOARD_MODES } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
 import { headingOutlineForFile, headingOutlineInputsForFile } from "../services/heading-outline-cache.js";
@@ -1131,7 +1132,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     // Défensif : de nombreux faux `workspace` de tests (Binder) ne déclarent
     // pas `getMostRecentLeaf` — jamais absent en Obsidian réel, mais un
     // Binder sans Continu actif ne doit jamais planter pour autant.
-    if (typeof workspace.getMostRecentLeaf !== "function") return null;
+    if (!workspace || typeof workspace.getMostRecentLeaf !== "function") return null;
     const leaf = workspace.getMostRecentLeaf(workspace.rootSplit);
     if (!leaf) return null;
     if (typeof leaf.getRoot === "function" && leaf.getRoot() !== workspace.rootSplit) return null;
@@ -1145,6 +1146,18 @@ export class FeuilletsView extends BaseFeuilletsView {
       if (view.compileScope.projectRoot !== root.path) return null;
     }
     return view;
+  }
+
+  /** Copy the actual highlighted group without opening or changing its view. */
+  protected override fileClipboardScope(file: TFile): CompileScope | null {
+    if ((this.plugin._binderMultiSelect?.size ?? 0) > 1) return super.fileClipboardScope(file);
+    const membership = this.activeContinuMembershipView();
+    const paths = [...(membership?.getMemberPaths() ?? [])];
+    if (membership?.compileScope && paths.length > 1 && paths.includes(file.path)) {
+      return this.plugin.compileScopeForSelection?.(paths)
+        ?? createSelectionScope(membership.compileScope.projectRoot, paths);
+    }
+    return super.fileClipboardScope(file);
   }
 
   /** Resynchronise `.is-continu-member` sur toutes les lignes fichier déjà
@@ -2338,8 +2351,9 @@ export class FeuilletsView extends BaseFeuilletsView {
         this.attachDragHandlers(item, item, parent, i, siblings, dragScopeEl);
         item.addEventListener("contextmenu", (e) => {
           e.preventDefault();
-          this.ensureSelectionForContextMenu(file.path, dragScopeEl);
-          this.showFileContextMenu(e, file, parent, i, siblings, this.headingOutlineContextMenuExtras(file), true);
+          const copyScope = this.fileClipboardScope(file);
+          if (copyScope?.type !== "selection") this.ensureSelectionForContextMenu(file.path, dragScopeEl);
+          this.showFileContextMenu(e, file, parent, i, siblings, this.headingOutlineContextMenuExtras(file), true, copyScope);
         });
       }
       return item;
@@ -2961,6 +2975,11 @@ export class FeuilletsView extends BaseFeuilletsView {
     root: TFolder
   ): void {
     const menu = new Menu();
+    menu.addItem((item) => item
+      .setTitle(t("binder.copyContents"))
+      .setIcon("copy")
+      .onClick(() => copyScopeContents(this.app, this.plugin.settings, createProjectScope(root.path)))
+    );
     const menuTitle = t("shared.contextMenu.openWithPreview");
     menu.addItem((item) =>
       item

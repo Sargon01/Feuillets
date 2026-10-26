@@ -1,4 +1,5 @@
 // @ts-check
+import { writeExportDestination, type ExportDestination } from "./export-destination.js";
 import { Notice, TFolder, TFile, normalizePath, type App } from "obsidian";
 import { toValue } from "../utils/scene-fields.js";
 import { embedHardBreaks } from "../utils/core.js";
@@ -357,9 +358,9 @@ async function writeResolvingCaseCollision(
  * @param {import("obsidian").App} app
  * @param {import("./types.d.ts").FeuilletsSettings} settings
  * @param {Locale} [fallbackLocale]
- * @returns {Promise<TFolder|null>}
+ * @returns {string|null}
  */
-export async function getOutputFolder(app: App, settings: FeuilletsSettings, fallbackLocale?: Locale) {
+export function getOutputFolderPath(app: App, settings: FeuilletsSettings, fallbackLocale?: Locale) {
   const root = getProjectFolder(app, settings);
   if (!root) return null;
   const parent = root.parent;
@@ -373,7 +374,7 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings, fal
     const canonical = app.vault.getAbstractFileByPath(
       feuilletsAuxiliaryPathFor(root, "output", projectCreationNames(locale))
     );
-    if (canonical instanceof TFolder) return canonical;
+    if (canonical instanceof TFolder) return canonical.path;
   }
 
   const legacyNames = orderedLocales[0] === "en"
@@ -381,12 +382,17 @@ export async function getOutputFolder(app: App, settings: FeuilletsSettings, fal
     : ["_Sortie", "Sortie", "_Output", "Output"];
   for (const name of legacyNames) {
     const legacy = app.vault.getAbstractFileByPath(normalizePath(`${base.path}/${name}`));
-    if (legacy instanceof TFolder) return legacy;
+    if (legacy instanceof TFolder) return legacy.path;
   }
 
   const fallback = fallbackLocale ?? FALLBACK_LOCALE;
   const projectLocale = detectProjectStructureLocale(app, root, fallback);
-  return await ensureFolder(app, feuilletsAuxiliaryPathFor(root, "output", projectCreationNames(projectLocale)));
+  return feuilletsAuxiliaryPathFor(root, "output", projectCreationNames(projectLocale));
+}
+
+export async function getOutputFolder(app: App, settings: FeuilletsSettings, fallbackLocale?: Locale) {
+  const path = getOutputFolderPath(app, settings, fallbackLocale);
+  return path ? ensureFolder(app, path) : null;
 }
 
 export type CompileOptions = {
@@ -1373,7 +1379,8 @@ export async function exportPandocPackageWithScope(
   baseName: string,
   contentExtraction: ContentExtraction | null = null,
   contentCollection: ContentCollection | null = null,
-  compileFn: typeof compile = compile
+  compileFn: typeof compile = compile,
+  destination?: ExportDestination
 ): Promise<string | undefined> {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
@@ -1563,6 +1570,7 @@ export async function exportPandocPackageWithScope(
       citationReport,
     });
 
+    if (destination) return await writeExportDestination(app, destination, zipData);
     const opLocale = getLocale();
     const projectLocale = detectProjectStructureLocale(app, folder, opLocale);
     const defaultManuscriptName = projectCreationNames(projectLocale).manuscript;
@@ -1612,21 +1620,26 @@ export async function exportWithScope(
   contentExtraction: ContentExtraction | null = null,
   contentCollection: ContentCollection | null = null,
   compileFn: typeof compile = compile,
-  cslHost?: CslCitationHost | null
+  cslHost?: CslCitationHost | null,
+  destination?: ExportDestination
 ): Promise<string | undefined> {
   if (format === "md") {
+    if (destination) {
+      const result = await compileFn(app, settings, null, scope, undefined, { writeOutput: false });
+      return result ? writeExportDestination(app, destination, result.manuscript) : undefined;
+    }
     /* Format Markdown : compile() écrit déjà le .md dans _Sortie et renvoie
        le chemin ; on réutilise le paramètre outputFileName pour forcer le nom. */
     const result = await compileFn(app, settings, null, scope, baseName);
     return result?.outPath;
   }
   if (format === "pandoc") {
-    return exportPandocPackageWithScope(app, settings, scope, baseName, contentExtraction, contentCollection, compileFn);
+    return exportPandocPackageWithScope(app, settings, scope, baseName, contentExtraction, contentCollection, compileFn, destination);
   }
   /* Formats binaires : on passe par exportViaNative en fournissant la portée
      et le baseName directement — l'extension est ajoutée par exportViaNative
      selon le format. */
-  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope, contentExtraction, contentCollection, compileFn, cslHost);
+  return exportViaNative(app, settings, format, null, undefined, baseName, false, scope, contentExtraction, contentCollection, compileFn, cslHost, destination);
 }
 
 /** Export DOCX de soumission : même compilation et même moteur que
@@ -1711,7 +1724,8 @@ async function exportViaNative(
   contentExtraction?: ContentExtraction | null,
   contentCollection?: ContentCollection | null,
   compileFn: typeof compile = compile,
-  cslHost?: CslCitationHost | null
+  cslHost?: CslCitationHost | null,
+  destination?: ExportDestination
 ): Promise<string | undefined> {
   const folder = getProjectFolder(app, settings);
   if (!folder) {
@@ -1777,7 +1791,7 @@ async function exportViaNative(
     const opLocale = getLocale();
     const projectLocale = detectProjectStructureLocale(app, folder, opLocale);
     const defaultManuscriptName = projectCreationNames(projectLocale).manuscript;
-    const outputFolder = await getOutputFolder(app, settings, projectLocale);
+    const outputFolder = destination || format === "pdf" ? null : await getOutputFolder(app, settings, projectLocale);
     const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
     const baseName = resolveOutputBaseName(baseNameOverride, composition.fileName, defaultManuscriptName);
     const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType, sceneBreakBefore }) =>
@@ -1820,18 +1834,21 @@ async function exportViaNative(
 
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);
+      if (destination) return await writeExportDestination(app, destination, data);
       const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "epub", defaultManuscriptName) : normalizePath(`${outBase}/${baseName}.epub`);
       const writtenPath = await writeBinaryFile(app, outPath, data);
       new Notice(t("export.pandoc.exportSuccess", { path: writtenPath }));
       return writtenPath;
     } else if (format === "docx") {
       const data = await exportDocx(app, settings, ctx);
+      if (destination) return await writeExportDestination(app, destination, data);
       const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "docx", defaultManuscriptName) : normalizePath(`${outBase}/${baseName}.docx`);
       const writtenPath = await writeBinaryFile(app, outPath, data);
       new Notice(t("export.pandoc.exportSuccess", { path: writtenPath }));
       return writtenPath;
     } else if (format === "odt") {
       const data = await exportOdt(app, settings, ctx);
+      if (destination) return await writeExportDestination(app, destination, data);
       const outPath = nonDestructive ? uniqueBinaryPath(app, outBase, baseName, "odt", defaultManuscriptName) : normalizePath(`${outBase}/${baseName}.odt`);
       const writtenPath = await writeBinaryFile(app, outPath, data);
       new Notice(t("export.pandoc.exportSuccess", { path: writtenPath }));

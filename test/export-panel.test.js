@@ -1,3 +1,4 @@
+import { acceptExportDestination } from "./helpers/export-interactions.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Menu, TFile, TFolder } from "obsidian";
@@ -136,6 +137,7 @@ function buildFixture() {
     manuscriptAuthor: "",
   };
   const plugin = {
+    exportInteractions: acceptExportDestination,
     settings,
     activeExportScope: null,
     getProjectFolder: () => app.vault.getAbstractFileByPath(manuscript.path),
@@ -433,7 +435,7 @@ test("ExportPanel : Première page n'existe plus dans le panneau (Phase 3 : dép
     assert.ok(previewContainer.querySelector('[aria-label="Portée de l’export"]'));
     assert.equal(previewContainer.querySelector('[aria-label="Choisir les éléments inclus"]'), null);
     assert.ok(previewContainer.querySelector('[aria-label="Format de sortie"]'));
-    assert.ok(previewContainer.querySelector('[aria-label="Nom du fichier exporté"]'));
+    assert.equal(previewContainer.querySelector('[aria-label="Nom du fichier exporté"]'), null, "the shared save dialog owns naming");
     assert.ok(previewContainer.querySelectorAll("button").some((el) => el.textContent === "Exporter"));
   } finally {
     restore();

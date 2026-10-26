@@ -6,6 +6,22 @@
 import type { fr } from "./fr.js";
 
 export const en = {
+  "binder.copyFailed": "Unable to copy contents. The clipboard was preserved.",
+  "export.save.invalidName": "Choose a valid file name without forbidden characters.",
+  "export.save.invalidFolder": "Choose a valid folder path inside the vault.",
+  "export.save.collision": "A file or folder already exists at {path}. Choose another name.",
+  "export.save.failed": "Unable to save the exported file.",
+  "export.save.title": "Save export",
+  "export.save.vaultDescription": "Choose a name and a vault folder. A missing folder will be created when saving.",
+  "export.save.folder": "Destination folder",
+  "export.save.action": "Save",
+  "export.result.open": "Open",
+  "export.result.reveal": "Show in folder",
+  "export.result.copyPath": "Copy path",
+  "export.result.location": "Vault location: {path}",
+  "export.result.missing": "The exported file no longer exists at this location.",
+  "export.result.failed": "Unable to open or reveal the exported file.",
+
   "carnet.arrangement.align": "Align",
   "carnet.arrangement.arrange": "Arrange",
   "carnet.arrangement.distribute": "Distribute",

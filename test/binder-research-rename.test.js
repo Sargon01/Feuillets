@@ -25,7 +25,8 @@ test("le renommage Binder TFile est explicitement réservé à FeuilletsView", (
   assert.match(modalSource, /modal\.renameBinder\.binderTitleLabel/);
   assert.match(modalSource, /modal\.renameBinder\.fileNameLabel/);
   assert.match(baseSource, /showFileContextMenu\([^\n]+binderRename = false/);
-  assert.match(binderSource, /showFileContextMenu\(e, file, parent, i, siblings, this\.headingOutlineContextMenuExtras\(file\), true\)/);
+  assert.match(binderSource, /showFileContextMenu\(e, file, parent, i, siblings, this\.headingOutlineContextMenuExtras\(file\), true, copyScope\)/);
+  assert.match(binderSource, /const copyScope = this\.fileClipboardScope\(file\);[\s\S]*?ensureSelectionForContextMenu\(file\.path, dragScopeEl\);[\s\S]*?showFileContextMenu\(e, file, parent, i, siblings, this\.headingOutlineContextMenuExtras\(file\), true, copyScope\)/);
   assert.doesNotMatch(boardSource, /showFileContextMenu\([^\n]+, true\)/);
 });
 

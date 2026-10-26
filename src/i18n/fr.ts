@@ -3,6 +3,22 @@
  * panneau/zone fonctionnelle, dans l'ordre où on les rencontre en lisant
  * le code source correspondant. */
 export const fr = {
+  "binder.copyFailed": "Impossible de copier le contenu. Le presse-papiers a été conservé.",
+  "export.save.invalidName": "Choisissez un nom de fichier valide, sans caractères interdits.",
+  "export.save.invalidFolder": "Choisissez un chemin de dossier valide dans le coffre.",
+  "export.save.collision": "Un fichier ou dossier existe déjà à cet emplacement : {path}. Choisissez un autre nom.",
+  "export.save.failed": "Impossible d’enregistrer le fichier exporté.",
+  "export.save.title": "Enregistrer l’export",
+  "export.save.vaultDescription": "Choisissez un nom et un dossier du coffre. Un dossier inexistant sera créé lors de l’enregistrement.",
+  "export.save.folder": "Dossier de destination",
+  "export.save.action": "Enregistrer",
+  "export.result.open": "Ouvrir",
+  "export.result.reveal": "Afficher dans le dossier",
+  "export.result.copyPath": "Copier le chemin",
+  "export.result.location": "Emplacement dans le coffre : {path}",
+  "export.result.missing": "Le fichier exporté n’existe plus à cet emplacement.",
+  "export.result.failed": "Impossible d’ouvrir ou d’afficher le fichier exporté.",
+
   "carnet.arrangement.align": "Aligner",
   "carnet.arrangement.arrange": "Disposer",
   "carnet.arrangement.distribute": "Répartir",

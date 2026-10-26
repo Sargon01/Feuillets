@@ -1,6 +1,8 @@
+import { chooseExportDestination, exportFileName, type ExportDestinationPicker, type ExportSaveRequest } from "./export-destination.js";
+import { presentExportResult } from "./export-result.js";
 import { Notice, TFolder, type App } from "obsidian";
 import { createProjectScope, type CompileScope } from "./compile-scope.js";
-import { activePresetConfig, compile, exportWithScope, type ExportFormat } from "./compile-export.js";
+import { activePresetConfig, compile, exportWithScope, getOutputFolderPath, SUPPORTED_EXPORT_FORMATS, type ExportFormat } from "./compile-export.js";
 import type { CslCitationHost } from "./csl-citation-host.js";
 import { detectProjectStructureLocale } from "./folder-structure.js";
 import { projectCreationNames } from "../i18n/project-creation.js";
@@ -39,6 +41,11 @@ type ActiveContentDerivation = { projectRoot: string; selection: ContentDerivati
  * plugin principal pour utiliser ce service. */
 export type ExportWorkflowPlugin = {
   settings: FeuilletsSettings;
+  saveSettings?: () => Promise<void>;
+  exportInteractions?: {
+    chooseDestination?: ExportDestinationPicker;
+    presentResult?: typeof presentExportResult;
+  };
   getProjectFolder(): TFolder | null;
   cslCitationHost?: CslCitationHost | null;
   /** Portée de session, volontairement non persistée (voir main.ts) :
@@ -161,6 +168,17 @@ export function exportBaseName(settings: FeuilletsSettings, app?: App, projectRo
   return projectCreationNames(fallbackLocale).manuscript;
 }
 
+function exportSaveRequest(app: App, settings: FeuilletsSettings, format: ExportFormat, baseName: string): ExportSaveRequest {
+  const extension = format === "pandoc" ? "zip" : format;
+  const suggestedBase = format === "pandoc" && !baseName.toLowerCase().endsWith("-pandoc")
+    ? `${baseName}-pandoc` : baseName;
+  return {
+    fileName: exportFileName(suggestedBase, extension),
+    folderPath: settings.lastExportFolder ?? getOutputFolderPath(app, settings) ?? "",
+    extension,
+  };
+}
+
 /**
  * Point d'entrée commun de session pour lancer un export :
  *  - portée : argument explicite, sinon `currentExportScope(plugin)` ;
@@ -204,5 +222,25 @@ export async function runExportWorkflow(
   const resolvedBaseName = baseName || exportBaseName(settings, app, scopeProjectRoot instanceof TFolder ? scopeProjectRoot : null);
   const derivation = await resolveExportDerivation(app, plugin);
   if (!derivation) return undefined;
-  return exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName, derivation.contentExtraction, derivation.contentCollection, compile, plugin.cslCitationHost);
+  if (!SUPPORTED_EXPORT_FORMATS.includes(resolvedFormat)) {
+    new Notice(t("export.notice.unknownFormat", { format: resolvedFormat }));
+    return undefined;
+  }
+  try {
+    const picker = plugin.exportInteractions?.chooseDestination ?? chooseExportDestination;
+    const destination = resolvedFormat === "pdf" ? undefined
+      : await picker(app, exportSaveRequest(app, settings, resolvedFormat, resolvedBaseName));
+    if (destination === null) return undefined;
+    const path = await exportWithScope(app, settings, resolvedScope, resolvedFormat, resolvedBaseName, derivation.contentExtraction, derivation.contentCollection, compile, plugin.cslCitationHost, destination);
+    if (!path) return undefined;
+    try { (plugin.exportInteractions?.presentResult ?? presentExportResult)(app, path); }
+    catch (error) { console.error("Feuillets: presenting export result", error); }
+    settings.lastExportFolder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+    try { await plugin.saveSettings?.(); }
+    catch (error) { console.error("Feuillets: remembering export folder", error); }
+    return path;
+  } catch (error) {
+    new Notice(error instanceof Error ? error.message : t("export.save.failed"));
+    return undefined;
+  }
 }

@@ -1,3 +1,4 @@
+import { runExportWorkflow } from "./services/export-workflow.js";
 /* Feuillets 2.0 — écriture longue façon Scrivener/Ulysses pour Obsidian.
  *
  * Structure : PARTIES (dossiers racine) → CHAPITRES (sous-dossiers)
@@ -183,7 +184,7 @@ import { registerAdvancedCanvasIntegration, runMindmapBranchAction } from "./int
 import { ensureFolder, snapshotFile, listSnapshotFiles, initProjectStructure, newFolder, newSheet, createSheetFile, duplicateProjectFolder, getVersionsRoot, sheetFrontmatter, type NewSheetOptions } from "./services/project-files.js";
 import { createProjectBackup } from "./services/project-backup.js";
 import { exportBuiltInTemplates } from "./services/export-templates-custom.js";
-import { activePresetConfig, getOutputFolder, compile, exportFile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
+import { activePresetConfig, getOutputFolder, compile, projectMetaFor, listCompiledFilePaths } from "./services/compile-export.js";
 import { ensureDayEntry, compileJournal } from "./services/journal.js";
 import { RESEARCH_FOLDERS, matchesResearchLabel } from "./utils/project-modes.js";
 import { setLocale, detectLocale, getLocale, t, type Locale } from "./i18n/index.js";
@@ -6885,7 +6886,10 @@ class FeuilletsPlugin extends Plugin {
   activePresetConfig(): PresetConfig { return activePresetConfig(this.settings); }
   async getOutputFolder(fallbackLocale?: Locale) { return getOutputFolder(this.app, this.settings, fallbackLocale ?? getLocale()); }
   async compile() { return compile(this.app, this.settings); }
-  async exportFile(format = "docx") { return exportFile(this.app, this.settings, format); }
+  async exportFile(format = "docx") {
+    const root = this.getProjectFolder();
+    return runExportWorkflow(this.app, this, root ? createProjectScope(root.path) : null, format);
+  }
   projectMetaFor(folder: TFolder): ProjectMeta { return projectMetaFor(this.settings, folder); }
 
   insertIntoActiveEditor(text: string): void {

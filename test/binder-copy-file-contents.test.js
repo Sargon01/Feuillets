@@ -217,13 +217,18 @@ test("Test 4 — the menu's single-sheet copy uses the same shared engine as a f
   assert.equal(folderText, `# Chapitre 1\n\n${clip.calls[0]}`, "same engine, same sheet text — the folder scope just adds its own title on top");
 });
 
-test("Test 5 — a right-click on a multi-selected group never gets the single-sheet copy entry; group behavior is unchanged", () => {
+test("a right-click on a selected sheet offers a structured copy of the entire selection", async () => {
   const project = buildProject();
   const fx = buildView(project);
   fx.plugin._binderMultiSelect = new Set([project.scene.path, project.otherScene.path]);
 
   const items = copyItemFor(fx, project.scene, project.chapter);
-  assert.equal(items.length, 0, "the group case keeps its existing Continu/compilation-only behavior");
+  assert.equal(items.length, 1);
+  const clip = withClipboard(async () => {});
+  try { await items[0].callback(); } finally { clip.restore(); }
+  assert.match(clip.calls[0], /Le jour se leva/);
+  assert.match(clip.calls[0], /Texte du prologue/);
+  assert.deepEqual([...fx.plugin._binderMultiSelect], [project.scene.path, project.otherScene.path]);
 });
 
 test("clipboard failure is a clean no-op, and an empty scope writes nothing", async () => {

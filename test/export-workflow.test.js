@@ -1,3 +1,4 @@
+import { acceptExportDestination } from "./helpers/export-interactions.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TFile, TFolder, MarkdownRenderer, Platform } from "obsidian";
@@ -63,6 +64,7 @@ function buildProject() {
 
 function fakePlugin(app, settings, projectFolder) {
   return {
+    exportInteractions: acceptExportDestination,
     settings,
     activeExportScope: null,
     getProjectFolder() {
@@ -412,6 +414,7 @@ const DOM_INSTALLERS = {
   docx: installMinimalPrintDom,
   odt: installChildNodesDom,
   epub: installChildNodesDom,
+  pandoc: installChildNodesDom,
 };
 
 for (const format of ["md", "docx", "odt", "epub"]) {
@@ -686,3 +689,151 @@ function installMinimalPrintDom() {
     },
   };
 }
+
+
+test("save request proposes the current name and choosing a custom name/destination preserves composition", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const before = structuredClone(settings);
+  const requests = [];
+  const results = [];
+  plugin.exportInteractions = {
+    chooseDestination: async (_app, request) => {
+      requests.push(request);
+      return { path: "Editor/Bozlak - Version éditeur.md" };
+    },
+    presentResult: (_app, path) => {
+      assert.ok(app.vault.getAbstractFileByPath(path), "no success before writing");
+      results.push(path);
+    },
+  };
+  const output = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md");
+  assert.equal(requests[0].fileName, "Manuscrit.md");
+  assert.equal(requests[0].extension, "md");
+  assert.equal(output, "Editor/Bozlak - Version éditeur.md");
+  assert.deepEqual(results, [output]);
+  const { lastExportFolder, ...unchangedSettings } = settings;
+  assert.deepEqual(unchangedSettings, before);
+  assert.equal(lastExportFolder, "Editor");
+  assert.equal(app.vault.getAbstractFileByPath("Projet/Manuscrit/_Feuillets/Sortie"), null);
+  await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md");
+  assert.equal(requests[1].folderPath, "Editor", "last successful folder is offered again");
+});
+
+test("cancel before exporting creates no file or folder, preserves settings and offers no result", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const before = structuredClone(settings);
+  const files = app.vault.getFiles().slice();
+  let resultCount = 0;
+  app.vault.createFolder = async () => { throw new Error("cancel must not create a folder"); };
+  plugin.exportInteractions = { chooseDestination: async () => null, presentResult: () => { resultCount++; } };
+  assert.equal(await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md"), undefined);
+  assert.deepEqual(settings, before);
+  assert.deepEqual(app.vault.getFiles(), files);
+  assert.equal(resultCount, 0);
+});
+
+test("collision refuses to overwrite a source or existing output and offers no file action", async () => {
+  const { app, settings, manuscript, scene } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  const original = scene.content;
+  let resultCount = 0;
+  plugin.exportInteractions = {
+    chooseDestination: async () => ({ path: scene.path }),
+    presentResult: () => { resultCount++; },
+  };
+  assert.equal(await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md"), undefined);
+  assert.equal(scene.content, original);
+  assert.equal(settings.lastExportFolder, undefined);
+  assert.equal(resultCount, 0);
+});
+
+for (const format of ["md", "docx", "epub", "odt", "pandoc"]) {
+  test(`custom destination: ${format} writes only the requested file, then reports its actual path`, async () => {
+    const { app, settings, manuscript } = buildProject();
+    const plugin = fakePlugin(app, settings, manuscript.path);
+    const extension = format === "pandoc" ? "zip" : format;
+    const results = [];
+    let request;
+    plugin.exportInteractions = {
+      chooseDestination: async (_app, value) => { request = value; return { path: `Delivery/Custom.${extension}` }; },
+      presentResult: (_app, path) => { results.push(path); },
+    };
+    const dom = DOM_INSTALLERS[format]?.();
+    const originalFiles = app.vault.getFiles().length;
+    try {
+      const output = await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), format);
+      assert.equal(output, `Delivery/Custom.${extension}`);
+      assert.ok(app.vault.getAbstractFileByPath(output));
+      assert.equal(app.vault.getFiles().length, originalFiles + 1, "no intermediate manuscript file");
+      assert.deepEqual(results, [output]);
+      assert.equal(request.fileName, format === "pandoc" ? "Manuscrit-pandoc.zip" : `Manuscrit.${extension}`);
+      assert.equal(settings.compileFileName, "Manuscrit.md");
+    } finally { dom?.restore(); }
+  });
+}
+
+test("write failure offers no actions and never remembers a failed destination", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  let results = 0;
+  plugin.exportInteractions = {
+    chooseDestination: async () => ({ path: "Delivery/Failed.md" }),
+    presentResult: () => { results++; },
+  };
+  app.vault.create = async () => { throw new Error("disk full"); };
+  assert.equal(await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "md"), undefined);
+  assert.equal(results, 0);
+  assert.equal(settings.lastExportFolder, undefined);
+});
+
+test("PDF uses only the print dialog and offers no actions without a returned path", async () => {
+  const { app, settings, manuscript } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  let pickerCalls = 0;
+  let resultCalls = 0;
+  plugin.exportInteractions = {
+    chooseDestination: async () => { pickerCalls++; throw new Error("PDF must not ask for a second destination"); },
+    presentResult: () => { resultCalls++; },
+  };
+  const dom = installMinimalPrintDom();
+  try {
+    assert.equal(await runExportWorkflow(app, plugin, createProjectScope(manuscript.path), "pdf"), undefined);
+    assert.equal(dom.frames.length, 1);
+    assert.equal(pickerCalls, 0);
+    assert.equal(resultCalls, 0);
+    assert.equal(settings.lastExportFolder, undefined);
+  } finally { dom.restore(); }
+});
+
+
+test("plugin export commands reach the shared save workflow with the complete project scope", async () => {
+  const { default: FeuilletsPlugin } = await import("../src/main.js");
+  const { app, settings, manuscript, scene } = buildProject();
+  const plugin = fakePlugin(app, settings, manuscript.path);
+  plugin.app = app;
+  plugin.activeExportScope = createFileScope(manuscript.path, scene.path);
+  const results = [];
+  plugin.exportInteractions = {
+    chooseDestination: async () => ({ path: "Delivery/From command.md" }),
+    presentResult: (_app, path) => results.push(path),
+  };
+  const output = await FeuilletsPlugin.prototype.exportFile.call(plugin, "md");
+  assert.equal(output, "Delivery/From command.md");
+  assert.deepEqual(plugin.activeExportScope, createProjectScope(manuscript.path));
+  assert.deepEqual(results, [output]);
+});
+
+test("constrained DOCX export keeps its imposed folder and chooses a unique file without a save dialog", async () => {
+  const { exportDocxToFolder } = await import("../src/services/compile-export.js");
+  const { app, settings } = buildProject();
+  await app.vault.createFolder("Submission");
+  const existing = await app.vault.create("Submission/Book.docx", "original");
+  const dom = installMinimalPrintDom();
+  try {
+    assert.equal(await exportDocxToFolder(app, settings, "Submission", "Book"), "Submission/Book-1.docx");
+    assert.equal(existing.content, "original");
+    assert.equal(settings.lastExportFolder, undefined);
+  } finally { dom.restore(); }
+});

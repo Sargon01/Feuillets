@@ -1,4 +1,5 @@
-import { TFolder, type App } from "obsidian";
+import { Notice, TFolder, type App } from "obsidian";
+import { t } from "../i18n/index.js";
 import { resolveCompileScopeFiles, type CompileScope } from "./compile-scope.js";
 import { resolvedFileTitleMarkdown } from "./compile-export.js";
 import { effectiveComposition } from "./ouvrage-composition.js";
@@ -114,4 +115,14 @@ export async function buildScopeClipboardText(app: App, settings: FeuilletsSetti
   if (!files.length) return "";
   const doc = await loadScriveningsDocument(app, files);
   return buildScriveningsRangeClipboardText(app, settings, scope, doc, 0, doc.text.length);
+}
+
+/** Read the complete scope before touching the clipboard; failures preserve it. */
+export async function copyScopeContents(app: App, settings: FeuilletsSettings, scope: CompileScope): Promise<void> {
+  try {
+    const text = await buildScopeClipboardText(app, settings, scope);
+    if (text) await navigator.clipboard.writeText(text);
+  } catch {
+    new Notice(t("binder.copyFailed"));
+  }
 }

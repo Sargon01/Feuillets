@@ -2,7 +2,6 @@ import { Menu, Notice, Setting, TFile, TFolder, setIcon, setTooltip, type App, t
 import { t } from "../i18n/index.js";
 import {
   currentExportScope,
-  exportBaseName,
   rememberExportScope,
   runExportWorkflow,
   currentExportDerivation,
@@ -271,24 +270,6 @@ export class ExportPanel {
         dropdown.selectEl.setAttribute("aria-label", t("preview.export.outputFormat"));
       });
 
-    new Setting(main)
-      .setName(t("preview.export.fileName"))
-      .addText((text) => {
-        text
-          .setValue(this.exportFileName().replace(/\.md$/i, ""))
-          .setPlaceholder(t("preview.export.manuscriptPlaceholder"))
-          .onChange((value) => {
-            const fileName = `${value.trim() || t("preview.export.defaultFileName")}.md`;
-            const index = typeof this.plugin.settings.activePreset === "number" ? this.plugin.settings.activePreset : -1;
-            const candidate = index >= 0 ? this.plugin.settings.compilePresets?.[index] : null;
-            const preset = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : null;
-            if (preset) preset.fileName = fileName;
-            else this.plugin.settings.compileFileName = fileName;
-            void this.plugin.saveSettings?.();
-          });
-        text.inputEl.setAttribute("aria-label", t("preview.export.outputFileName"));
-      });
-
     const footer = panel.createDiv({ cls: "feuillets-preview-export-footer" });
     new Setting(footer).addButton((button) => {
       button
@@ -301,18 +282,8 @@ export class ExportPanel {
     });
   }
 
-  /** Barre d'export compacte (dernier lot UX avant 2.5, §1) : uniquement
-   * portée + format + bouton Exporter, sans étiquette ("Projet ▾" est déjà
-   * assez explicite pour ne pas dupliquer "Portée"/"Format" à côté) ni champ
-   * nom de fichier — hébergée dans la barre principale d'Édition, visible
-   * quel que soit l'onglet actif (Composition ou Mise en page). Réutilise
-   * EXACTEMENT la même logique que renderEditionEmbedded ci-dessus
-   * (resolveScope/setEditionScope/exportFormat/launchExport) : seul le DOM
-   * diffère, aucune nouvelle portée ni aucun nouveau point d'entrée
-   * d'export. Le champ « Nom du fichier » et les « Options » (typographie
-   * française) ne sont plus affichés ici : le nom continue de fonctionner
-   * via compileFileName/preset (voir setExportFileName, inchangé), la
-   * typographie française vit désormais dans Mise en page → Corps de texte. */
+  /** Compact Edition controls share Preview's scope and export workflow.
+   * File naming belongs to the save dialog; typography remains in page layout. */
   renderQuickBar(bar: HTMLElement): void {
     bar.empty();
     bar.addClass("feuillets-edition-quickexport");
@@ -754,16 +725,6 @@ export class ExportPanel {
     await this.callbacks.onScopeChanged?.();
   }
 
-  private setExportFileName(value: string): void {
-    const fileName = `${value.trim() || t("preview.export.defaultFileName")}.md`;
-    const index = typeof this.plugin.settings.activePreset === "number" ? this.plugin.settings.activePreset : -1;
-    const candidate = index >= 0 ? this.plugin.settings.compilePresets?.[index] : null;
-    const preset = candidate && typeof candidate === "object" ? candidate as Record<string, unknown> : null;
-    if (preset) preset.fileName = fileName;
-    else this.plugin.settings.compileFileName = fileName;
-    void this.plugin.saveSettings?.();
-  }
-
   /** Lance l'export réel via le workflow commun (services/export-workflow.ts)
    * — même point d'entrée que le Binder — avec la portée réellement affichée
    * par ce panneau. Aucun appel à PreviewView.doExport(). */
@@ -860,10 +821,6 @@ export class ExportPanel {
       console.error("Feuillets : échec de renderExportPanel", e);
     }
     await this.callbacks.onPresentationChanged?.();
-  }
-
-  private exportFileName(): string {
-    return `${exportBaseName(this.plugin.settings, this.app, this.plugin.getProjectFolder())}.md`;
   }
 
   private get exportFormat(): string {
