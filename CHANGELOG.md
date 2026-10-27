@@ -2,6 +2,29 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.7.2 — 2026-10-27
+
+**Binder et copie structurée**
+
+- Ajout de « Copier le contenu » au menu contextuel de la racine du projet.
+- Copie de plusieurs feuillets sélectionnés manuellement, avec conservation de l'ordre du Binder.
+- Prise en charge des sélections par Cmd/Ctrl+clic et Maj+clic, des dossiers et de leurs descendants, sans doublons.
+- Correction de la récupération de la sélection lorsque Continu est actif.
+
+**Exports**
+
+- Possibilité de personnaliser le nom du fichier et son dossier de destination dans le coffre Obsidian.
+- Mémorisation du dernier dossier d'exportation utilisé.
+- Vérification des extensions et protection contre les collisions de noms.
+- Accès direct aux fichiers exportés grâce aux actions « Ouvrir » et « Afficher dans le dossier ».
+- Préservation des paramètres de composition lors du choix d'un nom d'exportation.
+- Maintien du dialogue d'impression système pour le PDF.
+
+**Fiabilité**
+
+- Renforcement des tests couvrant les interactions réelles du Binder, les sélections multiples et les exports.
+- Validation des fonctionnalités dans Obsidian réel.
+
 ## 3.7.1 — 2026-10-25
 
 **Carnet**
