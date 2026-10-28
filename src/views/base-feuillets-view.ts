@@ -181,6 +181,7 @@ import {
   MarkdownView,
   Keymap,
   Modal,
+  type MenuItem,
   type WorkspaceLeaf,
   type TAbstractFile,
   type App,
@@ -236,6 +237,18 @@ export function showChoices(
   const menu = new Menu();
   fill(menu);
   menu.showAtMouseEvent(origin);
+}
+
+type SubmenuItem = MenuItem & { setSubmenu?: () => Menu };
+
+/** Build host submenus before display; older hosts keep the original picker. */
+function addChoices(item: MenuItem, origin: MouseEvent, fill: (menu: Menu) => void): void {
+  const submenuItem = item as SubmenuItem;
+  if (typeof submenuItem.setSubmenu === "function") {
+    fill(submenuItem.setSubmenu());
+  } else {
+    item.onClick((event) => showChoices(event, origin, fill));
+  }
 }
 
 /** Vrai si `folderPath` est un dossier STRICTEMENT sous `basePath` — jamais
@@ -3886,15 +3899,13 @@ export abstract class BaseFeuilletsView extends ItemView {
       );
     }
 
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.newSheetMenu")).setIcon("file-plus").onClick((evt) =>
-      showChoices(evt, e, (choices) => {
+    menu.addItem((item) => addChoices(item.setTitle(t("shared.contextMenu.newSheetMenu")).setIcon("file-plus"), e, (choices) => {
         choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetBefore")).setIcon("corner-left-up").onClick(() => plugin.newSheetAt(asFolder(parent), index)));
         choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetAfter")).setIcon("corner-left-down").onClick(() => plugin.newSheetAt(asFolder(parent), index + 1)));
-      })
-    ));
+      }));
     menu.addSeparator();
     const currentStatus = (this.fm(file).status as string) || "";
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => addChoices(item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot"), e, (choices) => {
     for (const status of workspaceStatuses(this.app, this.plugin.settings, file.parent)) {
       const st = statusStoredValue(status).trim();
       if (!st) continue;
@@ -3908,9 +3919,9 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
       );
     }
-    })));
+    }));
     const currentLabel = plugin.labelOf(file);
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => addChoices(item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag"), e, (choices) => {
     for (const labelEntry of this.getProjectLabels(file.parent)) {
       const l = labelStoredValue(labelEntry).trim();
       if (!l) continue;
@@ -3924,7 +3935,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
       );
     }
-    })));
+    }));
     if (isGroup) {
       menu.addItem((item) =>
         item
@@ -3934,9 +3945,7 @@ export abstract class BaseFeuilletsView extends ItemView {
       );
     }
 
-    menu.addItem((item) => item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search").onClick((evt) =>
-      showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, file, researchName))
-    ));
+    menu.addItem((item) => addChoices(item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search"), e, (choices) => this.addBinderResearchActions(choices, file, researchName)));
     menu.addSeparator();
     if (binderRename) {
       menu.addItem((item) => item
@@ -3987,7 +3996,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           new Notice(t("shared.duplicated", { name }));
         })
     );
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.versions")).setIcon("history").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => addChoices(item.setTitle(t("shared.contextMenu.versions")).setIcon("history"), e, (choices) => {
     choices.addItem((item) =>
       item
         .setTitle(t("shared.contextMenu.snapshot"))
@@ -4014,7 +4023,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           await openSnapshotComparison(this.app, plugin, file, snapshots[0]);
         })
     );
-    })));
+    }));
     menu.addSeparator();
 
     menu.addItem((item) => item
@@ -4132,15 +4141,15 @@ export abstract class BaseFeuilletsView extends ItemView {
           void openFileActivating(this.app, this.app.workspace.getLeaf(false), note);
         })
     );
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.newMenu")).setIcon("plus").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => addChoices(item.setTitle(t("shared.contextMenu.newMenu")).setIcon("plus"), e, (choices) => {
       choices.addItem((choice) => choice.setTitle(t("shared.contextMenu.newSheetInside")).setIcon("file-plus").onClick(() => plugin.newSheet(folder)));
       choices.addItem((choice) => choice.setTitle(t("binder.newSubfolder")).setIcon("folder-plus").onClick(() => plugin.newFolder(folder)));
-    })));
+    }));
     menu.addSeparator();
 
     const note = plugin.folderNoteFor(folder);
     const currentStatus = note ? ((this.fm(note).status as string) || "") : "";
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => addChoices(item.setTitle(t("shared.contextMenu.changeStatusMenu")).setIcon("circle-dot"), e, (choices) => {
     for (const status of workspaceStatuses(this.app, plugin.settings, folder)) {
       const st = statusStoredValue(status).trim();
       if (!st) continue;
@@ -4156,9 +4165,9 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
       );
     }
-    })));
+    }));
     const currentLabel = note ? plugin.labelOf(note) : "";
-    menu.addItem((item) => item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag").onClick((evt) => showChoices(evt, e, (choices) => {
+    menu.addItem((item) => addChoices(item.setTitle(t("shared.contextMenu.changeLabelMenu")).setIcon("tag"), e, (choices) => {
     for (const labelEntry of this.getProjectLabels(folder)) {
       const l = labelStoredValue(labelEntry).trim();
       if (!l) continue;
@@ -4174,10 +4183,8 @@ export abstract class BaseFeuilletsView extends ItemView {
           })
       );
     }
-    })));
-    menu.addItem((item) => item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search").onClick((evt) =>
-      showChoices(evt, e, (choices) => this.addBinderResearchActions(choices, folder, folder.name))
-    ));
+    }));
+    menu.addItem((item) => addChoices(item.setTitle(t("binder.research.associatedResearchMenu")).setIcon("search"), e, (choices) => this.addBinderResearchActions(choices, folder, folder.name)));
     menu.addSeparator();
 
     menu.addItem((item) =>
@@ -4214,10 +4221,9 @@ export abstract class BaseFeuilletsView extends ItemView {
     );
     menu.addSeparator();
 
-    menu.addItem((item) => item
+    menu.addItem((item) => addChoices(item
       .setTitle(t("shared.contextMenu.organizationMenu"))
-      .setIcon("settings-2")
-      .onClick((evt) => showChoices(evt, e, (choices) => {
+      .setIcon("settings-2"), e, (choices) => {
         choices.addItem((item) => item
           .setTitle(t("shared.contextMenu.editTags"))
           .setIcon("tag")
@@ -4247,7 +4253,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           .setIcon("target")
           .onClick(() => new FolderGoalModal(this.app, plugin, folder).open())
         );
-      }))
+      })
     );
     menu.addSeparator();
 
@@ -4270,10 +4276,9 @@ export abstract class BaseFeuilletsView extends ItemView {
 
     // Compilation libre : le sélecteur reste natif, même lorsqu'une seule
     // commande de compilation de dossier est actuellement disponible.
-    menu.addItem((item) => item
+    menu.addItem((item) => addChoices(item
       .setTitle(t("shared.contextMenu.compilationMenu"))
-      .setIcon("download")
-      .onClick((evt) => showChoices(evt, e, (choices) => {
+      .setIcon("download"), e, (choices) => {
         choices.addItem((item) => item
         .setTitle(t("binder.compileFolder"))
         .setIcon("download")
@@ -4297,7 +4302,7 @@ export abstract class BaseFeuilletsView extends ItemView {
           });
           modal.open();
         }));
-      }))
+      })
     );
     menu.addSeparator();
 

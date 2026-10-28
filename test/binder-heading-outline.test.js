@@ -200,6 +200,7 @@ function buildView(fixture, { settingsOverrides = {}, headingsByPath = fixture.h
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,

@@ -453,7 +453,7 @@ export class Menu {
     /* Sous-menu natif (MenuItem.setSubmenu, API interne Obsidian — voir la
        déclaration dans src/types.d.ts) : retourne un sous-Menu relié à
        l'entrée, exactement comme à l'exécution. */
-    item.setSubmenu = () => {
+    if (!Menu.disableSubmenus) item.setSubmenu = () => {
       item.submenu = new Menu();
       return item.submenu;
     };

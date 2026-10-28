@@ -81,6 +81,7 @@ function makePlugin(project, overrides = {}) {
   return {
     settings: { projectFolder: project.manuscript.path },
     getProjectFolder: () => project.manuscript,
+    getLinkedResearchFolder: () => null,
     // Reflète le vrai `flattenFiles` : ordre Binder canonique, indépendant
     // de tout ordre de sélection.
     flattenFiles: () => project.canonicalOrder,

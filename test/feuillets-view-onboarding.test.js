@@ -157,6 +157,7 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: () => [],
@@ -295,6 +296,7 @@ test("Binder : aucun mode Coffre — aucune double vue Coffre ne subsiste", asyn
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,
@@ -370,6 +372,7 @@ test("Binder : replier depuis le nom du projet laisse chaque dossier dépliable 
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,
@@ -524,6 +527,7 @@ test("Binder : simple clic sur le nom ouvre Continu (temporisé), le chevron rep
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,
@@ -690,6 +694,7 @@ test("Binder : profondeur par variable CSS — un feuillet aligne sa colonne sur
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,
@@ -781,6 +786,7 @@ test("Binder : icônes dossier/feuillet natives + liseré de label sur l'icône,
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,
@@ -884,6 +890,7 @@ test("Binder : isoler un dossier limite l'affichage à sa branche, sans jamais t
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => versionsRoot,
     getOrderedChildren: (folder) => folder.children,
@@ -1093,6 +1100,7 @@ test("Binder : densité propre à une racine isolée, sans nouvelle clé persist
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,
@@ -1238,6 +1246,7 @@ test("Binder : le filtre de progression utilise le nombre de mots de l'entrée d
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,
@@ -1298,6 +1307,7 @@ test("Binder : les filtres de labels reconnaissent tous les labels d'un feuillet
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,
@@ -1639,8 +1649,7 @@ test("Binder ↔ Recherche : menu d'un TFile Binder lié contient ouvrir/changer
   const menu = Menu.lastShown;
   const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
   assert.ok(researchItem, "contient l'entrée Recherche compacte");
-  researchItem.callback();
-  const titles = Menu.lastShown.items.map((i) => i.title);
+  const titles = researchItem.submenu.items.map((i) => i.title);
   assert.ok(
     titles.includes("Ouvrir le dossier Recherche associé"),
     "contient l'action d'ouverture"
@@ -1695,8 +1704,7 @@ test("Binder ↔ Recherche : détachement d'un fichier sans suppression physique
   const menu = Menu.lastShown;
   const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
   assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
-  researchItem.callback();
-  const detachItem = Menu.lastShown.items.find(
+  const detachItem = researchItem.submenu.items.find(
     (i) => i.title === "Détacher le dossier Recherche"
   );
   assert.ok(detachItem, "l'entrée détacher doit exister");
@@ -1775,8 +1783,7 @@ test("Binder ↔ Recherche : création d'un dossier associé à un fichier — p
     const menu = Menu.lastShown;
     const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
     assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
-    researchItem.callback();
-    const createItem = Menu.lastShown.items.find((i) => i.title === "Créer un dossier Recherche associé");
+    const createItem = researchItem.submenu.items.find((i) => i.title === "Créer un dossier Recherche associé");
     assert.ok(createItem, "l'entrée créer doit exister");
 
     // Déclencher le clic sur "Créer un dossier Recherche associé"
@@ -1851,8 +1858,7 @@ test("Binder ↔ Recherche : création d'un dossier associé à un fichier — s
     const menu = Menu.lastShown;
     const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
     assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
-    researchItem.callback();
-    const createItem = Menu.lastShown.items.find((i) => i.title === "Créer un dossier Recherche associé");
+    const createItem = researchItem.submenu.items.find((i) => i.title === "Créer un dossier Recherche associé");
     createItem.callback();
 
     assert.ok(modalCallback, "la modale a été ouverte");
@@ -1906,8 +1912,7 @@ test("Binder ↔ Recherche : le nom du dossier de création utilise le short_tit
     const menu = Menu.lastShown;
     const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
     assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
-    researchItem.callback();
-    const createItem = Menu.lastShown.items.find((i) => i.title === "Créer un dossier Recherche associé");
+    const createItem = researchItem.submenu.items.find((i) => i.title === "Créer un dossier Recherche associé");
     createItem.callback();
 
     assert.equal(
@@ -1956,8 +1961,7 @@ test("Binder ↔ Recherche : le nom du dossier de création utilise le basename 
     const menu = Menu.lastShown;
     const researchItem = menu.items.find((i) => i.title === "Recherche associée…");
     assert.ok(researchItem, "l'entrée Recherche compacte doit exister");
-    researchItem.callback();
-    const createItem = Menu.lastShown.items.find((i) => i.title === "Créer un dossier Recherche associé");
+    const createItem = researchItem.submenu.items.find((i) => i.title === "Créer un dossier Recherche associé");
     createItem.callback();
 
     assert.equal(
@@ -2088,4 +2092,77 @@ test("Volet Recherche : renommage d'un dossier EXTÉRIEUR lié — researchFolde
   assert.deepEqual(mapped, {
     "Roman/Manuscrit/Chapitre 1": "Documentation/Histoire des Ottomans",
   });
+});
+
+test("Binder submenus are built before display and preserve metadata actions", async () => {
+  const project = buildBinderResearchProject();
+  const second = new TFile("Roman/Manuscrit/Chapitre 1/02.md");
+  project.vault.allFiles.set(second.path, second);
+  const settings = { statuses: [{ name: "Review", color: "#123456" }], labels: [{ name: "Blue", color: "#123456" }] };
+  const plugin = buildBinderResearchPlugin(project, { settings, isSceneFile: () => true, fmOf: () => ({ status: "Review" }), labelOf: () => "Blue" });
+  const app = { vault: project.vault, workspace: { getLeaf: () => ({}) }, fileManager: {} };
+  const view = new TestBinderResearchView(app, plugin);
+  const writes = [];
+  view.setFm = async (file, key, value) => { writes.push([file.path, key, value]); };
+  const event = { preventDefault() {} };
+  view.showFileContextMenu(event, project.scene, project.chapter, 0, [project.scene]);
+  const fileMenu = Menu.lastShown;
+  const fileSubmenus = fileMenu.items.filter((item) => item.submenu);
+  assert.deepEqual(fileSubmenus.map((item) => item.icon), ["file-plus", "circle-dot", "tag", "search", "history"]);
+  assert.deepEqual(fileSubmenus[0].submenu.items.map((item) => item.icon), ["corner-left-up", "corner-left-down"]);
+  assert.deepEqual(fileSubmenus[4].submenu.items.map((item) => item.icon), ["camera", "history"]);
+  assert.equal(fileSubmenus[1].submenu.items[0].checked, true);
+  assert.equal(fileSubmenus[2].submenu.items[0].checked, true);
+  assert.equal(writes.length, 0);
+  await fileSubmenus[1].submenu.items[0].callback();
+  await fileSubmenus[2].submenu.items[0].callback();
+  assert.deepEqual(writes, [[project.scene.path, "status", ""], [project.scene.path, "label", ""]]);
+  writes.length = 0;
+  plugin._binderMultiSelect = new Set([project.scene.path, second.path]);
+  view.showFileContextMenu(event, project.scene, project.chapter, 0, [project.scene, second]);
+  const group = Menu.lastShown.items.filter((item) => item.submenu);
+  assert.equal(group[1].submenu.items[0].checked, false);
+  await group[1].submenu.items[0].callback();
+  await group[2].submenu.items[0].callback();
+  assert.deepEqual(writes, [[project.scene.path, "status", "Review"], [second.path, "status", "Review"], [project.scene.path, "label", "Blue"], [second.path, "label", "Blue"]]);
+  assert.deepEqual([...plugin._binderMultiSelect], [project.scene.path, second.path]);
+  writes.length = 0;
+  let created = 0;
+  plugin.getOrCreateFolderNote = async () => { created++; return project.scene; };
+  view.showFolderContextMenu(event, project.chapter, project.root, 0, [project.chapter]);
+  const folders = Menu.lastShown.items.filter((item) => item.submenu);
+  assert.deepEqual(folders.map((item) => item.icon), ["plus", "circle-dot", "tag", "search", "settings-2", "download"]);
+  assert.deepEqual(folders[0].submenu.items.map((item) => item.icon), ["file-plus", "folder-plus"]);
+  assert.deepEqual(folders[4].submenu.items.map((item) => item.icon), ["tag", "text", "file-text", "target"]);
+  assert.deepEqual(folders[5].submenu.items.map((item) => item.icon), ["download"]);
+  assert.equal(created, 0);
+  await folders[1].submenu.items[0].callback();
+  await folders[2].submenu.items[0].callback();
+  assert.equal(created, 2);
+  assert.deepEqual(writes, [[project.scene.path, "status", "Review"], [project.scene.path, "label", "Blue"]]);
+  plugin.folderNoteFor = () => project.scene;
+  view.showFolderContextMenu(event, project.chapter, project.root, 0, [project.chapter]);
+  const withNote = Menu.lastShown.items.filter((item) => item.submenu);
+  assert.equal(withNote[1].submenu.items[0].checked, true);
+  await withNote[1].submenu.items[0].callback();
+  assert.deepEqual(writes.at(-1), [project.scene.path, "status", ""]);
+  assert.equal(created, 2);
+});
+
+test("Binder menus retain the original picker when submenu support is absent", () => {
+  const project = buildBinderResearchProject();
+  const plugin = buildBinderResearchPlugin(project);
+  const app = { vault: project.vault, workspace: { getLeaf: () => ({}) }, fileManager: {} };
+  const view = new TestBinderResearchView(app, plugin);
+  const event = { preventDefault() {}, clientX: 42, clientY: 20 };
+  Menu.disableSubmenus = true;
+  try {
+    view.showFileContextMenu(event, project.scene, project.chapter, 0, [project.scene]);
+    const item = Menu.lastShown.items.find((entry) => entry.icon === "history" && entry.callback);
+    item.callback({});
+    assert.equal(Menu.lastShown.event, event);
+    assert.deepEqual(Menu.lastShown.items.map((entry) => entry.icon), ["camera", "history"]);
+  } finally {
+    Menu.disableSubmenus = false;
+  }
 });

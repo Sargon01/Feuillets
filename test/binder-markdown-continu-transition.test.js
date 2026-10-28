@@ -186,6 +186,7 @@ function buildHarness(fixture, { workLeafFile = null } = {}) {
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,

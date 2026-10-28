@@ -124,6 +124,7 @@ function makePlugin(project, overrides = {}) {
   return {
     settings: { projectFolder: project.manuscript.path },
     getProjectFolder: () => project.manuscript,
+    getLinkedResearchFolder: () => null,
     flattenFiles: () => project.chapterFolder.children,
     isSceneFile: (fl) => sceneFiles.has(fl.path),
     moveSceneFile: async () => {},
@@ -780,6 +781,7 @@ function buildRenderView({ root, files }, { activeContinuView = null } = {}) {
   const plugin = {
     settings,
     getProjectFolder: () => root,
+    getLinkedResearchFolder: () => null,
     getResearchRoot: () => null,
     getVersionsRoot: () => null,
     getOrderedChildren: (folder) => folder.children,

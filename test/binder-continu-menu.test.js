@@ -342,8 +342,7 @@ test("Binder — dossier ouvrage : « Compilation… » transmet une portée pro
     const compileItem = menu.items.find((i) => i.title === "Compilation…");
     assert.ok(compileItem);
 
-    await compileItem.callback({ preventDefault() {} });
-    const subMenu = Menu.lastShown;
+    const subMenu = compileItem.submenu;
     const subItem = subMenu.items.find((i) => i.title === "Compiler ce dossier");
     assert.ok(subItem, "l'entrée Compiler ce dossier doit être présente dans le sous-menu");
     await subItem.callback();
@@ -405,8 +404,7 @@ test("Binder — dossier ordinaire : conserve createFolderScope", async () => {
     const compileItem = menu.items.find((i) => i.title === "Compilation…");
     assert.ok(compileItem);
 
-    await compileItem.callback({ preventDefault() {} });
-    const subMenu = Menu.lastShown;
+    const subMenu = compileItem.submenu;
     const subItem = subMenu.items.find((i) => i.title === "Compiler ce dossier");
     assert.ok(subItem, "l'entrée Compiler ce dossier doit être présente dans le sous-menu");
     await subItem.callback();
