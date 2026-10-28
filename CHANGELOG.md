@@ -2,6 +2,15 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.7.3 — 2026-10-28
+
+**Binder**
+
+- Ouverture au survol des 11 sous-menus contextuels des feuillets et dossiers, avec un clic final pour choisir une action.
+- Préservation des actions existantes, des valeurs cochées et des changements appliqués aux sélections multiples.
+- Conservation du sélecteur au clic lorsque l’API de sous-menu d’Obsidian est indisponible.
+- Renforcement des tests de non-régression des menus, des métadonnées, des dossiers et des sélections.
+
 ## 3.7.2 — 2026-10-27
 
 **Binder et copie structurée**
