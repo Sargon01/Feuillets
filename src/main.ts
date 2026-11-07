@@ -646,6 +646,7 @@ class FeuilletsPlugin extends Plugin {
   _dragRetryCount?: number;
   statusEl?: HTMLElement;
   statusStatsEl?: HTMLElement;
+  statusSelectionEl?: HTMLElement;
   statusPreviewEl?: HTMLElement;
   _statusTimer?: number;
   _paraEls?: HTMLElement[] | null;
@@ -693,6 +694,7 @@ class FeuilletsPlugin extends Plugin {
   }
 
   notifyEditorCursorChanged(change: EditorCursorChange): void {
+    this.updateSelectionStatusBar();
     for (const listener of this._editorCursorListeners) listener(change);
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PREVIEW)) {
       if (leaf.isDeferred) continue;
@@ -2214,6 +2216,8 @@ class FeuilletsPlugin extends Plugin {
     this.statusEl.addClass("feuillets-status-bar");
     this.statusEl.addClass("feuillets-status-bar-clickable");
     this.statusStatsEl = this.statusEl.createSpan({ cls: "feuillets-status-stats" });
+    this.statusSelectionEl = this.statusEl.createSpan({ cls: "feuillets-status-selection" });
+    this.statusSelectionEl.hidden = true;
     this.statusPreviewEl = this.statusEl.createSpan({ cls: "feuillets-status-preview" });
     this.statusPreviewEl.hidden = true;
     setTooltip(this.statusEl, t("main.statusBarTooltip"));
@@ -2226,6 +2230,7 @@ class FeuilletsPlugin extends Plugin {
       this.openFileStats(file);
     });
     const updateStatus = () => {
+      this.updateSelectionStatusBar();
       this.updatePreviewStatusBar();
       window.clearTimeout(this._statusTimer);
       this._statusTimer = window.setTimeout(() => { void this.updateStatusBar(); }, 300);
@@ -2233,7 +2238,10 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.workspace.on("file-open", updateStatus));
     this.registerEvent(this.app.workspace.on("editor-change", updateStatus));
     this.registerEvent(this.app.workspace.on("active-leaf-change", updateStatus));
-    this.registerEvent(this.app.workspace.on("layout-change", () => this.updatePreviewStatusBar()));
+    this.registerEvent(this.app.workspace.on("layout-change", () => {
+      this.updateSelectionStatusBar();
+      this.updatePreviewStatusBar();
+    }));
     updateStatus();
   }
 
@@ -3398,6 +3406,7 @@ class FeuilletsPlugin extends Plugin {
    * Résolution du Continu via `getCentralContinuView()`, l'UNIQUE définition
    * du Continu de travail — jamais `getActiveViewOfType`. */
   notifyContinuSelectionChanged(source: ScriveningsView): void {
+    if (this.getCentralContinuView() === source) this.updateSelectionStatusBar();
     for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PREVIEW)) {
       if (leaf.isDeferred) continue;
       if (leaf.view instanceof PreviewView) leaf.view.onContinuSelectionChanged(source);
@@ -3790,6 +3799,28 @@ class FeuilletsPlugin extends Plugin {
     return next;
   }
 
+  /** Selection signals update this span independently of document and project totals. */
+  updateSelectionStatusBar(): void {
+    if (!this.statusSelectionEl) return;
+    let count: number | null = null;
+    const continu = this.getCentralContinuView();
+    if (continu) {
+      count = continu.getSelectedWordCount();
+    } else {
+      const workspace = this.app.workspace;
+      const view = workspace.getActiveViewOfType(MarkdownView);
+      const central = workspace.getMostRecentLeaf?.(workspace.rootSplit);
+      if (view instanceof MarkdownView && (!central || central.view === view)
+        && view.getMode() === "source" && isFileInsideProject(view.file, this.getProjectFolder())) {
+        const selected = view.editor.getSelection();
+        if (selected) count = countWords(selected);
+      }
+    }
+    const key = count === 1 ? "main.statusBar.selectedWords.one" : "main.statusBar.selectedWords.other";
+    this.statusSelectionEl.textContent = count === null ? "" : ` · ${t(key, { count: formatNumber(count) })}`;
+    this.statusSelectionEl.hidden = count === null;
+  }
+
   updatePreviewStatusBar(): void {
     if (!this.statusPreviewEl) return;
     const active = this.app.workspace.getActiveViewOfType(PreviewView);
@@ -3805,12 +3836,13 @@ class FeuilletsPlugin extends Plugin {
         if (label) break;
       }
     }
-    this.statusPreviewEl.textContent = label ? `${this.statusStatsEl?.textContent ? " · " : ""}${label}` : "";
+    this.statusPreviewEl.textContent = label ? `${this.statusStatsEl?.textContent || this.statusSelectionEl?.textContent ? " · " : ""}${label}` : "";
     this.statusPreviewEl.hidden = !label;
   }
 
   async updateStatusBar() {
     if (!this.statusEl) return;
+    this.updateSelectionStatusBar();
 
     // Continu (§8, lot 2B.2) : jamais les statistiques du dernier TFile actif
     // — le total du GROUPE affiché par la vue, tant qu'un scope y est chargé.
@@ -4187,6 +4219,7 @@ class FeuilletsPlugin extends Plugin {
     if (S.projectFolder && !S.projects.includes(S.projectFolder)) S.projects.push(S.projectFolder);
     this.workspaceFolderPath = undefined;
     S.projectFolder = path;
+    this.updateSelectionStatusBar?.();
     await this.saveSettings();
     this.renderAllViews(true);
     /* Same deferred-leaf gap as registerAutoOpenPanels()/loadDeferredViews():

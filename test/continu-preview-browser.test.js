@@ -11,11 +11,12 @@ test("Continu and Preview follow the active reader", async (t) => {
     stdin: { contents: `export { default as FeuilletsPlugin } from "./src/main.ts";
       export { PreviewView } from "./src/views/preview-view.ts";
       export { ScriveningsView } from "./src/views/scrivenings-view.ts";
-      export { frenchTypography } from "./src/utils/core.ts";
+      export { frenchTypography, countWords } from "./src/utils/core.ts";
       export { computeScriveningsWordCounts } from "./src/utils/scrivenings-stats.ts";
       export { buildScriveningsDocument } from "./src/services/scrivenings-document.ts";
       export { EditorState } from "@codemirror/state";
-      export { EditorView } from "@codemirror/view";
+      export { EditorView, keymap } from "@codemirror/view";
+      export { defaultKeymap } from "@codemirror/commands";
       export { createEditorCursorTrackingExtension } from "./src/services/editor-cursor-tracking.ts";
       export { editorInfoField } from "obsidian";
       export { LayoutEditor } from "./src/ui/layout-editor.ts";
@@ -23,7 +24,7 @@ test("Continu and Preview follow the active reader", async (t) => {
       export { createFakeVault } from "./test/helpers/fake-vault.ts";
       export { createSelectionScope, createFileScope, createFolderScope } from "./src/services/compile-scope.ts";
       export { resolveExportTemplateV2 } from "./src/services/export-templates-custom.ts";
-      export { MarkdownRenderer, TFolder } from "obsidian";`, resolveDir: resolve(".") },
+      export { MarkdownRenderer, MarkdownView, TFolder } from "obsidian";`, resolveDir: resolve(".") },
     bundle: true, write: false, format: "iife", globalName: "ReadingTest",
     external: ["electron", ...builtinModules, ...builtinModules.map((name) => `node:${name}`)],
     plugins: [{ name: "obsidian-runtime", setup(builder) {
@@ -256,6 +257,100 @@ test("Continu and Preview follow the active reader", async (t) => {
     }, linked);
     return page;
   }
+
+  await t.test("Native selection word count follows mouse, keyboard and live text without rebuilding statistics", async (context) => {
+    const page = await openNative(context, false);
+    const coordinates = await page.evaluate(async () => {
+      const f = window.reading;
+      const host = document.body.createDiv();
+      Object.assign(host.style, { position: "fixed", left: "0px", top: "0px", zIndex: "100" });
+      f.markdown = new f.api.EditorView({ parent: host, state: f.api.EditorState.create({
+        doc: "One two three.\n\nA final paragraph.", extensions: [
+          f.api.keymap.of(f.api.defaultKeymap),
+          f.api.editorInfoField.init(() => ({ file: f.files[0] })),
+          f.api.createEditorCursorTrackingExtension((change) => f.plugin.notifyEditorCursorChanged(change)),
+        ],
+      }) });
+      Object.setPrototypeOf(f.sourceLeaf.view, f.api.MarkdownView.prototype);
+      f.sourceLeaf.view.getMode = () => "source";
+      f.sourceLeaf.view.editor = {
+        getValue: () => f.markdown.state.doc.toString(),
+        getSelection: () => { const { from, to } = f.markdown.state.selection.main; return f.markdown.state.doc.sliceString(from, to); },
+      };
+      await f.plugin.updateStatusBar();
+      f.selectionStats = f.plugin.statusStatsEl.textContent;
+      const start = f.markdown.coordsAtPos(0);
+      const end = f.markdown.coordsAtPos(3);
+      return { x1: start.left, x2: end.left, y: (start.top + start.bottom) / 2 };
+    });
+    const assertCount = async (count) => {
+      await page.waitForFunction((expected) => window.reading.plugin.statusSelectionEl.textContent === expected,
+        count === null ? "" : ` · ${count} ${count === 1 ? "word" : "words"} selected`);
+      const state = await page.evaluate(() => ({
+        label: window.reading.plugin.statusSelectionEl.textContent,
+        hidden: window.reading.plugin.statusSelectionEl.hidden,
+        stats: window.reading.plugin.statusStatsEl.textContent,
+        initial: window.reading.selectionStats,
+      }));
+      assert.equal(state.hidden, count === null);
+      assert.equal(state.label, count === null ? "" : ` · ${count} ${count === 1 ? "word" : "words"} selected`);
+      assert.equal(state.stats, state.initial);
+    };
+    await assertCount(null);
+    await page.mouse.move(coordinates.x1, coordinates.y);
+    await page.mouse.down();
+    await page.mouse.move(coordinates.x2, coordinates.y, { steps: 4 });
+    await page.mouse.up();
+    await assertCount(1);
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowRight");
+    await assertCount(2);
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.press("ArrowLeft");
+    await page.keyboard.up("Shift");
+    await assertCount(1);
+    await page.keyboard.press("ArrowRight");
+    await assertCount(null);
+    await page.evaluate(() => {
+      const f = window.reading;
+      f.markdown.dispatch({ selection: { anchor: 0, head: 13 } });
+      f.markdown.dispatch({ changes: { from: 4, to: 7, insert: "live unsaved" } });
+      f.emit("editor-change");
+    });
+    await assertCount(4);
+  });
+
+  await t.test("Continu selection updates use live segment offsets after unsaved edits", async (context) => {
+    const page = await openNative(context, true);
+    const result = await page.evaluate(() => {
+      const f = window.reading;
+      const labels = [];
+      const check = (from, to) => {
+        f.cm.dispatch({ selection: { anchor: from, head: to } });
+        labels.push(f.plugin.statusSelectionEl.textContent);
+        return f.continu.getSelectedWordCount();
+      };
+      const first = f.continu.session.document.segments[0];
+      const second = f.continu.session.document.segments[1];
+      const stats = f.plugin.statusStatsEl.textContent;
+      const expected = f.api.countWords(first.body.slice(5)) + f.api.countWords(second.body.slice(0, 20));
+      const count = check(5, second.from + 20);
+      const preserved = f.plugin.statusStatsEl.textContent === stats;
+      const joint = check(first.to, second.from);
+      f.cm.dispatch({ changes: { from: 0, to: 0, insert: "Unsaved new words " } });
+      const live = check(0, 17);
+      const cleared = check(0, 0);
+      return { count, expected, preserved, joint, live, cleared, labels, dirty: f.continu.session.isDirty(first.path) };
+    });
+    assert.equal(result.count, result.expected);
+    assert.equal(result.preserved, true);
+    assert.equal(result.joint, 0);
+    assert.equal(result.live, 3);
+    assert.equal(result.dirty, true);
+    assert.equal(result.cleared, null);
+    assert.deepEqual(result.labels, [` · ${result.expected} words selected`, " · 0 words selected", " · 3 words selected", ""]);
+  });
 
   await t.test("Native Markdown cursor changes move only the Preview marker", async (context) => {
     const page = await openNative(context, false);

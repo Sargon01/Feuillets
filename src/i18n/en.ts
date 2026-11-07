@@ -1833,6 +1833,8 @@ export const en = {
   "main.statusBar.wordsWithGoal": "{wc} / {goal} words",
   "main.statusBar.chars": "{count} characters",
   "main.statusBar.todayDelta": "{sign}{delta} today",
+  "main.statusBar.selectedWords.one": "{count} word selected",
+  "main.statusBar.selectedWords.other": "{count} words selected",
   "main.untitled": "untitled",
 
   "main.cmd.openWithPreview": "Open sheet with preview",

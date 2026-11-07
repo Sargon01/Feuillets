@@ -1833,6 +1833,8 @@ export const fr = {
   "main.statusBar.wordsWithGoal": "{wc} / {goal} mots",
   "main.statusBar.chars": "{count} caractères",
   "main.statusBar.todayDelta": "{sign}{delta} aujourd'hui",
+  "main.statusBar.selectedWords.one": "{count} mot sélectionné",
+  "main.statusBar.selectedWords.other": "{count} mots sélectionnés",
   "main.untitled": "sans titre",
 
   "main.cmd.openWithPreview": "Ouvrir le feuillet avec son aperçu",

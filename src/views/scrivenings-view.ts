@@ -39,6 +39,7 @@ import {
 } from "../utils/cm-scrivenings-scroll.js";
 import {
   computeScriveningsWordCounts,
+  countScriveningsSelectionWords,
   scriveningsStatsFromCounts,
   updateScriveningsWordCounts,
   type ScriveningsStats,
@@ -155,6 +156,7 @@ export type ScriveningsViewPlugin = {
   notifyContinuDocumentChanged?: (paths: readonly string[]) => void;
   notifyReferenceContextChanged?(): void;
   notifyContinuSelectionChanged?(source: ScriveningsView): void;
+  updateSelectionStatusBar?(): void;
   /** LOT 1.4 — menu contextuel Continu (main.ts#showScriveningsContextMenu) :
    * construit et affiche le `Menu` Obsidian propre à Continu (Couper/Copier/
    * Coller, Note de bas de page, Annotation, Noter une idée, Réorganiser le
@@ -750,6 +752,7 @@ export class ScriveningsView extends ItemView {
       EditorViewCtorTyped.updateListener.of((update) => {
         if (!update.selectionSet && !update.docChanged) return;
         if (update.selectionSet) this.plugin.notifyContinuSelectionChanged?.(this);
+        else this.plugin.updateSelectionStatusBar?.();
         const path = this.getReferenceFile()?.path ?? null;
         if (path === referencePath) return;
         referencePath = path;
@@ -852,6 +855,7 @@ export class ScriveningsView extends ItemView {
     }
     this.cm?.destroy();
     this.cm = null;
+    this.plugin.updateSelectionStatusBar?.();
   }
 
   /** Reçoit les changements composites convertis par `scriveningsChangeListener`
@@ -1163,6 +1167,14 @@ export class ScriveningsView extends ItemView {
   getGroupStats(): ScriveningsStats {
     if (!this.session.document) return { fileCount: 0, wordCount: 0 };
     return scriveningsStatsFromCounts(this.session.document, this.wordCounts);
+  }
+
+  /** Reads the live selection and unsaved bodies without touching group statistics. */
+  getSelectedWordCount(): number | null {
+    const selection = this.cm?.state.selection.main;
+    const document = this.session.document;
+    if (!document || !selection || selection.from === selection.to) return null;
+    return countScriveningsSelectionWords(document, selection.from, selection.to);
   }
 
   /* ====================== Ancre de défilement (LOT 2B.1) ==================

@@ -20,6 +20,18 @@ export type ScriveningsStats = {
  * rescanner tout le manuscrit à chaque frappe. */
 export type ScriveningsWordCounts = ReadonlyMap<string, number>;
 
+/** Counts only the selected portions of real, current segment bodies. */
+export function countScriveningsSelectionWords(doc: ScriveningsDocument, from: number, to: number): number {
+  let count = 0;
+  for (const segment of doc.segments) {
+    if (segment.from >= to) break;
+    const start = Math.max(from, segment.from);
+    const end = Math.min(to, segment.to);
+    if (start < end) count += countWords(segment.body.slice(start - segment.from, end - segment.from));
+  }
+  return count;
+}
+
 /**
  * Calcul complet — un seul passage sur tous les segments. À appeler au
  * chargement d'un scope et après toute recomposition (ajout/retrait de
