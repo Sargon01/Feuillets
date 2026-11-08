@@ -6,6 +6,17 @@ import { splitPresentationMarkdownWithRanges } from "../src/services/presentatio
 
 const base = { app: {}, component: {}, sourcePath: "Cours.md" };
 
+test("pedagogy: speaker notes never reach planning or overflow measurement", async () => {
+  const markdown = "# Public\n\n> [!speaker-notes]\n> Private instructions\n\n> [!questions]\n> Visible question\n\n---\n\n# Next";
+  const measured = [];
+  const slides = await planPresentationSlides({ ...base, markdown, measureOverflow: async (value) => { measured.push(value); return false; } });
+  assert.ok(measured.every((value) => !value.includes("Private instructions")));
+  assert.ok(slides.every((slide) => !slide.markdown.includes("speaker-notes")));
+  assert.match(slides[0].markdown, /\[!questions\]/);
+  assert.equal(slides[1].startLine, 10);
+  assert.match(markdown, /Private instructions/);
+});
+
 class PlannerDomElement {
   constructor(tag = "div", options = {}) {
     this.tagName = tag.toUpperCase(); this.children = []; this.parentElement = null; this.classes = new Set(); this.attrs = new Map();

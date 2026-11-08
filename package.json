@@ -10,6 +10,7 @@
     "lint": "eslint . && tsc -noEmit -skipLibCheck",
     "lint:obsidian": "eslint --max-warnings=0 --config obsidian-review.config.mjs src",
     "test": "npm run test:compiled",
+    "test:pedagogy": "node scripts/run-pedagogy.mjs",
     "test:direct": "node --test test/*.test.js",
     "test:csl-integration": "node scripts/run-csl-integration.mjs",
     "test:compiled": "node -e \"require('node:fs').rmSync('.test-dist', { recursive: true, force: true })\" && tsc -p tsconfig.test.json && node scripts/prepare-test-obsidian-stub.mjs && node --import ./.test-dist/test/i18n-test-bootstrap.js --test .test-dist/test/*.test.js",

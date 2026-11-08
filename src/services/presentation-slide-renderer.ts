@@ -35,6 +35,7 @@
  * slide et rend la main à l'appelant.
  */
 import { MarkdownRenderer, type App, type Component } from "obsidian";
+import { withoutSpeakerNotes } from "./presentation-private-notes.js";
 import {
   choosePresentationCandidate,
   descriptorsForSlide,
@@ -1028,7 +1029,7 @@ export async function renderPresentationSlide(options: RenderPresentationSlideOp
 
   const sourceRoot = measurementHost.createDiv({ cls: "feuillets-presentation-render-source" });
   styleEl(sourceRoot, { position: "absolute", left: "-100000px", top: "0", width: `${PRESENTATION_SLIDE_WIDTH}px`, visibility: "hidden", pointerEvents: "none" });
-  await MarkdownRenderer.render(app, markdown, sourceRoot, sourcePath, component);
+  await MarkdownRenderer.render(app, withoutSpeakerNotes(markdown), sourceRoot, sourcePath, component);
 
   if (isGenerationStale() || controller.signal.aborted) {
     // génération périmée avant la moindre mesure : rien à construire, juste une coquille jetable.

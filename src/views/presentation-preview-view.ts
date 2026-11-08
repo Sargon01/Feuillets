@@ -122,13 +122,17 @@ export class PresentationPreviewView extends ItemView {
   async onOpen(): Promise<void> {
     this.contentEl.empty();
     // Même classe racine que la vraie Présentation : réutilise TEL QUEL le
-    // chrome déjà défini dans styles.css (toolbar/bouton/compteur/stage/
-    // frame/état vide) — aucune règle ajoutée, aucune dupliquée.
+    // Shared presentation chrome; structural sizing is set below so the
+    // scene remains measurable independently of the theme stylesheet.
     this.rootEl = this.contentEl.createDiv({ cls: "feuillets-presentation-view feuillets-presentation-preview-view" });
+    // The scaled slide is absolutely positioned and cannot size its parent.
+    // Reserve the available pane height before ResizeObserver measures it.
+    styleEl(this.rootEl, { display: "flex", flexDirection: "column", height: "100%", minHeight: "0", minWidth: "0", background: "var(--background-primary)" });
     // Focusable : indispensable pour que la navigation clavier fonctionne en
     // projection sans que l'auteur ait à cliquer dans la scène.
     this.rootEl.setAttribute("tabindex", "0");
     const toolbar = this.rootEl.createDiv({ cls: "feuillets-presentation-toolbar" });
+    styleEl(toolbar, { display: "flex", flexWrap: "wrap", flexShrink: "0", alignItems: "center", gap: "4px" });
     this.toolbarEl = toolbar;
     this.previousButton = this.navButton(toolbar, "‹", t("presentation.previous"), () => void this.previous());
     this.counterEl = toolbar.createSpan({ cls: "feuillets-presentation-counter" });
@@ -147,6 +151,7 @@ export class PresentationPreviewView extends ItemView {
     this.registerDomEvent(this.launchButton, "click", () => void this.enterPresentation());
 
     this.stageEl = this.rootEl.createDiv({ cls: "feuillets-presentation-stage" });
+    styleEl(this.stageEl, { display: "grid", placeItems: "center", flex: "1", minHeight: "0", minWidth: "0", overflow: "hidden" });
     // Wrapper pour le scaling : représente la vraie taille visuelle après réduction.
     // Le stage centre ce wrapper (pas le frame logique de 1280×720).
     this.scaledWrapperEl = this.stageEl.createDiv({ cls: "feuillets-presentation-scaled-wrapper" });

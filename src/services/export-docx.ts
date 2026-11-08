@@ -42,6 +42,7 @@ import {
   titleRoleOf,
 } from "./export-docx-style.js";
 import { inlineChildren, blockToParagraphs, headingPageBreakBefore, type DocxBlock } from "./docx-blocks.js";
+import { applyDocxListNumbers } from "./docx-list-numbering.js";
 import { generatedContentsDescriptor, type GeneratedContentsKind } from "./generated-contents.js";
 import type { ContentVariant } from "./content-variants.js";
 
@@ -229,7 +230,8 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
         }
       }
     : undefined;
-  const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath, [], contentVariant ?? null, undefined, afterVariant);
+  const beforeVariant = (container: HTMLElement) => applyDocxListNumbers(container, renderMarkdown);
+  const { containerEl, footnotes, images }: RenderedManuscript = await renderManuscriptHtml(app, renderMarkdown, sourcePath, [], contentVariant ?? null, beforeVariant, afterVariant);
 
   const footnoteIdByHref = new Map<string, number>();
   const footnoteMap: Record<string, { children: Paragraph[] }> = {};

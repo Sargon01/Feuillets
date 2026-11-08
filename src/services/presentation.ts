@@ -1,8 +1,8 @@
 import {
-  splitMarkdownLogicalUnits,
   splitMarkdownLogicalUnitsWithRanges,
   type MarkdownLogicalUnitSource,
 } from "../utils/markdown-logical-boundaries.js";
+import { withoutSpeakerNotes } from "./presentation-private-notes.js";
 
 /**
  * Une diapositive source, avec sa plage de lignes dans le fichier ORIGINAL
@@ -15,12 +15,9 @@ import {
  */
 export type PresentationSlideSource = MarkdownLogicalUnitSource;
 
-/** Découpe le corps Markdown en diapositives sans interpréter le Markdown.
- * Délègue au scanner générique partagé (voir
- * `src/utils/markdown-logical-boundaries.ts`) — aucun second parseur,
- * comportement Présentation strictement inchangé. */
+/** Split public slide content with the shared logical-boundary scanner. */
 export function splitPresentationMarkdown(markdown: string): string[] {
-  return splitMarkdownLogicalUnits(markdown);
+  return splitPresentationMarkdownWithRanges(markdown).map((slide) => slide.markdown);
 }
 
 /**
@@ -31,7 +28,15 @@ export function splitPresentationMarkdown(markdown: string): string[] {
  * (voir `src/utils/markdown-logical-boundaries.ts`).
  */
 export function splitPresentationMarkdownWithRanges(markdown: string): PresentationSlideSource[] {
-  return splitMarkdownLogicalUnitsWithRanges(markdown);
+  // Split the original first: removing a leading private block must not turn
+  // the next slide separator into an apparent YAML frontmatter delimiter.
+  return splitMarkdownLogicalUnitsWithRanges(markdown).flatMap((slide) => {
+    const publicMarkdown = withoutSpeakerNotes(slide.markdown);
+    const trimmed = publicMarkdown.trim();
+    if (!trimmed) return [];
+    const leading = publicMarkdown.slice(0, publicMarkdown.indexOf(trimmed));
+    return [{ ...slide, markdown: trimmed, startLine: slide.startLine + (leading.match(/\n/gu)?.length ?? 0) }];
+  });
 }
 
 /**

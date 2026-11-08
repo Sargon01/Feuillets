@@ -33,6 +33,14 @@ test("pagination-engine : heading + média documentaire reste un groupe direct",
   assert.deepEqual(documentMediaGroupAfter(heading, [media]), [heading, media]);
 });
 
+test("pedagogy: bold document titles stay with composed image/source pairs", () => {
+  const strong = { tagName: "STRONG", textContent: "Document 2" };
+  const title = { ...block("p"), children: [strong], textContent: "Document 2" };
+  const pair = block("div", ["feuillets-document-media-role-pair"]);
+  assert.deepEqual(documentMediaGroupAfter(title, [pair]), [title, pair]);
+  assert.equal(documentMediaGroupAfter({ ...title, textContent: "Introduction Document 2" }, [pair]), null);
+});
+
 test("pagination-engine : heading + paragraphe introductif + média forme le groupe réel", () => {
   const heading = block("h3");
   const intro = block("p");

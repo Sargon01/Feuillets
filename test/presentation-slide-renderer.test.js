@@ -201,6 +201,21 @@ test("PRESENTATION_SLIDE_WIDTH/HEIGHT : surface fixe 1280×720", () => {
   assert.equal(PRESENTATION_SLIDE_HEIGHT, 720);
 });
 
+test("pedagogy: direct rendering strips private notes before the native Markdown renderer", async () => {
+  const previous = MarkdownRenderer.render;
+  let renderedSource = "";
+  MarkdownRenderer.render = async (_app, markdown, container) => {
+    renderedSource = markdown;
+    paragraph(container, markdown);
+  };
+  try {
+    const { result } = await render("# Public\n\n> [!speaker-notes]\n> Private directions\n\n> [!source]\n> Museum");
+    assert.doesNotMatch(renderedSource, /speaker-notes|Private directions/);
+    assert.match(renderedSource, /\[!source\]/);
+    assert.doesNotMatch(result.inner.innerText, /Private directions/);
+  } finally { MarkdownRenderer.render = previous; }
+});
+
 test("LEGACY CALLOUT : callout top-level reste ordinaire", async () => {
   const previous = MarkdownRenderer.render;
   MarkdownRenderer.render = async (_app, _markdown, container) => {

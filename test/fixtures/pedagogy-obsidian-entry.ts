@@ -1,0 +1,13 @@
+export { exportDocx } from "../../src/services/export-docx.js";
+export { renderManuscriptHtml, composeDocumentMedia } from "../../src/services/export-render.js";
+export { planPresentationSlides } from "../../src/services/presentation-slide-planner.js";
+export { renderPresentationSlide } from "../../src/services/presentation-slide-renderer.js";
+export { resolvePresentationTheme } from "../../src/services/presentation-theme.js";
+export { exportPresentationPdf, exportPresentationHandoutPdf, exportPresentationPlanPdf } from "../../src/services/presentation-pdf-export.js";
+export { paginateDom } from "../../src/services/pagination-engine.js";
+export { Component } from "obsidian";
+export { stripFrontmatter } from "../../src/services/frontmatter.js";
+export { paginateManuscript } from "../../src/services/export-pdf.js";
+export { resolveExportTemplate } from "../../src/services/export-templates-custom.js";
+export { templateToCss } from "../../src/utils/export-templates.js";
+export { DOCUMENT_LAYOUT_EXPORT_CSS } from "../../src/services/document-layout.js";

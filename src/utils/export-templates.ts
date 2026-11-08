@@ -556,6 +556,7 @@ export function templateToCss(tpl: ExportTemplate) {
       ".feuillets-document-media-role-pair-side { display: grid; grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); }",
       ".feuillets-document-media-role-pair-stacked { display: block; }",
       ".feuillets-document-media-role-pair > * { min-width: 0; }",
+      ".feuillets-document-media-role-pair .feuillets-role-source { overflow-wrap: anywhere; }",
       ".feuillets-document-media-role-pair-stacked > :first-child { margin-bottom: 10pt; }",
       ".feuillets-directive { display: none; }",
     ] : []),

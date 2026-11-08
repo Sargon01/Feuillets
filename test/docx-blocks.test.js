@@ -23,6 +23,44 @@ const p = (children) => el("P", { childNodes: children, children });
 const TPL = { key: "classique", label: "Classique", align: "justify", indent: true };
 const noFootnotes = new Map();
 
+test("pedagogy: response lines are printable Word paragraphs after their question", async () => {
+  const lines = Array.from({ length: 2 }, () => el("SPAN", { classes: ["feuillets-answer-line"] }));
+  const list = el("OL", { children: [el("LI", { childNodes: [texte("Question"), ...lines], children: lines })] });
+  const blocks = blockToParagraphs(list, noFootnotes, TPL);
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(new Document({ sections: [{ children: blocks }] })));
+  const xml = await zip.file("word/document.xml").async("string");
+  assert.equal((xml.match(/<w:bottom /g) || []).length, 2);
+  assert.match(xml, /w:line="372"/);
+  assert.ok(xml.indexOf("Question") < xml.indexOf("<w:bottom "));
+});
+
+test("pedagogy: list starts, explicit item values and nesting survive DOCX", () => {
+  const nested = el("OL", { attrs: { start: "3" }, children: [el("LI", { childNodes: [texte("Nested")] })] });
+  const list = el("OL", { attrs: { start: "4" }, children: [
+    el("LI", { childNodes: [texte("Four"), nested], children: [nested] }),
+    el("LI", { attrs: { value: "8" }, childNodes: [texte("Eight")] }),
+    el("LI", { childNodes: [texte("Nine")] }),
+  ] });
+  const blocks = blockToParagraphs(list, noFootnotes, TPL);
+  assert.deepEqual(blocks.map((block) => runTexts(block).join("")), ["4. Four", "3. Nested", "8. Eight", "9. Nine"]);
+  assert.deepEqual(blockToParagraphs(el("OL", { children: [el("LI", { childNodes: [texte("Independent")] })] }), noFootnotes, TPL).map((block) => runTexts(block).join("")), ["1. Independent"]);
+});
+
+test("pedagogy: legacy inline consumers retain list text inside table cells", () => {
+  const cell = el("TD", { childNodes: [el("UL", { childNodes: [el("LI", { childNodes: [texte("Retained cell content")] })] })] });
+  assert.equal(inlineChildren(cell, noFootnotes).flatMap(runTexts).join(""), "Retained cell content");
+});
+
+test("pedagogy: custom blank response spaces retain physical or line-relative height", async () => {
+  const spaces = [el("SPAN", { classes: ["feuillets-answer-space"], attrs: { style: "height: 20mm;" } }), el("SPAN", { classes: ["feuillets-answer-space"], attrs: { style: "height: 3lh;" } })];
+  const blocks = spaces.flatMap((space) => blockToParagraphs(space, noFootnotes, { ...TPL, fontSizePt: 12, lineHeight: 1.5 }));
+  const zip = await JSZip.loadAsync(await Packer.toBuffer(new Document({ sections: [{ children: blocks }] })));
+  const xml = await zip.file("word/document.xml").async("string");
+  assert.match(xml, /w:line="1134" w:lineRule="atLeast"/);
+  assert.match(xml, /w:line="1080" w:lineRule="atLeast"/);
+  assert.doesNotMatch(xml, /w:pBdr/);
+});
+
 test("DOCX: an ordinary manual page break preserves body alignment, indentation and spacing", () => {
   const [paragraph] = blockToParagraphs(p([texte("Body.")]), noFootnotes,
     { ...TPL, indentPt: 18, paragraphSpacingPt: 6, paragraphSpacingAfterPt: 12 }, {}, new Map(), { manualPageBreak: true });

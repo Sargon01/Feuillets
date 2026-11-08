@@ -167,7 +167,7 @@ export function captionParagraphFor(el: ExportDomElement, images: ExportImages =
  * @param {boolean} [normalizeAfterBreak] nettoie les blancs techniques des vers de citation.
  * @returns {any[]}
  */
-export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<string, number>, images: ExportImages = new Map(), defaultMarks: InlineMarks = {}, normalizeAfterBreak = false) {
+export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<string, number>, images: ExportImages = new Map(), defaultMarks: InlineMarks = {}, normalizeAfterBreak = false, omitNestedLists = false) {
   const runs: Array<TextRun | ImageRun | FootnoteReferenceRun> = [];
   let afterBreak = false;
   const bibliographyAlignment = el.classList.contains("feuillets-csl-bibliography-entry")
@@ -208,6 +208,8 @@ export function inlineChildren(el: ExportDomElement, footnoteIdByHref: Map<strin
     if (!isExportDomElement(node)) return;
 
     const tag = node.tagName.toLowerCase();
+    // Block content is emitted separately by the list converter.
+    if ((omitNestedLists && (tag === "ol" || tag === "ul")) || node.classList.contains("feuillets-answer-line") || node.classList.contains("feuillets-answer-space")) return;
     if (tag === "br") {
       // Saut de ligne DANS le paragraphe (interligne simple), ex. le « / » d'un
       // bloc de page de titre — pas un nouveau paragraphe.
@@ -336,10 +338,24 @@ export function blockToParagraphs(
   headings: { h1?: HeadingStyle; h2?: HeadingStyle; h3?: HeadingStyle } = {},
   images: ExportImages = new Map(),
   frontOverride: { style?: TitlePageStyle | null; isTitleLine?: boolean; manualPageBreak?: boolean } | null = null,
+  listDepth = 0,
 ): DocxBlock[] {
   if (!el || el.nodeType !== ELEMENT_NODE) return [];
   if (el.getAttribute(CSL_BIBLIOGRAPHY_ANCHOR_ATTR) !== null) return [];
   const tag = el.tagName;
+  if (el.classList.contains("feuillets-answer-line") || el.classList.contains("feuillets-answer-space")) {
+    const ruled = el.classList.contains("feuillets-answer-line");
+    const fontSize = tpl.fontSizePt ?? 12;
+    const custom = /height:\s*(\d+(?:\.\d+)?)(mm|lh)/u.exec(el.getAttribute("style") ?? "");
+    const heightPt = custom ? Number(custom[1]) * (custom[2] === "mm" ? 72 / 25.4 : fontSize * (tpl.lineHeight ?? 1.5)) : fontSize * 1.55;
+    return [new Paragraph({
+      indent: { left: listDepth * 360, firstLine: 0 },
+      spacing: { before: 0, after: ruled ? fontSize * 20 * 0.7 : 0, line: Math.round(heightPt * 20), lineRule: LineRuleType.AT_LEAST },
+      // Distinct borders must not merge across consecutive empty paragraphs.
+      ...(ruled ? { border: { bottom: { style: BorderStyle.DOTTED, size: 4, color: "808080" }, between: { style: BorderStyle.DOTTED, size: 4, color: "808080" } } } : {}),
+      children: [new TextRun("\u00a0")],
+    })];
+  }
   const manualPageBreak = !!frontOverride?.manualPageBreak || el.classList.contains("feuillets-page-break-before");
   // A manual body break is independent of title-page typography.
   if (frontOverride && !("style" in frontOverride || "isTitleLine" in frontOverride)) frontOverride = null;
@@ -467,14 +483,21 @@ export function blockToParagraphs(
     ]);
   }
   if (tag === "UL" || tag === "OL") {
-    return Array.from(el.children).map((li, i) => {
-      const prefix = tag === "UL" ? "• " : `${i + 1}. `;
-      return new Paragraph({
+    let number = Number(el.getAttribute("start") ?? 1);
+    return Array.from(el.children).filter((child) => child.tagName === "LI").flatMap((li, i) => {
+      const value = li.getAttribute("value");
+      if (value !== null && /^-?\d+$/u.test(value)) number = Number(value);
+      const prefix = tag === "UL" ? "• " : `${number++}. `;
+      const paragraph = new Paragraph({
         pageBreakBefore: i === 0 && manualPageBreak,
         spacing: frontOverride ? FRONT_PAGE_LINE_SPACING : undefined,
         alignment: frontOverride ? AlignmentType.CENTER : undefined,
-        children: [new TextRun(prefix), ...inlineChildren(li, footnoteIdByHref, images)],
+        indent: listDepth ? { left: listDepth * 360 } : undefined,
+        keepNext: Array.from(li.children).some((child) => child.classList.contains("feuillets-answer-line") || child.classList.contains("feuillets-answer-space")),
+        children: [new TextRun(prefix), ...inlineChildren(li, footnoteIdByHref, images, {}, false, true)],
       });
+      const blocks = Array.from(li.children).filter((child) => child.tagName === "UL" || child.tagName === "OL" || child.classList.contains("feuillets-answer-line") || child.classList.contains("feuillets-answer-space"));
+      return [paragraph, ...blocks.flatMap((child) => blockToParagraphs(child, footnoteIdByHref, tpl, headings, images, frontOverride, listDepth + 1))];
     });
   }
   if (tag === "HR") {

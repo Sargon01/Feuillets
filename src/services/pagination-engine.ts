@@ -220,16 +220,26 @@ function isHeading(node: Element): boolean {
 }
 
 function isDocumentMediaBlock(node: Element): boolean {
-  return node.classList.contains("feuillets-doc-media-block");
+  return node.classList.contains("feuillets-doc-media-block") || node.classList.contains("feuillets-document-media-role-pair");
 }
 
 export function documentMediaGroupAfter(heading: Element, following: Element[]): Element[] | null {
-  if (!isHeading(heading)) return null;
+  const children = Array.from(heading.children ?? []);
+  const boldTitle = heading.tagName.toLowerCase() === "p" && children.length === 1
+    && children[0].tagName.toLowerCase() === "strong"
+    && heading.textContent?.trim() === children[0].textContent?.trim();
+  if (!isHeading(heading) && !boldTitle) return null;
   const first = following[0];
   if (first && isDocumentMediaBlock(first)) return [heading, first];
   const second = following[1];
   if (first?.tagName.toLowerCase() === "p" && second && isDocumentMediaBlock(second)) return [heading, first, second];
   return null;
+}
+
+function semanticHeadingGroupAfter(heading: Element, following: Element[]): Element[] | null {
+  const first = following[0];
+  return isHeading(heading) && first?.classList.contains("feuillets-semantic-role") && !isManualPageBreak(first)
+    ? [heading, first] : null;
 }
 
 function isLandscapeContextDocumentMedia(node: Element): boolean {
@@ -436,7 +446,7 @@ function* paginateDomSteps(nodes: Element[], geometry: PaginationGeometry): Gene
       /* Garde le titre avec son premier média documentaire, avec au plus un
          paragraphe introductif. Si le groupe dépasse une page entière, il
          revient au flux normal plutôt que de créer une page vide. */
-      const mediaGroup = documentMediaGroupAfter(source, pending);
+      const mediaGroup = documentMediaGroupAfter(source, pending) ?? semanticHeadingGroupAfter(source, pending);
       if (mediaGroup && page.nodes.length && !groupFits(page.content, mediaGroup)) {
         const media = mediaGroup.find(isLandscapeContextDocumentMedia);
         const scale = media ? largestFittingDocumentMediaScale((value) => groupFits(page.content, mediaGroup, value)) : null;
