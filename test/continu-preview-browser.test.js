@@ -42,9 +42,9 @@ test("Continu and Preview follow the active reader", async (t) => {
   async function open(context, sync = false, mounted = false) {
     const page = await browser.newPage({ viewport: { width: 1200, height: 1000 } });
     const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
+    page.on("pageerror", (error) => errors.push(error.stack || error.message));
     context.after(async () => {
-      await page.evaluate(async () => { await window.reading?.view.onClose(); window.reading?.markdown?.destroy(); if (window.reading?.mounted) window.reading.continu.destroyEditor(); else window.reading?.cm?.destroy(); });
+      await page.evaluate(async () => { await window.reading?.closePreview(); window.reading?.markdown?.destroy(); if (window.reading?.mounted) window.reading.continu.destroyEditor(); else window.reading?.cm?.destroy(); });
       await page.close();
       assert.deepEqual(errors, []);
     });
@@ -164,7 +164,14 @@ test("Continu and Preview follow the active reader", async (t) => {
         frames.push({ frame: args[1], position: view.previewViewport.scrollTop });
       };
       const settle = () => new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame)));
-      window.reading = { api, view, app, plugin, root, files, source, sourceLeaf, opened, frames, settle, previews, emit, metadata };
+      window.reading = { api, view, app, plugin, root, files, source, sourceLeaf, opened, frames, settle, previews, emit, metadata,
+        closePreview: async () => {
+          // This observer belongs to the fixture, not PreviewView. Detach it
+          // before onClose clears the viewport while source scrolls can remain queued.
+          window.reading.stopObservingSourceScroll?.();
+          await view.onClose();
+        },
+      };
       await view.onOpen();
     }, { sync, mounted });
     await page.waitForFunction(() => window.reading.frames.length > 0 && !window.reading.view.refreshInFlight);
@@ -192,7 +199,10 @@ test("Continu and Preview follow the active reader", async (t) => {
       ] }) });
       f.continu.cm = f.cm;
       f.sourceScrolls = [];
-      f.cm.scrollDOM.addEventListener("scroll", () => f.sourceScrolls.push({ top: f.cm.scrollDOM.scrollTop, protected: f.view.syncingFromPreview, preview: f.view.previewViewport.scrollTop }));
+      const sourceScroller = f.cm.scrollDOM;
+      const observeSourceScroll = () => f.sourceScrolls.push({ top: sourceScroller.scrollTop, protected: f.view.syncingFromPreview, preview: f.view.previewViewport.scrollTop });
+      sourceScroller.addEventListener("scroll", observeSourceScroll);
+      f.stopObservingSourceScroll = () => sourceScroller.removeEventListener("scroll", observeSourceScroll);
       f.position = (index, line) => {
         const segment = f.document.segments[index];
         return segment.from + segment.body.split("\n").slice(0, line).reduce((length, text) => length + text.length + 1, 0);
@@ -350,6 +360,26 @@ test("Continu and Preview follow the active reader", async (t) => {
     assert.equal(result.dirty, true);
     assert.equal(result.cleared, null);
     assert.deepEqual(result.labels, [` · ${result.expected} words selected`, " · 0 words selected", " · 3 words selected", ""]);
+  });
+
+  await t.test("Closing Preview detaches the fixture observer before a queued source scroll", async (context) => {
+    const page = await openNative(context, true);
+    const result = await page.evaluate(async () => {
+      const f = window.reading;
+      const initial = f.sourceScrolls.length;
+      f.cm.scrollDOM.dispatchEvent(new Event("scroll"));
+      const before = f.sourceScrolls.length;
+      await f.closePreview();
+      // Deliver a source event after Preview has cleared its viewport, as a
+      // native scroll queued by a selection/edit can do during teardown.
+      f.cm.scrollDOM.dispatchEvent(new Event("scroll"));
+      await f.idle();
+      return { closed: f.view.previewViewport === null, observed: before - initial, before, after: f.sourceScrolls.length };
+    });
+    assert.equal(result.observed, 1);
+    assert.equal(result.closed, true);
+    assert.equal(result.after, result.before);
+    // The shared after hook must still reject every uncaught browser error.
   });
 
   await t.test("Native Markdown cursor changes move only the Preview marker", async (context) => {
@@ -623,7 +653,7 @@ test("Continu and Preview follow the active reader", async (t) => {
       f.emit("layout-change");
       await f.idle();
       const preserved = f.plugin.statusStatsEl?.textContent || f.plugin.statusEl.textContent;
-      await f.view.onClose();
+      await f.closePreview();
       f.emit("layout-change");
       return { stats, preserved, reading, nextReading, parent: !!parent, bottom: parent?.getBoundingClientRect().bottom, viewportHeight: window.innerHeight, top, rendering, error, visibleAfterClose: f.plugin.statusPreviewEl ? !f.plugin.statusPreviewEl.hidden : false, afterClose: f.plugin.statusPreviewEl?.textContent || "" };
     });
@@ -913,7 +943,7 @@ test("Continu and Preview follow the active reader", async (t) => {
       await other.onClose();
       f.emit("layout-change");
       const afterHiddenClose = f.plugin.statusPreviewEl.textContent;
-      await f.view.onClose();
+      await f.closePreview();
       f.emit("layout-change");
       return { visible, afterHiddenClose, hidden: f.plugin.statusPreviewEl.hidden };
     });
