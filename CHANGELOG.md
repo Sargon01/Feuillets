@@ -2,6 +2,29 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.8.0 — 2026-11-11
+
+**Écriture**
+
+- Affichage en direct du nombre de mots sélectionnés dans l'éditeur Markdown et dans Continu.
+- Prise en charge des sélections traversant plusieurs feuillets.
+- Conservation des statistiques et du comptage existants.
+
+**Présentation**
+
+- Correction du traitement des notes privées du présentateur, désormais exclues des diapositives projetées.
+
+**Supports pédagogiques et DOCX**
+
+- Conservation des espaces de réponse dans les documents élèves.
+- Respect de la numérotation des questions dans les exports DOCX.
+- Amélioration ciblée de la pagination documentaire.
+
+**Fiabilité**
+
+- Ajout d'une validation pédagogique automatisée réutilisable avec `npm run test:pedagogy`.
+- Renforcement des tests de Présentation, des documents DOCX et de Continu.
+
 ## 3.7.3 — 2026-10-28
 
 **Binder**
