@@ -10266,6 +10266,59 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   overflow-y: auto;
 }
 
+/* Formatting marks decorate CM source only. Generated content never enters
+ * document text or clipboard data; zero-width line ends cannot cause wrapping. */
+.cm-editor.feuillets-formatting-marks {
+  --feuillets-formatting-mark-color: color-mix(in srgb, var(--text-normal) 55%, transparent);
+}
+
+.cm-editor.feuillets-formatting-marks .cm-highlightSpace {
+  background-image: radial-gradient(circle at 50% 55%, var(--feuillets-formatting-mark-color) 0.065em, transparent 0.075em);
+}
+
+.cm-editor.feuillets-formatting-marks .cm-highlightTab {
+  position: relative;
+  background-image: none;
+}
+
+.cm-editor.feuillets-formatting-marks :is(.cm-highlightTab, .feuillets-formatting-nbsp, .feuillets-formatting-nnbsp)::before,
+.cm-editor.feuillets-formatting-marks .feuillets-formatting-line-end:not([data-feuillets-line-end-empty])::after,
+.cm-editor.feuillets-formatting-marks [data-feuillets-line-end-empty]::before {
+  position: absolute;
+  color: var(--feuillets-formatting-mark-color);
+  pointer-events: none;
+  user-select: none;
+}
+
+.cm-editor.feuillets-formatting-marks .cm-highlightTab::before {
+  content: "→";
+  left: 0;
+}
+
+.cm-editor.feuillets-formatting-marks :is(.feuillets-formatting-nbsp, .feuillets-formatting-nnbsp) {
+  position: relative;
+}
+
+.cm-editor.feuillets-formatting-marks .feuillets-formatting-nbsp::before {
+  content: "°";
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.cm-editor.feuillets-formatting-marks .feuillets-formatting-nnbsp::before {
+  content: "˙";
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.cm-editor.feuillets-formatting-marks .feuillets-formatting-line-end:not([data-feuillets-line-end-empty])::after {
+  content: attr(data-feuillets-line-end) / "";
+}
+
+.cm-editor.feuillets-formatting-marks [data-feuillets-line-end-empty]::before {
+  content: attr(data-feuillets-line-end-empty) / "";
+}
+
 .feuillets-scrivenings-view .cm-editor {
   height: 100%;
 }

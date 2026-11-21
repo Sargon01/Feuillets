@@ -61,6 +61,7 @@ type FeuilletsSettingTabPlugin = Omit<Plugin, "settings"> & {
   getProjectFolder(): TFolder | null;
   chapterCount(root: TFolder): number;
   saveSettings(): Promise<void>;
+  setShowFormattingMarks(value: boolean): Promise<void>;
   updateStatusBar(): void;
   renderAllViews(force?: boolean): void;
   createDemoProject(kind: string): Promise<void>;
@@ -487,7 +488,11 @@ export class FeuilletsSettingTab extends PluginSettingTab {
     const refresh = () => this.plugin.refreshView();
 
     container.createDiv({ cls: "feuillets-settings-subhead", text: t("settings.section.appearance") });
-
+    new Setting(container)
+      .setName(t("settings.showFormattingMarks.name"))
+      .setDesc(t("settings.showFormattingMarks.desc"))
+      .addToggle((toggle) => toggle.setValue(S.showFormattingMarks).onChange((value) =>
+        this.plugin.setShowFormattingMarks(value)));
 
     new Setting(container)
       .setName(t("settings.language.name"))

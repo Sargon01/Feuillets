@@ -238,6 +238,7 @@ import {
   type AnchorRect,
 } from "./utils/cm-annotation-highlighter.js";
 import { emptyLinesPlugin } from "./utils/cm-empty-lines.js";
+import { FormattingMarksController } from "./utils/cm-formatting-marks.js";
 import { nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension, applyNativeReviewThreadHighlights, clearNativeReviewThreadHighlights } from "./utils/cm-native-review-highlighter.js";
 import { comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension } from "./utils/cm-comparison-decorations.js";
 import { listNativeReviewSessions } from "./services/native-review-exchange.js";
@@ -592,6 +593,8 @@ function applyMindmapEdgeVisibility(edge: MindmapRuntimeEdge, id: string, hidden
 }
 
 class FeuilletsPlugin extends Plugin {
+  readonly formattingMarks = new FormattingMarksController(() => this.settings.showFormattingMarks === true);
+  private formattingMarksSettingTab?: FeuilletsSettingTab;
   /**
    * Déclaré explicitement sur la sous-classe, comme le demande la doc
    * d'Obsidian (« Declare a concrete type on your subclass to type it »)
@@ -821,9 +824,8 @@ class FeuilletsPlugin extends Plugin {
        `declare plugin` des vues qui déclarent un contrat plus étroit
        (NotesView, DocxReviewView…) — d'où ces casts locaux plutôt qu'un
        élargissement global. */
-    this.addSettingTab(
-      new FeuilletsSettingTab(this.app, this as unknown as ConstructorParameters<typeof FeuilletsSettingTab>[1])
-    );
+    this.formattingMarksSettingTab = new FeuilletsSettingTab(this.app, this as unknown as ConstructorParameters<typeof FeuilletsSettingTab>[1]);
+    this.addSettingTab(this.formattingMarksSettingTab);
 
     this.applyIndentClass();
     this.applyLeanInterfaceClasses();
@@ -834,6 +836,12 @@ class FeuilletsPlugin extends Plugin {
     this.registerConcentrationTracking();
     this.registerDragSafetyNet();
     this.registerLiveTypography();
+    this.registerEditorExtension(this.formattingMarks.extension({
+      eligible: (state) => {
+        const info = state.field(editorInfoField, false) as { file?: TFile | null } | undefined;
+        return info?.file?.extension === "md" && isFileInsideKnownProject(this.app, this.settings, info.file);
+      },
+    }));
     this.registerEditorExtension(createLiveTypographyExtension(
       () => this.settings,
       (state) => {
@@ -1062,6 +1070,14 @@ class FeuilletsPlugin extends Plugin {
   }
 
   registerCoreCommands() {
+    this.addCommand({
+      id: "toggle-formatting-marks",
+      name: t("commands.toggleFormattingMarks"),
+      callback: async () => {
+        await this.setShowFormattingMarks(!this.settings.showFormattingMarks);
+        this.formattingMarksSettingTab?.update();
+      },
+    });
     /* Les commandes Présentation partagent la MÊME résolution de contexte
        (src/utils/presentation-command-context.ts) : jamais de logique de
        résolution dupliquée entre elles. Cela évite en particulier que la
@@ -1746,6 +1762,7 @@ class FeuilletsPlugin extends Plugin {
    * ordinaire du coffre. Cette classe ne porte donc jamais sur `body`.
    */
   syncProjectEditorScope(): void {
+    this.formattingMarks?.refresh();
     const root = this.getProjectFolder();
     for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
       if (leaf.view instanceof MarkdownView) {
@@ -3954,6 +3971,7 @@ class FeuilletsPlugin extends Plugin {
     for (const [key] of legacyAutoOpenPanels) delete data[key];
 
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data) as unknown as FeuilletsSettings;
+    this.settings.showFormattingMarks = data.showFormattingMarks === true;
     this.settings.carnetDefaultStyles = normalizeCarnetDefaultStyles(this.settings.carnetDefaultStyles);
     this.settings.carnetShowFloatingToolbar = this.settings.carnetShowFloatingToolbar !== false;
     const writingColorsMigrated = migrateWritingColorSettings(this.settings, data);
@@ -4026,6 +4044,12 @@ class FeuilletsPlugin extends Plugin {
     if (writingColorsMigrated) {
       await this.saveData(this.settings);
     }
+  }
+
+  async setShowFormattingMarks(value: boolean): Promise<void> {
+    this.settings.showFormattingMarks = value;
+    this.formattingMarks.refresh();
+    await this.saveSettings();
   }
 
   async saveSettings() {

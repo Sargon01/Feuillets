@@ -7,6 +7,8 @@ export const Decoration = {
   set: (decorations) => decorations,
 };
 
+export function highlightWhitespace() { return []; }
+
 export function EditorView(config) {
   this.state = config?.state;
   this.dom = config?.parent;

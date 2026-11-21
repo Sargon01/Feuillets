@@ -3,6 +3,10 @@ declare module "@codemirror/state" {
   export const StateField: unknown;
   export const EditorState: unknown;
   export const Prec: unknown;
+  export class Compartment {
+    of(extension: unknown): unknown;
+    reconfigure(extension: unknown): unknown;
+  }
   export class Text {
     static of(lines: readonly string[]): Text;
     lineAt(offset: number): { from: number; number: number; text: string };
@@ -20,6 +24,7 @@ declare module "@codemirror/view" {
   export const EditorView: unknown;
   export const ViewPlugin: unknown;
   export const keymap: unknown;
+  export function highlightWhitespace(): unknown;
   export class WidgetType {
     eq(other: WidgetType): boolean;
     toDOM(): HTMLElement;

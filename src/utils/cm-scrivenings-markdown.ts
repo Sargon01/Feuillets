@@ -262,6 +262,8 @@ export interface ScriveningsHeadingNode {
 }
 
 export interface ScriveningsSegmentFormatting {
+  /** Source paragraph ends reused by the optional formatting marks. */
+  paragraphEnds: number[];
   nodes: ScriveningsEmphasisNode[];
   groups: ScriveningsMarkGroup[];
   /** Titres ATX `#`→`######` du segment, offsets LOCAUX (voir
@@ -450,6 +452,7 @@ function findEscapedSeparatorHiddenRanges(
  */
 export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegmentFormatting {
   const tree = scriveningsMarkdownParser.parse(text);
+  const paragraphEnds: number[] = [];
   const nodes: ScriveningsEmphasisNode[] = [];
   const groups: ScriveningsMarkGroup[] = [];
   const headings: ScriveningsHeadingNode[] = [];
@@ -469,6 +472,7 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
 
   tree.iterate({
     enter(node) {
+      if (node.name === "Paragraph") paragraphEnds.push(node.to);
       if (node.name === "Blockquote") {
         if (blockquoteDepth === 0) {
           const firstLineEnd = text.indexOf("\n", node.from) === -1 ? node.to : text.indexOf("\n", node.from);
@@ -641,7 +645,7 @@ export function parseScriveningsSegmentFormatting(text: string): ScriveningsSegm
     lineStart = lineEnd + 1;
   }
 
-  return { nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes), callouts, images, tables, codeRanges };
+  return { paragraphEnds, nodes, groups, headings, horizontalRules, escapedSeparators: findEscapedSeparatorHiddenRanges(text, escapeNodes), callouts, images, tables, codeRanges };
 }
 
 /* --- Cache par segment (LOT 1.3 section 3 — jamais un scan global) -------- */
@@ -672,6 +676,37 @@ export function parseScriveningsSegmentFormattingCached(text: string): Scrivenin
  * indépendants (le cache module-level survivrait sinon d'un test à l'autre). */
 export function clearScriveningsMarkdownCache(): void {
   segmentFormattingCache.clear();
+}
+
+function lastEntryBefore<T>(entries: readonly T[], position: number, start: (entry: T) => number): T | undefined {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (start(entries[middle]) <= position) low = middle + 1;
+    else high = middle;
+  }
+  return entries[low - 1];
+}
+
+/** Formatting marks consume the same cached parse as the Markdown renderer.
+ * Only visible segments are consulted; no composite manuscript is parsed. */
+export function scriveningsParagraphEndLookup(
+  doc: { length: number; sliceString(from: number, to: number): string },
+  boundaries: readonly number[],
+  visibleRanges: readonly { from: number; to: number }[],
+): (position: number) => boolean | undefined {
+  const segments = scriveningsSegmentsInRanges(scriveningsSegmentRanges(boundaries, doc.length), visibleRanges)
+    .map((segment) => ({ ...segment, formatting: parseScriveningsSegmentFormattingCached(doc.sliceString(segment.from, segment.to)) }));
+  return (position) => {
+    const segment = segments.find((range) => range.from <= position && position <= range.to);
+    if (!segment) return undefined;
+    const local = position - segment.from;
+    const { paragraphEnds, codeRanges } = segment.formatting;
+    if (lastEntryBefore(paragraphEnds, local, (end) => end) === local) return true;
+    const code = lastEntryBefore(codeRanges, local, (range) => range.from);
+    return code && local <= code.to ? false : undefined;
+  };
 }
 
 function shiftNode(node: ScriveningsEmphasisNode, delta: number): ScriveningsEmphasisNode {
@@ -748,7 +783,7 @@ function shiftRange(range: { from: number; to: number }, delta: number): { from:
 /** Parse (via le cache) le texte d'UN segment puis traduit ses offsets
  * locaux en offsets composites (`segment.from` ajouté à chacun) — jamais
  * l'inverse : le parseur ne voit jamais autre chose qu'une chaîne locale. */
-export function compositeScriveningsFormatting(segment: ScriveningsSegmentRange, segmentText: string): ScriveningsSegmentFormatting {
+export function compositeScriveningsFormatting(segment: ScriveningsSegmentRange, segmentText: string): Omit<ScriveningsSegmentFormatting, "paragraphEnds"> {
   const local = parseScriveningsSegmentFormattingCached(segmentText);
   return {
     nodes: local.nodes.map((node) => shiftNode(node, segment.from)),

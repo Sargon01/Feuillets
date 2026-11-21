@@ -25,7 +25,8 @@ import { shortTitleFor, splitFrontmatter } from "../services/frontmatter.js";
 import { roleOfFile } from "../services/folder-structure.js";
 import { buildScriveningsRangeClipboardText } from "../services/scrivenings-clipboard-source.js";
 import { createScriveningsCopyExtension, createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsBoundariesField, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
-import type { ScriveningsImageResolver } from "../utils/cm-scrivenings-markdown.js";
+import { scriveningsParagraphEndLookup, type ScriveningsImageResolver } from "../utils/cm-scrivenings-markdown.js";
+import type { FormattingMarksController } from "../utils/cm-formatting-marks.js";
 import { createLiveTypographyExtension, typographySegmentContext } from "../utils/cm-live-typography.js";
 import { createScriveningsCitationExtension } from "../utils/cm-scrivenings-citations.js";
 import type { CslCitationHost } from "../services/csl-citation-host.js";
@@ -119,6 +120,7 @@ export function nextScrollAnchorAfterRecomposition(
 }
 
 export type ScriveningsViewPlugin = {
+  formattingMarks?: FormattingMarksController;
   app: App;
   settings: FeuilletsSettings;
   getAnalysisProvider(providerId?: string): TextAnalysisProvider | null;
@@ -730,6 +732,13 @@ export class ScriveningsView extends ItemView {
           isDirty: (path) => this.isCrossReferenceFileDirty(path) } : null,
         () => this.plugin.getWorkspaceFolder?.() ?? null),
       ...createScriveningsExtensions(imageResolver),
+      ...(this.plugin.formattingMarks?.extension({
+        boundaries: (state) => (state.field(scriveningsBoundariesField, false) as number[] | undefined) ?? [],
+        paragraphEndLookup: (view) => {
+          const boundaries = (view.state.field(scriveningsBoundariesField, false) as number[] | undefined) ?? [];
+          return scriveningsParagraphEndLookup(view.state.doc, boundaries, view.visibleRanges);
+        },
+      }) ?? []),
       ...createScriveningsEnterTypographyExtension(this.plugin.settings),
       ...createLiveTypographyExtension(() => this.plugin.settings, (state, from, to) => {
         const boundaries = (state.field(scriveningsBoundariesField, false) as number[] | undefined) ?? [];

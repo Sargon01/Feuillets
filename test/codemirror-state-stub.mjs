@@ -11,6 +11,11 @@ export const StateEffect = {
   },
 };
 
+export class Compartment {
+  of(extension) { return extension; }
+  reconfigure(extension) { return { compartment: this, extension }; }
+}
+
 export const StateField = {
   define: (config) => ({
     ...config,
