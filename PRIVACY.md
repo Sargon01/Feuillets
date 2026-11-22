@@ -35,3 +35,7 @@ Property mapping is stored in project/plugin settings and is used locally when r
 ## Companion plugins
 
 A separately installed companion plugin may register a text-analysis provider. Its data/network behavior belongs to that plugin, not to Feuillets core.
+
+## Optional rewrite history
+
+Automatic rewrite history stores sheet identities, observed edit boundaries, word counts and retained Markdown states locally in the project vault. It makes no network request and records no keystroke log, telemetry, author attribution or elapsed work time. The reserved RewriteHistory subtree is excluded from `.feuil` sharing by default. Vault sync and ZIP backups can still copy these local files. [Storage and recovery details](docs/REWRITE-HISTORY.md).

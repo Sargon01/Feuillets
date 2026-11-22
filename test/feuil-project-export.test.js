@@ -311,3 +311,21 @@ test("level1Role global reste le fallback legacy sans ProjectMeta", async () => 
   const { app, settings } = fixture(); delete settings.projectMeta[settings.projectFolder].level1Role; settings.level1Role = "chapitres";
   const plan = await buildFeuilProjectExportPlan(app, settings, "v", "p", "2026-08-21T00:00:00Z"); assert.equal(plan.manifest.project.structure.level1Role, "chapitres");
 });
+
+test("automatic rewrite history is excluded from structured and adopted .feuil exports without hiding manual snapshots", async () => {
+  for (const adopted of [false, true]) {
+    const f = fixture({ adopted });
+    const base = `${f.project.path}/_Feuillets`;
+    const retained = file(`${base}/Snapshots/Manual/old.md`, new Uint8Array([1]));
+    const secret = file(`${base}/RewriteHistory/states/secret.md`, new Uint8Array([2]));
+    const snapshots = folder(`${base}/Snapshots`, [folder(`${base}/Snapshots/Manual`, [retained])]);
+    let aux = f.project.children.find((child) => child.path === base);
+    if (!aux) { aux = folder(base); f.project.children.push(aux); aux.parent = f.project; }
+    const history = folder(`${base}/RewriteHistory`, [folder(`${base}/RewriteHistory/states`, [secret])]);
+    aux.children.push(snapshots, history); snapshots.parent = aux; history.parent = aux;
+    const plan = await buildFeuilProjectExportPlan(f.app, f.settings, "v", "p", "2026-08-21T00:00:00Z");
+    assert.ok(Object.keys(plan.files).some((path) => path.endsWith("Snapshots/Manual/old.md")));
+    assert.equal(Object.keys(plan.files).some((path) => path.includes("_Feuillets/RewriteHistory")), false);
+    assert.equal(plan.directories.some((path) => path.includes("_Feuillets/RewriteHistory")), false);
+  }
+});

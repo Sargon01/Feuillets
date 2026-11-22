@@ -1,3 +1,4 @@
+import { renderRewriteHistorySection } from "../ui/rewrite-history-section.js";
 import { MarkdownRenderer, setIcon, type WorkspaceLeaf, type TFolder } from "obsidian";
 import { VIEW_JOURNAL } from "../constants.js";
 import { getDayEntry, getLastEntry, journalEntryKeys } from "../services/journal.js";
@@ -129,6 +130,9 @@ export class JournalView extends BaseFeuilletsView {
     await this.renderJournalSection(wrapper);
     wrapper.createDiv({ cls: "feuillets-progression-divider" });
     await this.renderProgressionSection(wrapper);
+    const historyRoot = this.plugin.getProjectFolder();
+    if (historyRoot) await renderRewriteHistorySection(wrapper, this.app, this.plugin, historyRoot,
+      (target) => this.renderGroupHead(target, "journal:rewrite-history", "history", t("rewriteHistory.title"), this.plugin.settings));
   }
 
   // ============================ Journal (haut) ============================

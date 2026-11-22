@@ -363,3 +363,7 @@ Feuillets supports French and English interfaces out of the box, with English se
 - Complete documentation index: [docs/README.md](docs/README.md).
 
 > **Feuillets — write first, build later.**
+
+### Automatic rewrite history
+
+Enable **Automatic history** in Appearance to retain per-sheet rewrite interventions in Markdown and Continuous mode (10-minute inactivity by default). The Journal tab alone groups interventions in collapsible sheet entries following Binder order, with remembered expansion, counts and latest dates. Expand a sheet for dates, before/after word counts, signed changes and the existing comparator. Proofreading retains Compare a version for manual snapshots. Local history is excluded from `.feuil` sharing; manual snapshots and backups keep their roles. See [behavior and recovery limits](docs/REWRITE-HISTORY.md).

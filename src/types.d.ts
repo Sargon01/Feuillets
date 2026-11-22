@@ -746,6 +746,8 @@ declare type FeuilletsSettings = {
   liveEmptyLines: "normal" | "reduit" | "invisible";
   liveHyphenation: boolean;
   liveTwoEnters: boolean;
+  automaticRewriteHistory: boolean;
+  rewriteHistoryInactivityMinutes: number;
   showFormattingMarks: boolean;
   liveDoubleEnter: boolean;
   liveJustify: boolean;

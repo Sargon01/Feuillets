@@ -12853,3 +12853,21 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
 .feuillets-carnet-canvas .feuillets-compact-file .canvas-node-label {
   display: none;
 }
+
+/* Journal rewrite chronology reuses the panel's section and metadata styles. */
+.feuillets-rewrite-list { gap: 0; }
+.feuillets-rewrite-group + .feuillets-rewrite-group { border-top: 1px solid var(--background-modifier-border); }
+.feuillets-rewrite-group-heading { display: flex; align-items: center; gap: var(--size-4-1); }
+.feuillets-rewrite-group-toggle { flex: 1; min-width: 0; }
+.feuillets-rewrite-group-label { display: flex; flex-direction: column; min-width: 0; gap: var(--size-2-1); }
+.feuillets-rewrite-group-summary { overflow-wrap: anywhere; }
+.feuillets-rewrite-interventions { padding-left: var(--size-4-3); }
+.feuillets-rewrite-interventions[hidden] { display: none; }
+.feuillets-rewrite-entry { padding: var(--size-4-2) 0; min-width: 0; }
+.feuillets-rewrite-entry + .feuillets-rewrite-entry { border-top: 1px solid var(--background-modifier-border); }
+.feuillets-rewrite-entry .feuillets-notes-sub { margin: 0; overflow-wrap: anywhere; }
+.feuillets-rewrite-title { color: inherit; overflow-wrap: anywhere; min-width: 0; white-space: normal; }
+.feuillets-rewrite-group-heading > .clickable-icon,
+.feuillets-rewrite-entry .clickable-icon { flex-shrink: 0; }
+.feuillets-rewrite-more { font-size: var(--font-ui-smaller); white-space: normal; text-align: left; }
+.feuillets-rewrite-more[hidden] { display: none; }

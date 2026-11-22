@@ -335,3 +335,7 @@ Feuillets prend en charge une interface complète en français et en anglais, av
 - Index complet de la documentation : [docs/README.md](docs/README.md).
 
 > **Feuillets — écrivez d’abord, construisez ensuite.**
+
+### Historique automatique des réécritures
+
+Activez **Historique automatique** dans Apparence pour conserver les interventions par feuillet dans l’éditeur et en Continu (10 minutes d’inactivité par défaut). Le Journal seul regroupe les interventions par feuillet dans l’ordre du Binder : groupes repliables mémorisés, nombre d’interventions et dernière date. Dépliez un groupe pour les dates, mots avant/après, variations et comparaisons des états conservés. Relecture conserve « Comparer une version » pour les snapshots manuels. Cet historique local est exclu du partage `.feuil` ; snapshots manuels et sauvegardes conservent leurs rôles. Voir [le fonctionnement et les limites de récupération](docs/REWRITE-HISTORY.md).

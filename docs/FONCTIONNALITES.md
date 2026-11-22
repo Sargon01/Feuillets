@@ -299,3 +299,7 @@ Les citations relient les sources Recherche au manuscrit. Lors d’une compilati
 - aucun Pandoc ou exécutable de conversion n’est installé, recherché ou exécuté par Feuillets.
 
 Les tableaux DOCX et ODT sont natifs ; l’ODT incorpore les images locales PNG/JPEG/GIF/SVG prises en charge. Les limites par format sont détaillées dans [Composition et export](COMPOSITION-ET-EXPORT.md).
+
+## Historique automatique des réécritures
+
+Option locale regroupant les réécritures indépendamment par feuillet, avec inactivité configurable, mots avant/après, variation signée et comparaison des états conservés. Accessible uniquement dans Journal, en groupes repliables par feuillet suivant l’ordre du Binder, avec déploiement mémorisé ; Relecture conserve « Comparer une version » pour les snapshots manuels. Une simple consultation, une modification de métadonnées ou un corps finalement inchangé ne crée pas d’entrée. Distinct des snapshots manuels, versions, backups ZIP et relectures. Exclu par défaut du partage `.feuil`. [Détails et limites de récupération](REWRITE-HISTORY.md).

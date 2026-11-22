@@ -290,3 +290,7 @@ Citations connect Research sources to the manuscript. During compilation, Feuill
 - no Pandoc/external conversion executable is installed, located or run by Feuillets.
 
 DOCX and ODT tables are native; ODT embeds supported local PNG/JPEG/GIF/SVG images. Per-format limits are explained in [Composition and export](COMPOSITION-AND-EXPORT.md).
+
+## Automatic rewrite history
+
+Optional local history groups each sheet’s real rewrites independently, with configurable inactivity, before/after word counts, signed deltas and comparison of retained states in Changes or Versions mode. Available only in Journal, in collapsible sheet groups following Binder order with remembered expansion; Proofreading keeps Compare a version for manual snapshots; excludes metadata-only changes and unchanged final bodies. Separate from manual snapshots, manuscript versions, ZIP backups and collaborative review. Excluded from `.feuil` sharing by default. [Details and recovery limits](REWRITE-HISTORY.md).

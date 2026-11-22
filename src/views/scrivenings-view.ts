@@ -26,6 +26,7 @@ import { roleOfFile } from "../services/folder-structure.js";
 import { buildScriveningsRangeClipboardText } from "../services/scrivenings-clipboard-source.js";
 import { createScriveningsCopyExtension, createScriveningsEnterTypographyExtension, createScriveningsExtensions, scriveningsBoundariesField, scriveningsChangeListener, setScriveningsDecorations } from "../utils/cm-scrivenings.js";
 import { scriveningsParagraphEndLookup, type ScriveningsImageResolver } from "../utils/cm-scrivenings-markdown.js";
+import type { RewriteHistoryController } from "../services/rewrite-history-controller.js";
 import type { FormattingMarksController } from "../utils/cm-formatting-marks.js";
 import { createLiveTypographyExtension, typographySegmentContext } from "../utils/cm-live-typography.js";
 import { createScriveningsCitationExtension } from "../utils/cm-scrivenings-citations.js";
@@ -120,6 +121,7 @@ export function nextScrollAnchorAfterRecomposition(
 }
 
 export type ScriveningsViewPlugin = {
+  rewriteHistory?: RewriteHistoryController;
   formattingMarks?: FormattingMarksController;
   app: App;
   settings: FeuilletsSettings;
@@ -202,6 +204,7 @@ export interface ScriveningsEditorContext {
 export interface ScriveningsSessionDeps {
   app: App;
   debounceMs?: number;
+  observeRewrite?: (file: TFile, before: string, after: string) => void;
   /** Points d'injection pour les tests — par défaut `window.set/clearTimeout`. */
   scheduleTimeout?: (cb: () => void, ms: number) => number;
   cancelTimeout?: (id: number) => void;
@@ -220,6 +223,7 @@ export class ScriveningsSession {
   document: ScriveningsDocument | null = null;
 
   private readonly app: App;
+  private readonly observeRewrite?: ScriveningsSessionDeps["observeRewrite"];
   private readonly debounceMs: number;
   private readonly scheduleTimeout: (cb: () => void, ms: number) => number;
   private readonly cancelTimeout: (id: number) => void;
@@ -235,6 +239,7 @@ export class ScriveningsSession {
 
   constructor(deps: ScriveningsSessionDeps) {
     this.app = deps.app;
+    this.observeRewrite = deps.observeRewrite;
     this.debounceMs = deps.debounceMs ?? SAVE_DEBOUNCE_MS;
     this.scheduleTimeout = deps.scheduleTimeout ?? ((cb, ms) => window.setTimeout(cb, ms));
     this.cancelTimeout = deps.cancelTimeout ?? ((id) => window.clearTimeout(id));
@@ -273,6 +278,14 @@ export class ScriveningsSession {
     const result = applyCompositeChanges(this.document, changes);
     if (!result) return null;
 
+    for (const path of result.touchedPaths) {
+      const before = this.document.segments.find((segment) => segment.path === path);
+      const after = result.document.segments.find((segment) => segment.path === path);
+      if (before && after) {
+        try { this.observeRewrite?.(before.file, before.frontmatter + before.body, after.frontmatter + after.body); }
+        catch (error) { console.error("Feuillets: rewrite history observer failed", error); this.notify(t("rewriteHistory.error")); }
+      }
+    }
     this.document = result.document;
     if (result.touchedPaths.length > 0) {
       for (const path of result.touchedPaths) this.dirtyPaths.add(path);
@@ -482,7 +495,9 @@ export class ScriveningsView extends ItemView {
   constructor(leaf: WorkspaceLeaf, plugin: ScriveningsViewPlugin) {
     super(leaf);
     this.plugin = plugin;
-    this.session = new ScriveningsSession({ app: plugin.app });
+    this.session = new ScriveningsSession({ app: plugin.app,
+      observeRewrite: (file, before, after) => plugin.rewriteHistory?.observe(file, before, after, "continu"),
+    });
     this.grammarChecker = new ScriveningsGrammarChecker({
       host: plugin,
       getEditor: () => this.cm,
@@ -565,6 +580,7 @@ export class ScriveningsView extends ItemView {
 
   async onClose(): Promise<void> {
     await this.session.flush();
+    for (const segment of this.session.document?.segments ?? []) await this.plugin.rewriteHistory?.close(segment.file);
     this.session.destroy();
     this.destroyEditor();
   }

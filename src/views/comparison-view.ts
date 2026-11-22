@@ -89,7 +89,7 @@ export type ComparisonSpec =
   /** `sourcePath` : le vrai feuillet de l'utilisateur. Son CÔTÉ dépend du
    * mode (voir la convention ci-dessus) ; son rôle, lui, ne change jamais. */
   | { kind: "native-review"; sourcePath: string; reviewId: string; sessionsRootPath: string; documentId: string }
-  | { kind: "snapshot"; sourcePath: string; snapshotPath?: string; allowRestore?: boolean };
+  | { kind: "snapshot"; sourcePath: string; snapshotPath?: string; allowRestore?: boolean; retainedPair?: boolean };
 
 export type ComparisonPlugin = {
   app: App;
@@ -161,6 +161,7 @@ export class ComparisonSession {
   /** Vue actuellement verrouillée en lecture seule — celle du document
    * comparé, quel que soit son côté. */
   private lockedCm: ComparisonEditorView | null = null;
+  private retainedSourceCm: ComparisonEditorView | null = null;
   private eventRefs: Array<{ owner: Events; ref: EventRef }> = [];
   private unsubscribeClicks: (() => void) | null = null;
   private writing = false;
@@ -220,11 +221,12 @@ export class ComparisonSession {
     // fichier technique du document comparé (horodatage de snapshot,
     // identifiant de paquet). Ce même titre sert déjà de `data.title`.
     this.plugin.setComparisonDisplayTitle?.(this.comparedPath, this.data.title);
+    if (this.spec.kind === "snapshot" && this.spec.retainedPair) this.plugin.setComparisonDisplayTitle?.(this.sourcePath, t("rewriteHistory.after"));
 
     // La vraie feuille du feuillet, réutilisée si elle est déjà ouverte —
     // aucune copie, aucun modal, aucun rendu maison.
     const opened = this.markdownLeaves().find((leaf) => (leaf.view as MarkdownView).file?.path === source.path);
-    const sourceLeaf = opened ?? this.app.workspace.getLeaf(false);
+    const sourceLeaf = opened ?? this.app.workspace.getLeaf(this.spec.kind === "snapshot" && this.spec.retainedPair ? "tab" : false);
     if (!opened) await sourceLeaf.openFile(source);
 
     // Le document comparé s'ouvre DU CÔTÉ que lui donne le sens de lecture :
@@ -240,7 +242,10 @@ export class ComparisonSession {
     this.unsubscribeClicks = onComparisonClick((detail) => this.onClick(detail));
     this.listen(this.app.vault, this.app.vault.on("modify", (file) => {
       if (!(file instanceof TFile)) return;
-      if (file.path === this.sourcePath || (file.path === this.comparedPath && !this.writing)) void this.reload();
+      if (file.path === this.sourcePath || (file.path === this.comparedPath && !this.writing)) {
+        if (this.spec.kind === "snapshot" && this.spec.retainedPair) { new Notice(t("rewriteHistory.unavailable")); void this.close(); }
+        else void this.reload();
+      }
     }));
     this.listen(this.app.workspace, this.app.workspace.on("active-leaf-change", () => { this.plugin.applyLiveTypoClasses?.(); this.plugin.applyIndentClass?.(); this.paint(); }));
     this.listen(this.app.workspace, this.app.workspace.on("layout-change", () => { if (!this.stillOpen()) void this.close(); }));
@@ -262,6 +267,8 @@ export class ComparisonSession {
     clearComparisonDecorations(this.decoratedBefore);
     clearComparisonDecorations(this.decoratedAfter);
     setComparisonReadOnly(this.lockedCm, false);
+    setComparisonReadOnly(this.retainedSourceCm, false);
+    this.retainedSourceCm = null;
     this.decoratedBefore = null; this.decoratedAfter = null; this.lockedCm = null;
     this.barEl?.remove(); this.barEl = null;
     this.hostEl?.removeClass("feuillets-comparison-host"); this.hostEl = null;
@@ -272,8 +279,11 @@ export class ComparisonSession {
     // Seule la feuille du document comparé est refermée : celle du vrai
     // feuillet appartient à l'utilisateur et reste où elle était.
     const compared = this.comparedLeaf();
+    const retainedSource = this.spec.kind === "snapshot" && this.spec.retainedPair ? this.afterLeaf : null;
+    if (retainedSource) this.plugin.setComparisonDisplayTitle?.(this.sourcePath, null);
     this.beforeLeaf = null; this.afterLeaf = null;
     compared?.detach();
+    retainedSource?.detach();
     if (ComparisonSession.current === this) ComparisonSession.current = null;
     this.plugin.applyLiveTypoClasses?.();
     this.plugin.applyIndentClass?.();
@@ -336,7 +346,9 @@ export class ComparisonSession {
 
   private async loadSnapshot(spec: Extract<ComparisonSpec, { kind: "snapshot" }>): Promise<ComparisonData> {
     const file = this.sourceFile(); if (!file) throw new Error(t("nativeReview.notice.sourceMissing"));
-    const snapshots = listSnapshotFiles(this.app, file, this.plugin.getProjectFolder?.() ?? null);
+    const retained = spec.retainedPair && spec.snapshotPath ? this.app.vault.getAbstractFileByPath(spec.snapshotPath) : null;
+    if (spec.retainedPair && (!(retained instanceof TFile) || spec.allowRestore !== false)) throw new Error(t("rewriteHistory.unavailable"));
+    const snapshots = retained instanceof TFile ? [retained] : listSnapshotFiles(this.app, file, this.plugin.getProjectFolder?.() ?? null);
     if (!snapshots.length) throw new Error(t("modal.diff.noSnapshotAvailable"));
     const chosen = snapshots.find((item) => item.path === spec.snapshotPath) ?? snapshots[0];
     // Le moteur reste basé sur le vrai fichier — c'est lui qui porte les
@@ -345,7 +357,7 @@ export class ComparisonSession {
     const comparedText = stripFrontmatter(await this.app.vault.read(chosen));
     const changes = comparisonChanges(await this.sourceText(), comparedText);
     return {
-      title: t("comparison.snapshotPane", { name: humanizeSnapshotStamp(chosen.basename) ?? chosen.basename }),
+      title: spec.retainedPair ? t("rewriteHistory.before") : t("comparison.snapshotPane", { name: humanizeSnapshotStamp(chosen.basename) ?? chosen.basename }),
       comparedText, changes, notes: [], pendingChanges: changes.length, pendingNotes: 0,
       snapshots, snapshotPath: chosen.path,
     };
@@ -436,6 +448,14 @@ export class ComparisonSession {
       setComparisonReadOnly(comparedCm, true);
     }
 
+    if (this.spec.kind === "snapshot" && this.spec.retainedPair) {
+      const sourceCm = afterCm;
+      if (sourceCm !== this.retainedSourceCm) {
+        setComparisonReadOnly(this.retainedSourceCm, false);
+        this.retainedSourceCm = sourceCm;
+        setComparisonReadOnly(sourceCm, true);
+      }
+    }
     const plan = this._viewMode === "changes"
       ? comparisonPlan({
           mode: this.mode, changes: data.changes, notes: this.noteSpans(), activeIndex: this.activeIndex,
@@ -547,7 +567,7 @@ export class ComparisonSession {
       if (snapshotPicker) picker(titles); else title(titles, data.title);
       titles.createSpan({ cls: "feuillets-comparison-readonly", text: t("comparison.readOnly") });
       titles.createSpan({ cls: "feuillets-comparison-arrow", text: "→" });
-      title(titles, t("comparison.currentLabel"));
+      title(titles, t(this.spec.kind === "snapshot" && this.spec.retainedPair ? "rewriteHistory.after" : "comparison.currentLabel"));
     } else {
       title(titles, t("comparison.yourText"));
       titles.createSpan({ cls: "feuillets-comparison-arrow", text: "→" });

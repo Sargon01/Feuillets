@@ -238,6 +238,7 @@ import {
   type AnchorRect,
 } from "./utils/cm-annotation-highlighter.js";
 import { emptyLinesPlugin } from "./utils/cm-empty-lines.js";
+import { RewriteHistoryController } from "./services/rewrite-history-controller.js";
 import { FormattingMarksController } from "./utils/cm-formatting-marks.js";
 import { nativeReviewThreadHighlightField, nativeReviewThreadDoubleClickExtension, applyNativeReviewThreadHighlights, clearNativeReviewThreadHighlights } from "./utils/cm-native-review-highlighter.js";
 import { comparisonDecorationField, comparisonReadOnlyField, comparisonClickExtension } from "./utils/cm-comparison-decorations.js";
@@ -593,6 +594,7 @@ function applyMindmapEdgeVisibility(edge: MindmapRuntimeEdge, id: string, hidden
 }
 
 class FeuilletsPlugin extends Plugin {
+  rewriteHistory?: RewriteHistoryController;
   readonly formattingMarks = new FormattingMarksController(() => this.settings.showFormattingMarks === true);
   private formattingMarksSettingTab?: FeuilletsSettingTab;
   /**
@@ -814,6 +816,8 @@ class FeuilletsPlugin extends Plugin {
     this.registerHoverLinkSource("feuillets", { display: "Feuillets", defaultMod: false });
     this.registerRibbonIcons();
     this.registerCoreCommands();
+    this.rewriteHistory = new RewriteHistoryController(this);
+    this.rewriteHistory.install();
     this.registerLastEditorTracking();
     this.registerProjectEditorScope();
 
@@ -3069,6 +3073,7 @@ class FeuilletsPlugin extends Plugin {
   }
 
   onunload() {
+    void this.rewriteHistory?.dispose();
     this._searchReplaceBar?.close();
     this.globalSearchReplace?.invalidateContext();
     if (this._mindmapDecorationFrame !== undefined) {
@@ -3972,6 +3977,10 @@ class FeuilletsPlugin extends Plugin {
 
     this.settings = Object.assign({}, DEFAULT_SETTINGS, data) as unknown as FeuilletsSettings;
     this.settings.showFormattingMarks = data.showFormattingMarks === true;
+    this.settings.automaticRewriteHistory = data.automaticRewriteHistory === true;
+    const historyMinutes = data.rewriteHistoryInactivityMinutes;
+    this.settings.rewriteHistoryInactivityMinutes = typeof historyMinutes === "number" && Number.isFinite(historyMinutes)
+      && historyMinutes >= 1 && historyMinutes <= 1440 ? historyMinutes : 10;
     this.settings.carnetDefaultStyles = normalizeCarnetDefaultStyles(this.settings.carnetDefaultStyles);
     this.settings.carnetShowFloatingToolbar = this.settings.carnetShowFloatingToolbar !== false;
     const writingColorsMigrated = migrateWritingColorSettings(this.settings, data);
@@ -4239,10 +4248,12 @@ class FeuilletsPlugin extends Plugin {
     const target = this.app.vault.getAbstractFileByPath(path);
     if (!(target instanceof TFolder)) return false;
     if (path === S.projectFolder) return true;
+    await this.rewriteHistory?.close();
     this.globalSearchReplace?.invalidateContext();
     if (S.projectFolder && !S.projects.includes(S.projectFolder)) S.projects.push(S.projectFolder);
     this.workspaceFolderPath = undefined;
     S.projectFolder = path;
+    await this.rewriteHistory?.refresh();
     this.updateSelectionStatusBar?.();
     await this.saveSettings();
     this.renderAllViews(true);
@@ -4354,8 +4365,14 @@ class FeuilletsPlugin extends Plugin {
     return null;
   }
 
-  /** Refreshes only reference panels when the continuous cursor changes sheets. */
+  /** Keep reference and sheet context in sync when the continuous cursor changes sheets. */
   notifyReferenceContextChanged(): void {
+    for (const type of [VIEW_NOTES, VIEW_SIDEBAR_FEUILLETS]) {
+      for (const leaf of this.app.workspace.getLeavesOfType(type)) {
+        const view = leaf.view as StaleableView & { activeTab?: string };
+        if (type === VIEW_NOTES || view.activeTab === "notes") void view.render?.();
+      }
+    }
     for (const type of [VIEW_RESEARCH, VIEW_SIDEBAR_FEUILLETS]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
         if (leaf.view instanceof ResearchView || leaf.view instanceof SidebarFeuilletsView) {
@@ -5423,6 +5440,11 @@ class FeuilletsPlugin extends Plugin {
       const view = leaf.view as JournalHostView;
       if (view && view.activeTab === "journal" && typeof view.render === "function") void view.render();
     }
+  }
+
+  /** Rewrite chronology is displayed only in the existing Journal surfaces. */
+  refreshRewriteHistoryViews(): void {
+    this.refreshJournalViews();
   }
 
   pushHistory(entry: MoveHistoryEntry): void {

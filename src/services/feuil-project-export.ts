@@ -1,3 +1,4 @@
+import { isRewriteHistoryPath } from "./rewrite-history-store.js";
 import { TFile, TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
 import { flattenFiles, getManuscriptRoot, getProjectRoot, isFrontMatter, isStructuredManuscriptRoot } from "./folder-structure.js";
@@ -201,6 +202,7 @@ async function collectProjectTree(
   files: Record<string, Uint8Array>,
   directories: string[],
 ): Promise<void> {
+  if (isRewriteHistoryPath(folder.path)) return;
   if (backupsRoot && isInside(folder.path, backupsRoot.path)) return;
   if (folder.path !== projectRoot.path) directories.push(`project/${relativePath(folder.path, projectRoot.path)}`);
   for (const child of folder.children) {
@@ -218,6 +220,7 @@ async function collectExternalResearchTree(
   files: Record<string, Uint8Array>,
   directories: string[],
 ): Promise<void> {
+  if (isRewriteHistoryPath(folder.path)) return;
   const archiveRoot = `external/research/${id}`;
   directories.push(folder.path === sourceRoot.path ? archiveRoot : `${archiveRoot}/${relativePath(folder.path, sourceRoot.path)}`);
   const children = [...folder.children].sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);

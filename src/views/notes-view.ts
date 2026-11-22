@@ -338,7 +338,7 @@ export class NotesView extends BaseFeuilletsView {
 
     const wrapper = container.createDiv({ cls: "feuillets-notes-container" });
 
-    const activeFile = this.app.workspace.getActiveFile();
+    const activeFile = this.plugin.getCentralContinuView?.()?.getReferenceFile() ?? this.app.workspace.getActiveFile();
     let file = this.viewedFile || activeFile;
     if (this.viewedFile) {
       const exists = this.app.vault.getAbstractFileByPath(this.viewedFile.path);

@@ -140,6 +140,8 @@ export type DefaultSettings = {
   liveEmptyLines: "normal" | "reduit" | "invisible";
   liveHyphenation: boolean;
   liveTwoEnters: boolean;
+  automaticRewriteHistory: boolean;
+  rewriteHistoryInactivityMinutes: number;
   showFormattingMarks: boolean;
   concentrationWidth: number;
   dimOpacity: number;
@@ -353,6 +355,8 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
   liveEmptyLines: "normal",
   liveHyphenation: false,
   liveTwoEnters: false,
+  automaticRewriteHistory: false,
+  rewriteHistoryInactivityMinutes: 10,
   showFormattingMarks: false,
   concentrationWidth: 720,
   dimOpacity: 35,
