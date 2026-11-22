@@ -89,7 +89,7 @@ export class FormattingMarksController {
 
   extension(options: FormattingMarksOptions = {}): unknown[] {
     const compartment = new Compartment();
-    const controller = this;
+    const { editors, enabled } = this;
     const marks = plugins.fromClass(class {
       decorations: unknown;
       constructor(view: MarksView) { this.decorations = complementaryMarks(view, options); }
@@ -107,10 +107,10 @@ export class FormattingMarksController {
       private destroyed = false;
       private pending = false;
       constructor(private readonly view: MarksView) {
-        controller.editors.add(this);
+        editors.add(this);
         this.schedule();
       }
-      private wanted(): boolean { return controller.enabled() && (options.eligible?.(this.view.state) ?? true); }
+      private wanted(): boolean { return enabled() && (options.eligible?.(this.view.state) ?? true); }
       private schedule(): void {
         if (this.pending || this.active === this.wanted()) return;
         this.pending = true;
@@ -124,7 +124,7 @@ export class FormattingMarksController {
         this.view.dispatch({ effects: compartment.reconfigure(wanted ? active : []) });
       }
       update(): void { this.schedule(); }
-      destroy(): void { this.destroyed = true; controller.editors.delete(this); }
+      destroy(): void { this.destroyed = true; editors.delete(this); }
     });
     return [compartment.of([]), observer];
   }
