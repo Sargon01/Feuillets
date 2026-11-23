@@ -1,3 +1,5 @@
+import { JournalView } from "../src/views/journal-view.js";
+import { SidebarFeuilletsView } from "../src/views/sidebar-feuillets-view.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
@@ -403,9 +405,9 @@ test("single flight : une demande pour le nouveau projet en attente s'exécute a
 test("refreshJournalViews rafraîchit seulement VIEW_JOURNAL et le panneau latéral dont l'onglet actif est Journal", () => {
   const plugin = Object.create(FeuilletsPlugin.prototype);
   const calls = [];
-  const journalLeafView = { render(force) { calls.push(["journal-leaf", force]); } };
-  const sidebarJournalView = { activeTab: "journal", render(force) { calls.push(["sidebar-journal", force]); } };
-  const sidebarOtherView = { activeTab: "notes", render(force) { calls.push(["sidebar-notes", force]); } };
+  const journalLeafView = Object.assign(Object.create(JournalView.prototype), { refreshJournalData() { calls.push("journal-leaf"); } });
+  const sidebarJournalView = Object.assign(Object.create(SidebarFeuilletsView.prototype), { activeTab: "journal", subViews: { journal: { refreshJournalData() { calls.push("sidebar-journal"); } } } });
+  const sidebarOtherView = Object.assign(Object.create(SidebarFeuilletsView.prototype), { activeTab: "notes" });
   plugin.app = {
     workspace: {
       getLeavesOfType(type) {
@@ -418,7 +420,7 @@ test("refreshJournalViews rafraîchit seulement VIEW_JOURNAL et le panneau laté
 
   plugin.refreshJournalViews();
 
-  assert.deepEqual(calls, [["journal-leaf", true], ["sidebar-journal", undefined]]);
+  assert.deepEqual(calls, ["journal-leaf", "sidebar-journal"]);
 });
 
 // ---- Debounce dédié (§5) ----

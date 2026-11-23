@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { TFile, TFolder } from "obsidian";
 import { createFakeVault } from "./helpers/fake-vault.js";
 import { FakeWorkspace, wireVaultEvents, columns, readOnlyOf, settle, barOf, allElements } from "./helpers/comparison-harness.js";
-import { openFeuilletsComparison } from "../src/views/comparison-view.js";
-import { renderRewriteHistorySection } from "../src/ui/rewrite-history-section.js";
+import { ComparisonSession, openFeuilletsComparison, rewriteComparisonWritingLeaf } from "../src/views/comparison-view.js";
+import { mountRewriteHistoryEntries, renderRewriteHistorySection } from "../src/ui/rewrite-history-section.js";
 import { JournalView } from "../src/views/journal-view.js";
 import { t } from "../src/i18n/index.js";
 import { FakeElement } from "./helpers/comparison-harness.js";
@@ -38,6 +38,13 @@ test("history comparison: both retained states are locked in Changes and Version
 class SectionElement extends FakeElement {
   createEl(tag, options = {}) { const child = new SectionElement(tag, options); child.parent = this; this.children.push(child); return child; }
   setAttr(name, value) { this.setAttribute(name, value); }
+  get parentElement() { return this.parent?.children.includes(this) ? this.parent : null; }
+  get firstElementChild() { return this.children[0] ?? null; }
+  get nextElementSibling() { return this.parent?.children[this.parent.children.indexOf(this) + 1] ?? null; }
+  insertBefore(node, next) {
+    node.remove(); node.parent = this;
+    this.children.splice(next ? this.children.indexOf(next) : this.children.length, 0, node);
+  }
 }
 
 async function journalFixture() {
@@ -55,7 +62,7 @@ async function journalFixture() {
   return { app, root, file, history, plugin, container, view };
 }
 
-test("Journal rewrite chronology uses shared panel headers, editorial titles and icon actions without altering author notes", async () => {
+test("Journal rewrite chronology uses shared panel headers, editorial titles and labelled comparison actions", async () => {
   const f = await journalFixture();
   f.history.observe(f.file, "Un texte ancien", "Nouveau texte", "continu"); await f.history.close();
   await f.view.render();
@@ -67,7 +74,13 @@ test("Journal rewrite chronology uses shared panel headers, editorial titles and
   assert.ok(elements.some((element) => element.classes.has("feuillets-notes-section-icon")));
   assert.equal(elements.find((element) => element.classes.has("feuillets-notes-section-title")).text, t("rewriteHistory.title"));
   assert.equal(elements.find((element) => element.classes.has("feuillets-rewrite-title")).text, "Editorial title");
-  assert.ok(elements.some((element) => element.classes.has("clickable-icon") && element.getAttribute("aria-label") === t("rewriteHistory.compare")));
+  const entry = elements.find((element) => element.classes.has("feuillets-rewrite-entry"));
+  const [primary, current] = entry.children;
+  assert.deepEqual(entry.children.map((element) => element.tag), ["button", "button"]);
+  assert.ok(primary.getAttribute("aria-label").startsWith(t("rewriteHistory.compare")));
+  assert.equal(current.getAttribute("aria-label"), t("rewriteHistory.compareCurrent"));
+  assert.equal(current.getAttribute("title"), t("rewriteHistory.compareCurrentHint"));
+  assert.deepEqual(current.children.map((element) => element.text), [t("rewriteHistory.compareCurrent"), t("rewriteHistory.compareCurrentShort")]);
   assert.equal(elements.some((element) => element.tag === "details" || element.tag === "summary" || element.tag === "select"), false);
   assert.equal(elements.filter((element) => element.classes.has("feuillets-rewrite-entry")).length, 1);
   assert.equal(f.file.content, "Notes de travail");
@@ -158,10 +171,130 @@ test("Journal closed groups scale with sheets, never read historical Markdown an
   assert.equal(listings, 1); assert.equal(resolutions, 300);
   assert.equal(matching(f.container, "feuillets-rewrite-group").length, 300);
   assert.equal(matching(f.container, "feuillets-rewrite-entry").length, 0);
-  assert.ok(allElements(f.container).length < 3000);
+  assert.ok(allElements(f.container).length < 3400);
   const toggles = matching(f.container, "feuillets-rewrite-group-toggle");
   toggles[0].events.get("click")(); assert.equal(matching(f.container, "feuillets-rewrite-entry").length, 30);
   toggles[1].events.get("click")(); assert.equal(matching(f.container, "feuillets-rewrite-entry").length, 60);
   toggles[0].events.get("click")(); assert.equal(matching(f.container, "feuillets-rewrite-entry").length, 30);
   assert.equal(listings, 1); assert.equal(resolutions, 300);
+});
+
+test("Journal background refresh keeps the same focused control and paginated rows when a new intervention arrives", async () => {
+  const f = await journalFixture();
+  for (let i = 0; i < 35; i++) { f.history.observe(f.file, `Old ${i}`, `New ${i}`, "markdown-editor"); await f.history.close(); }
+  const refresh = () => renderRewriteHistorySection(f.container, f.app, f.plugin, f.root,
+    (parent) => JournalView.prototype.renderGroupHead.call(f.view, parent, "journal:rewrite-history", "history", t("rewriteHistory.title"), f.plugin.settings));
+  await refresh();
+  const [toggle] = matching(f.container, "feuillets-rewrite-group-toggle");
+  toggle.events.get("click")();
+  matching(f.container, "feuillets-rewrite-more")[0].events.get("click")();
+  const previous = matching(f.container, "feuillets-rewrite-entry");
+  const focused = matching(previous[33], "feuillets-rewrite-primary")[0];
+  focused.ownerDocument = { activeElement: focused };
+  await refresh();
+  f.history.observe(f.file, "New", "Newest", "markdown-editor"); await f.history.close();
+  await refresh();
+  assert.equal(matching(f.container, "feuillets-rewrite-group-toggle")[0], toggle);
+  const result = matching(f.container, "feuillets-rewrite-entry");
+  assert.equal(result.length, 36);
+  assert.deepEqual(result.slice(1), previous);
+  assert.equal(matching(result[34], "feuillets-rewrite-primary")[0], focused);
+});
+
+test("intervention buttons open one comparison each with the correct historical states", async () => {
+  const f = await journalFixture();
+  const workspace = new FakeWorkspace();
+  f.app.workspace = workspace;
+  wireVaultEvents(f.app.vault);
+  const original = workspace.add();
+  await original.openFile(f.file);
+  original.view.editor.getValue = () => "Unsaved manuscript";
+  workspace.getMostRecentLeaf = () => original;
+  f.history.observe(f.file, "Before the rewrite", "After the rewrite", "markdown-editor");
+  await f.history.close();
+  const entries = await f.history.list(f.file);
+  const [entry] = entries;
+  const before = await f.history.store.state(entry.before);
+  const after = await f.history.store.state(entry.after);
+  mountRewriteHistoryEntries(f.container, f.history, f.plugin, true)(entries);
+  const [row] = matching(f.container, "feuillets-rewrite-entry");
+  const [primary, current] = row.children;
+  let returnedFocus = false;
+  primary.isConnected = true;
+  primary.win = { requestAnimationFrame: (callback) => callback() };
+  primary.getClientRects = () => [{}];
+  primary.focus = (options) => { returnedFocus = options.preventScroll; };
+  assert.equal(row.events.has("click"), false);
+  primary.events.get("click")();
+  await settle();
+  const retained = ComparisonSession.current;
+  assert.deepEqual(retained.spec, { kind: "snapshot", sourcePath: after.path, snapshotPath: before.path, allowRestore: false, retainedPair: true });
+  assert.deepEqual(columns(workspace).filter((view) => view !== original.view).map((view) => view.file.path), [before.path, after.path]);
+  await retained.close(true);
+  assert.equal(returnedFocus, true);
+  current.events.get("click")();
+  await settle();
+  const withCurrent = ComparisonSession.current;
+  assert.notEqual(withCurrent, retained);
+  assert.equal(withCurrent.spec.sourcePath, f.file.path);
+  assert.equal(withCurrent.spec.snapshotPath, after.path);
+  assert.equal(withCurrent.spec.allowRestore, false);
+  assert.deepEqual(columns(workspace).map((view) => view.file.path), [after.path, f.file.path]);
+  assert.equal(original.view.editor.getValue(), "Unsaved manuscript");
+  await withCurrent.close();
+  assert.deepEqual(workspace.leaves, [original]);
+  assert.equal(f.file.content, "Notes de travail");
+});
+
+test("history/current compares the unsaved Markdown buffer and keeps the writing leaf and history read-only", async () => {
+  const retained = new TFile("Projet/_Feuillets/RewriteHistory/states/older.md", "Original text.");
+  const manuscript = new TFile("Projet/Chapitre.md", "Saved text.");
+  const { vault } = createFakeVault([retained, manuscript]); wireVaultEvents(vault);
+  const workspace = new FakeWorkspace(); const app = { vault, workspace };
+  const original = workspace.add(); await original.openFile(manuscript);
+  original.view.editor.getValue = () => "Unsaved text.";
+  workspace.getMostRecentLeaf = () => original;
+  let wrote = false;
+  vault.modify = () => { wrote = true; };
+  const session = await openFeuilletsComparison(app, { app, settings: {} }, {
+    kind: "snapshot", sourcePath: manuscript.path, snapshotPath: retained.path, allowRestore: false,
+    historyCurrent: { date: "22/11/2026" },
+  });
+  assert.ok(session);
+  await settle();
+  const [before, after] = workspace.leaves;
+  assert.equal(after, original);
+  assert.equal(rewriteComparisonWritingLeaf(before), original);
+  assert.ok(columns(workspace).every((view) => readOnlyOf(view.cm)));
+  const bar = barOf(workspace, retained.path);
+  assert.ok(allElements(bar).some((element) => element.text === t("rewriteHistory.editorText")));
+  assert.ok(allElements(bar).some((element) => element.text.includes("22/11/2026")));
+  await session.close();
+  assert.deepEqual(workspace.leaves, [original]);
+  assert.equal(readOnlyOf(original.view.cm), false);
+  assert.equal(original.view.editor.getValue(), "Unsaved text.");
+  assert.equal(manuscript.content, "Saved text.");
+  assert.equal(wrote, false);
+});
+
+test("history/current with a Continu writing leaf labels the saved fallback and cleans up both comparison leaves", async () => {
+  const retained = new TFile("Projet/_Feuillets/RewriteHistory/states/older.md", "Original text.");
+  const manuscript = new TFile("Projet/Chapitre.md", "Saved text.");
+  const { vault } = createFakeVault([retained, manuscript]); wireVaultEvents(vault);
+  const workspace = new FakeWorkspace(); const app = { vault, workspace };
+  const continu = workspace.add();
+  continu.view = { getViewType: () => "feuillets-scrivenings" };
+  workspace.getMostRecentLeaf = () => continu;
+  const session = await openFeuilletsComparison(app, { app, settings: {} }, {
+    kind: "snapshot", sourcePath: manuscript.path, snapshotPath: retained.path, allowRestore: false,
+    historyCurrent: { date: "22/11/2026" },
+  });
+  assert.ok(session);
+  const before = workspace.leaves.find((leaf) => leaf.view.file === retained);
+  const after = workspace.leaves.find((leaf) => leaf.view.file === manuscript);
+  assert.equal(rewriteComparisonWritingLeaf(before), continu);
+  assert.equal(rewriteComparisonWritingLeaf(after), continu);
+  assert.ok(allElements(barOf(workspace, retained.path)).some((element) => element.text === t("rewriteHistory.savedText")));
+  await session.close();
+  assert.deepEqual(workspace.leaves, [continu]);
 });

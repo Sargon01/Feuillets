@@ -5673,8 +5673,8 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
    normale, même si sa classe contient le mot « export ». */
 .feuillets-sidebar-tab-bar .feuillets-tab-btn,
 .feuillets-sidebar-tab-bar button,
-.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta),
-.feuillets-sidebar-container button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta),
+.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta):where(:not(.feuillets-rewrite-primary, .feuillets-rewrite-current)),
+.feuillets-sidebar-container button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta):where(:not(.feuillets-rewrite-primary, .feuillets-rewrite-current)),
 .feuillets-sidebar-content .clickable-icon,
 .feuillets-research-container button:not(.feuillets-btn-primary),
 .feuillets-research-container .clickable-icon,
@@ -5686,7 +5686,7 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
 }
 
 .feuillets-sidebar-tab-bar .feuillets-tab-btn:hover,
-.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta):hover,
+.feuillets-sidebar-content button:not(.feuillets-export-cta):not(.feuillets-compile-export-btn):not(.feuillets-preview-export-launch):not(.feuillets-edition-export-cta):where(:not(.feuillets-rewrite-primary, .feuillets-rewrite-current)):hover,
 .feuillets-sidebar-content .clickable-icon:hover,
 .feuillets-research-container button:not(.feuillets-btn-primary):hover,
 .feuillets-research-container .clickable-icon:hover,
@@ -12855,6 +12855,7 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
 }
 
 /* Journal rewrite chronology reuses the panel's section and metadata styles. */
+.feuillets-journal-container { overflow-anchor: none; }
 .feuillets-rewrite-list { gap: 0; }
 .feuillets-rewrite-group + .feuillets-rewrite-group { border-top: 1px solid var(--background-modifier-border); }
 .feuillets-rewrite-group-heading { display: flex; align-items: center; gap: var(--size-4-1); }
@@ -12863,11 +12864,54 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
 .feuillets-rewrite-group-summary { overflow-wrap: anywhere; }
 .feuillets-rewrite-interventions { padding-left: var(--size-4-3); }
 .feuillets-rewrite-interventions[hidden] { display: none; }
-.feuillets-rewrite-entry { padding: var(--size-4-2) 0; min-width: 0; }
+.feuillets-rewrite-entry {
+  display: flex;
+  min-width: 0;
+  container: feuillets-rewrite-entry / inline-size;
+}
 .feuillets-rewrite-entry + .feuillets-rewrite-entry { border-top: 1px solid var(--background-modifier-border); }
 .feuillets-rewrite-entry .feuillets-notes-sub { margin: 0; overflow-wrap: anywhere; }
+.feuillets-rewrite-entry > :is(.feuillets-rewrite-primary, .feuillets-rewrite-current) {
+  height: auto;
+  padding: var(--size-4-2) var(--size-4-1);
+  border: 0;
+  border-radius: var(--radius-s);
+  box-shadow: none;
+  background: transparent;
+  cursor: pointer;
+}
+.feuillets-rewrite-entry > :is(.feuillets-rewrite-primary, .feuillets-rewrite-current):hover {
+  background: var(--background-modifier-hover);
+}
+.feuillets-rewrite-entry > :is(.feuillets-rewrite-primary, .feuillets-rewrite-current):focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+}
+.feuillets-rewrite-entry > .feuillets-rewrite-primary {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  justify-content: start;
+  align-content: center;
+  gap: var(--size-2-1);
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.feuillets-rewrite-entry > .feuillets-rewrite-current {
+  flex: none;
+  color: var(--text-accent);
+  font-size: var(--font-ui-smaller);
+  white-space: nowrap;
+}
+.feuillets-rewrite-current-short { display: none; }
+@container feuillets-rewrite-entry (max-width: 255px) {
+  .feuillets-rewrite-current-full { display: none; }
+  .feuillets-rewrite-current-short { display: inline; }
+}
 .feuillets-rewrite-title { color: inherit; overflow-wrap: anywhere; min-width: 0; white-space: normal; }
-.feuillets-rewrite-group-heading > .clickable-icon,
-.feuillets-rewrite-entry .clickable-icon { flex-shrink: 0; }
+.feuillets-rewrite-group-heading > .clickable-icon { flex-shrink: 0; }
 .feuillets-rewrite-more { font-size: var(--font-ui-smaller); white-space: normal; text-align: left; }
 .feuillets-rewrite-more[hidden] { display: none; }
+.feuillets-rewrite-chevron { margin-inline-start: auto; }
+.feuillets-rewrite-context .feuillets-rewrite-entry:first-child .feuillets-notes-sub { color: var(--text-normal); }

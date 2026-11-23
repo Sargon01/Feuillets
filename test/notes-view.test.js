@@ -169,26 +169,32 @@ test("NotesView abandonne une note de dossier au changement de fichier et filtre
   const active = makeFile("Projet/scene.md");
   const viewed = makeFile("Projet/Chapitre.md");
   const other = makeFile("Projet/autre.md");
-  const { view, handlers, writes } = createNotesView({ activeFile: active });
+  const { view, app, files, handlers, writes } = createNotesView({ activeFile: active });
   const renders = [];
-  view.render = async (force) => { renders.push(force); };
-  view.viewedFile = viewed;
-  view.currentPath = active.path;
+  stubAuxSections(view);
+  files.set(viewed.path, viewed);
+  files.set(other.path, other);
+  const render = view.render.bind(view);
+  view.render = async (force) => { renders.push(force); if (force) await render(force); };
   view.registerEvent = () => {};
 
   await view.onOpen();
   assert.deepEqual(renders, [true]);
 
+  view.viewedFile = viewed;
   handlers.workspace.get("file-open")(active);
+  assert.equal(view.viewedFile, viewed);
+  app.workspace.getActiveFile = () => other;
+  handlers.workspace.get("file-open")(other);
   assert.equal(view.viewedFile, null);
-  assert.deepEqual(renders, [true, true]);
-
-  handlers.vault.get("modify")(other);
-  handlers.metadata.get("changed")(other);
   assert.deepEqual(renders, [true, true]);
 
   handlers.vault.get("modify")(active);
   handlers.metadata.get("changed")(active);
+  assert.deepEqual(renders, [true, true]);
+
+  handlers.vault.get("modify")(other);
+  handlers.metadata.get("changed")(other);
   assert.deepEqual(renders, [true, true, undefined, undefined]);
   assert.deepEqual(writes, []);
 });
@@ -469,17 +475,23 @@ test.skip("NotesView : Retour depuis Notes de travail restaure la vue principale
   assert.equal(renders, 1);
 });
 
-test("NotesView : un changement de fichier actif réinitialise la page secondaire", async () => {
+test("NotesView keeps the history page during same-file and internal events, then resets it on real chapter navigation", async () => {
   const active = makeFile("Projet/scene.md");
-  const { view, handlers } = createNotesView({ activeFile: active });
-  view.render = async () => {};
+  const other = makeFile("Projet/other.md");
+  const retained = makeFile("Projet/_Feuillets/RewriteHistory/states/state.md");
+  const { view, app, files, handlers } = createNotesView({ activeFile: active });
+  files.set(other.path, other);
+  stubAuxSections(view);
   view.registerEvent = () => {};
-  view.notesPage = "working-notes";
-
   await view.onOpen();
+  view.notesPage = "history";
   handlers.workspace.get("file-open")(active);
-
+  handlers.workspace.get("file-open")(retained);
+  assert.equal(view.notesPage, "history");
+  app.workspace.getActiveFile = () => other;
+  handlers.workspace.get("file-open")(other);
   assert.equal(view.notesPage, "home");
+  assert.equal(view.currentPath, other.path);
 });
 
 test.skip("NotesView : note de dossier → Notes de travail → Retour revient à la note de dossier", async () => {

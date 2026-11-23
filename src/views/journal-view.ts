@@ -1,7 +1,7 @@
 import { renderRewriteHistorySection } from "../ui/rewrite-history-section.js";
-import { MarkdownRenderer, setIcon, type WorkspaceLeaf, type TFolder } from "obsidian";
+import { MarkdownRenderer, setIcon, type WorkspaceLeaf, type TAbstractFile, type TFolder } from "obsidian";
 import { VIEW_JOURNAL } from "../constants.js";
-import { getDayEntry, getLastEntry, journalEntryKeys } from "../services/journal.js";
+import { getDayEntry, getJournalRoot, getLastEntry, journalEntryKeys } from "../services/journal.js";
 import { t, getLocale } from "../i18n/index.js";
 import { dateKey, statsForDay, resolveProjectStats } from "../utils/journal-stats.js";
 import { formatNumber } from "../utils/text-metrics.js";
@@ -73,19 +73,58 @@ export class JournalView extends BaseFeuilletsView {
     return "calendar";
   }
 
+  private mounted?: { container: HTMLElement; wrapper: HTMLElement; calendar: HTMLElement; progression: HTMLElement; history: HTMLElement };
+
   async onOpen(): Promise<void> {
-    this.registerEvent(
-      this.app.workspace.on("file-open", () => this.render())
-    );
-    /* Le Journal exigeait déjà un rafraîchissement inconditionnel (son
-       calendrier dépend des comptes de mots de tout le projet) — les deux
-       sections étant maintenant empilées dans un seul rendu, un
-       changement quelconque rafraîchit l'ensemble plutôt que de ne
-       cibler que la section Statistiques comme avant la fusion (effet de
-       bord sans gravité : au pire quelques rendus de plus). */
-    this.registerEvent(this.app.vault.on("modify", () => this.render()));
-    this.registerEvent(this.app.metadataCache.on("changed", () => this.render()));
+    const refresh = (file: TAbstractFile) => { void this.refreshJournalFile(file.path); };
+    this.registerEvent(this.app.vault.on("modify", refresh));
+    this.registerEvent(this.app.vault.on("create", refresh));
+    this.registerEvent(this.app.vault.on("delete", refresh));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      refresh(file);
+      void this.refreshJournalFile(oldPath);
+    }));
     await this.render();
+  }
+
+  async refreshJournalFile(path: string): Promise<void> {
+    const root = getJournalRoot(this.app, this.plugin.settings);
+    if (root && path.startsWith(root.path + "/")) await this.refreshJournalData();
+  }
+
+  async refreshRewriteHistory(): Promise<void> {
+    const mount = this.mounted;
+    const root = this.plugin.getProjectFolder();
+    if (!mount?.wrapper.isConnected) return;
+    if (!root) mount.history.empty();
+    else await renderRewriteHistorySection(mount.history, this.app, this.plugin, root,
+      (target) => this.renderGroupHead(target, "journal:rewrite-history", "history", t("rewriteHistory.title"), this.plugin.settings, () => this.refreshRewriteHistory()));
+  }
+
+  async refreshData(): Promise<void> { await this.refreshRewriteHistory(); }
+
+  async refreshJournalData(): Promise<void> { await this.renderJournalData(true); }
+
+  private async renderJournalData(background: boolean): Promise<void> {
+    const mount = this.mounted;
+    if (!mount) return;
+    for (const [key, render] of [
+      ["calendar", (host: HTMLElement) => this.renderJournalSection(host)],
+      ["progression", (host: HTMLElement) => this.renderProgressionSection(host)],
+    ] as const) {
+      const host = mount[key];
+      // Keep controls and forms in place while the user interacts with them.
+      if (background && host.contains(host.ownerDocument.activeElement)) continue;
+      const replacement = host.createDiv();
+      replacement.remove();
+      await render(replacement);
+      if (this.mounted !== mount || mount[key] !== host) continue;
+      if (background && host.contains(host.ownerDocument.activeElement)) continue;
+      const scroll = mount.wrapper.scrollTop;
+      host.replaceWith(replacement);
+      mount[key] = replacement;
+      if (background) mount.wrapper.scrollTop = scroll;
+    }
   }
 
   changeMonth(delta: number): void {
@@ -120,19 +159,15 @@ export class JournalView extends BaseFeuilletsView {
   async render(force = false): Promise<void> {
     const container = this.targetContainer || this.contentEl;
     if (!force && isEditing(container)) return;
-    container.empty();
-
-    /* un seul conteneur défilant pour tout le panneau : `.feuillets-notes-
-       container` fixe `height: 100%` + `overflow-y: auto`, en empiler deux
-       (un par section) faisait déborder la 2e (Statistiques) hors du
-       viewport sans moyen de la faire défiler jusqu'ici. */
-    const wrapper = container.createDiv({ cls: "feuillets-notes-container" });
-    await this.renderJournalSection(wrapper);
-    wrapper.createDiv({ cls: "feuillets-progression-divider" });
-    await this.renderProgressionSection(wrapper);
-    const historyRoot = this.plugin.getProjectFolder();
-    if (historyRoot) await renderRewriteHistorySection(wrapper, this.app, this.plugin, historyRoot,
-      (target) => this.renderGroupHead(target, "journal:rewrite-history", "history", t("rewriteHistory.title"), this.plugin.settings));
+    if (this.mounted?.container !== container || this.mounted.wrapper.parentElement !== container) {
+      container.empty();
+      const wrapper = container.createDiv({ cls: "feuillets-notes-container feuillets-journal-container" });
+      const calendar = wrapper.createDiv();
+      wrapper.createDiv({ cls: "feuillets-progression-divider" });
+      const progression = wrapper.createDiv();
+      this.mounted = { container, wrapper, calendar, progression, history: wrapper.createDiv() };
+    }
+    await Promise.all([this.renderJournalData(false), this.refreshRewriteHistory()]);
   }
 
   // ============================ Journal (haut) ============================
@@ -296,7 +331,7 @@ export class JournalView extends BaseFeuilletsView {
 
   /** En-tête de bloc pliable de premier niveau (Historique récent) — icône
    * + titre, même patron que les sections des autres panneaux. */
-  renderGroupHead(container: HTMLElement, key: string, icon: string, title: string, settings: FeuilletsSettings): RenderGroupHeadResult {
+  renderGroupHead(container: HTMLElement, key: string, icon: string, title: string, settings: FeuilletsSettings, onToggle: () => Promise<void> = () => this.render()): RenderGroupHeadResult {
     const collapsed = !!settings.collapsed[key];
     const section = container.createDiv({ cls: "feuillets-notes-section" });
     const head = section.createDiv({ cls: "feuillets-notes-section-head" });
@@ -309,7 +344,7 @@ export class JournalView extends BaseFeuilletsView {
         if (collapsed) delete settings.collapsed[key];
         else settings.collapsed[key] = true;
         await this.plugin.saveSettings();
-        void this.render();
+        await onToggle();
       })();
     });
     return { section, collapsed };

@@ -1,3 +1,7 @@
+import { mountRewriteHistoryEntries, rewriteHistorySummary } from "../ui/rewrite-history-section.js";
+import { isRewriteHistoryPath } from "../services/rewrite-history-store.js";
+import type { RewriteHistory } from "../services/rewrite-history.js";
+import { shortTitleFor } from "../services/frontmatter.js";
 import { MarkdownView, Menu, TFile, TFolder, normalizePath, setIcon, type App, type Editor, type WorkspaceLeaf } from "obsidian";
 
 import { VIEW_NOTES } from "../constants.js";
@@ -67,7 +71,7 @@ export interface CursorParagraph {
  * page). "annotations" (chantier annotations, lot 4) suit exactement le
  * même patron : ligne d'accès compacte dans la vue principale, page
  * secondaire dédiée, retour à "home" au changement de fichier actif. */
-type NotesPage = "home" | "properties" | "footnotes" | "notes-and-annotations";
+type NotesPage = "history" | "home" | "properties" | "footnotes" | "notes-and-annotations";
 /** Trois portées — Feuillet (défaut), Dossier ou Projet. */
 type AnnotationScope = "sheet" | "folder" | "project";
 type BaseNotesViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1];
@@ -83,6 +87,7 @@ type NotesSettings = FeuilletsSettings & {
 };
 type NotesViewPlugin = Omit<BaseNotesViewPlugin, "parseStoryDate" | "settings"> & {
   settings: NotesSettings;
+  getFeuilletWritingFile?(): TFile | null;
   parseStoryDate(raw: unknown, file?: TFile | null): StoryDate | null;
   openAnnotationEditor(id: string, onChange?: () => void): Promise<void>;
   refreshAnnotationHighlights(): Promise<void>;
@@ -276,28 +281,48 @@ export class NotesView extends BaseFeuilletsView {
     return "sticky-note";
   }
 
+  private writingFile?: TFile | null;
+  private writingRoot?: TFolder | null;
+  private historyPage?: { file: TFile; history: RewriteHistory };
+  private historyMount?: {
+    file: TFile;
+    history: RewriteHistory;
+    host: HTMLElement;
+    contextual?: boolean;
+    update: (entries: Awaited<ReturnType<RewriteHistory["list"]>>) => void;
+  };
+
+  private resolveWritingFile(): TFile | null {
+    if (this.plugin.getFeuilletWritingFile) return this.plugin.getFeuilletWritingFile();
+    const continu = this.plugin.getCentralContinuView?.();
+    const file = continu ? continu.getReferenceFile() : this.app.workspace.getActiveFile();
+    return file && !isRewriteHistoryPath(file.path) ? file : null;
+  }
+
+  async refreshSheetContext(): Promise<void> {
+    if (this.writingFile !== this.resolveWritingFile() || this.writingRoot !== this.plugin.getProjectFolder()) await this.render(true);
+  }
+
+  async refreshRewriteHistory(): Promise<void> {
+    const mount = this.historyMount;
+    if (!mount?.host.isConnected) return;
+    const entries = await mount.history.list(mount.file);
+    if (this.historyMount !== mount || !mount.host.isConnected) return;
+    if (this.app.vault.getAbstractFileByPath(mount.file.path) !== mount.file) {
+      await this.render(true);
+      return;
+    }
+    const scroll = mount.host.closest(".feuillets-notes-container");
+    const top = scroll?.scrollTop;
+    mount.update(entries);
+    if (scroll && top !== undefined) scroll.scrollTop = top;
+  }
+
   async onOpen(): Promise<void> {
-    this.registerEvent(
-      this.app.workspace.on("file-open", (newFile: TFile | null) => {
-        /* forcé : le fichier actif a changé, il faut refléter le nouveau
-           quel que soit l'état du focus — sans ça, si le curseur était
-           resté dans un champ de CE panneau (Synopsis, Notes…) au moment
-           de cliquer un autre feuillet ailleurs, le panneau restait figé
-           sur l'ancien fichier jusqu'à ce qu'on clique dessus pour lui
-           rendre le focus. Le garde-fou plus bas reste utile pour les
-           rafraîchissements du MÊME fichier (vault "modify"/metadataCache
-           "changed"), où il évite de couper une frappe en cours. */
-        if (newFile && (!this.viewedFile || newFile.path !== this.viewedFile.path)) {
-          this.viewedFile = null;
-        }
-        // Changement de fichier actif : revient toujours à la vue
-        // principale du Feuillet, même si une page secondaire (Notes de
-        // travail, Propriétés, Notes de bas de page) d'une note de dossier
-        // restait affichée ci-dessus.
-        this.notesPage = "home";
-        void this.render(true);
-      })
-    );
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => { void this.refreshSheetContext(); }));
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      if (!isRewriteHistoryPath(file?.path ?? "")) void this.refreshSheetContext();
+    }));
     this.registerEvent(
       this.app.vault.on("modify", (file: TFile) => {
         const targetPath = this.viewedFile ? this.viewedFile.path : this.currentPath;
@@ -333,22 +358,32 @@ export class NotesView extends BaseFeuilletsView {
   async render(force = false): Promise<void> {
     const S = this.plugin.settings;
     const container = this.targetContainer || this.contentEl;
-    if (!force && isEditing(container)) return;
+    const activeFile = this.resolveWritingFile();
+    const root = this.plugin.getProjectFolder();
+    const changed = this.writingRoot !== root || this.writingFile !== activeFile;
+    if (changed && this.writingFile !== undefined) {
+      this.viewedFile = null;
+      this.notesPage = "home";
+      this.historyPage = undefined;
+    }
+    this.writingFile = activeFile;
+    this.writingRoot = root;
+    let file = this.viewedFile || activeFile;
+    if (this.viewedFile && this.app.vault.getAbstractFileByPath(this.viewedFile.path) !== this.viewedFile) {
+      this.viewedFile = null;
+      file = activeFile;
+    }
+    if (!changed && this.notesPage === "history" && this.historyMount?.contextual && this.historyMount.host.isConnected &&
+        this.historyMount.file === file && this.app.vault.getAbstractFileByPath(file.path) === file) {
+      await this.refreshRewriteHistory();
+      return;
+    }
+    if (!changed && !force && (isEditing(container) || container.contains?.(container.ownerDocument?.activeElement))) return;
+    const scroll = !changed && !force ? container.querySelector?.(".feuillets-notes-container")?.scrollTop : undefined;
     container.empty();
-
+    this.historyMount = undefined;
     const wrapper = container.createDiv({ cls: "feuillets-notes-container" });
 
-    const activeFile = this.plugin.getCentralContinuView?.()?.getReferenceFile() ?? this.app.workspace.getActiveFile();
-    let file = this.viewedFile || activeFile;
-    if (this.viewedFile) {
-      const exists = this.app.vault.getAbstractFileByPath(this.viewedFile.path);
-      if (!exists) {
-        this.viewedFile = null;
-        file = activeFile;
-      }
-    }
-
-    const root = this.plugin.getProjectFolder();
     if (!file || !root || !file.path.startsWith(root.path + "/")) {
       wrapper
         .createDiv({ cls: "feuillets-empty" })
@@ -365,6 +400,16 @@ export class NotesView extends BaseFeuilletsView {
     // secondaire est ouverte). `viewedFile` reste intact en dessous : le
     // Retour d'ICI ne fait que fermer cette page, jamais quitter la note de
     // dossier consultée.
+    const history = this.plugin.rewriteHistory?.rootFor(file) === root ? this.plugin.rewriteHistory?.forRoot(root) : undefined;
+    if (this.notesPage === "history") {
+      if (history && this.historyPage?.history === history && this.historyPage.file === file) {
+        this.renderHistoryPanel(wrapper, file, history);
+        await this.refreshRewriteHistory();
+        return;
+      }
+      this.notesPage = "home";
+      this.historyPage = undefined;
+    }
     if (this.notesPage === "properties") {
       this.renderPropertiesPanel(wrapper, file);
       return;
@@ -402,6 +447,7 @@ export class NotesView extends BaseFeuilletsView {
 
     this.renderFolderNoteLinks(wrapper, file);
     this.renderPropertiesRow(wrapper);
+    if (history) this.renderHistoryRow(wrapper, file, history);
 
     /* plugin.parseStoryDate() normalise directement `fm.date`, quel que soit
        son type reçu du cache Obsidian (string, number ou objet Date — voir
@@ -480,6 +526,7 @@ export class NotesView extends BaseFeuilletsView {
     if (S.notesShowFootnotes) {
       await this.renderFootnotesRow(wrapper, file);
     }
+    if (scroll !== undefined) wrapper.scrollTop = scroll;
   }
 
   entityKind(ent: TFile): EntityKind | null {
@@ -1319,6 +1366,46 @@ export class NotesView extends BaseFeuilletsView {
    * chevron, un clic ouvre la page secondaire Propriétés (voir
    * renderPropertiesPanel). Même patron que renderWorkingNotesRow : aucun
    * aperçu du contenu ici, seulement la navigation. */
+  private renderHistoryRow(container: HTMLElement, file: TFile, history: RewriteHistory): void {
+    const section = container.createDiv({ cls: "feuillets-notes-section" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable", attr: { role: "button", tabindex: "0" } });
+    setIcon(head.createSpan({ cls: "feuillets-notes-section-icon" }), "history");
+    const label = head.createSpan({ cls: "feuillets-rewrite-group-label" });
+    label.createSpan({ cls: "feuillets-notes-section-title", text: t("rewriteHistory.title") });
+    const summary = label.createSpan({ cls: "feuillets-tags-count" });
+    setIcon(head.createSpan({ cls: "feuillets-notes-section-icon feuillets-rewrite-chevron" }), "chevron-right");
+    const open = (): void => {
+      this.historyPage = { file, history };
+      this.notesPage = "history";
+      void this.render(true);
+    };
+    head.addEventListener("click", open);
+    head.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
+    });
+    this.historyMount = { file, history, host: section, update: (entries) => {
+      summary.setText(rewriteHistorySummary(entries.length, entries.reduce((latest, entry) => Math.max(latest, entry.endedAt), 0)));
+    } };
+    void this.refreshRewriteHistory();
+  }
+
+  private renderHistoryPanel(container: HTMLElement, file: TFile, history: RewriteHistory): void {
+    this.renderSheetBackBar(container);
+    const section = container.createDiv({ cls: "feuillets-notes-section feuillets-rewrite-context" });
+    const head = section.createDiv({ cls: "feuillets-notes-section-head" });
+    setIcon(head.createSpan({ cls: "feuillets-notes-section-icon" }), "history");
+    head.createSpan({ cls: "feuillets-notes-section-title", text: t("rewriteHistory.title") });
+    const title = section.createDiv({ cls: "feuillets-notes-sub", text: shortTitleFor(this.app, file) });
+    const update = mountRewriteHistoryEntries(section, history, this.plugin, true);
+    this.historyMount = {
+      file, history, host: section, contextual: true,
+      update: (entries) => {
+        title.setText(shortTitleFor(this.app, file));
+        update(entries);
+      },
+    };
+  }
+
   renderPropertiesRow(container: HTMLElement): void {
     const section = container.createDiv({ cls: "feuillets-notes-section" });
     const head = section.createDiv({ cls: "feuillets-notes-section-head feuillets-clickable" });
@@ -1346,6 +1433,11 @@ export class NotesView extends BaseFeuilletsView {
    * bouton Retour ramène ensuite au feuillet — même mécanique que
    * renderWorkingNotesPanel. */
   renderPropertiesPanel(container: HTMLElement, file: TFile): void {
+    this.renderSheetBackBar(container);
+    this.renderFilePropertiesSection(container, file);
+  }
+
+  private renderSheetBackBar(container: HTMLElement): void {
     const backBar = container.createDiv({ cls: "feuillets-notes-back-bar" });
     const backBtn = backBar.createEl("button", {
       cls: "feuillets-back-btn",
@@ -1356,11 +1448,12 @@ export class NotesView extends BaseFeuilletsView {
     backBtn.prepend(iconSpan);
     backBtn.addEventListener("click", () => {
       this.notesPage = "home";
-      void this.render();
+      this.historyPage = undefined;
+      void this.render(true);
     });
 
-    this.renderFilePropertiesSection(container, file);
   }
+
 
   /** Éditeur YAML complet du fichier ouvert — reprise de l'ancien onglet
    * Propriétés (properties-view.js), désormais rendu UNIQUEMENT dans la

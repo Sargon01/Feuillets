@@ -1,3 +1,4 @@
+import { isRewriteHistoryPath } from "../services/rewrite-history-store.js";
 import { CarnetsContent, type CarnetsPlugin } from "../ui/carnets-content.js";
 import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
 import { VIEW_PREVIEW, VIEW_SIDEBAR_FEUILLETS } from "../constants.js";
@@ -46,9 +47,9 @@ type AnalysisSidebarSubView = SidebarSubView & {
   _dashboardCache: unknown;
 };
 type SidebarSubViews = {
-  notes: SidebarSubView;
+  notes: SidebarSubView & { refreshSheetContext?(): Promise<void>; refreshRewriteHistory?(): Promise<void> };
   research: SidebarSubView & { refreshReferencesOnActiveDocumentChange?(): Promise<void> };
-  journal: SidebarSubView;
+  journal: SidebarSubView & { refreshData?(): Promise<void>; refreshJournalData?(): Promise<void>; refreshJournalFile?(path: string): Promise<void>; refreshRewriteHistory?(): Promise<void> };
   docx: SidebarSubView;
   analyse: AnalysisSidebarSubView;
   relecture: SidebarSubView;
@@ -159,6 +160,19 @@ export class SidebarFeuilletsView extends ItemView {
     if (this.activeTab === "research") await this.subViews.research.refreshReferencesOnActiveDocumentChange?.();
   }
 
+  async refreshSheetContext(): Promise<void> {
+    if (this.activeTab === "notes" && this.subViews.notes.targetContainer?.isConnected) await this.subViews.notes.refreshSheetContext?.();
+  }
+
+  async refreshJournalData(): Promise<void> {
+    if (this.activeTab === "journal") await this.subViews.journal.refreshJournalData?.();
+  }
+
+  async refreshRewriteHistory(): Promise<void> {
+    if (this.activeTab === "journal") await this.subViews.journal.refreshRewriteHistory?.();
+    if (this.activeTab === "notes") await this.subViews.notes.refreshRewriteHistory?.();
+  }
+
   async onOpen(): Promise<void> {
     await this.render();
     /* Embedded subviews do not receive onOpen. The host forwards document
@@ -167,14 +181,15 @@ export class SidebarFeuilletsView extends ItemView {
       void this.refreshReferencesOnActiveDocumentChange();
       if (this.activeTab === "project") void this.refreshData();
     };
-    this.registerEvent(this.app.workspace.on("active-leaf-change", refreshReferences));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => { refreshReferences(); void this.refreshSheetContext(); }));
     this.registerEvent(this.app.workspace.on("layout-change", refreshReferences));
     const feuilletTabs = new Set<SidebarTab>(["notes", "relecture", "stats"]);
     this.registerEvent(
-      this.app.workspace.on("file-open", () => {
+      this.app.workspace.on("file-open", (file) => {
         refreshReferences();
         if (!feuilletTabs.has(this.activeTab)) return;
-        if (this.activeTab === "notes") { awaitRender(this.subViews.notes, true); return; }
+        if (isRewriteHistoryPath(file?.path ?? "")) return;
+        if (this.activeTab === "notes") { void this.refreshSheetContext(); return; }
         if (this.activeTab === "stats") { awaitRender(this.subViews.analyse, true); return; }
         // Relecture : ne rafraîchit TextAnalysisView que si sa page est
         // effectivement affichée — pas sur la page d'accueil, pas sur
@@ -182,11 +197,22 @@ export class SidebarFeuilletsView extends ItemView {
         if (this.relecturePage === "analysis") awaitRender(this.subViews.relecture, true);
       })
     );
+    const refreshJournalFile = (path: string) => {
+      if (this.activeTab === "journal") void this.subViews.journal.refreshJournalFile?.(path);
+    };
+    this.registerEvent(this.app.vault.on("modify", (file) => refreshJournalFile(file.path)));
+    this.registerEvent(this.app.vault.on("create", (file) => refreshJournalFile(file.path)));
+    this.registerEvent(this.app.vault.on("delete", (file) => refreshJournalFile(file.path)));
+    this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      refreshJournalFile(file.path);
+      refreshJournalFile(oldPath);
+    }));
     /* L'agrégation « équilibre des chapitres » (onglet Analyse) lit tout le
        manuscrit : on invalide son cache quand le coffre change, pour la
        recalculer au prochain rendu plutôt qu'à chaque navigation. */
     this.registerEvent(
-      this.app.vault.on("modify", () => {
+      this.app.vault.on("modify", (file) => {
+        if (isRewriteHistoryPath(file.path)) return;
         this.subViews.analyse._chaptersCache = null;
         this.subViews.analyse._dashboardCache = null;
       })
@@ -653,6 +679,8 @@ export class SidebarFeuilletsView extends ItemView {
       await this.render();
     } else if (this.activeTab === "carnets") {
       this.carnetsContent?.refresh();
+    } else if (this.activeTab === "journal" && this.subViews.journal.refreshData) {
+      await this.subViews.journal.refreshData();
     } else if (this.activeTab !== "project") {
       await this.renderAllSubViews();
     } else if (this.editionContext !== this.getEditionContext()) {

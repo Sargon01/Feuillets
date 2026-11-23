@@ -4,10 +4,10 @@ import { flattenFiles } from "./folder-structure.js";
 import { getResearchRootForProject } from "./research.js";
 import { getVersionsRoot } from "./project-files.js";
 import { RewriteHistory } from "./rewrite-history.js";
-import { RewriteHistoryStore, type RewriteOrigin } from "./rewrite-history-store.js";
+import { isRewriteHistoryPath, RewriteHistoryStore, type RewriteOrigin } from "./rewrite-history-store.js";
 import { t } from "../i18n/index.js";
 
-interface HistoryHost extends Plugin { settings: FeuilletsSettings; refreshRewriteHistoryViews(): void }
+interface HistoryHost extends Plugin { settings: FeuilletsSettings; refreshRewriteHistoryViews(root?: TFolder): void }
 function inside(path: string, root: string): boolean { return path === root || path.startsWith(`${root}/`); }
 
 /** Owns only integration and the cache of actually observed prior contents.
@@ -29,7 +29,7 @@ export class RewriteHistoryController {
       .filter((root): root is TFolder => root instanceof TFolder).sort((a, b) => b.path.length - a.path.length);
   }
   rootFor(file: TFile): TFolder | null {
-    if (file.extension !== "md") return null;
+    if (file.extension !== "md" || isRewriteHistoryPath(file.path)) return null;
     for (const root of this.roots()) {
       if (!inside(file.path, root.path)) continue;
       const research = getResearchRootForProject(this.app, this.host.settings, root);
@@ -47,7 +47,7 @@ export class RewriteHistoryController {
       history = new RewriteHistory(new RewriteHistoryStore(this.app, root), {
         inactivityMs: () => this.inactivityMs(),
         onError: (error) => { console.error("Feuillets: rewrite history persistence failed", error); new Notice(t("rewriteHistory.error")); },
-        onChange: () => { if (!this.disposed) this.host.refreshRewriteHistoryViews(); },
+        onChange: () => { if (!this.disposed) this.host.refreshRewriteHistoryViews(root); },
       });
       this.projects.set(root, history);
     }
@@ -94,7 +94,7 @@ export class RewriteHistoryController {
   install(): void {
     this.host.registerEditorExtension(createRewriteHistoryExtension(this.observe, (file) => { void this.close(file); }, (file) => !this.disposed && this.host.settings.automaticRewriteHistory && this.rootFor(file) !== null));
     this.host.registerEvent(this.app.vault.on("modify", (file) => { if (file instanceof TFile) void this.read(file, true); }));
-    this.host.registerEvent(this.app.vault.on("create", (file) => { this.membership.clear(); if (file instanceof TFile) void this.read(file, false); }));
+    this.host.registerEvent(this.app.vault.on("create", (file) => { if (isRewriteHistoryPath(file.path)) return; this.membership.clear(); if (file instanceof TFile) void this.read(file, false); }));
     this.host.registerEvent(this.app.vault.on("delete", (file) => {
       this.membership.clear();
       for (const history of this.projects.values()) history.remove(file.path);

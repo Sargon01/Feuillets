@@ -706,6 +706,8 @@ test("SidebarFeuilletsView conserve les rafraîchissements file-open des autres 
   const registered = [];
   sidebar.registerEvent = (event) => registered.push(event);
   sidebar.render = async () => {};
+  sidebar.subViews.notes.targetContainer = { isConnected: true };
+  sidebar.subViews.notes.refreshSheetContext = () => sidebar.subViews.notes.render(true);
   await sidebar.onOpen();
 
   const cases = [
@@ -726,7 +728,7 @@ test("SidebarFeuilletsView conserve les rafraîchissements file-open des autres 
     await Promise.resolve();
     assert.deepEqual(calls.map((call) => call.name), expected, `${tab}/${page}`);
   }
-  assert.deepEqual(registered.map((event) => event.name).sort(), ["active-leaf-change", "file-open", "layout-change", "modify"]);
+  assert.deepEqual(registered.map((event) => event.name).sort(), ["active-leaf-change", "create", "delete", "file-open", "layout-change", "modify", "modify", "rename"]);
 });
 
 test("SidebarFeuilletsView invalide les caches Analyse à la modification", async () => {
@@ -734,7 +736,7 @@ test("SidebarFeuilletsView invalide les caches Analyse à la modification", asyn
   sidebar.registerEvent = () => {};
   sidebar.render = async () => {};
   await sidebar.onOpen();
-  listeners.vault.get("modify")();
+  listeners.vault.get("modify")({ path: "Projet/Manuscrit/Chapitre.md" });
 
   assert.equal(sidebar.subViews.analyse._chaptersCache, null);
   assert.equal(sidebar.subViews.analyse._dashboardCache, null);

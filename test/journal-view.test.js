@@ -14,6 +14,7 @@ class FakeElement {
     this.attrs = new Map();
     this.text = options.text ?? "";
     this.style = {};
+    this.ownerDocument = { activeElement: null };
     if (options.cls) this.addClass(options.cls);
     if (options.attr) {
       for (const [name, value] of Object.entries(options.attr)) this.setAttr(name, value);
@@ -22,6 +23,7 @@ class FakeElement {
 
   createEl(tag, options = {}) {
     const child = new FakeElement(tag, options);
+    child.parentElement = this;
     this.children.push(child);
     return child;
   }
@@ -35,6 +37,15 @@ class FakeElement {
   getAttr(name) { return this.attrs.get(name); }
   empty() { this.children = []; }
   contains() { return false; }
+  get isConnected() { return true; }
+  remove() {
+    this.parentElement.children = this.parentElement.children.filter((child) => child !== this);
+    this.parentElement = null;
+  }
+  replaceWith(replacement) {
+    replacement.parentElement = this.parentElement;
+    this.parentElement.children[this.parentElement.children.indexOf(this)] = replacement;
+  }
 }
 
 function elements(element) {
@@ -117,7 +128,7 @@ test("JournalView compile le carnet puis relance le rendu", async () => {
   assert.equal(rendered, 1);
 });
 
-test("JournalView enregistre ses trois événements avant le premier rendu", async () => {
+test("JournalView écoute les changements de fichiers du Carnet avant le premier rendu", async () => {
   const { view, app } = createView();
   const events = [];
   app.workspace.on = (name) => { events.push(name); return { name }; };
@@ -130,8 +141,8 @@ test("JournalView enregistre ses trois événements avant le premier rendu", asy
 
   await view.onOpen();
 
-  assert.deepEqual(events, ["file-open", "modify", "changed"]);
-  assert.equal(registered.length, 3);
+  assert.deepEqual(events, ["modify", "create", "delete", "rename"]);
+  assert.equal(registered.length, 4);
   assert.equal(rendered, 1);
 });
 

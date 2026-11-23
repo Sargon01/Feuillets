@@ -10,7 +10,7 @@ Une reprise après le délai crée une autre intervention, même le même jour.
 La fermeture de l'éditeur, un changement de projet ou le déchargement du plugin
 clôture les interventions connues. Désactiver l'option conserve l'historique acquis.
 
-L’onglet **Journal** propose seul une section repliable
+L’onglet **Journal** propose la vue globale repliable
 **Historique des réécritures**, avec une entrée par feuillet, dans l’ordre du
 Binder (dossiers et ordre personnalisé compris). Chaque entrée affiche le titre,
 le nombre d’interventions et la date de la dernière. Les groupes sont repliés par
@@ -19,15 +19,26 @@ renommage ou déplacement du feuillet. L’icône de fichier permet de rouvrir l
 
 Dans un groupe ouvert, les interventions vont de la plus récente à la plus
 ancienne, avec dates de début et de dernière modification, mots avant/après et
-variation signée. L’action discrète « Comparer les états conservés » ouvre les
-modes Changements et Versions du comparateur existant, sur deux états en lecture
-seule, indépendamment du texte actuel. Chaque groupe affiche 30 interventions à
+variation signée. Cliquez sur une intervention (ou activez-la avec Entrée)
+pour voir son avant/après en lecture seule dans le comparateur, en mode
+Changements ou Versions. Chaque groupe affiche 30 interventions à
 la fois et permet de remonter plus loin. Les groupes fermés ne construisent pas
 leurs lignes détaillées ; aucun état Markdown historique n’est lu pour afficher
 la liste. Les historiques de feuillets supprimés restent accessibles après les
-feuillets du Binder. Feuillet ne présente aucun historique. Relecture conserve
-« Comparer une version » pour comparer un snapshot manuel au texte actuel,
-avec le même moteur.
+feuillets du Binder. Dans **Feuillet**, sélectionnez **Historique des réécritures** pour consulter les
+interventions du document travaillé. En Continu, le panneau suit le segment sous
+le curseur. La barre de retour ramène aux autres rubriques du feuillet.
+
+Dans Feuillet et Journal, le bouton « Comparer à l’actuel » confronte le texte
+à la fin d’une intervention au texte actuel du feuillet. Dans un panneau étroit,
+le bouton affiche « Actuel » avec la même action.
+Le comparateur indique la date de l’état historique et lit le tampon si le
+document est ouvert dans l’éditeur Markdown courant. Depuis Continu, il indique
+« Dernier état enregistré » lorsqu’il utilise le texte du coffre. Ouvrir une
+comparaison ne demande aucune sauvegarde. Les deux modes permettent de
+sélectionner et de copier un passage normalement. Les comparaisons de
+l’historique sont en lecture seule. Relecture conserve « Comparer une version »
+pour comparer un snapshot manuel au texte actuel, avec le même moteur.
 
 Une reformulation à nombre de mots constant est conservée. Une simple ouverture,
 une modification limitée au frontmatter, ou une intervention annulée jusqu'au

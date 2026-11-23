@@ -1,3 +1,4 @@
+import { isRewriteHistoryPath } from "./services/rewrite-history-store.js";
 import { runExportWorkflow } from "./services/export-workflow.js";
 /* Feuillets 2.0 — écriture longue façon Scrivener/Ulysses pour Obsidian.
  *
@@ -50,7 +51,7 @@ import { exportPresentationPdf, exportPresentationPlanPdf, exportPresentationHan
 import { PresentationPdfExportModal } from "./ui/presentation-pdf-export-modal.js";
 import type { ScriveningsAdapterEditorView } from "./utils/scrivenings-editor-adapter.js";
 import { formatScriveningsStats } from "./utils/scrivenings-stats.js";
-import { activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
+import { rewriteComparisonWritingLeaf, activeComparisonContext, closeFeuilletsComparison } from "./views/comparison-view.js";
 import { CitationSourceModal, CitationAmbiguousSheetModal, promptForPage } from "./ui/citation-modal.js";
 import {
   resolveCitationCandidates,
@@ -401,14 +402,6 @@ type StaleableView = View & {
   render?: (force?: boolean) => void | Promise<void>;
   renderAllSubViews?: (force?: boolean) => void | Promise<void>;
   refreshData?: () => void | Promise<void>;
-};
-
-/** Panneau latéral unifié (SidebarFeuilletsView) vu depuis refreshJournalViews
- * — seul son onglet `activeTab` EFFECTIVEMENT affiché doit être rerendu,
- * jamais tout le panneau (voir renderJournalViews : pas de renderAllViews). */
-type JournalHostView = View & {
-  activeTab?: string;
-  render?: (force?: boolean) => void | Promise<void>;
 };
 
 /** `getConfig`/`setConfig` : API interne non déclarée dans obsidian.d.ts,
@@ -1863,6 +1856,7 @@ class FeuilletsPlugin extends Plugin {
     };
 
     this.registerEvent(this.app.vault.on("create", (file) => {
+      if (isRewriteHistoryPath(file.path)) return;
       if (file instanceof TFile && (file.extension === "md" || file.name === "cross-references.json")) notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS, [file.path]);
       if (this.isLayoutReady) {
         refresh();
@@ -1872,6 +1866,7 @@ class FeuilletsPlugin extends Plugin {
     }));
 
     this.registerEvent(this.app.vault.on("delete", (file) => {
+      if (isRewriteHistoryPath(file.path)) return;
       notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS);
       if (file instanceof TFile) this.projectDraftAutoRenamer?.cancel(file);
       if (this.isLayoutReady) {
@@ -1912,6 +1907,7 @@ class FeuilletsPlugin extends Plugin {
     }));
 
     this.registerEvent(this.app.vault.on("rename", (file, oldPath) => {
+      if (isRewriteHistoryPath(oldPath) && isRewriteHistoryPath(file.path)) return;
       notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS);
       if (file instanceof TFile) this.projectDraftAutoRenamer?.handleRename(file, oldPath);
       if (this.isLayoutReady) {
@@ -1974,6 +1970,7 @@ class FeuilletsPlugin extends Plugin {
       }
     }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (isRewriteHistoryPath(file.path)) return;
       if (file instanceof TFile && (file.extension === "md" || file.name === "cross-references.json")) notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS, [file.path]);
       if (file instanceof TFile) this.projectDraftAutoRenamer?.schedule(file);
       this.refreshView(2500);
@@ -1982,8 +1979,8 @@ class FeuilletsPlugin extends Plugin {
         if (root && file.path.startsWith(`${root.path}/`)) this.scheduleJournalStatsUpdate();
       }
     }));
-    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.maybeRenameResearchFile(file)));
-    this.registerEvent(this.app.metadataCache.on("changed", (file) => this.handleFilChanged(file)));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => { if (!isRewriteHistoryPath(file.path)) void this.maybeRenameResearchFile(file); }));
+    this.registerEvent(this.app.metadataCache.on("changed", (file) => !isRewriteHistoryPath(file.path) && this.handleFilChanged(file)));
     this.registerEvent(this.app.workspace.on("layout-change", () => {
       this.renderStaleViews();
       void this.syncProjectPanelsVisibility();
@@ -3011,7 +3008,7 @@ class FeuilletsPlugin extends Plugin {
     const refresh = () => { this.closeNativeReviewThreadPopover(); void this.refreshNativeReviewDecorations(); };
     this.registerEvent(this.app.workspace.on("file-open", refresh));
     this.registerEvent(this.app.workspace.on("active-leaf-change", refresh));
-    this.registerEvent(this.app.vault.on("modify", refresh));
+    this.registerEvent(this.app.vault.on("modify", (file) => { if (!isRewriteHistoryPath(file.path)) refresh(); }));
   }
 
   registerNativeReviewContextMenu(): void {
@@ -4323,7 +4320,7 @@ class FeuilletsPlugin extends Plugin {
   registerLastEditorTracking() {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", (leaf) => {
-        if (leaf && leaf.view instanceof MarkdownView) {
+        if (leaf?.view instanceof MarkdownView && !isRewriteHistoryPath(leaf.view.file?.path ?? "")) {
           this._lastMarkdownLeaf = leaf;
         }
       })
@@ -4365,12 +4362,26 @@ class FeuilletsPlugin extends Plugin {
     return null;
   }
 
+  getFeuilletWritingFile(): TFile | null {
+    const workspace = this.app.workspace;
+    const recent = workspace.getMostRecentLeaf?.(workspace.rootSplit);
+    const writing = rewriteComparisonWritingLeaf(recent);
+    if (writing !== recent && writing?.view instanceof ScriveningsView) return writing.view.getReferenceFile();
+    if (writing === recent) {
+      const continu = this.getCentralContinuView();
+      if (continu) return continu.getReferenceFile();
+      if (writing?.view instanceof ScriveningsView) return null;
+    }
+    const file = writing?.view instanceof MarkdownView ? writing.view.file : !writing ? workspace.getActiveFile() : null;
+    return file && !isRewriteHistoryPath(file.path) && this.app.vault.getAbstractFileByPath(file.path) === file ? file : null;
+  }
+
   /** Keep reference and sheet context in sync when the continuous cursor changes sheets. */
   notifyReferenceContextChanged(): void {
     for (const type of [VIEW_NOTES, VIEW_SIDEBAR_FEUILLETS]) {
       for (const leaf of this.app.workspace.getLeavesOfType(type)) {
-        const view = leaf.view as StaleableView & { activeTab?: string };
-        if (type === VIEW_NOTES || view.activeTab === "notes") void view.render?.();
+        const view = leaf.view;
+        if (view instanceof NotesView || view instanceof SidebarFeuilletsView) void view.refreshSheetContext();
       }
     }
     for (const type of [VIEW_RESEARCH, VIEW_SIDEBAR_FEUILLETS]) {
@@ -5432,19 +5443,20 @@ class FeuilletsPlugin extends Plugin {
    *  vue autonome VIEW_JOURNAL (compat) et le panneau latéral unifié,
    *  seulement quand son onglet Journal est effectivement affiché. */
   refreshJournalViews(): void {
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_JOURNAL)) {
-      const view = leaf.view as StaleableView;
-      if (view && typeof view.render === "function") void view.render(true);
-    }
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_SIDEBAR_FEUILLETS)) {
-      const view = leaf.view as JournalHostView;
-      if (view && view.activeTab === "journal" && typeof view.render === "function") void view.render();
+    for (const type of [VIEW_JOURNAL, VIEW_SIDEBAR_FEUILLETS]) {
+      for (const { view } of this.app.workspace.getLeavesOfType(type)) {
+        if (view instanceof JournalView || view instanceof SidebarFeuilletsView) void view.refreshJournalData();
+      }
     }
   }
 
-  /** Rewrite chronology is displayed only in the existing Journal surfaces. */
-  refreshRewriteHistoryViews(): void {
-    this.refreshJournalViews();
+  refreshRewriteHistoryViews(root?: TFolder): void {
+    if (root && root !== this.getProjectFolder()) return;
+    for (const type of [VIEW_JOURNAL, VIEW_NOTES, VIEW_SIDEBAR_FEUILLETS]) {
+      for (const { view } of this.app.workspace.getLeavesOfType(type)) {
+        if (view instanceof JournalView || view instanceof NotesView || view instanceof SidebarFeuilletsView) void view.refreshRewriteHistory();
+      }
+    }
   }
 
   pushHistory(entry: MoveHistoryEntry): void {
