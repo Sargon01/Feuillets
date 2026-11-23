@@ -303,3 +303,13 @@ Les tableaux DOCX et ODT sont natifs ; l’ODT incorpore les images locales PNG/
 ## Historique automatique des réécritures
 
 Option locale regroupant les réécritures indépendamment par feuillet, avec inactivité configurable, mots avant/après, variation signée et comparaison des états conservés. Présent dans Journal, en groupes repliables suivant l’ordre du Binder, et dans Feuillet pour le document travaillé ; Relecture conserve « Comparer une version » pour les snapshots manuels. Une simple consultation, une modification de métadonnées ou un corps finalement inchangé ne crée pas d’entrée. Distinct des snapshots manuels, versions, backups ZIP et relectures. Exclu par défaut du partage `.feuil`. [Détails et limites de récupération](REWRITE-HISTORY.md).
+
+## Historique des réécritures et caractères invisibles
+
+Dans **Réglages → Interface → Apparence**, activez **Historique automatique** (désactivé par défaut), puis écrivez normalement dans Markdown ou Continu. Les changements de chaque feuillet sont regroupés en interventions selon le délai d’inactivité réglable (10 minutes par défaut) ; les états avant et après sont conservés localement. La variation du nombre de mots ne résume pas une reformulation.
+
+Dans **Journal**, ouvrez les groupes repliables classés dans l’ordre du Classeur et affichez les interventions précédentes par pages. Dans **Feuillet**, ouvrez directement l’historique du document courant ; en Continu, il suit le feuillet sous le curseur. Cliquez sur une intervention pour comparer son avant/après, ou sur **Comparer à l’actuel** pour comparer sa fin au texte courant. Les comparaisons sont en lecture seule : vous pouvez sélectionner et copier un passage. Le tampon Markdown non enregistré est utilisé lorsqu’il est disponible ; depuis Continu, la comparaison utilise le dernier état enregistré. Les actualisations préservent la navigation, le focus et le défilement. Désactiver l’option conserve l’historique existant, exclu des exports `.feuil`.
+
+L’historique permet de consulter les étapes successives, sans garantir une sauvegarde ni une restauration automatique. Les **snapshots manuels** créent des points de référence et permettent de restaurer des passages ; les **versions du manuscrit** servent à explorer une autre direction ; les **sauvegardes ZIP** protègent contre la perte de fichiers. Voir le [guide de l’historique](REWRITE-HISTORY.md) pour les limites de récupération.
+
+Dans **Interface → Apparence**, **Afficher les caractères invisibles**, ou la commande **Afficher/masquer les caractères invisibles**, affiche les espaces, tabulations et marques de fin de paragraphe dans Markdown et Continu. Cette option facultative ne modifie ni le texte Markdown ni l’aperçu.

@@ -2,6 +2,16 @@
 
 Toutes les évolutions notables du plugin sont consignées ici.
 
+## 3.9.0 — 2026-11-23
+
+**Feuillets 3.9.0 — L’historique des réécritures**
+
+- Gardez une mémoire locale et facultative des réécritures de chaque feuillet : les interventions regroupent les modifications selon le délai d’inactivité et conservent leurs états avant et après.
+- Retrouvez-les dans Journal, par feuillet et dans l’ordre du Classeur, ou directement dans Feuillet pour le document courant. Les groupes repliables et la pagination facilitent la navigation ; les actualisations préservent focus et défilement.
+- Cliquez sur une intervention pour comparer avant et après, ou choisissez **Comparer à l’actuel** pour voir les transformations ultérieures. Les deux vues sont en lecture seule et permettent de copier un passage. En Markdown, le texte non enregistré est utilisé lorsque le tampon est disponible ; depuis Continu, la comparaison utilise le dernier état enregistré.
+- Affichez facultativement les espaces, tabulations et marques de paragraphe dans les éditeurs Markdown et Continu, sans modifier le texte.
+- La conservation des états et la récupération signalent les données manquantes ou les erreurs sans bloquer l’écriture. L’historique est désactivé par défaut, reste présent après désactivation et est exclu des exports `.feuil` ; il ne remplace pas les snapshots manuels ni les sauvegardes ZIP.
+
 ## 3.8.0 — 2026-11-11
 
 **Écriture**

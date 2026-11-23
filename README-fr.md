@@ -4,7 +4,7 @@
 
 **Site officiel : https://sargon01.github.io/feuillets-site/**
 
-> Documentation de **Feuillets 3.7.0**. Consultez les [notes de version](CHANGELOG.md#370--2026-10-18) pour les changements depuis la 3.6.1.
+> Documentation de **Feuillets 3.9.0**. Consultez les [notes de version](CHANGELOG.md#390--2026-11-23) pour les changements depuis la 3.8.0.
 
 ## Écrivez tout votre livre dans Obsidian.
 
@@ -339,3 +339,13 @@ Feuillets prend en charge une interface complète en français et en anglais, av
 ### Historique automatique des réécritures
 
 Activez **Historique automatique** dans Apparence pour conserver les interventions par feuillet dans l’éditeur et en Continu (10 minutes d’inactivité par défaut). Le Journal regroupe les interventions par feuillet dans l’ordre du Binder : groupes repliables mémorisés, nombre d’interventions et dernière date. Dépliez un groupe pour les dates, mots avant/après, variations et comparaisons des états conservés. Feuillet ouvre l’historique du document travaillé et permet de comparer avec le texte actuel. Relecture conserve « Comparer une version » pour les snapshots manuels. Cet historique local est exclu du partage `.feuil` ; snapshots manuels et sauvegardes conservent leurs rôles. Voir [le fonctionnement et les limites de récupération](docs/REWRITE-HISTORY.md).
+
+## Historique des réécritures et caractères invisibles
+
+Dans **Réglages → Interface → Apparence**, activez **Historique automatique** (désactivé par défaut), puis écrivez normalement dans Markdown ou Continu. Les changements de chaque feuillet sont regroupés en interventions selon le délai d’inactivité réglable (10 minutes par défaut) ; les états avant et après sont conservés localement. La variation du nombre de mots ne résume pas une reformulation.
+
+Dans **Journal**, ouvrez les groupes repliables classés dans l’ordre du Classeur et affichez les interventions précédentes par pages. Dans **Feuillet**, ouvrez directement l’historique du document courant ; en Continu, il suit le feuillet sous le curseur. Cliquez sur une intervention pour comparer son avant/après, ou sur **Comparer à l’actuel** pour comparer sa fin au texte courant. Les comparaisons sont en lecture seule : vous pouvez sélectionner et copier un passage. Le tampon Markdown non enregistré est utilisé lorsqu’il est disponible ; depuis Continu, la comparaison utilise le dernier état enregistré. Les actualisations préservent la navigation, le focus et le défilement. Désactiver l’option conserve l’historique existant, exclu des exports `.feuil`.
+
+L’historique permet de consulter les étapes successives, sans garantir une sauvegarde ni une restauration automatique. Les **snapshots manuels** créent des points de référence et permettent de restaurer des passages ; les **versions du manuscrit** servent à explorer une autre direction ; les **sauvegardes ZIP** protègent contre la perte de fichiers. Voir le [guide de l’historique](docs/REWRITE-HISTORY.md) pour les limites de récupération.
+
+Dans **Interface → Apparence**, **Afficher les caractères invisibles**, ou la commande **Afficher/masquer les caractères invisibles**, affiche les espaces, tabulations et marques de fin de paragraphe dans Markdown et Continu. Cette option facultative ne modifie ni le texte Markdown ni l’aperçu.

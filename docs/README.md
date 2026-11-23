@@ -4,9 +4,9 @@ Feuillets est un atelier d’écriture dans Obsidian. Les fichiers Markdown rest
 
 Feuillets is a writing workshop inside Obsidian. Markdown files remain the manuscript source; views, Notebooks and publishing tools work around them.
 
-> Documentation de **Feuillets 3.7.0**. Les notes historiques restent accessibles ci-dessous.
+> Documentation de **Feuillets 3.9.0**. Les notes historiques restent accessibles ci-dessous.
 >
-> Documentation for **Feuillets 3.7.0**. Historical release notes remain available below.
+> Documentation for **Feuillets 3.9.0**. Historical release notes remain available below.
 
 ## Commencer / Start here
 
@@ -15,11 +15,11 @@ Feuillets is a writing workshop inside Obsidian. Markdown files remain the manus
 | 1. Découvrir / Discover | [Découvrir Feuillets et Candide](DECOUVRIR.md) | [Discover Feuillets and Candide](DISCOVER.md) |
 | 2. Dossier existant / Existing folder | [Classeur et navigation](CLASSEUR-ET-NAVIGATION.md) | [Binder and navigation](BINDER-AND-NAVIGATION.md) |
 | 3. Structurer / Structure | [Espaces de travail](ESPACES-DE-TRAVAIL.md) | [Workspaces](WORKSPACES.md) |
-| 4. Écrire / Write | [Continu](MODE-CONTINU.md) · [Écrire et corriger](ECRIRE-ET-CORRIGER.md) | [Continuous](CONTINUOUS-MODE.md) · [Writing and correction](WRITING-AND-CORRECTION.md) |
+| 4. Écrire / Write | [Continu](MODE-CONTINU.md) · [Écrire et corriger](ECRIRE-ET-CORRIGER.md) · [Historique](REWRITE-HISTORY.md) | [Continuous](CONTINUOUS-MODE.md) · [Writing and correction](WRITING-AND-CORRECTION.md) · [History](REWRITE-HISTORY.md) |
 | 5. Documenter / Research | [Recherche et dossiers associés](RECHERCHE-ET-DOSSIERS-ASSOCIES.md) | [Research and linked folders](RESEARCH-AND-LINKED-FOLDERS.md) |
 | 6. Préparer visuellement / Plan visually | [Carnet : des idées au manuscrit](HOW-TO-CARNET.md) | [Notebook: from ideas to manuscript](HOW-TO-NOTEBOOK.md) |
 | 7. Renvoyer et citer / Refer and cite | [Références croisées](CROSS-REFERENCES.md) · [Citations BibTeX et CSL](CITATIONS-BIBTEX-ET-PANDOC.md) | [Cross-references](CROSS-REFERENCES-EN.md) · [BibTeX and CSL citations](BIBTEX-CITATIONS-AND-PANDOC.md) |
-| 8. Réviser / Revise | [Sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md) | [Backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md) |
+| 8. Réviser / Revise | [Sauvegardes et versions](VERSIONNAGE-ET-SECURITE.md) · [Historique](REWRITE-HISTORY.md) | [Backups and versions](REWRITING-BACKUPS-AND-VERSIONS.md) · [History](REWRITE-HISTORY.md) |
 | 9. Composer et exporter / Publish | [Composition et export](COMPOSITION-ET-EXPORT.md) | [Composition and export](COMPOSITION-AND-EXPORT.md) |
 
 ## Comprendre le projet / Understand the project

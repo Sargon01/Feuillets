@@ -4,6 +4,16 @@
 
 Feuillets keeps several mechanisms separate because they solve different problems.
 
+## Rewrite history and formatting marks
+
+In **Settings → Interface → Appearance**, enable **Automatic history** (off by default), then write normally in Markdown or Continuous mode. Each sheet’s changes are grouped into interventions by a configurable inactivity period (10 minutes by default); before and after states are stored locally. A word-count change does not capture every rewording.
+
+In **Journal**, expand sheet groups in Binder order and page through earlier interventions. In **Sheet**, open the current document’s history directly; in Continuous mode it follows the sheet under the cursor. Select an intervention to compare its before and after states, or **Compare to current** to compare its ending with the current text. Comparisons are read-only and passages can be selected and copied. The unsaved Markdown editor buffer is used when available; Continuous mode compares against the last saved state. Refreshes preserve navigation, focus and scrolling. Turning the option off keeps existing history, which is excluded from `.feuil` exports.
+
+History lets you inspect successive steps; it is neither a guaranteed backup nor automatic restoration. **Manual snapshots** provide reference points and passage restoration; **manuscript versions** explore another editorial direction; **ZIP backups** protect against file loss. See the [history guide](REWRITE-HISTORY.md) for recovery limits.
+
+In **Interface → Appearance**, **Show formatting marks**, or the **Show/hide formatting marks** command, displays spaces, tabs and paragraph-end marks in Markdown and Continuous editors. This optional display changes neither Markdown text nor Preview.
+
 ## Backups
 
 ZIP backups protect project files. An as-is folder is backed up within its own scope; a structured project around `Manuscrit` may cover the surrounding project folder. The backup destination is excluded from its own archive.

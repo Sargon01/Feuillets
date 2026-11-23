@@ -68,3 +68,13 @@ Pour réviser avec des retours externes, poursuivez avec [Révision DOCX](HOW-TO
 ## Journal et suivi de l’écriture
 
 L’onglet **Journal** permet de retrouver les journées d’écriture et le suivi associé au projet. Les statistiques quotidiennes sont séparées par projet : changer de manuscrit ne doit pas attribuer la même production aux deux projets. Dans les réglages, **Suffixe des fichiers du journal** peut produire par exemple `2026-09-15-log.md` ; les entrées existantes ne sont pas renommées. Le carnet compilé du journal suit la langue lors de sa création, sans imposer de renommer les fichiers historiques.
+
+## Historique des réécritures et caractères invisibles
+
+Dans **Réglages → Interface → Apparence**, activez **Historique automatique** (désactivé par défaut), puis écrivez normalement dans Markdown ou Continu. Les changements de chaque feuillet sont regroupés en interventions selon le délai d’inactivité réglable (10 minutes par défaut) ; les états avant et après sont conservés localement. La variation du nombre de mots ne résume pas une reformulation.
+
+Dans **Journal**, ouvrez les groupes repliables classés dans l’ordre du Classeur et affichez les interventions précédentes par pages. Dans **Feuillet**, ouvrez directement l’historique du document courant ; en Continu, il suit le feuillet sous le curseur. Cliquez sur une intervention pour comparer son avant/après, ou sur **Comparer à l’actuel** pour comparer sa fin au texte courant. Les comparaisons sont en lecture seule : vous pouvez sélectionner et copier un passage. Le tampon Markdown non enregistré est utilisé lorsqu’il est disponible ; depuis Continu, la comparaison utilise le dernier état enregistré. Les actualisations préservent la navigation, le focus et le défilement. Désactiver l’option conserve l’historique existant, exclu des exports `.feuil`.
+
+L’historique permet de consulter les étapes successives, sans garantir une sauvegarde ni une restauration automatique. Les **snapshots manuels** créent des points de référence et permettent de restaurer des passages ; les **versions du manuscrit** servent à explorer une autre direction ; les **sauvegardes ZIP** protègent contre la perte de fichiers. Voir le [guide de l’historique](REWRITE-HISTORY.md) pour les limites de récupération.
+
+Dans **Interface → Apparence**, **Afficher les caractères invisibles**, ou la commande **Afficher/masquer les caractères invisibles**, affiche les espaces, tabulations et marques de fin de paragraphe dans Markdown et Continu. Cette option facultative ne modifie ni le texte Markdown ni l’aperçu.
