@@ -115,6 +115,12 @@ declare type ProjectStatusEntry = {
  * générales de projet ni catalogue de presets : ces réglages restent
  * toujours globaux, jamais propres à un ouvrage — voir
  * services/ouvrage-composition.ts. */
+declare type EditorialDocumentSettings = {
+  template?: ExportTemplateV2;
+  automaticTitle?: boolean;
+  frenchTypography?: boolean;
+};
+
 declare type OuvrageCompositionConfig = {
   /** Nom de fichier de sortie — seul champ de composition qu'un ouvrage
    *  peut vouloir distinct sans que cela relève du "dossier de sortie"
@@ -680,6 +686,7 @@ declare type FeuilletsSettings = {
   tagFilter: string;
 
   binderLayout: "split" | "tree";
+  editorialDocuments?: Record<string, EditorialDocumentSettings>;
   binderSelectedPath: string;
   binderSearch: string;
   binderSearchContent: boolean;

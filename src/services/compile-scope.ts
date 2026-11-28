@@ -1,5 +1,6 @@
 import { App, TFile, TFolder } from "obsidian";
-import { getOrderedChildren } from "./folder-structure.js";
+import { resolveEditorialDocument } from "./editorial-document.js";
+import { manuscriptPathIsProtected, getProjectFolder, getOrderedChildren } from "./folder-structure.js";
 
 export type CompileScope =
   | { type: "project"; projectRoot: string }
@@ -30,11 +31,15 @@ export function resolveCompileScopeFiles(
     return [];
   }
 
+  const manuscriptRoot = getProjectFolder(app, settings) ?? projectRoot;
+  const isProtected = (path: string) => manuscriptPathIsProtected(manuscriptRoot, path);
+
   // Dossiers techniques à exclure
   const technicalFolders = new Set(["_Feuillets", "_Recherche", "_Ressources", "_Edition", "_Sortie", "_Snapshots", "_Backups"]);
 
   // Utilitaire: récursif pour collecter tous les fichiers Markdown d'un dossier
   const getAllMarkdownFiles = (folder: TFolder, visited = new Set<string>()): TFile[] => {
+    if (isProtected(folder.path)) return [];
     const files: TFile[] = [];
     const visited2 = new Set(visited);
     visited2.add(folder.path);
@@ -52,7 +57,8 @@ export function resolveCompileScopeFiles(
   switch (scope.type) {
     case "file": {
       const file = app.vault.getAbstractFileByPath(scope.path);
-      return file instanceof TFile && file.extension === "md" ? [file] : [];
+      return file instanceof TFile && file.extension === "md"
+        && (!isProtected(file.path) || !!resolveEditorialDocument(app, settings, file.path)) ? [file] : [];
     }
 
     case "folder": {
@@ -69,6 +75,7 @@ export function resolveCompileScopeFiles(
       for (const path of scope.paths) {
         const node = app.vault.getAbstractFileByPath(path);
 
+        if (isProtected(path)) continue;
         if (node instanceof TFile && node.extension === "md") {
           allFiles.set(node.path, node);
         } else if (node instanceof TFolder && !technicalFolders.has(node.name)) {
@@ -85,7 +92,7 @@ export function resolveCompileScopeFiles(
           if (child instanceof TFile && allFiles.has(child.path)) {
             result.push(child);
             allFiles.delete(child.path);
-          } else if (child instanceof TFolder && !technicalFolders.has(child.name)) {
+          } else if (child instanceof TFolder && !technicalFolders.has(child.name) && !isProtected(child.path)) {
             collectInOrder(child);
           }
         }

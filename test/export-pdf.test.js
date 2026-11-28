@@ -226,7 +226,7 @@ const template = { fontFamily: "Serif", fontSizePt: 12, lineHeight: 1.5, pageOri
 
 test("exportPdf : ne fournit pas la surcharge de césure propre à l’aperçu", async () => {
   const source = await readFile(new URL("../src/services/export-pdf.js", import.meta.url), "utf8");
-  assert.match(source, /paginateManuscript\(containerEl, footnotes, settings, tpl, title, author\)/);
+  assert.match(source, /paginateManuscript\(containerEl, footnotes, settings, tpl, title, author, \{ packetHeader \}\)/);
   assert.doesNotMatch(source, /paginateManuscript\(containerEl, footnotes, settings, tpl, title, author, \{[\s\S]*hyphenationOverride/);
 });
 
@@ -295,6 +295,30 @@ test("paginateManuscript : mêmes réglages centraux pour zones centrales, dista
     assert.match(result.pagesHtml, /top: 1.1cm/);
     assert.match(result.pagesHtml, /padding-bottom: 7pt/);
     assert.doesNotMatch(result.pagesHtml, /pdf-page-footer/);
+  } finally { dom.restore(); }
+});
+
+test("paginateManuscript : l’en-tête commun remplace l’en-tête du gabarit, une fois par feuille", () => {
+  const dom = installDom();
+  try {
+    const container = element("div");
+    container.appendChild(element("p", "Corps", 100));
+    const settings = { pdfMarginTop: 1, pdfEnableHeaders: true, pdfHideFirstPageHeader: false, pdfHeaderCenter: "Gabarit" };
+    const options = { packetHeader: "Ariane Delmas – Sel & sable" };
+    const standard = paginateManuscript(container, [], settings, template);
+    const packet = paginateManuscript(container, [], settings, template, "", "", options);
+    const imposed = paginateManuscript(container, [], { ...settings, pdfOutputLayout: "two-up-duplicate" }, template, "", "", options);
+    assert.match(standard.pagesHtml, /Gabarit/);
+    assert.match(standard.pagesHtml, /padding-top: 1cm/);
+    assert.doesNotMatch(standard.pagesHtml, /feuillets-packet-page-header/);
+    for (const { pagesHtml } of [packet, imposed]) {
+      assert.match(pagesHtml, /padding-top: 1\.4cm/);
+      assert.match(pagesHtml, /Ariane Delmas – Sel &#38; sable/);
+      assert.equal(pagesHtml.match(/feuillets-packet-page-header/g)?.length, 1);
+      assert.doesNotMatch(pagesHtml, /Gabarit/);
+    }
+    assert.match(imposed.pagesHtml, /feuillets-sheet-two-up/);
+    assert.equal(imposed.pagesHtml.match(/feuillets-sheet-panel-page/g)?.length, 2);
   } finally { dom.restore(); }
 });
 

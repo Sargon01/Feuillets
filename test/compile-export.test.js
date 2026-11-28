@@ -2162,11 +2162,14 @@ test("exportWithScope format docx : produit un fichier .docx (pas .md)", async (
 
 test("exportEditorialDocumentDocxToFolder : exporte un document Markdown individuel dans le dossier demandé", async () => {
   const { exportEditorialDocumentDocxToFolder } = await import("../src/services/compile-export.js");
-  const { app, vault, settings } = makeExportFixture();
+  const { app, vault, settings, manuscript } = makeExportFixture();
   const edition = new TFolder("EW/_Edition");
   const synopsis = new TFile("EW/_Edition/Synopsis.md", "# Synopsis\n\nUne histoire.");
   const destination = new TFolder("EW/_Edition/Soumissions/Paquet");
-  edition.parent = new TFolder("EW");
+  const project = new TFolder("EW");
+  edition.parent = project;
+  manuscript.parent = project;
+  project.children = [manuscript, edition];
   synopsis.parent = edition;
   destination.parent = edition;
   edition.children = [synopsis, destination];
@@ -2352,6 +2355,30 @@ test("Phase 1D : sans auteur dans Page de titre, projectMeta.author prioritaire 
 
   assert.equal(identity.title, "Titre Sur Mesure", "title de la page de titre prioritaire");
   assert.equal(identity.author, "Auteur Meta", "projectMeta.author prioritaire sur le global");
+});
+
+test("identité du dossier : métadonnées du projet et page de titre, sans compiler le manuscrit", async () => {
+  const { resolveExportIdentity } = await import("../src/services/compile-export.js");
+  const manuscript = new TFolder("Projet/Manuscrit");
+  const front = new TFolder(manuscript.path + "/Front");
+  const titlePage = new TFile(front.path + "/Titre.md");
+  manuscript.children = [front];
+  front.children = [titlePage];
+  const { vault } = createFakeVault([manuscript, front, titlePage]);
+  const frontmatter = { type: "titre", compile: false, title: "Titre de la page", author: "" };
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter }) } };
+  const settings = {
+    projectFolder: manuscript.path,
+    orders: {},
+    folderPositions: {},
+    manuscriptTitle: "Titre global",
+    manuscriptAuthor: "Auteur global",
+    projectMeta: { [manuscript.path]: { name: " Titre du projet ", author: " Ariane Delmas " } },
+  };
+  assert.deepEqual(resolveExportIdentity(app, settings, manuscript), { title: "Titre du projet", author: "Ariane Delmas" });
+  frontmatter.compile = true;
+  assert.deepEqual(resolveExportIdentity(app, settings, manuscript), { title: "Titre de la page", author: "Ariane Delmas" });
+  assert.deepEqual(resolveExportIdentity(app, settings, manuscript, []), { title: manuscript.name, author: "Ariane Delmas" });
 });
 
 /* ===================== Ouvrage imbriqué : racine réelle de compilation ===================== */
@@ -3955,4 +3982,45 @@ test("Native exports resolve homonymous image paths from each source segment bef
     }
     assert.deepEqual([first.content, second.content], raw);
   } finally { MarkdownRenderer.render = previousRender; restoreDom(); }
+});
+
+test("drafting an editorial note uses a single-file scope and excludes editorial trees from the manuscript", async () => {
+  const root = new TFolder("Roman");
+  const chapter = new TFile("Roman/Chapitre.md", "Le corps du roman.");
+  const edition = new TFolder("Roman/Edition");
+  const pitch = new TFile("Roman/Edition/Pitch.md", "# Pitch\n\nLe corps du pitch.");
+  const submissions = new TFolder("Roman/Edition/Soumissions");
+  const letter = new TFile("Roman/Edition/Soumissions/Lettre.md", "Texte du courrier.");
+  const archives = new TFolder("Roman/Versions envoyées");
+  const archived = new TFile("Roman/Versions envoyées/Ancienne note.md", "Texte archivé.");
+  root.children = [chapter, edition, archives];
+  edition.children = [pitch, submissions];
+  submissions.children = [letter];
+  archives.children = [archived];
+  for (const parent of [root, edition, submissions, archives]) {
+    for (const child of parent.children) child.parent = parent;
+  }
+  const { vault } = createFakeVault([root, chapter, edition, pitch, submissions, letter, archives, archived]);
+  vault.cachedRead = vault.read;
+  const app = { vault, metadataCache: { getFileCache: () => ({ frontmatter: {} }) } };
+  const settings = {
+    projectFolder: root.path, orders: {}, folderPositions: {},
+    compileFileName: "Manuscrit.md", insertTitles: true, insertFolderTitles: true,
+    separator: "***", exportTemplate: "classique",
+  };
+  const compileScope = scope => compile(app, settings, null, { projectRoot: root.path, ...scope }, undefined, { writeOutput: false });
+
+  const roman = await compileScope({ type: "project" });
+  assert.deepEqual(roman.compiledFilePaths, [chapter.path]);
+  assert.doesNotMatch(roman.manuscript, /Edition|Soumissions|envoyées|pitch|archivé/u);
+
+  const document = await compileScope({ type: "file", path: pitch.path });
+  assert.deepEqual(document.segments.map(segment => segment.path), [pitch.path]);
+  assert.equal(document.manuscript, "# Pitch\n\nLe corps du pitch.");
+  assert.equal(settings.exportTemplate, "classique");
+
+  const selection = await compileScope({ type: "selection", paths: [edition.path, letter.path, archived.path, chapter.path] });
+  assert.deepEqual(selection.compiledFilePaths, [chapter.path]);
+  assert.equal(await compileScope({ type: "file", path: letter.path }), null);
+  assert.equal(await compileScope({ type: "folder", path: archives.path }), null);
 });

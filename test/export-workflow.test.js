@@ -812,7 +812,9 @@ test("plugin export commands reach the shared save workflow with the complete pr
   const { default: FeuilletsPlugin } = await import("../src/main.js");
   const { app, settings, manuscript, scene } = buildProject();
   const plugin = fakePlugin(app, settings, manuscript.path);
+  app.workspace = { getActiveFile: () => scene };
   plugin.app = app;
+  plugin.getActiveEditorialScope = () => null;
   plugin.activeExportScope = createFileScope(manuscript.path, scene.path);
   const results = [];
   plugin.exportInteractions = {

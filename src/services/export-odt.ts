@@ -64,6 +64,7 @@ type ExportSegment = {
 };
 
 type ExportInput = {
+  template?: ExportTemplateV2;
   markdown: string;
   title: string;
   author: string;
@@ -286,8 +287,8 @@ export function domToOdtContent(node: Node, opts: OdtOptions = {}): string {
 }
 
 /** Export ODT (OpenDocument Text pour LibreOffice / OpenOffice) natif sans conversion intermédiaire. */
-export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: ExportInput): Promise<Uint8Array> {
-  const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
+export async function exportOdt(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot, template: explicitTemplate }: ExportInput): Promise<Uint8Array> {
+  const template = explicitTemplate ?? await resolveExportTemplateV2(app, settings, settings.exportTemplate);
   const afterVariant = citationSettings && citationSettings.style !== "off"
     ? async (container: HTMLElement) => {
         if (citationSettings.style === "csl") {

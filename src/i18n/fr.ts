@@ -1441,6 +1441,7 @@ export const fr = {
   "editionDocs.description": "Synopsis, note d'intention, biographie, lettre d'accompagnement, soumissions.",
   "editionDocs.notCreatedBody": "Aucun dossier Edition pour ce projet. Crée-le pour préparer synopsis, note d'intention, biographie, lettre d'accompagnement et suivi des envois.",
   "editionDocs.createFolder": "Créer le dossier Edition",
+  "editionDocs.submissionDocument": "Ce fichier appartient à un dossier de soumission ou d’archives.",
   "editionDocs.newDocument": "Nouveau document",
   "editionDocs.newDocumentModalTitle": "Nouveau document dans Edition",
   "editionDocs.newDocumentPlaceholder": "Nom du document",

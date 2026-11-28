@@ -1,3 +1,6 @@
+import { editorialTemplate, resolveEditorialDocument } from "../services/editorial-document.js";
+import { manuscriptPathIsProtected } from "../services/folder-structure.js";
+import { legacyFieldsFromV2 } from "../services/export-templates-custom.js";
 import type { EditorCursorChange } from "../services/editor-cursor-tracking.js";
 import { lineColToOffset, offsetToLineCol } from "../utils/scrivenings-editor-adapter.js";
 import {
@@ -205,6 +208,7 @@ type PreviewEditorLike = {
 
 /** Contenu prêt à paginer, quel que soit le mode qui l'a produit. */
 type PreviewSource = {
+  editorialDocument?: TFile;
   markdown: string;
   segments: PreviewCompileSegment[] | null;
   /** Chemin de FICHIER servant de contexte à Obsidian pour résoudre les
@@ -943,7 +947,7 @@ export class PreviewView extends ItemView {
       if (scope.type === "file") {
         const active = this.app.workspace.getActiveFile();
         if (this.isPreviewableFile(active) && active.path !== scope.path) {
-          await this.setCompileScope(createFileScope(scope.projectRoot, active.path));
+          await this.setCompileScope(this.plugin.compileScopeForFile?.(active) ?? createFileScope(scope.projectRoot, active.path));
         }
       }
       return;
@@ -1000,7 +1004,8 @@ export class PreviewView extends ItemView {
     if (!(file instanceof TFile) || file.extension !== "md") return false;
     const root = this.plugin?.getProjectFolder();
     if (!root) return false;
-    return file.path === root.path || file.path.startsWith(`${root.path}/`);
+    if (resolveEditorialDocument(this.app, this.plugin.settings, file.path)) return true;
+    return file.path.startsWith(`${root.path}/`) && !manuscriptPathIsProtected(root, file.path);
   }
 
   /** Dossier Chapitre réel du Binder. Ne transforme jamais un dossier Partie
@@ -1169,7 +1174,12 @@ export class PreviewView extends ItemView {
        plusieurs `await`, et un changement de feuillet survenu entre-temps
        (chaque `file-open` en déclenche désormais un) faisait résoudre la
        liste de fichiers avec une portée et compiler avec une AUTRE. */
-    const activeScope = effectiveScope;
+    const file = this.app.workspace.getActiveFile();
+    const implicitDocument = !effectiveScope && this.mode === "scene" && file
+      ? resolveEditorialDocument(this.app, settings, file.path) : null;
+    const activeScope = effectiveScope ?? (implicitDocument ? createFileScope(root.path, implicitDocument.path) : null);
+    const editorialDocument = activeScope?.type === "file"
+      ? resolveEditorialDocument(this.app, settings, activeScope.path) : null;
     if (activeScope) {
       const files = resolveCompileScopeFiles(this.app, settings, activeScope);
       if (!files.length) {
@@ -1200,7 +1210,7 @@ export class PreviewView extends ItemView {
       result = await this.compileForPreview(() =>
         compile(this.app, settings, null, activeScope, undefined, {
           writeOutput: false,
-          ...(resolveDocumentCitationStyle(settings, activeScope.projectRoot, citationScopeFolderPath ?? activeScope.projectRoot) === "csl" ? { bibliographyMode: "csl" } : {}),
+          ...(!editorialDocument && resolveDocumentCitationStyle(settings, activeScope.projectRoot, citationScopeFolderPath ?? activeScope.projectRoot) === "csl" ? { bibliographyMode: "csl" } : {}),
         })
       );
       if (generation !== this.refreshGeneration) return null;
@@ -1213,8 +1223,9 @@ export class PreviewView extends ItemView {
         markdown: result.manuscript,
         segments: result.segments,
         sourcePath: firstScene || root.path,
-        title: settings.manuscriptTitle || root.name,
-        subtitle: t("preview.subtitle.scope", { scope: activeScope.type }),
+        title: editorialDocument?.basename ?? (settings.manuscriptTitle || root.name),
+        ...(editorialDocument ? { editorialDocument } : {}),
+        subtitle: editorialDocument?.path ?? t("preview.subtitle.scope", { scope: activeScope.type }),
         citationScopeFolderPath,
         projectRootPath: activeScope.projectRoot,
       };
@@ -1815,8 +1826,10 @@ export class PreviewView extends ItemView {
   ): Promise<void> {
 
     const settings = this.plugin.settings;
-    const author = settings.manuscriptAuthor || "";
-    const tpl = await resolveExportTemplate(this.app, settings, settings.exportTemplate);
+    const author = source.editorialDocument ? "" : settings.manuscriptAuthor || "";
+    const tpl = source.editorialDocument
+      ? legacyFieldsFromV2(editorialTemplate(settings, source.editorialDocument), "editorialDocument", "")
+      : await resolveExportTemplate(this.app, settings, settings.exportTemplate);
 
     // Get project settings for Pandoc citation preview
     const projectRootCandidate = source.projectRootPath
@@ -1831,7 +1844,7 @@ export class PreviewView extends ItemView {
     } else if (source.projectRootPath) {
       projectPath = source.projectRootPath;
     }
-    const pandocPreviewStyle = projectPath ? resolveDocumentCitationStyle(settings, projectPath, source.citationScopeFolderPath ?? projectPath) : "off";
+    const pandocPreviewStyle = projectPath && !source.editorialDocument ? resolveDocumentCitationStyle(settings, projectPath, source.citationScopeFolderPath ?? projectPath) : "off";
     let pandocBibliographyPath = "";
     if (projectRoot) {
       let workspaceFolder: TFolder | null = null;

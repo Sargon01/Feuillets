@@ -130,17 +130,8 @@ export const FEUILLETS_RESOURCE_SUBFOLDERS = [
 
 export const RESOURCES_SUBFOLDER_NAMES = FEUILLETS_RESOURCE_FOLDERS;
 
-/** Dossier "Edition" (synopsis, note d'intention, biographie, lettre
- * d'accompagnement, soumissions, versions envoyées…) : facultatif, voisin
- * de Manuscrit — exactement comme Recherche/Ressources — jamais dedans.
- * N'étant jamais un descendant du dossier projet (getProjectFolder), il est
- * automatiquement hors de portée du Binder, de la compilation et des
- * exports natifs, qui ne parcourent tous que ce sous-arbre (voir
- * getOrderedChildren) : aucune exclusion explicite à écrire ailleurs.
- *
- * "Edition" (sans préfixe) est la VARIANTE HISTORIQUE : reconnue à la
- * lecture (getEditionRoot) mais jamais recréée — les nouveaux dossiers
- * s'appellent "_Edition" (voir getFeuilletsFolderNames). */
+/** Historical name of the editorial folder, alongside the current
+ * project auxiliary folder. Both layouts keep their physical location. */
 export const EDITION_FOLDER_NAME = "Edition";
 
 /** Racine éditoriale du projet : le dossier Manuscrit — ce que le Binder,
@@ -193,19 +184,34 @@ export function editionFolderPath(app: App, root: TFolder): string {
  * un projet sans dossier Edition renvoie simplement null partout. */
 export function getEditionRoot(app: App, root: TFolder | null | undefined): TFolder | null {
   if (!root) return null;
-  const canonical = app.vault.getAbstractFileByPath(feuilletsAuxiliaryPath(root, "edition"));
-  if (canonical instanceof TFolder) return canonical;
-  const base = isStructuredManuscriptRoot(root) && root.parent instanceof TFolder && root.parent.path !== "" && root.parent.path !== "/"
-    ? root.parent.path
-    : root.path;
-  /* "_Edition" (nouveau nom, source centrale) puis "Edition" (variante
-     historique sans préfixe) : jamais renommé, jamais dupliqué. */
-  for (const name of [getFeuilletsFolderNames().edition, EDITION_FOLDER_NAME]) {
-    const f = app.vault.getAbstractFileByPath(normalizePath(`${base}/${name}`));
-    if (f instanceof TFolder) return f;
+  for (const path of editionRootPaths(root)) {
+    const folder = app.vault.getAbstractFileByPath(path);
+    if (folder instanceof TFolder) return folder;
   }
   return null;
 }
+
+export function editionRootPaths(root: TFolder): string[] {
+  const parent = root.parent;
+  const base = isStructuredManuscriptRoot(root) && parent instanceof TFolder && parent.path && parent.path !== "/"
+    ? parent.path : root.path;
+  return [...new Set([
+    feuilletsAuxiliaryPath(root, "edition"),
+    ...["_Edition", EDITION_FOLDER_NAME, "_Édition", "Édition"].map(name => normalizePath(`${base}/${name}`)),
+  ])];
+}
+
+export const EDITORIAL_OPERATIONAL_FOLDERS = new Set(["Soumissions", "Versions envoyées"]);
+
+export function manuscriptPathIsProtected(root: TFolder, path: string): boolean {
+  if (editionRootPaths(root).some(edition => path === edition || path.startsWith(edition + "/"))) return true;
+  const parent = isStructuredManuscriptRoot(root) ? root.parent?.path : undefined;
+  return [root.path, parent].some(base => {
+    if (!base || !path.startsWith(base + "/")) return false;
+    return EDITORIAL_OPERATIONAL_FOLDERS.has(path.slice(base.length + 1).split("/")[0]);
+  });
+}
+
 
 /** Un SEUL projet a-t-il jamais été créé ou ajouté, actif ou non — décide
  * si le Binder montre le vrai écran d'accueil (premier lancement, aucun
@@ -641,11 +647,13 @@ export function getOrderedChildren(
   includeHidden = false
 ): ProjectNode[] {
   if (!folder || !(folder instanceof TFolder) || !Array.isArray(folder.children)) return [];
+  const manuscript = includeHidden ? null : getProjectFolder(app, settings);
+  const project = manuscript && (folder.path === manuscript.path || folder.path.startsWith(manuscript.path + "/")) ? manuscript : null;
   const children = folder.children.filter(
     (c): c is ProjectNode =>
       (c instanceof TFolder &&
         !c.name.startsWith(".") &&
-        (includeHidden || !c.name.startsWith("_"))) ||
+        (includeHidden || (!c.name.startsWith("_") && (!project || !manuscriptPathIsProtected(project, c.path))))) ||
       (c instanceof TFile &&
         c.extension === "md" &&
         c.name !== settings.compileFileName &&

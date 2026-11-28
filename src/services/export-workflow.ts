@@ -1,3 +1,4 @@
+import { resolveEditorialDocument } from "./editorial-document.js";
 import { chooseExportDestination, exportFileName, type ExportDestinationPicker, type ExportSaveRequest } from "./export-destination.js";
 import { presentExportResult } from "./export-result.js";
 import { Notice, TFolder, type App } from "obsidian";
@@ -47,6 +48,7 @@ export type ExportWorkflowPlugin = {
     presentResult?: typeof presentExportResult;
   };
   getProjectFolder(): TFolder | null;
+  getActiveEditorialScope?(): CompileScope | null;
   cslCitationHost?: CslCitationHost | null;
   /** Portée de session, volontairement non persistée (voir main.ts) :
    * perdue au redémarrage, ce qui est normal. */
@@ -204,12 +206,14 @@ export async function runExportWorkflow(
   format?: string,
   baseName?: string
 ): Promise<string | undefined> {
-  const resolvedScope = scope ?? currentExportScope(plugin);
+  const resolvedScope = scope ?? plugin.getActiveEditorialScope?.() ?? currentExportScope(plugin);
   if (!resolvedScope) {
     new Notice(t("main.notice.projectFolderNotFound"));
     return undefined;
   }
-  rememberExportScope(plugin, resolvedScope);
+  const editorialDocument = resolvedScope.type === "file"
+    ? resolveEditorialDocument(app, plugin.settings, resolvedScope.path) : null;
+  if (!editorialDocument) rememberExportScope(plugin, resolvedScope);
 
   if (typeof plugin.flushContinuWritesForProject === "function") {
     const clean = await plugin.flushContinuWritesForProject(resolvedScope.projectRoot);
@@ -219,8 +223,8 @@ export async function runExportWorkflow(
   const settings = plugin.settings;
   const resolvedFormat = (format || settings.exportFormat || "docx") as ExportFormat;
   const scopeProjectRoot = app.vault.getAbstractFileByPath(resolvedScope.projectRoot);
-  const resolvedBaseName = baseName || exportBaseName(settings, app, scopeProjectRoot instanceof TFolder ? scopeProjectRoot : null);
-  const derivation = await resolveExportDerivation(app, plugin);
+  const resolvedBaseName = baseName || editorialDocument?.basename || exportBaseName(settings, app, scopeProjectRoot instanceof TFolder ? scopeProjectRoot : null);
+  const derivation = editorialDocument ? { contentExtraction: null, contentCollection: null } : await resolveExportDerivation(app, plugin);
   if (!derivation) return undefined;
   if (!SUPPORTED_EXPORT_FORMATS.includes(resolvedFormat)) {
     new Notice(t("export.notice.unknownFormat", { format: resolvedFormat }));

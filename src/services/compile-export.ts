@@ -16,6 +16,7 @@ import {
   flattenFiles,
   isFrontMatter,
   FRONT_PAGE_TYPES,
+  FRONT_FOLDER_NAME,
   feuilletsAuxiliaryPathFor,
   detectProjectStructureLocale,
   isStructuredManuscriptRoot,
@@ -58,6 +59,7 @@ import { compositionCrossReferenceReplacements, applySourceCrossReferenceReplace
 import type { CrossReferenceReplacement } from "./cross-reference-render.js";
 import { formatImageTarget } from "./image-markdown.js";
 export { joinCompiledSegments } from "./compile-segments.js";
+import { editorialComposition, editorialTemplate, resolveEditorialDocument } from "./editorial-document.js";
 import { effectiveComposition } from "./ouvrage-composition.js";
 export { effectiveComposition } from "./ouvrage-composition.js";
 import { t } from "../i18n/index.js";
@@ -100,6 +102,7 @@ type NativeExportSegment = {
 };
 
 type NativeExportContext = {
+  template?: ExportTemplateV2;
   markdown: string;
   title: string;
   author: string;
@@ -482,7 +485,11 @@ export async function compile(
      nom du preset actif (identité, hors composition) reste lu séparément
      via activePresetConfig(settings).name, seulement pour la Notice finale
      — jamais propre à un ouvrage (voir plus bas). */
+  const editorialDocument = compilationScope.type === "file"
+    ? resolveEditorialDocument(app, settings, compilationScope.path) : null;
+  const documentComposition = editorialDocument ? editorialComposition(settings, editorialDocument) : null;
   const composition = effectiveComposition(settings, globalRoot, editorialRoot);
+  if (documentComposition) composition.footnoteRenumberOnCompile = false;
   const layoutStore = await loadLayoutStore(app, settings);
   const parts: string[] = [];
   let count = 0;
@@ -505,13 +512,13 @@ export async function compile(
        l'expression locale précédente laissait fuir dans le texte compilé. */
     const relativeLayoutPath = relativeLayoutFilePath(globalRoot.path, file.path) || file.path;
     let renderSource = injectDocumentLayoutMarkers(raw, layoutOverridesForFile(layoutStore, relativeLayoutPath), replacements);
-    if (options?.contentExtraction) {
+    if (!editorialDocument && options?.contentExtraction) {
       const extracted = extractSectionsByRoles(content, options.contentExtraction.triggerRoles, includeRange);
       if (extracted.length === 0) return null;
       content = extracted.map((section) => section.markdown).join("\n\n");
       const renderSections = extractSectionsByRoles(renderSource, options.contentExtraction.triggerRoles);
       renderSource = renderSections.map((section) => section.markdown).join("\n\n");
-    } else if (options?.contentCollection) {
+    } else if (!editorialDocument && options?.contentCollection) {
       const collected = renderContentCollectionMarkdown(content, options.contentCollection, includeRange);
       if (collected === null) return null;
       content = collected;
@@ -544,7 +551,7 @@ export async function compile(
     const footnotePrefix = footnotePrefixFor(file.path);
     /** @param {string} str */
     const applyTextTransforms = (str: string): string =>
-      applyCompileTransforms(str, footnotePrefix, !!settings.exportFrenchTypography);
+      applyCompileTransforms(str, footnotePrefix, documentComposition?.frenchTypography ?? !!settings.exportFrenchTypography);
 
     /* Page de titre à rôles : chaque ligne `:::rôle: contenu` devient un
        paragraphe-marqueur `FEUILLETS-FPROLE:rôle` suivi de son contenu, que
@@ -663,7 +670,7 @@ export async function compile(
        chapitre ni de numérotation — juste le corps, avec sa propre mise en
        forme dédiée appliquée par chaque export-*.js à partir de frontType. */
     const normalizedFrontType = typeof fm.type === "string" ? fm.type.trim().toLowerCase() : "";
-    const isFront = isFrontMatter(app, settings, file, editorialRoot) && FRONT_PAGE_TYPES.includes(normalizedFrontType);
+    const isFront = !editorialDocument && isFrontMatter(app, settings, file, editorialRoot) && FRONT_PAGE_TYPES.includes(normalizedFrontType);
     const body = await readBody(file, isFront ? normalizedFrontType : undefined);
     if (!body) return false;
     const sourceTitle = compiledTitleFor(app, file) || null;
@@ -680,7 +687,7 @@ export async function compile(
       return true;
     }
 
-    const wantTitle = role === "scene" ? composition.sceneTitles : composition.chapterTitles;
+    const wantTitle = documentComposition?.automaticTitle ?? (role === "scene" ? composition.sceneTitles : composition.chapterTitles);
     /* RECTIFICATION LOT 4 — le titre automatique d'une SCÈNE est TOUJOURS
        généré en H4, niveau ABSOLU (jamais depth + 1, jamais dépendant d'un
        ouvrage) : projet global ou ouvrage, portée project/folder/file,
@@ -692,8 +699,8 @@ export async function compile(
        (réglage d'affichage, seul maître de wantTitle) ni un titre déjà
        écrit à la main dans le contenu (resolvedFileTitleMarkdown lui donne
        toujours la priorité par rapport à `level`) ne sont affectés. */
-    const titleLevel = role === "scene" ? 4 : depth + 1;
-    const title = resolvedFileTitleMarkdown(app, file, body.text, wantTitle, titleLevel);
+    const titleLevel = editorialDocument ? 1 : role === "scene" ? 4 : depth + 1;
+    const title = resolvedFileTitleMarkdown(app, file, body.text, wantTitle, titleLevel, editorialDocument?.basename);
     if (title) {
       push(`${title}\n\n${body.text}`, file.path, null, targetParts, targetSegments);
       targetSegments[targetSegments.length - 1].renderText = `${title}\n\n${body.renderText}`;
@@ -852,7 +859,9 @@ export async function compile(
     // explicite peut viser un brouillon, physiquement hors de l'arborescence
     // du manuscrit ; ce cas passe directement par le même pushFile().
     // La vérification fileSet dans pushFile() respecte la portée résolue.
-    if (compilationScope.type === "file" && filesToCompile.length === 1 && isProjectDraft(globalRoot, filesToCompile[0])) {
+    if (editorialDocument) {
+      await pushFile(editorialDocument, "chapitre", 0);
+    } else if (compilationScope.type === "file" && filesToCompile.length === 1 && isProjectDraft(globalRoot, filesToCompile[0])) {
       await pushFile(filesToCompile[0], roleOfFile(app, settings, filesToCompile[0]), 0);
     } else {
       await walk(editorialRoot, 0);
@@ -934,7 +943,7 @@ export async function compile(
      `parts` et `segments` reçoivent exactement les mêmes inserts, aux mêmes
      index, pour rester synchronisés (voir le commentaire juste en dessous
      sur cette contrainte). */
-  if (compilationScope.type === "project" || options?.bibliographyMode === "pandoc" || options?.bibliographyMode === "csl") {
+  if (!editorialDocument && (compilationScope.type === "project" || options?.bibliographyMode === "pandoc" || options?.bibliographyMode === "csl")) {
     const wantSummary = compilationScope.type === "project" ? composition.summary : false;
     const wantTables = compilationScope.type === "project" ? composition.tables : false;
     const wantToc = compilationScope.type === "project" ? composition.toc : false;
@@ -1664,7 +1673,7 @@ export async function exportEditorialDocumentDocxToFolder(
   suggestedBaseName: string
 ): Promise<string | undefined> {
   const root = getProjectFolder(app, settings);
-  if (!root) return undefined;
+  if (!root || !resolveEditorialDocument(app, settings, sourceFilePath)) return undefined;
   const scope: CompileScope = { type: "file", projectRoot: root.path, path: sourceFilePath };
   return exportViaNative(app, settings, "docx", null, destinationFolderPath, suggestedBaseName, true, scope);
 }
@@ -1678,7 +1687,7 @@ export function resolveExportIdentity(
   app: App,
   settings: FeuilletsSettings,
   folder: TFolder,
-  segments: { frontType?: string | null; path?: string | null }[]
+  segments?: { frontType?: string | null; path?: string | null }[]
 ): { title: string; author: string } {
   const meta = projectMetaFor(settings, folder);
   const realProjectRoot = getProjectRoot(app, settings);
@@ -1687,23 +1696,131 @@ export function resolveExportIdentity(
   let pageTitle = "";
   let pageAuthor = "";
 
-  const titrePageSeg = segments.find((s) => s.frontType === "titre" && s.path);
-  if (titrePageSeg && titrePageSeg.path) {
-    const titreFile = app.vault.getAbstractFileByPath(titrePageSeg.path);
-    if (titreFile instanceof TFile) {
-      const titreFm = fmOf(app, titreFile);
-      if (typeof titreFm.title === "string" && titreFm.title.trim()) {
-        pageTitle = titreFm.title.trim();
-      }
-      if (typeof titreFm.author === "string" && titreFm.author.trim()) {
-        pageAuthor = titreFm.author.trim();
-      }
+  const titlePath = segments?.find(segment => segment.frontType === "titre" && segment.path)?.path;
+  let titleFile = titlePath ? app.vault.getAbstractFileByPath(titlePath) : null;
+  if (!segments) {
+    const front = app.vault.getAbstractFileByPath(`${folder.path}/${FRONT_FOLDER_NAME}`);
+    if (front instanceof TFolder) {
+      titleFile = flattenFiles(app, settings, front).find(file => {
+        const fm = fmOf(app, file);
+        return fm.compiler !== false && fm.compile !== false && toValue(fm.type).trim().toLowerCase() === "titre";
+      }) ?? null;
+    }
+  }
+  if (titleFile instanceof TFile) {
+    const fm = fmOf(app, titleFile);
+    pageTitle = toValue(fm.title).trim();
+    pageAuthor = toValue(fm.author).trim();
+  }
+
+  const projectTitle = segments ? realProjectName : toValue(meta.name).trim() || toValue(settings.manuscriptTitle).trim() || realProjectName;
+  const title = pageTitle || projectTitle;
+  const author = pageAuthor || toValue(meta.author).trim() || toValue(settings.manuscriptAuthor).trim();
+  return { title, author };
+}
+
+export async function prepareNativeExport(
+  app: App,
+  settings: FeuilletsSettings,
+  folder: TFolder,
+  scopePath: string | null,
+  scope?: CompileScope,
+  contentExtraction?: ContentExtraction | null,
+  contentCollection?: ContentCollection | null,
+  compileFn: typeof compile = compile,
+  cslHost?: CslCitationHost | null,
+): Promise<{ ctx: NativeExportContext; composition: OuvrageCompositionConfig; editorialDocument: TFile | null } | undefined> {
+  /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
+  const editorialDocument = scope?.type === "file" || (!scope && scopePath)
+    ? resolveEditorialDocument(app, settings, scope?.path ?? scopePath ?? "") : null;
+  const editorialRootForExport = resolveEditorialRootFor(app, folder, scopePath, scope);
+  const { folder: citationTargetFolder, failClosed: citationFailClosed } =
+    resolveExportCitationTargetFolder(app, scopePath, scope);
+  const citationStyle = editorialDocument ? "off" : resolveDocumentCitationStyle(settings, editorialRootForExport.path, citationTargetFolder?.path ?? editorialRootForExport.path);
+  const compileOptions: CompileOptions = {
+    writeOutput: false,
+    ...(citationStyle === "csl" ? { bibliographyMode: "csl" } : {}),
+  };
+  if (contentExtraction || contentCollection) {
+    compileOptions.contentExtraction = contentExtraction;
+    compileOptions.contentCollection = contentCollection;
+  }
+  const result = await compileFn(
+    app,
+    settings,
+    scopePath,
+    scope ?? null,
+    undefined,
+    compileOptions,
+  );
+  if (!result || (editorialDocument && result.segments.length === 0)) return undefined;
+
+  /* Même racine éditoriale que celle que compile() vient d'utiliser pour
+     CE MÊME appel (scopePath/scope identiques, voir
+     resolveEditorialRootFor) : la composition effective ci-dessous ne
+     peut donc jamais diverger de celle déjà appliquée par compile() —
+     Markdown, PDF, DOCX, EPUB et ODT partagent ainsi toujours strictement
+     la même composition. */
+  const composition = effectiveComposition(settings, folder, editorialRootForExport);
+
+  const { title, author } = editorialDocument ? { title: editorialDocument.basename, author: "" } : resolveExportIdentity(app, settings, folder, result.segments);
+  /* Le fichier compilé réel (result.outPath) plutôt que le dossier projet :
+     la résolution des embeds (![[image.png]]) par Obsidian a besoin d'un
+     chemin de FICHIER pour son contexte de répertoire — un chemin de
+     dossier peut fausser la résolution des liens relatifs. */
+  const scopedFile = scope?.type === "file"
+    ? app.vault.getAbstractFileByPath(normalizePath(scope.path))
+    : null;
+  const segmentFile = result.segments.find((segment) => {
+    if (!segment.path) return false;
+    return app.vault.getAbstractFileByPath(normalizePath(segment.path)) instanceof TFile;
+  });
+  const sourcePath = scopedFile instanceof TFile
+    ? scopedFile.path
+    : segmentFile?.path && app.vault.getAbstractFileByPath(normalizePath(segmentFile.path)) instanceof TFile
+      ? normalizePath(segmentFile.path)
+      : folder.path;
+  const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType, sceneBreakBefore }) =>
+    frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) } : { path, text, frontType, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) }
+  );
+  // Resolve media before sources share one render context; a null collector keeps vault paths.
+  for (const segment of segments) {
+    if (!segment.path) continue;
+    segment.text = await transformSegmentMedia(app, segment.text, segment.path, null);
+    if (segment.renderText !== undefined) segment.renderText = await transformSegmentMedia(app, segment.renderText, segment.path, null);
+  }
+  const contentVariant = await selectedContentVariant(app, settings);
+
+  let citationBibliographyPath = "";
+
+  if (!citationFailClosed) {
+    const resolution = resolveWorkspaceCitationResources(app, settings, folder, citationTargetFolder);
+    if (resolution.bibliography.status === "valid" && resolution.bibliography.file) {
+      citationBibliographyPath = resolution.bibliography.file.path;
     }
   }
 
-  const title = pageTitle || realProjectName;
-  const author = pageAuthor || toValue(meta.author) || toValue(settings.manuscriptAuthor) || "";
-  return { title, author };
+  const citationSettings: ExportCitationSettings = {
+    style: citationStyle,
+    bibliographyPath: citationBibliographyPath,
+  };
+
+  const separator = editorialDocument ? "\n\n" : composition.separator;
+  const ctx: NativeExportContext = {
+    markdown: joinCompiledSegments(segments, separator),
+    title,
+    author,
+    sourcePath,
+    segments,
+    contentVariant: editorialDocument ? null : contentVariant,
+    separator,
+    template: editorialDocument ? editorialTemplate(settings, editorialDocument) : undefined,
+    citationSettings,
+    cslHost,
+    projectRoot: editorialRootForExport,
+  };
+
+  return { ctx, composition, editorialDocument };
 }
 
 /**
@@ -1740,97 +1857,14 @@ async function exportViaNative(
      ce filet reste le dernier recours si une exception lui échappe malgré
      tout. */
   try {
-    /* Utiliser la portée explicite si fournie, sinon le chemin legacy. */
-    const editorialRootForExport = resolveEditorialRootFor(app, folder, scopePath, scope);
-    const { folder: citationTargetFolder, failClosed: citationFailClosed } =
-      resolveExportCitationTargetFolder(app, scopePath, scope);
-    const citationStyle = resolveDocumentCitationStyle(settings, editorialRootForExport.path, citationTargetFolder?.path ?? editorialRootForExport.path);
-    const compileOptions: CompileOptions = {
-      writeOutput: false,
-      ...(citationStyle === "csl" ? { bibliographyMode: "csl" } : {}),
-    };
-    if (contentExtraction || contentCollection) {
-      compileOptions.contentExtraction = contentExtraction;
-      compileOptions.contentCollection = contentCollection;
-    }
-    const result = await compileFn(
-      app,
-      settings,
-      scopePath,
-      scope ?? null,
-      undefined,
-      compileOptions,
-    );
-    if (!result) return undefined;
-
-    /* Même racine éditoriale que celle que compile() vient d'utiliser pour
-       CE MÊME appel (scopePath/scope identiques, voir
-       resolveEditorialRootFor) : la composition effective ci-dessous ne
-       peut donc jamais diverger de celle déjà appliquée par compile() —
-       Markdown, PDF, DOCX, EPUB et ODT partagent ainsi toujours strictement
-       la même composition. */
-    const composition = effectiveComposition(settings, folder, editorialRootForExport);
-
-    const { title, author } = resolveExportIdentity(app, settings, folder, result.segments);
-    /* Le fichier compilé réel (result.outPath) plutôt que le dossier projet :
-       la résolution des embeds (![[image.png]]) par Obsidian a besoin d'un
-       chemin de FICHIER pour son contexte de répertoire — un chemin de
-       dossier peut fausser la résolution des liens relatifs. */
-    const scopedFile = scope?.type === "file"
-      ? app.vault.getAbstractFileByPath(normalizePath(scope.path))
-      : null;
-    const segmentFile = result.segments.find((segment) => {
-      if (!segment.path) return false;
-      return app.vault.getAbstractFileByPath(normalizePath(segment.path)) instanceof TFile;
-    });
-    const sourcePath = scopedFile instanceof TFile
-      ? scopedFile.path
-      : segmentFile?.path && app.vault.getAbstractFileByPath(normalizePath(segmentFile.path)) instanceof TFile
-        ? normalizePath(segmentFile.path)
-        : folder.path;
-    const opLocale = getLocale();
-    const projectLocale = detectProjectStructureLocale(app, folder, opLocale);
+    const prepared = await prepareNativeExport(app, settings, folder, scopePath, scope, contentExtraction, contentCollection, compileFn, cslHost);
+    if (!prepared) return undefined;
+    const { ctx, composition, editorialDocument } = prepared;
+    const projectLocale = detectProjectStructureLocale(app, folder, getLocale());
     const defaultManuscriptName = projectCreationNames(projectLocale).manuscript;
     const outputFolder = destination || format === "pdf" ? null : await getOutputFolder(app, settings, projectLocale);
     const outBase = destinationFolderPath || (outputFolder ? outputFolder.path : folder.path);
-    const baseName = resolveOutputBaseName(baseNameOverride, composition.fileName, defaultManuscriptName);
-    const segments: NativeExportSegment[] = result.segments.map(({ path, text, renderText, frontType, generatedType, sourceTitle, sourceSubtitle, startsWithGeneratedTitle, structuralType, sceneBreakBefore }) =>
-      frontType === null ? { path, text, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) } : { path, text, frontType, ...(renderText !== undefined ? { renderText } : {}), ...(generatedType ? { generatedType } : {}), ...(sourceTitle ? { sourceTitle } : {}), ...(sourceSubtitle ? { sourceSubtitle } : {}), ...(startsWithGeneratedTitle ? { startsWithGeneratedTitle } : {}), ...(structuralType ? { structuralType } : {}), ...(sceneBreakBefore ? { sceneBreakBefore } : {}) }
-    );
-    // Resolve media before sources share one render context; a null collector keeps vault paths.
-    for (const segment of segments) {
-      if (!segment.path) continue;
-      segment.text = await transformSegmentMedia(app, segment.text, segment.path, null);
-      if (segment.renderText !== undefined) segment.renderText = await transformSegmentMedia(app, segment.renderText, segment.path, null);
-    }
-    const contentVariant = await selectedContentVariant(app, settings);
-
-    let citationBibliographyPath = "";
-
-    if (!citationFailClosed) {
-      const resolution = resolveWorkspaceCitationResources(app, settings, folder, citationTargetFolder);
-      if (resolution.bibliography.status === "valid" && resolution.bibliography.file) {
-        citationBibliographyPath = resolution.bibliography.file.path;
-      }
-    }
-
-    const citationSettings: ExportCitationSettings = {
-      style: citationStyle,
-      bibliographyPath: citationBibliographyPath,
-    };
-
-    const ctx: NativeExportContext = {
-      markdown: joinCompiledSegments(segments, composition.separator),
-      title,
-      author,
-      sourcePath,
-      segments,
-      contentVariant,
-      separator: composition.separator,
-      citationSettings,
-      cslHost,
-      projectRoot: editorialRootForExport,
-    };
+    const baseName = resolveOutputBaseName(baseNameOverride || editorialDocument?.basename, composition.fileName, defaultManuscriptName);
 
     if (format === "epub") {
       const data = await exportEpub(app, settings, ctx);

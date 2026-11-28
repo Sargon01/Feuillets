@@ -24,6 +24,7 @@ type ExportSegment = {
 };
 
 type ExportInput = {
+  template?: ExportTemplateV2;
   markdown: string;
   title: string;
   author: string;
@@ -75,8 +76,8 @@ function footnotesXhtml(footnotes: ExportFootnote[]): string {
  * (markdown, sortie de compile()) : un seul flux XHTML continu, pas de
  * découpage par chapitre en v1 (portée assumée — voir plan). Utilise
  * jszip (pur JS, aucune dépendance Node) : fonctionne desktop et mobile. */
-export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: ExportInput): Promise<Uint8Array> {
-  const template = await resolveExportTemplateV2(app, settings, settings.exportTemplate);
+export async function exportEpub(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot, template: explicitTemplate }: ExportInput): Promise<Uint8Array> {
+  const template = explicitTemplate ?? await resolveExportTemplateV2(app, settings, settings.exportTemplate);
   const afterVariant = citationSettings && citationSettings.style !== "off"
     ? async (container: HTMLElement) => {
         if (citationSettings.style === "csl") {

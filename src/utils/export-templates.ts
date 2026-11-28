@@ -155,6 +155,35 @@ export const EXPORT_TEMPLATES: Record<string, ResolvedExportTemplate> = {
     pageNumbers: true,
     hyphenation: true,
   },
+  editorialDocument: {
+    key: "editorialDocument",
+    label: "Document éditorial",
+    profile: "document",
+    fontFamily: "Georgia, serif",
+    fontSizePt: 11,
+    lineHeight: 1.4,
+    align: "left",
+    indent: false,
+    marginsCm: { top: 2.5, bottom: 2.5, left: 2.5, right: 2.5 },
+    pageSize: "A4",
+    pdfOutputLayout: "single",
+    paragraphSpacing: true,
+    paragraphSpacingAfterPt: 9,
+    pageNumbers: false,
+    hyphenation: false,
+    sceneDivider: "",
+    header: { enabled: false, left: "", center: "", right: "", distanceCm: 0.75, bodyGapPt: 3, differentOddEven: false },
+    footer: { enabled: false, left: "", center: "", right: "", distanceCm: 0.75, bodyGapPt: 3 },
+    headings: {
+      h1: { fontSizePt: 23, marginTopPt: 0, marginBottomPt: 15, pageBreakBefore: false },
+      h2: { fontSizePt: 14, marginTopPt: 13, marginBottomPt: 6, pageBreakBefore: false },
+      h3: { fontSizePt: 12, pageBreakBefore: false },
+      h4: { pageBreakBefore: false },
+      h5: { pageBreakBefore: false },
+      h6: { pageBreakBefore: false },
+    },
+  },
+
   /* Adapté du style Ulysses "Simple Novel" (Katja Rupp, styles.ulysses.app)
      à partir du fichier .ulstyle partagé — mêmes valeurs (Baskerville
      14pt/24pt d'interligne, marges asymétriques 25/25/30/35mm, pas de

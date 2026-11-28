@@ -1,3 +1,5 @@
+import { resolveEditorialDocument } from "./services/editorial-document.js";
+import { manuscriptPathIsProtected } from "./services/folder-structure.js";
 import { isRewriteHistoryPath } from "./services/rewrite-history-store.js";
 import { runExportWorkflow } from "./services/export-workflow.js";
 /* Feuillets 2.0 — écriture longue façon Scrivener/Ulysses pour Obsidian.
@@ -1133,6 +1135,8 @@ class FeuilletsPlugin extends Plugin {
       checkCallback: (checking) => {
         const file = this.app.workspace.getActiveFile();
         if (!(file instanceof TFile) || file.extension !== "md") return false;
+        const root = this.getProjectFolder();
+        if (root && manuscriptPathIsProtected(root, file.path) && !resolveEditorialDocument(this.app, this.settings, file.path)) return false;
         if (!checking) void openWithPreview(this.app, this, file);
         return true;
       },
@@ -1868,6 +1872,12 @@ class FeuilletsPlugin extends Plugin {
     this.registerEvent(this.app.vault.on("delete", (file) => {
       if (isRewriteHistoryPath(file.path)) return;
       notifyCrossReferenceEditors(this.app, CROSS_REFERENCE_DEBOUNCE_MS);
+      const documents = this.settings.editorialDocuments;
+      if (documents) {
+        const deleted = Object.keys(documents).filter(path => path === file.path || path.startsWith(file.path + "/"));
+        for (const path of deleted) delete documents[path];
+        if (deleted.length) void this.saveSettings();
+      }
       if (file instanceof TFile) this.projectDraftAutoRenamer?.cancel(file);
       if (this.isLayoutReady) {
         if (this.settings.projectFolder && (file.path === this.settings.projectFolder || this.settings.projectFolder.startsWith(file.path + "/"))) {
@@ -5018,7 +5028,9 @@ class FeuilletsPlugin extends Plugin {
   editorialRootForComposition(): TFolder | null {
     const globalRoot = this.getProjectFolder();
     if (!globalRoot) return null;
-    const scope = this.getCentralPreviewView()?.compileScope ?? this.activeExportScope;
+    const previewScope = this.getCentralPreviewView()?.compileScope;
+    const scope = previewScope?.type === "file" && resolveEditorialDocument(this.app, this.settings, previewScope.path)
+      ? this.activeExportScope : previewScope ?? this.activeExportScope;
     if (!scope) return globalRoot;
     const resolved = this.app.vault.getAbstractFileByPath(normalizePath(scope.projectRoot));
     return resolved instanceof TFolder ? resolved : globalRoot;
@@ -5046,7 +5058,21 @@ class FeuilletsPlugin extends Plugin {
 
   /** Portée d'un feuillet du Binder, rattachée à son ouvrage (racine globale
    * hors ouvrage) — même règle que compileScopeForFolder. */
+  getActiveEditorialScope(): CompileScope | null {
+    const root = this.getProjectFolder();
+    if (!root) return null;
+    const view = this.app.workspace.getMostRecentLeaf?.(this.app.workspace.rootSplit)?.view;
+    const previewScope = view instanceof PreviewView ? view.compileScope : null;
+    const path = previewScope?.type === "file" ? previewScope.path
+      : view instanceof MarkdownView ? view.file?.path : undefined;
+    return path && resolveEditorialDocument(this.app, this.settings, path) ? createFileScope(root.path, path) : null;
+  }
+
   compileScopeForFile(file: TFile): CompileScope | null {
+    const root = this.getProjectFolder();
+    if (root && manuscriptPathIsProtected(root, file.path)) {
+      return resolveEditorialDocument(this.app, this.settings, file.path) ? createFileScope(root.path, file.path) : null;
+    }
     const editorialRoot = this.editorialRootFor(file);
     if (!editorialRoot) return null;
     return createFileScope(editorialRoot.path, file.path);
@@ -6979,7 +7005,13 @@ class FeuilletsPlugin extends Plugin {
   async compile() { return compile(this.app, this.settings); }
   async exportFile(format = "docx") {
     const root = this.getProjectFolder();
-    return runExportWorkflow(this.app, this, root ? createProjectScope(root.path) : null, format);
+    const scope = this.getActiveEditorialScope();
+    const file = this.app.workspace.getActiveFile?.();
+    if (!scope && root && file && manuscriptPathIsProtected(root, file.path)) {
+      new Notice(t("editionDocs.submissionDocument"));
+      return;
+    }
+    return runExportWorkflow(this.app, this, scope ?? (root ? createProjectScope(root.path) : null), format);
   }
   projectMetaFor(folder: TFolder): ProjectMeta { return projectMetaFor(this.settings, folder); }
 

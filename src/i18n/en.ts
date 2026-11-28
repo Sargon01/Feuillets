@@ -1441,6 +1441,7 @@ export const en = {
   "editionDocs.description": "Synopsis, note of intent, biography, cover letter, submissions.",
   "editionDocs.notCreatedBody": "No Edition folder for this project yet. Create it to prepare a synopsis, note of intent, biography, cover letter, and submission tracking.",
   "editionDocs.createFolder": "Create the Edition folder",
+  "editionDocs.submissionDocument": "This file belongs to a submission or archive folder.",
   "editionDocs.newDocument": "New document",
   "editionDocs.newDocumentModalTitle": "New document in Edition",
   "editionDocs.newDocumentPlaceholder": "Document name",

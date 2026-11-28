@@ -32,7 +32,7 @@ import {
   type StaticCslSource,
 } from "./pandoc-citation-static-csl.js";
 
-import { resolveExportTemplate, resolveExportTemplateV2 } from "./export-templates-custom.js";
+import { legacyFieldsFromV2, resolveExportTemplate, resolveExportTemplateV2 } from "./export-templates-custom.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
 import { markedMarkdownFor, bookmarkMarkerInfoOf, bookmarkIdFor } from "../utils/docx-bookmarks.js";
 import {
@@ -104,9 +104,11 @@ export function citationParagraphStyle(template: Pick<ExportTemplateV2, "blockqu
 }
 
 type ExportInput = {
+  template?: ExportTemplateV2;
   markdown: string;
   title: string;
   author: string;
+  literalHeader?: string;
   sourcePath: string;
   segments?: ExportSegment[];
   contentVariant?: ContentVariant | null;
@@ -165,12 +167,14 @@ type ExportDocxSettings = FeuilletsSettings & {
    services/docx-review-import.js. */
 
 /** Génère un fichier Word (.docx) avec gestion des en-têtes/pieds et numérotation des pages */
-export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: ExportInput): Promise<Buffer> {
+export async function exportDocx(app: App, settings: FeuilletsSettings, { markdown, title, author, literalHeader, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot, template: explicitTemplate }: ExportInput): Promise<Buffer> {
   /* Ces champs sont fournis par DEFAULT_SETTINGS ; FeuilletsSettings les
      garde ouverts pendant la migration progressive pour les autres services. */
   const docxSettings = settings as ExportDocxSettings;
-  const template = await resolveExportTemplateV2(app, settings, docxSettings.exportTemplate);
-  const resolvedLegacyTemplate = await resolveExportTemplate(app, settings, docxSettings.exportTemplate);
+  const template = explicitTemplate ?? await resolveExportTemplateV2(app, settings, docxSettings.exportTemplate);
+  const resolvedLegacyTemplate = explicitTemplate
+    ? legacyFieldsFromV2(explicitTemplate, "editorialDocument", "")
+    : await resolveExportTemplate(app, settings, docxSettings.exportTemplate);
   const fontFamily = template.body.fontFamily.split(",")[0].replace(/['"]/g, "").trim();
   const headingFontFamily = fontFamily;
   // L'adaptateur ne sert qu'à blockToParagraphs, dont l'API legacy est
@@ -475,7 +479,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
       }
       if (part.toLowerCase() === "{part}") return new SimpleField('STYLEREF "Heading 1"');
       if (part.toLowerCase() === "{chapter}") return new SimpleField('STYLEREF "Heading 2"');
-      const text = part.replace(/\{title\}/gi, title).replace(/\{author\}/gi, author);
+      const text = part.replace(/\{(?:title|author)\}/gi, token => token.toLowerCase() === "{title}" ? title : author);
       return new TextRun({ text, color: "888888", size: 18 });
     });
   };
@@ -492,7 +496,7 @@ export async function exportDocx(app: App, settings: FeuilletsSettings, { markdo
     children: [
       ...parseHeaderFooterText(headerLeftStr),
       new TextRun("\t"),
-      ...parseHeaderFooterText(headerCenterStr),
+      ...(literalHeader === undefined ? parseHeaderFooterText(headerCenterStr) : [new TextRun({ text: literalHeader, color: "888888", size: 18 })]),
       new TextRun("\t"),
       ...parseHeaderFooterText(headerRightStr),
     ],

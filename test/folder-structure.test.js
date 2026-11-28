@@ -507,3 +507,16 @@ test("roleOfFolder : level1RoleOverride prime aussi sur un level1Role posé dans
   // Avec override : il prime sur projectMeta ET sur le réglage global.
   assert.equal(roleOfFolder(app, settings, part1, undefined, "parties"), "partie");
 });
+
+test("le dossier _Edition historique reste prioritaire et un chapitre Edition reste dans le manuscrit", () => {
+  const { volume, manuscrit, chapter } = newProjectFixture();
+  const legacy = new TFolder("Roman1/_Edition");
+  const plain = new TFolder("Roman1/Edition");
+  const narrative = new TFolder("Roman1/Manuscrit/Édition");
+  for (const child of [legacy, plain]) { child.parent = volume; volume.children.push(child); }
+  narrative.parent = manuscrit;
+  manuscrit.children.push(narrative);
+  const { vault } = createFakeVault([volume, manuscrit, chapter, legacy, plain, narrative]);
+  assert.equal(getEditionRoot({ vault }, manuscrit), legacy);
+  assert.ok(getOrderedChildren({ vault }, { projectFolder: manuscrit.path, orders: {}, folderPositions: {} }, manuscrit).includes(narrative));
+});

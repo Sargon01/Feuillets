@@ -65,6 +65,7 @@ type LayoutPlugin = LayoutEditorPlugin;
 
 export type LayoutEditorOptions = {
   mode: LayoutEditorMode;
+  documentTemplate?: { load(): ExportTemplateV2; save(template: ExportTemplateV2): Promise<void> };
   templateLabel?: string;
   onChange?: OnLayoutChange;
   /** Notifié après chaque `select()` — permet à un hôte externe (la
@@ -181,6 +182,7 @@ export class LayoutEditor {
    * en mode workspace (§28), et strictement le MÊME composant que celui du
    * LayoutModal (§29). `null` partout ailleurs. */
   miniature: TitlePageMiniature | null = null;
+  private documentTemplate: LayoutEditorOptions["documentTemplate"];
   private rolePicker: HTMLSelectElement | null = null;
   private roleFields: HTMLElement | null = null;
   private roleInputs = new Map<keyof TitlePageStyle, HTMLInputElement>();
@@ -191,6 +193,7 @@ export class LayoutEditor {
     this.host = host;
     this.templateKey = templateKey;
     this.mode = options.mode;
+    this.documentTemplate = options.documentTemplate;
     this.templateLabel = options.templateLabel || templateKey;
     this.onChange = options.onChange;
     this.onSelectionChange = options.onSelectionChange;
@@ -232,8 +235,8 @@ export class LayoutEditor {
   private async loadModel(): Promise<void> {
     this.miniature?.destroy();
     const S = this.plugin.settings;
-    this.templates = await listExportTemplates(this.app, S);
-    this.template = await resolveExportTemplateV2(this.app, S, this.templateKey);
+    this.templates = this.documentTemplate ? [] : await listExportTemplates(this.app, S);
+    this.template = this.documentTemplate ? this.documentTemplate.load() : await resolveExportTemplateV2(this.app, S, this.templateKey);
     this.styles = JSON.parse(JSON.stringify(this.template.titlePage.styles)) as TitlePageStyles;
     this.roles = Object.keys(this.styles);
     this.selected = null;
@@ -345,6 +348,7 @@ export class LayoutEditor {
       return "";
     });
 
+    if (this.documentTemplate) return;
     this.renderSummarySubRow(list, "slides", "layoutWorkspace.slides", () => {
       return this.activePresentationTheme().name;
     });
@@ -1087,6 +1091,7 @@ export class LayoutEditor {
   private renderBodyOptionsInspector(insp: HTMLElement): void {
     const body = this.template.body;
     new Setting(insp).setName(t("modal.layout.hyphenation")).addToggle((control) => control.setValue(body.hyphenation).onChange(async (v) => { body.hyphenation = v; await this.saveTemplate(); }));
+    if (this.documentTemplate) return;
     new Setting(insp).setName(t("modal.layout.profile")).addDropdown((d) => d
       .addOption("manuscript", t("modal.layout.profileManuscript")).addOption("document", t("modal.layout.profileDocument")).addOption("academic", t("modal.layout.profileAcademic"))
       .setValue(this.template.profile).onChange(async (v) => {
@@ -1272,7 +1277,8 @@ export class LayoutEditor {
 
   async saveTemplate(): Promise<void> {
     const opLocale = getLocale();
-    await saveExportTemplateV2(this.app, this.plugin.settings, this.templateKey, this.template, opLocale);
+    if (this.documentTemplate) await this.documentTemplate.save(this.template);
+    else await saveExportTemplateV2(this.app, this.plugin.settings, this.templateKey, this.template, opLocale);
     // La maquette du workspace suit le modèle sauvegardé (format, orientation,
     // bandes, positions) sans passer par une reconstruction complète.
     this.miniature?.refresh();

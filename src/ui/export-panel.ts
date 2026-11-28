@@ -1,3 +1,4 @@
+import { resolveEditorialDocument } from "../services/editorial-document.js";
 import { Menu, Notice, Setting, TFile, TFolder, setIcon, setTooltip, type App, type WorkspaceLeaf } from "obsidian";
 import { t } from "../i18n/index.js";
 import {
@@ -81,6 +82,7 @@ export type ExportPanelPlugin = ExportWorkflowPlugin & {
  * Preview. */
 export type ExportPanelCallbacks = {
   onScopeChanged?: () => Promise<void> | void;
+  fixedScope?: boolean;
   /** Portée explicite à utiliser, si l'appelant en connaît une (PreviewView :
    * `effectiveExportScope()`). Facultatif — sans lui, le panneau retombe sur
    * `currentExportScope(plugin)`. */
@@ -143,7 +145,10 @@ export class ExportPanel {
    * ce projet, s'il existe — main.ts#getCentralPreviewView(). `null` sinon,
    * pour un repli intégral sur le comportement Continu/session existant. */
   private centralPreview(): CentralPreviewView | null {
-    return this.plugin.getCentralPreviewView?.() ?? null;
+    const preview = this.plugin.getCentralPreviewView?.() ?? null;
+    const scope = preview?.compileScope;
+    if (scope?.type === "file" && resolveEditorialDocument(this.app, this.plugin.settings, scope.path)) return null;
+    return preview;
   }
 
   private resolveScope(): CompileScope | null {
@@ -288,11 +293,13 @@ export class ExportPanel {
     bar.empty();
     bar.addClass("feuillets-edition-quickexport");
 
-    const scopeButton = this.quickMenuButton(bar, "scope", "layers", this.quickScopeTooltip(this.resolveScope()));
-    scopeButton.addEventListener("click", (event) => this.showQuickScopeMenu(event, scopeButton));
-    const contentButton = this.quickMenuButton(bar, "content", "file-text", t("contentDerivation.fullTooltip"));
-    contentButton.addEventListener("click", (event) => void this.showQuickContentMenu(event, contentButton));
-    void this.updateQuickContentButton(contentButton);
+    if (!this.callbacks.fixedScope) {
+      const scopeButton = this.quickMenuButton(bar, "scope", "layers", this.quickScopeTooltip(this.resolveScope()));
+      scopeButton.addEventListener("click", (event) => this.showQuickScopeMenu(event, scopeButton));
+      const contentButton = this.quickMenuButton(bar, "content", "file-text", t("contentDerivation.fullTooltip"));
+      contentButton.addEventListener("click", (event) => void this.showQuickContentMenu(event, contentButton));
+      void this.updateQuickContentButton(contentButton);
+    }
     const formatButton = this.quickMenuButton(bar, "format", "file-cog", this.quickFormatTooltip(this.exportFormat));
     formatButton.addEventListener("click", (event) => this.showQuickFormatMenu(event, formatButton));
 

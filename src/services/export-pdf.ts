@@ -11,7 +11,7 @@ import {
 } from "./pandoc-citation-static-csl.js";
 import { DOCUMENT_LAYOUT_EXPORT_CSS } from "./document-layout.js";
 import { templateToCss, titleRoleCss } from "../utils/export-templates.js";
-import { resolveExportTemplate } from "./export-templates-custom.js";
+import { legacyFieldsFromV2, resolveExportTemplate } from "./export-templates-custom.js";
 import { paginateDom, paginateDomCooperatively, type CooperativePaginationOptions, type PaginationGeometry, type PaginationPage, type PaginationReservedBottomAreaProvider } from "./pagination-engine.js";
 import { resolvePageGeometry } from "./page-geometry.js";
 import { shouldGenerateGenericTitlePage } from "./export-template-v2.js";
@@ -27,7 +27,13 @@ type PdfExportSegment = {
   frontType?: string | null;
 };
 
-type PdfExportInput = {
+export const PACKET_HEADER_TOP_MM = 4.5;
+export const PACKET_HEADER_MIN_MARGIN_MM = 14;
+export const PACKET_HEADER_TYPE = "font:8pt/1.2 Georgia,serif;color:#555;text-align:center;overflow-wrap:anywhere";
+
+export type PdfExportInput = {
+  packetHeader?: string;
+  template?: ExportTemplateV2;
   markdown: string;
   title: string;
   author: string;
@@ -80,7 +86,7 @@ export function physicalPageGeometryFor(tpl: ResolvedExportTemplate, settings: F
   return physicalPageGeometry(tpl, settings);
 }
 
-export function imposePagesHtml(logicalPages: string[], mode: PdfOutputLayout): string[] {
+export function imposePagesHtml(logicalPages: string[], mode: PdfOutputLayout, sheetHeader = ""): string[] {
   if (mode === "single") return logicalPages;
   const sheets: string[] = [];
   const panel = (html: string, side: "left" | "right") => {
@@ -90,7 +96,7 @@ export function imposePagesHtml(logicalPages: string[], mode: PdfOutputLayout): 
       .replace(/break-after: page;/gu, "break-after: auto;");
     return `<div class="feuillets-sheet-panel feuillets-sheet-panel-${side}">${panelPage}</div>`;
   };
-  const sheet = (left: string, right: string) => `<div class="feuillets-sheet feuillets-sheet-a4-landscape feuillets-sheet-two-up">${panel(left, "left")}${panel(right, "right")}</div>`;
+  const sheet = (left: string, right: string) => `<div class="feuillets-sheet feuillets-sheet-a4-landscape feuillets-sheet-two-up"${sheetHeader ? ' style="position:relative"' : ""}>${panel(left, "left")}${panel(right, "right")}${sheetHeader}</div>`;
   if (mode === "two-up-duplicate") {
     logicalPages.forEach((page) => sheets.push(sheet(page, page)));
     return sheets;
@@ -100,6 +106,7 @@ export function imposePagesHtml(logicalPages: string[], mode: PdfOutputLayout): 
 }
 
 export type PaginationOptions = {
+  packetHeader?: string;
   /** Consumer-level override; Preview can opt out without changing templates. */
   hyphenationOverride?: boolean;
   /** Consumer-level page geometry; Preview uses the active template margins. */
@@ -273,7 +280,8 @@ function prepareManuscriptPagination(
   const logicalTpl = logicalTemplateFor(tpl, settings);
   const pageGeometry = logicalPageGeometryFor(tpl, settings);
   const templateMargins = tpl.marginsCm;
-  const mTop = options.marginsOverrideCm?.top ?? templateMargins?.top ?? settings.pdfMarginTop ?? 2.5;
+  const configuredTop = options.marginsOverrideCm?.top ?? templateMargins?.top ?? settings.pdfMarginTop ?? 2.5;
+  const mTop = options.packetHeader ? Math.max(configuredTop, PACKET_HEADER_MIN_MARGIN_MM / 10) : configuredTop;
   const mBottom = options.marginsOverrideCm?.bottom ?? templateMargins?.bottom ?? settings.pdfMarginBottom ?? 2.5;
   const mLeft = options.marginsOverrideCm?.left ?? templateMargins?.left ?? settings.pdfMarginLeft ?? 2.5;
   const mRight = options.marginsOverrideCm?.right ?? templateMargins?.right ?? settings.pdfMarginRight ?? 2.5;
@@ -310,6 +318,11 @@ function prepareManuscriptPagination(
   };
 }
 
+function packetPageHeader(value: string, sideMarginCm: number): string {
+  const text = value.replace(/[&<>]/gu, character => `&#${character.charCodeAt(0)};`);
+  return `<div class="feuillets-packet-page-header" style="position:absolute;top:${PACKET_HEADER_TOP_MM}mm;left:${sideMarginCm}cm;right:${sideMarginCm}cm;${PACKET_HEADER_TYPE}">${text}</div>`;
+}
+
 /** Pagine le contenu HTML en boîtes de pages réelles (.pdf-page) pour l'impression PDF et l'aperçu WYSIWYG.
  * Gère les en-têtes et pieds de page différenciés (paires/impaires), les sauts de page sur titres (H1/H2),
  * la position des numéros de page (droite, centré, gauche) et la couleur adoucie des en-têtes (#aaaaaa). */
@@ -338,10 +351,13 @@ export function paginateManuscript(
      réglages. Preview et export PDF reçoivent ainsi la MÊME géométrie sans que
      l'un des deux ait à la recalculer. */
   const templateMargins = tpl.marginsCm;
-  const mTop = options.marginsOverrideCm?.top ?? templateMargins?.top ?? settings.pdfMarginTop ?? 2.5;
+  const configuredTop = options.marginsOverrideCm?.top ?? templateMargins?.top ?? settings.pdfMarginTop ?? 2.5;
+  const mTop = options.packetHeader ? Math.max(configuredTop, PACKET_HEADER_MIN_MARGIN_MM / 10) : configuredTop;
   const mBottom = options.marginsOverrideCm?.bottom ?? templateMargins?.bottom ?? settings.pdfMarginBottom ?? 2.5;
   const mLeft = options.marginsOverrideCm?.left ?? templateMargins?.left ?? settings.pdfMarginLeft ?? 2.5;
   const mRight = options.marginsOverrideCm?.right ?? templateMargins?.right ?? settings.pdfMarginRight ?? 2.5;
+  const outputLayout = outputLayoutFor(settings, tpl);
+  const packetHeader = options.packetHeader ? packetPageHeader(options.packetHeader, Math.max(mLeft, mRight)) : "";
 
   const mirror = tpl.mirrorMargins ?? !!settings.pdfMirrorMargins;
   const diffHeaders = tpl.header?.differentOddEven ?? !!settings.pdfDiffHeaders;
@@ -507,7 +523,9 @@ export function paginateManuscript(
         color: #111111;
       ">
         ${
-          showHeader
+          packetHeader
+            ? outputLayout === "single" ? packetHeader : ""
+            : showHeader
             ? `
           <div class="pdf-page-header" style="
             position: absolute;
@@ -579,7 +597,7 @@ export function paginateManuscript(
     `;
   });
 
-  const pagesHtml = imposePagesHtml(logicalPagesHtml, outputLayoutFor(settings, tpl));
+  const pagesHtml = imposePagesHtml(logicalPagesHtml, outputLayout, packetHeader);
   return { pagesHtml: pagesHtml.join("\n"), totalPages };
 }
 
@@ -601,13 +619,13 @@ export async function paginateManuscriptCooperatively(
 }
 
 /** PDF via la boîte de dialogue d'impression du système */
-export async function exportPdf(app: App, settings: FeuilletsSettings, { markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n", citationSettings, cslHost, projectRoot }: PdfExportInput): Promise<void> {
-  if (Platform.isMobile) {
-    new Notice(t("export.pdf.mobileUnavailable"));
-    return;
-  }
-
-  const tpl = await resolveExportTemplate(app, settings, settings.exportTemplate);
+export async function preparePdfPrintDocument(app: App, settings: FeuilletsSettings, {
+  markdown, title, author, sourcePath, segments, contentVariant, separator = "\n\n",
+  citationSettings, cslHost, projectRoot, template, packetHeader,
+}: PdfExportInput) {
+  const tpl = template
+    ? legacyFieldsFromV2(template, "editorialDocument", "")
+    : await resolveExportTemplate(app, settings, settings.exportTemplate);
   const afterVariant = citationSettings && citationSettings.style !== "off"
     ? async (container: HTMLElement) => {
         if (citationSettings.style === "csl") {
@@ -652,12 +670,18 @@ export async function exportPdf(app: App, settings: FeuilletsSettings, { markdow
     }
   }
 
-  const { pagesHtml } = paginateManuscript(containerEl, footnotes, settings, tpl, title, author);
-
+  const { pagesHtml, totalPages } = paginateManuscript(containerEl, footnotes, settings, tpl, title, author, { packetHeader });
   const css = templateToCss(tpl) + FRONT_PAGE_CSS + DOCUMENT_LAYOUT_EXPORT_CSS + "\n" + titleRoleCss(tpl) + "\n" + CITATION_RENDER_CSS;
-  /* MÊME helper que paginateManuscript ci-dessus : la règle @page du document
-     d'impression ne peut plus diverger du format réellement paginé (§26). */
-  const { size: pageSize, orientation } = physicalPageGeometry(tpl, settings);
+  return { pagesHtml, totalPages, css, geometry: physicalPageGeometry(tpl, settings) };
+}
+
+export async function exportPdf(app: App, settings: FeuilletsSettings, input: PdfExportInput): Promise<void> {
+  if (Platform.isMobile) {
+    new Notice(t("export.pdf.mobileUnavailable"));
+    return;
+  }
+  const { pagesHtml, css, geometry: { size: pageSize, orientation } } = await preparePdfPrintDocument(app, settings, input);
+  const { title } = input;
 
   // Iframe hôte de l'impression : élément du document principal Obsidian.
   const iframe = document.body.createEl("iframe", { cls: "feuillets-pdf-print-frame" });

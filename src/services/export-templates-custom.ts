@@ -111,8 +111,9 @@ function templateV2FromFrontmatter(frontmatter: Record<string, unknown>): Export
   return normalizeV2Template(JSON.parse(JSON.stringify(frontmatter)) as ExportTemplateV2);
 }
 
-function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" | "label" | "custom"> {
+export function legacyFieldsFromV2(tpl: ExportTemplateV2, key: string, label: string): ResolvedExportTemplate {
   return {
+    key, label,
     profile: tpl.profile,
     fontFamily: tpl.body.fontFamily,
     fontSizePt: tpl.body.fontSizePt,
@@ -143,7 +144,7 @@ function legacyFieldsFromV2(tpl: ExportTemplateV2): Omit<ExportTemplate, "key" |
     ...(tpl.blockquote ? { blockquote: { ...tpl.blockquote } } : {}),
     sceneDivider: tpl.sceneDivider,
     headings: Object.fromEntries(Object.entries(tpl.headings).map(([level, style]) => [level, { ...style }])),
-    titlePage: JSON.parse(JSON.stringify(tpl.titlePage)),
+    titlePage: { ...tpl.titlePage, styles: Object.fromEntries(Object.entries(tpl.titlePage.styles).map(([role, style]) => [role, { ...style }])) },
     semanticRoleMarkers: tpl.semanticRoleMarkers,
   };
 }
@@ -218,9 +219,7 @@ export async function loadCustomTemplates(app: App, settings: FeuilletsSettings)
       const label = typeof fm.label === "string" && fm.label.trim() ? fm.label.trim() : file.basename;
       const v2 = templateV2FromFrontmatter(fm);
       custom[key] = v2 ? {
-        ...legacyFieldsFromV2(v2),
-        key,
-        label,
+        ...legacyFieldsFromV2(v2, key, label),
         custom: true,
       } : Object.assign({}, EXPORT_TEMPLATES.classique, validTemplateOverrides(fm), {
         key,

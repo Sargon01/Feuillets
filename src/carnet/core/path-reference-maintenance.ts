@@ -73,6 +73,11 @@ export function remapFeuilletsPathReferences(settings: FeuilletsSettings, oldPat
   }
   if (changed) settings.projectMeta = nextMeta;
   for (const field of ["folderPositions", "folderGoals"] as const) { const [next, did] = rekey(settings[field], oldPath, newPath, field, conflicts); if (did && next) { settings[field] = next; changed = true; } }
+  const [documents, editorialChanged] = rekey(settings.editorialDocuments, oldPath, newPath, "editorialDocuments", conflicts);
+  if (editorialChanged) {
+    settings.editorialDocuments = documents;
+    changed = true;
+  }
   if (settings.orders) {
     const [nextOrders, did] = rekey(settings.orders, oldPath, newPath, "orders", conflicts); if (did && nextOrders) { settings.orders = nextOrders; changed = true; }
     const oldParent = oldPath.slice(0, oldPath.lastIndexOf("/")); const newParent = newPath.slice(0, newPath.lastIndexOf("/")); const oldName = oldPath.slice(oldPath.lastIndexOf("/") + 1); const newName = newPath.slice(newPath.lastIndexOf("/") + 1);
