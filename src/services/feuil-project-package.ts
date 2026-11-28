@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import type { EditorialPacket } from "./editorial-packet.js";
 
 export const FEUIL_PROJECT_EXTENSION = "feuil";
 export const FEUIL_PROJECT_FORMAT = "feuil";
@@ -20,6 +21,11 @@ export type FeuilProjectLinkedResearch = {
     | { kind: "external"; id: string; name: string };
 };
 
+export type FeuilEditorialSettings = {
+  documents: Record<string, EditorialDocumentSettings>;
+  packets: EditorialPacket[];
+};
+
 export type FeuilProjectManifest = {
   format: typeof FEUIL_PROJECT_FORMAT;
   version: typeof FEUIL_PROJECT_VERSION;
@@ -34,6 +40,7 @@ export type FeuilProjectManifest = {
       level1Role: "parties" | "chapitres";
     };
     composition?: OuvrageCompositionConfig;
+    editorial?: FeuilEditorialSettings;
     meta: Record<string, unknown>;
     pathSettings: {
       orders: Record<string, string[]>;
@@ -125,6 +132,29 @@ function validatePathSettings(value: unknown): boolean {
     && validateStringRecord(folderGoals, (item) => typeof item === "number" && Number.isFinite(item));
 }
 
+function validateEditorialSettings(value: unknown): boolean {
+  if (!isPlainObject(value) || !isPlainObject(value.documents) || !Array.isArray(value.packets)) return false;
+  const markdownPath = (path: unknown): boolean => validateRelativePath(path) && /\.md$/iu.test(path);
+  return Object.entries(value.documents).every(([path, document]) => {
+    if (!markdownPath(path) || !isPlainObject(document)) return false;
+    const { automaticTitle, frenchTypography, template } = document;
+    return (automaticTitle === undefined || typeof automaticTitle === "boolean")
+      && (frenchTypography === undefined || typeof frenchTypography === "boolean")
+      && (template === undefined || (isPlainObject(template) && template.version === 2
+        && isPlainObject(template.page) && isPlainObject(template.body)
+        && typeof template.body.fontFamily === "string" && typeof template.body.fontSizePt === "number"));
+  }) && value.packets.every((packet: unknown) => isPlainObject(packet)
+    && isNonEmptyString(packet.name) && !hasControlCharacter(packet.name)
+    && validateRelativePath(packet.projectRoot, true)
+    && Array.isArray(packet.sources) && packet.sources.every((path: unknown) => validateRelativePath(path) && /\.(md|docx)$/iu.test(path))
+    && (packet.letterSource === undefined || markdownPath(packet.letterSource))
+    && (packet.letterIndex === undefined || (Number.isInteger(packet.letterIndex) && Number(packet.letterIndex) >= 0 && Number(packet.letterIndex) <= packet.sources.length))
+    && (packet.excerpt === undefined || markdownPath(packet.excerpt))
+    && (packet.format === "composite" || packet.format === "pdf" || packet.format === "docx")
+    && (packet.manuscript === "none" || packet.manuscript === "full" || packet.manuscript === "excerpt")
+    && typeof packet.manuscriptDocx === "boolean" && typeof packet.identity === "boolean");
+}
+
 function validateLinkedResearch(value: unknown): value is FeuilProjectLinkedResearch[] {
   if (!Array.isArray(value)) return false;
   const binderPaths = new Set<string>();
@@ -188,6 +218,7 @@ export function validateFeuilProjectManifest(value: unknown): FeuilProjectManife
     || (project.rootKind === "structured" && project.manuscriptPath === ".")) fail("rootKind et manuscriptPath .feuil incohérents.");
   if (!isPlainObject(project.structure) || (project.structure.level1Role !== "parties" && project.structure.level1Role !== "chapitres")) fail("structure .feuil invalide.");
   if (project.composition !== undefined && !validateOuvrageComposition(project.composition)) fail("composition .feuil invalide.");
+  if (project.editorial !== undefined && !validateEditorialSettings(project.editorial)) fail("Réglages éditoriaux .feuil invalides.");
   if (!isPlainObject(project.meta)) fail("meta .feuil invalide.");
   if (!validatePathSettings(project.pathSettings)) fail("pathSettings .feuil invalide.");
   if (!validateNarrativeState(project.narrativeState)) fail("narrativeState .feuil invalide.");

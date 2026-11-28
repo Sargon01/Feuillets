@@ -329,3 +329,19 @@ test("automatic rewrite history is excluded from structured and adopted .feuil e
     assert.equal(plan.directories.some((path) => path.includes("_Feuillets/RewriteHistory")), false);
   }
 });
+
+test("le .feuil exporte les réglages éditoriaux du projet avec leurs chemins relatifs", async () => {
+  const { app, settings } = fixture();
+  const packet = {
+    name: "Dossier", projectRoot: "Projet/Manuscrit", sources: ["Projet/Edition/Pitch.md"],
+    letterSource: "Projet/Edition/Lettre d’accompagnement.md", excerpt: "Projet/Manuscrit/01.md",
+    format: "composite", manuscript: "excerpt", manuscriptDocx: false, identity: true,
+  };
+  settings.editorialPackets = [packet, { ...packet, projectRoot: "Ailleurs/Manuscrit" }];
+  settings.editorialDocuments = { "Projet/Edition/Pitch.md": { automaticTitle: true }, "Ailleurs/Edition/Pitch.md": { automaticTitle: false } };
+  const exported = await buildFeuilProjectExportPlan(app, settings, "v", "p", "2026-08-21T00:00:00Z");
+  const editorial = exported.manifest.project.editorial;
+  assert.deepEqual(editorial.documents, { "Edition/Pitch.md": { automaticTitle: true } });
+  assert.deepEqual(editorial.packets, [{ ...packet, projectRoot: "Manuscrit", sources: ["Edition/Pitch.md"],
+    letterSource: "Edition/Lettre d’accompagnement.md", excerpt: "Manuscrit/01.md" }]);
+});

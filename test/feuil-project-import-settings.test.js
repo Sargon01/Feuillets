@@ -32,3 +32,18 @@ test("supprime les anciennes clés du même projectRoot", () => { const value = 
 test("ne supprime pas la clé voisine Projet-ancien", () => { const value = settings(); applyFeuilProjectImportSettings(value, result()); assert.deepEqual(value.orders["Projet-ancien/x"], ["keep"]); });
 test("laisse les réglages d’un autre projet inchangés", () => { const value = settings(); applyFeuilProjectImportSettings(value, result()); assert.deepEqual(value.orders["Autre/x"], ["keep"]); });
 test("les mutations ultérieures du patch n’affectent pas settings", () => { const value = settings(); const patch = result(); applyFeuilProjectImportSettings(value, patch); patch.settingsPatch.pathSettings.orders.Projet.push("Autre"); patch.settingsPatch.narrativeState.resolved.push("Autre"); assert.deepEqual(value.orders.Projet, ["Manuscrit"]); assert.deepEqual(value.projectMeta["Projet/Manuscrit"].narrativeState.resolved, ["fil"]); });
+
+test("le .feuil restaure le dossier éditorial dans le nouvel emplacement", () => {
+  const value = settings();
+  const imported = result();
+  imported.settingsPatch.editorial = {
+    documents: { "Edition/Pitch.md": { automaticTitle: true } },
+    packets: [{ name: "Dossier", projectRoot: "Manuscrit", sources: ["Edition/Pitch.md"], format: "composite",
+      letterSource: "Edition/Lettre.md", manuscript: "excerpt", excerpt: "Manuscrit/01.md", manuscriptDocx: false, identity: false }],
+  };
+  value.editorialDocuments = { "Autre/Edition/Pitch.md": { frenchTypography: false } };
+  applyFeuilProjectImportSettings(value, imported);
+  assert.deepEqual(value.editorialDocuments, { "Projet/Edition/Pitch.md": { automaticTitle: true }, "Autre/Edition/Pitch.md": { frenchTypography: false } });
+  assert.deepEqual(value.editorialPackets.map(({ projectRoot, sources, letterSource, excerpt }) =>
+    [projectRoot, sources, letterSource, excerpt]), [["Projet/Manuscrit", ["Projet/Edition/Pitch.md"], "Projet/Edition/Lettre.md", "Projet/Manuscrit/01.md"]]);
+});

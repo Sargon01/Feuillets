@@ -1,5 +1,6 @@
 import { TFolder, normalizePath } from "obsidian";
 import type { App } from "obsidian";
+import type { FeuilEditorialSettings } from "./feuil-project-package.js";
 import type { FeuilProjectImportPlan, FeuilProjectImportedTree } from "./feuil-project-import-plan.js";
 
 export class FeuilProjectImportError extends Error {
@@ -30,6 +31,7 @@ export type FeuilProjectImportSettingsPatch = {
     level1Role: "parties" | "chapitres";
   };
   composition?: OuvrageCompositionConfig;
+  editorial?: FeuilEditorialSettings;
 };
 
 export type FeuilProjectImportResult = {
@@ -182,6 +184,7 @@ export async function materializeFeuilProjectImport(
       resolved: [...plan.manifest.project.narrativeState.resolved],
     },
     structure: { level1Role: plan.manifest.project.structure.level1Role },
+    ...(plan.manifest.project.editorial ? { editorial: plan.manifest.project.editorial } : {}),
     ...(plan.manifest.project.composition ? { composition: { ...plan.manifest.project.composition } } : {}),
   };
 

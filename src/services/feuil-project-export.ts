@@ -5,7 +5,7 @@ import { flattenFiles, getManuscriptRoot, getProjectRoot, isFrontMatter, isStruc
 import { fmOf } from "./frontmatter.js";
 import { getBackupsRoot } from "./project-backup.js";
 import { validateFeuilProjectManifest } from "./feuil-project-package.js";
-import type { FeuilProjectLinkedResearch, FeuilProjectManifest } from "./feuil-project-package.js";
+import type { FeuilEditorialSettings, FeuilProjectLinkedResearch, FeuilProjectManifest } from "./feuil-project-package.js";
 import { filsOf } from "../utils/arc-fields.js";
 import { effectiveComposition } from "./ouvrage-composition.js";
 import { getResearchRootForProject } from "./research.js";
@@ -230,6 +230,21 @@ async function collectExternalResearchTree(
   }
 }
 
+function exportEditorialSettings(settings: FeuilletsSettings, root: string): FeuilEditorialSettings | undefined {
+  const documents = exportSettings(settings.editorialDocuments, root, value => structuredClone(value));
+  const packets = (settings.editorialPackets ?? []).filter(packet => {
+    const paths = [packet.projectRoot, ...packet.sources, packet.letterSource, packet.excerpt];
+    return paths.every(path => path === undefined || isInside(path, root));
+  }).map(packet => ({
+    ...packet,
+    projectRoot: relativePath(packet.projectRoot, root),
+    sources: packet.sources.map(path => relativePath(path, root)),
+    ...(packet.letterSource ? { letterSource: relativePath(packet.letterSource, root) } : {}),
+    ...(packet.excerpt ? { excerpt: relativePath(packet.excerpt, root) } : {}),
+  }));
+  return packets.length || Object.keys(documents).length ? { documents, packets } : undefined;
+}
+
 export async function buildFeuilProjectExportPlan(
   app: App,
   settings: FeuilletsSettings,
@@ -247,6 +262,7 @@ export async function buildFeuilProjectExportPlan(
   const research = linkedResearch(app, settings, meta, manuscriptRoot, projectRoot);
   const threadNames = projectThreadNames(app, settings, manuscriptRoot);
   const narrativeState = narrativeStateOf(meta, settings);
+  const editorial = exportEditorialSettings(settings, projectRoot.path);
   const manifest: FeuilProjectManifest = {
     format: "feuil",
     version: 1,
@@ -259,6 +275,7 @@ export async function buildFeuilProjectExportPlan(
       manuscriptPath: isStructured ? relativePath(manuscriptRoot.path, projectRoot.path) : ".",
       structure: { level1Role: level1RoleOf(meta, settings) },
       composition: effectiveComposition(settings, manuscriptRoot, manuscriptRoot),
+      ...(editorial ? { editorial } : {}),
       meta: cloneMeta(app, settings, manuscriptRoot, meta),
       pathSettings: {
         orders: exportSettings(settings.orders, projectRoot.path, (value) => [...value]),

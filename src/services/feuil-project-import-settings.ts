@@ -1,3 +1,4 @@
+import { normalizePath } from "obsidian";
 import type { FeuilProjectImportResult } from "./feuil-project-import.js";
 import { knownProjectType } from "../utils/project-modes.js";
 
@@ -20,6 +21,24 @@ export function applyFeuilProjectImportSettings(settings: FeuilletsSettings, res
   for (const [path, value] of Object.entries(result.settingsPatch.pathSettings.orders)) settings.orders[path] = [...value];
   for (const [path, value] of Object.entries(result.settingsPatch.pathSettings.folderPositions)) settings.folderPositions[path] = value;
   for (const [path, value] of Object.entries(result.settingsPatch.pathSettings.folderGoals)) settings.folderGoals[path] = value;
+
+  const editorial = result.settingsPatch.editorial;
+  if (editorial) {
+    const remap = (path: string) => path === "." ? result.projectRootPath : normalizePath(`${result.projectRootPath}/${path}`);
+    const documents = settings.editorialDocuments ??= {};
+    removeProjectKeys(documents, result.projectRootPath);
+    for (const [path, document] of Object.entries(editorial.documents)) documents[remap(path)] = structuredClone(document);
+    settings.editorialPackets = [
+      ...(settings.editorialPackets ?? []).filter(packet => !isInside(packet.projectRoot, result.projectRootPath)),
+      ...editorial.packets.map(packet => ({
+        ...packet,
+        projectRoot: remap(packet.projectRoot),
+        sources: packet.sources.map(remap),
+        ...(packet.letterSource ? { letterSource: remap(packet.letterSource) } : {}),
+        ...(packet.excerpt ? { excerpt: remap(packet.excerpt) } : {}),
+      })),
+    ];
+  }
 
   const projectMeta = JSON.parse(JSON.stringify(result.settingsPatch.projectMeta)) as ProjectMeta;
   if (knownProjectType(projectMeta.type) === null) projectMeta.type = "fiction";

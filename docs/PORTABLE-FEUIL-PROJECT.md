@@ -42,6 +42,8 @@ The archive manifest also keeps the information needed to rebuild the supported 
 - narrative-thread state used by the project;
 - links between Binder nodes and Research folders.
 
+A portable project includes editorial packet configurations and per-note settings whose paths stay inside the project. Feuillets restores those paths on import. Letters, outgoing packets and sent versions travel as project files. Courrier resolves draft submission plans relative to the new location and preserves historical archive YAML. Transfer the address book, Courrier preferences and any letter resources outside the project separately. Working on submissions requires both plugins in the destination vault.
+
 ### Nested works and composition
 
 Nested works within the project (such as a separate volume or book) and their local settings are faithfully restored during import. The effective project composition is transported in the archive. Thus, an inheriting work (without custom local composition) retains its inheritance after import and inherits directly from the exported project composition of the source project, without depending on the destination installation's general settings.

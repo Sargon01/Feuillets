@@ -42,6 +42,8 @@ Le manifeste de l’archive conserve également les informations nécessaires po
 - l’état narratif lié aux fils utilisé par le projet ;
 - les associations entre nœuds du Classeur et dossiers Recherche.
 
+Le projet portable conserve les configurations du Dossier éditorial et les réglages de ses notes dont les chemins restent dans le projet. Feuillets restaure ces chemins à l’import. Les lettres, dossiers à envoyer et versions envoyées voyagent comme fichiers du projet. Courrier résout les plans de soumission en cours par rapport à leur nouvel emplacement et conserve le YAML historique des archives. Le carnet d’adresses, les réglages de Courrier et les ressources de courrier situées hors du projet restent à transférer séparément. Le travail sur les soumissions nécessite les deux plugins actifs dans le coffre de destination.
+
 ### Ouvrages imbriqués et composition
 
 Les ouvrages imbriqués dans le projet (tels qu’un tome ou un livre distinct) et leurs réglages locaux sont fidèlement restaurés lors de l’import. La composition effective du projet est transportée dans l’archive. Ainsi, un ouvrage héritier (sans composition locale personnalisée) conserve son statut d’héritage après l’import et hérite directement de la composition exportée du projet d’origine, sans dépendre des réglages généraux de l’installation destinataire.
