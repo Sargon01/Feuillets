@@ -1,25 +1,16 @@
-/* Intégration avec le plugin compagnon Courrier (Lot 14B) — aucune
- * dépendance obligatoire : Feuillets fonctionne à l'identique sans lui,
- * et ce fichier ne copie ni n'importe jamais rien de son code. La
- * communication passe uniquement par la surface publique que Courrier
- * expose lui-même sur son instance de plugin (`app.plugins.plugins
- * ["courrier"].api`), exactement la même convention que Feuillets utilise
- * pour ses propres compagnons (voir `api/text-analysis.ts` :
- * `app.plugins.plugins["feuillets"].api`).
- *
- * Ce module ne fait que : (1) lire les métadonnées du projet actif —
- * jamais le manuscrit lui-même, jamais d'écriture ; (2) vérifier que
- * Courrier est installé, activé, et expose la méthode attendue ;
- * (3) transmettre les données et laisser Courrier ouvrir sa propre
- * modale. Rien n'est envoyé, aucun contact ni destinataire n'est choisi
- * ici — Feuillets ne sait rien de ces notions. */
+/* Feuillets prépare la composition et délègue à l’API de Courrier le formulaire,
+ * le suivi et le rendu de ses lettres. Les deux plugins sont compilés séparément. */
 
 import { Notice, TFile, TFolder, type App } from "obsidian";
 import { getManuscriptRoot, getProjectRoot, getEditionRoot, editionFolderPath } from "./folder-structure.js";
 import { t } from "../i18n/index.js";
 import { SubmissionAttachmentsModal, type SubmissionAttachmentCandidate } from "../ui/submission-attachments-modal.js";
-import { exportDocxToFolder, exportEditorialDocumentDocxToFolder } from "./compile-export.js";
-import { EDITION_DOCUMENTS, editionDocumentNames } from "./project-files.js";
+import { exportEditorialDocumentDocxToFolder } from "./compile-export.js";
+import { editionDocumentForName } from "./project-files.js";
+import { editorialPacketSources, packetExpectedFiles, preparePacketOutputs, readPacketLetter, type EditorialPacket, type PacketLetter } from "./editorial-packet.js";
+import { EditorialPacketModal } from "../ui/editorial-packet-modal.js";
+import { stripFrontmatter } from "./frontmatter.js";
+import type { CslCitationHost } from "./csl-citation-host.js";
 
 /** Les documents éditoriaux conventionnels viennent de project-files :
  * création et détection partagent exactement les mêmes noms et variantes. */
@@ -30,22 +21,30 @@ import { EDITION_DOCUMENTS, editionDocumentNames } from "./project-files.js";
  * public attendu. */
 export interface ProjectSubmissionSummary {
   letterPath?: string;
+  recordPath?: string;
+  folderPath?: string;
+  archivePath?: string;
   recipient: string;
   status: string;
   sentDate?: string;
   reminderDate?: string;
   manuscriptDocxReady: boolean;
   letterDocxReady: boolean;
+  missingFiles?: string[];
+  dossierReady?: boolean;
 }
 
-/** Contrat attendu de `app.plugins.plugins["courrier"].api` — duck-typé
- * (aucun type partagé au moment de la compilation, chaque plugin est
- * bundlé séparément). Doit rester le sous-ensemble MINIMAL réellement
- * utilisé ici : n'importe quel objet portant au moins cette méthode est
- * accepté, qu'il vienne réellement de Courrier ou d'un autre greffon qui
- * choisirait d'implémenter la même surface. */
+/** Contrat local de l’API Courrier. Les méthodes facultatives permettent
+ * d’utiliser les anciens parcours quand une version ancienne est active. */
 export interface CourrierCompanionApi {
   createSubmissionDraft(data: SubmissionDraftData): { success: boolean; message?: string };
+  getPacketLetter?(filePath: string): PacketLetter | undefined;
+  prepareSubmissionFromLetter?(data: {
+    filePath: string; titre: string; editionFolderPath: string; editorialSubmission: EditorialSubmissionData;
+    onCreated?: (path: string) => void;
+  }): Promise<{ success: true; path?: string } | { success: false; message: string }>;
+  openSubmissionPacket?(filePath: string): Promise<{ success: boolean; message?: string }>;
+  duplicateSubmission?(filePath: string): Promise<{ success: boolean; message?: string }>;
   exportSubmissionDocx?(filePath: string): Promise<{ success: boolean; message?: string }>;
   markSubmissionAsSent?(
     filePath: string,
@@ -54,8 +53,13 @@ export interface CourrierCompanionApi {
   listProjectSubmissions?(editionFolderPath: string): Promise<ProjectSubmissionSummary[]>;
 }
 
+interface EditorialSubmissionData { plan: EditorialPacket; expected: string[]; withoutLetter?: true }
+
 export interface SubmissionDraftData {
   titre: string;
+  editorialSubmission?: EditorialSubmissionData;
+  onCreated?(path: string): void;
+  initialBody?: string;
   auteur?: string;
   genre?: string;
   nombreMots?: number;
@@ -88,6 +92,8 @@ export interface SubmissionHost {
   settings: FeuilletsSettings;
   wordCountOfFolder(folder: TFolder | null | undefined): Promise<number>;
   projectDisplayName(path: string): string;
+  saveSettings?(): Promise<void>;
+  cslCitationHost?: CslCitationHost | null;
 }
 
 /** Résout l'API Courrier si le plugin est installé, activé, ET expose
@@ -167,29 +173,16 @@ function resolveRealEditionPath(app: App, root: TFolder): string {
   return getEditionRoot(app, root)?.path ?? editionFolderPath(app, root);
 }
 
-/** Détecte les documents éditoriaux conventionnels, prêts à être proposés
- * comme pièces jointes facultatives d'une soumission (Lot 14C) — lecture
- * seule. Le manuscrit est obligatoire et généré automatiquement par le
- * callback `exportManuscritDocx`, il n'est donc pas un candidat ici. Synopsis
- * est coché par défaut ; les autres documents détectés restent décochés —
- * l'utilisatrice choisit. */
-export async function detectEditorialDocuments(app: App, settings: FeuilletsSettings, root: TFolder): Promise<SubmissionAttachmentCandidate[]> {
-  const candidates: SubmissionAttachmentCandidate[] = [];
-
+/** Pièces jointes Markdown proposées par le formulaire de compatibilité.
+ * Les lettres Courrier nécessitent leur moteur de rendu. */
+export async function detectEditorialDocuments(app: App, _settings: FeuilletsSettings, root: TFolder): Promise<SubmissionAttachmentCandidate[]> {
   const editionRoot = getEditionRoot(app, root);
-  if (editionRoot) {
-    for (const doc of EDITION_DOCUMENTS) {
-      for (const name of editionDocumentNames(doc)) {
-        const file = app.vault.getAbstractFileByPath(`${editionRoot.path}/${name}`);
-        if (file instanceof TFile) {
-          candidates.push({ id: doc.id, label: file.basename, path: file.path, checkedByDefault: doc.id === "synopsis" });
-          break;
-        }
-      }
-    }
-  }
-
-  return candidates;
+  if (!editionRoot) return [];
+  const api = getCourrierApi(app);
+  return editorialPacketSources(editionRoot).filter(file => file.extension === "md" && !resolveCourrierPacketLetter(app, file.path, api)).map(file => {
+    const conventional = editionDocumentForName(file.name);
+    return { id: conventional?.id || file.path, label: file.basename, path: file.path, checkedByDefault: conventional?.id === "synopsis" };
+  });
 }
 
 /** Rassemble les données du projet actif à transmettre à Courrier — lecture
@@ -202,20 +195,15 @@ export async function buildSubmissionData(host: SubmissionHost, root: TFolder): 
 
   const data: SubmissionDraftData = { titre: host.projectDisplayName(root.path) };
   if (meta.author && meta.author.trim()) data.auteur = meta.author.trim();
-  // `type` (fiction/nonfiction — voir utils/project-modes.ts) est le plus
-  // proche de "genre" que Feuillets connaisse réellement ; aucun champ
-  // "genre littéraire" dédié n'existe dans les métadonnées de projet.
-  if (meta.type && meta.type.trim()) data.genre = meta.type.trim();
   if (wordCount > 0) data.nombreMots = wordCount;
-  // Aucun synopsis de PROJET dédié dans les métadonnées (le champ
-  // `synopsis` existe par scène, pas par projet) — `description` (fiche
-  // projet) sert de repli honnête, jamais renommé en "synopsis" dans les
-  // réglages eux-mêmes.
-  if (meta.description && meta.description.trim()) data.synopsis = meta.description.trim();
+  const edition = getEditionRoot(host.app, root);
+  const synopsis = edition?.children.find(file => file instanceof TFile && editionDocumentForName(file.name)?.id === "synopsis");
+  if (synopsis instanceof TFile) {
+    const body = stripFrontmatter(await host.app.vault.read(synopsis)).trim();
+    if (body) data.synopsis = body;
+  }
   data.manuscritPath = root.path;
   data.editionFolderPath = resolveRealEditionPath(host.app, root);
-  data.exportManuscritDocx = (destinationFolderPath, suggestedBaseName) =>
-    exportDocxToFolder(host.app, host.settings, destinationFolderPath, suggestedBaseName);
   data.exportEditorialDocumentDocx = (sourceFilePath, destinationFolderPath, suggestedBaseName) =>
     exportEditorialDocumentDocxToFolder(host.app, host.settings, sourceFilePath, destinationFolderPath, suggestedBaseName);
 
@@ -225,14 +213,7 @@ export async function buildSubmissionData(host: SubmissionHost, root: TFolder): 
   return data;
 }
 
-/** Applique le choix de documents éditoriaux complémentaires confirmé dans la modale — extrait de
- * `prepareSubmission` pour rester appelable directement depuis les tests
- * (`SubmissionAttachmentsModal.onConfirm` ne peut plus être attendu une
- * fois branché sur un clic réel, même convention que le reste du plugin
- * compagnon Courrier). Le manuscrit obligatoire reste toujours dans `data`
- * via `exportManuscritDocx` et n'est jamais une pièce jointe sélectionnable.
- * N'ajoute `pieceJointes` que si au moins un chemin a été coché — jamais un
- * tableau vide transmis pour "rien coché". */
+/** Transmet la sélection confirmée par le formulaire de compatibilité. */
 export function applySubmissionChoice(api: CourrierCompanionApi, data: SubmissionDraftData, selectedPaths: string[]): void {
   const result = api.createSubmissionDraft(selectedPaths.length > 0 ? { ...data, pieceJointes: selectedPaths } : data);
   if (!result.success) {
@@ -240,16 +221,70 @@ export function applySubmissionChoice(api: CourrierCompanionApi, data: Submissio
   }
 }
 
-/** Orchestration complète de la commande « Préparer une soumission » —
- * lecture des données du projet actif, résolution de l'API Courrier,
- * détection des documents éditoriaux, puis (Lot 14C) sélection explicite
- * des pièces jointes avant transmission : `SubmissionAttachmentsModal`
- * s'interpose toujours entre la détection et l'appel à Courrier, même
- * quand aucun document n'est détecté (l'utilisatrice voit alors clairement
- * qu'aucune pièce jointe n'est prévue, plutôt qu'un envoi silencieux sans
- * rien). Ne modifie jamais le manuscrit, n'ajoute aucun suivi éditorial
- * côté Feuillets — une fois l'appel à Courrier fait, Feuillets n'a plus
- * aucun rôle. */
+export function resolveCourrierPacketLetter(app: App, path: string, api = getCourrierApi(app)): PacketLetter | undefined {
+  const letter = api?.getPacketLetter?.(path);
+  if (letter) return letter;
+  const file = app.vault.getAbstractFileByPath(path);
+  if (!(file instanceof TFile) || file.extension !== "md") return undefined;
+  const fm = app.metadataCache?.getFileCache(file)?.frontmatter;
+  if (!fm || fm.sans_lettre === true) return undefined;
+  const { id, modele } = fm;
+  // Historical letters could have a Courrier template without a generated id.
+  return (typeof id === "string" && id.startsWith("crr-"))
+    || (typeof modele === "string" && ["administratif", "commercial", "particulier", "note"].includes(modele)) ? {} : undefined;
+}
+
+export function openEditorialPacketComposer(host: SubmissionHost, onSubmission?: (path: string) => void): void {
+  const root = getManuscriptRoot(host.app, host.settings) ?? getProjectRoot(host.app, host.settings);
+  const edition = root ? getEditionRoot(host.app, root) : null;
+  if (!root || !edition || !host.saveSettings) {
+    new Notice(t("packet.noEdition"));
+    return;
+  }
+  const api = getCourrierApi(host.app);
+  const letterFor = (path: string) => resolveCourrierPacketLetter(host.app, path, api);
+  const submit = api?.openSubmissionPacket ? async (plan: EditorialPacket, onCreated: (path: string) => void) => {
+    const letters = plan.sources.filter(path => letterFor(path));
+    if (letters.length > 1) throw new Error(t("packet.oneSubmissionLetter"));
+    const [filePath] = letters;
+    const sourceIndex = filePath ? plan.sources.indexOf(filePath) : 0;
+    const composition = filePath
+      ? { ...plan, sources: plan.sources.filter(path => path !== filePath), letterSource: undefined, letterIndex: sourceIndex }
+      : plan;
+    const withLetter = !!filePath || !!plan.letterSource;
+    const expected = packetExpectedFiles(composition, withLetter);
+    const titre = host.projectDisplayName(root.path);
+    if (!filePath || !letterFor(filePath)?.tracked) {
+      if (!expected.length) throw new Error(t("packet.emptySubmission"));
+      preparePacketOutputs(host.app, host.settings, composition, withLetter ? {} : undefined, host.cslCitationHost);
+    }
+    if (filePath) {
+      if (!api.prepareSubmissionFromLetter) throw new Error(t("packet.existingLetterUnavailable"));
+      const result = await api.prepareSubmissionFromLetter({
+        filePath, titre, editionFolderPath: edition.path, editorialSubmission: { plan: composition, expected },
+        onCreated,
+      });
+      if (!result.success) throw new Error(result.message);
+      return result.path;
+    }
+    const result = api.createSubmissionDraft({
+      titre,
+      editionFolderPath: edition.path,
+      initialBody: await readPacketLetter(host.app, host.settings, plan, letterFor),
+      editorialSubmission: { plan, expected, ...(withLetter ? {} : { withoutLetter: true }) },
+      onCreated,
+    });
+    if (!result.success) throw new Error(result.message || t("courrier.notice.failed"));
+  } : undefined;
+  new EditorialPacketModal(host.app, { app: host.app, settings: host.settings,
+    saveSettings: async () => { await host.saveSettings?.(); },
+    cslCitationHost: host.cslCitationHost }, root, edition, submit, letterFor, onSubmission ?? (path => {
+      const file = host.app.vault.getAbstractFileByPath(path);
+      if (file instanceof TFile) void host.app.workspace.getLeaf(false).openFile(file);
+    })).open();
+}
+
+/** Older companion builds still understand the individual attachment picker. */
 export async function prepareSubmission(host: SubmissionHost): Promise<void> {
   const root = getManuscriptRoot(host.app, host.settings) ?? getProjectRoot(host.app, host.settings);
   if (!root) {
@@ -263,6 +298,10 @@ export async function prepareSubmission(host: SubmissionHost): Promise<void> {
     return;
   }
 
+  if (api.openSubmissionPacket) {
+    openEditorialPacketComposer(host);
+    return;
+  }
   const data = await buildSubmissionData(host, root);
   const candidates = await detectEditorialDocuments(host.app, host.settings, root);
 

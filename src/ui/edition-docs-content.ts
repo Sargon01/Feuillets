@@ -3,7 +3,7 @@ import { t, getLocale } from "../i18n/index.js";
 import { getEditionRoot, editionFolderPath } from "../services/folder-structure.js";
 import { ensureEditionFolder, EDITION_DOCUMENTS, editionDocumentForName } from "../services/project-files.js";
 import { openFileActivating } from "../utils/dom.js";
-import { prepareSubmission, getCourrierApi, listCourrierProjectSubmissions, type SubmissionHost, type ProjectSubmissionSummary } from "../services/courrier-integration.js";
+import { openEditorialPacketComposer, prepareSubmission, getCourrierApi, listCourrierProjectSubmissions, type SubmissionHost, type ProjectSubmissionSummary } from "../services/courrier-integration.js";
 
 type FileExplorerInstance = { revealInFolder?(file: TFile): void };
 type AppWithInternalPlugins = App & {
@@ -194,6 +194,7 @@ export class EditionDocsContent {
         void this.createDocument(editionRoot, name);
       }).open();
     });
+    this.iconBtn(toolbar, "files", t("packet.compose"), () => openEditorialPacketComposer(this.plugin));
     // Même parcours que la commande de palette "prepare-submission" (voir
     // main.ts) — un simple raccourci visible ici, pas un second chemin
     // (Lot 14D, demande explicite : bouton visible en plus de la

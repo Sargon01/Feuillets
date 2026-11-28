@@ -213,7 +213,7 @@ test("buildSubmissionData : titre, auteur, nombre de mots à partir des métadon
 
   assert.equal(data.titre, "La Traversée");
   assert.equal(data.auteur, "J. Dupont");
-  assert.equal(data.genre, "fiction");
+  assert.ok(!("genre" in data));
   assert.equal(data.nombreMots, 1234);
   assert.equal(data.manuscritPath, "Roman1/Manuscrit");
 });
@@ -231,7 +231,7 @@ test("buildSubmissionData : champs facultatifs absents des métadonnées — jam
   assert.ok(!("documentExportePath" in data));
 });
 
-test("buildSubmissionData : description du projet sert de repli pour le synopsis", async () => {
+test("buildSubmissionData : description du projet distincte du synopsis", async () => {
   const { manuscrit } = projectFixture();
   const host = createHost({
     projectMeta: { "Roman1/Manuscrit": { description: "Une traversée initiatique." } },
@@ -239,7 +239,7 @@ test("buildSubmissionData : description du projet sert de repli pour le synopsis
 
   const data = await buildSubmissionData(host, manuscrit);
 
-  assert.equal(data.synopsis, "Une traversée initiatique.");
+  assert.ok(!("synopsis" in data));
 });
 
 test("buildSubmissionData : document exporté trouvé s'il existe dans Sortie/", async () => {
@@ -317,7 +317,7 @@ test("detectEditorialDocuments : reconnaît les variantes historiques avec apost
   const candidates = await detectEditorialDocuments(host.app, host.settings, manuscrit);
 
   assert.ok(candidates.some((candidate) => candidate.id === "note-intention" && candidate.path === note.path));
-  assert.ok(candidates.some((candidate) => candidate.id === "lettre-accompagnement" && candidate.path === letter.path));
+  assert.ok(!candidates.some((candidate) => candidate.path === letter.path));
 });
 
 test("detectEditorialDocuments : DOCX de Sortie absent des candidats facultatifs", async () => {
@@ -394,7 +394,7 @@ test("buildSubmissionData : transmet le callback d'export DOCX des documents éd
 
   const data = await buildSubmissionData(host, manuscrit);
 
-  assert.equal(typeof data.exportManuscritDocx, "function");
+  assert.equal(data.exportManuscritDocx, undefined);
   assert.equal(typeof data.exportEditorialDocumentDocx, "function");
 });
 
@@ -447,4 +447,90 @@ test("prepareSubmission : Courrier actif — rassemble les données et ouvre la 
   // pour la confirmation elle-même et applySubmissionChoice ci-dessus pour
   // l'effet réel d'une confirmation.
   assert.equal(calls.length, 0);
+});
+
+
+test("le PDF composite conserve les DOCX existants en sorties séparées", async () => {
+  const { packetExpectedFiles } = await import("../src/services/editorial-packet.js");
+  const plan = {
+    name: "Dossier", projectRoot: "Roman/Manuscrit", format: "composite", manuscript: "none",
+    identity: false, manuscriptDocx: false, sources: ["Roman/Edition/Pitch.md", "Roman/Edition/Biographie.docx"],
+  };
+  assert.deepEqual(packetExpectedFiles(plan, false), ["Dossier.pdf", "02 - Biographie.docx"]);
+  assert.deepEqual(packetExpectedFiles(plan, true), ["Dossier.pdf", "03 - Biographie.docx"]);
+  assert.deepEqual(packetExpectedFiles({ ...plan, sources: ["Roman/Edition/Biographie.docx"] }, false), ["01 - Biographie.docx"]);
+});
+
+test("le CSS composite remplace les sélecteurs racine et préserve les classes Courrier terminées par body", async () => {
+  const { scopePacketPrintCss } = await import("../src/services/editorial-packet.js");
+  const css = "html,\nbody { margin: 0 }\n.courrier-print-body { margin-bottom: 1cm }"
+    + "\n@media print{body{color: black}.courrier-print-body{line-height: 1.3}}";
+  assert.equal(scopePacketPrintCss(css), "& { margin: 0 }\n.courrier-print-body { margin-bottom: 1cm }"
+    + "\n@media print{&{color: black}.courrier-print-body{line-height: 1.3}}");
+});
+
+test("le PDF importé doit avoir une version, un index et une fin cohérents", async () => {
+  const { isImportablePacketPdf } = await import("../src/ui/editorial-packet-preview.js");
+  const input = value => new TextEncoder().encode(value).buffer;
+  const beginning = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n";
+  const xref = "xref\n0 1\n0000000000 65535 f \n";
+  const trailer = "trailer\n<< /Root 1 0 R >>\nstartxref\n" + beginning.length + "\n%%EOF\r\n";
+  assert.equal(isImportablePacketPdf(input(beginning + xref + trailer)), true);
+  assert.equal(isImportablePacketPdf(input(beginning + "2 0 obj\n<< /Type /XRef >>\nendobj\n" + trailer)), true);
+  assert.equal(isImportablePacketPdf(input("%PDF- faux")), false);
+  assert.equal(isImportablePacketPdf(input(beginning + xref + trailer.slice(0, -5))), false);
+  assert.equal(isImportablePacketPdf(input(beginning + xref + trailer.replace(String(beginning.length), "9999"))), false);
+  assert.equal(isImportablePacketPdf(input(beginning + "faux index" + trailer)), false);
+});
+
+test("une lettre historique sans id reste une lettre avec une ancienne version de Courrier", async () => {
+  const { resolveCourrierPacketLetter } = await import("../src/services/courrier-integration.js");
+  const file = new TFile("Roman/Edition/Lettre historique.md");
+  let fm = { modele: "commercial" };
+  const app = {
+    vault: { getAbstractFileByPath: path => path === file.path ? file : null },
+    metadataCache: { getFileCache: () => ({ frontmatter: fm }) },
+  };
+  const oldApi = { createSubmissionDraft() {} };
+  assert.deepEqual(resolveCourrierPacketLetter(app, file.path, oldApi), {});
+  assert.deepEqual(resolveCourrierPacketLetter(app, file.path, { ...oldApi, getPacketLetter: () => undefined }), {});
+  fm = { modele: "modèle de plan" };
+  assert.equal(resolveCourrierPacketLetter(app, file.path, oldApi), undefined);
+});
+
+test("le formulaire de compatibilité exclut les lettres Courrier des pièces jointes Markdown", async () => {
+  const { volume, manuscrit, edition, synopsis, bio } = editionFixture();
+  const letter = new TFile(edition.path + "/Ancienne lettre.md", "Texte");
+  letter.parent = edition;
+  edition.children.push(letter);
+  const host = createHost({ files: [volume, manuscrit, edition, synopsis, bio, letter] });
+  host.app.metadataCache = { getFileCache: file => file === letter ? { frontmatter: { modele: "particulier" } } : null };
+  host.app.plugins = { enabledPlugins: new Set(["courrier"]), plugins: { courrier: { api: { createSubmissionDraft() {} } } } };
+  const candidates = await detectEditorialDocuments(host.app, host.settings, manuscrit);
+  assert.deepEqual(candidates.map(candidate => candidate.id), ["biographie", "synopsis"]);
+});
+
+test("le modèle de lettre générique reste lisible après déplacement et sa suppression mentionne son chemin", async () => {
+  const { readPacketLetter, preparePacketOutputs } = await import("../src/services/editorial-packet.js");
+  const { volume, manuscrit, scene } = projectFixture();
+  const edition = new TFolder("Roman1/Edition");
+  const sources = new TFolder("Roman1/Edition/Sources");
+  const generic = new TFile("Roman1/Edition/Sources/Modèle renommé.md", "Une lettre générique.");
+  const pitch = new TFile("Roman1/Edition/Sources/Résumé renommé.md", "Résumé.");
+  volume.children.push(edition);
+  edition.parent = volume;
+  edition.children = [sources];
+  sources.parent = edition;
+  sources.children = [generic, pitch];
+  generic.parent = pitch.parent = sources;
+  const { vault } = createFakeVault([volume, manuscrit, scene, edition, sources, generic, pitch]);
+  const app = { vault };
+  const plan = { projectRoot: manuscrit.path, name: "Dossier", sources: [pitch.path], letterSource: generic.path,
+    format: "pdf", manuscript: "none", manuscriptDocx: false, identity: false };
+  assert.equal(await readPacketLetter(app, {}, plan), "Une lettre générique.");
+  assert.deepEqual(preparePacketOutputs(app, {}, plan, {}, undefined, undefined, ["01 - Lettre.pdf", "02 - Pitch.pdf"])
+    .map(output => output.name), ["01 - Lettre.pdf", "02 - Pitch.pdf"]);
+  await assert.rejects(readPacketLetter(app, {}, { ...plan, letterSource: generic.path + ".retiré" }), /Modèle renommé\.md\.retiré/);
+  const legacy = preparePacketOutputs(app, {}, plan, undefined, undefined, () => ({}));
+  await assert.rejects(legacy[0].preparePdf(), /Courrier/);
 });

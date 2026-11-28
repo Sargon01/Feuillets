@@ -12915,3 +12915,39 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
 .feuillets-rewrite-more[hidden] { display: none; }
 .feuillets-rewrite-chevron { margin-inline-start: auto; }
 .feuillets-rewrite-context .feuillets-rewrite-entry:first-child .feuillets-notes-sub { color: var(--text-normal); }
+
+
+.feuillets-packet-preview {
+  width: min(940px, 92vw);
+}
+
+.feuillets-packet-print {
+  display: block;
+  width: 100%;
+  height: 58vh;
+  border: 1px solid var(--background-modifier-border);
+  background: white;
+}
+
+.feuillets-packet-form .setting-item-control {
+  flex-wrap: wrap;
+}
+
+.feuillets-packet-documents {
+  max-height: 32vh;
+  overflow: auto;
+}
+
+.feuillets-packet-document {
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-1);
+  min-height: 28px;
+}
+
+.feuillets-packet-document label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--size-4-2);
+}

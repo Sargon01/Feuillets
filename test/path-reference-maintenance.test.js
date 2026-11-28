@@ -73,3 +73,23 @@ test("path maintenance conserve un workspace déplacé hors du projet", () => {
     Cours: { version: 1, wordGoal: 1000 },
   });
 });
+
+test("editorial settings follow a renamed or moved note without changing adjacent notes", () => {
+  const oldPath = "Projet/Edition/Pitch.md";
+  const newPath = "Projet/Edition/Dossier/Argumentaire.md";
+  const otherPath = "Projet/Edition/Note d’intention.md";
+  const settings = {
+    editorialDocuments: {
+      [oldPath]: { automaticTitle: true },
+      [otherPath]: { frenchTypography: false },
+    },
+  };
+
+  const result = remapFeuilletsPathReferences(settings, oldPath, newPath);
+
+  assert.ok(result.changed);
+  assert.deepEqual(settings.editorialDocuments, {
+    [newPath]: { automaticTitle: true },
+    [otherPath]: { frenchTypography: false },
+  });
+});

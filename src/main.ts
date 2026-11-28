@@ -1,3 +1,5 @@
+import { preparePacketOutputs, readPacketLetter, type EditorialPacketApi } from "./services/editorial-packet.js";
+import { EditorialPacketPreview } from "./ui/editorial-packet-preview.js";
 import { resolveEditorialDocument } from "./services/editorial-document.js";
 import { manuscriptPathIsProtected } from "./services/folder-structure.js";
 import { isRewriteHistoryPath } from "./services/rewrite-history-store.js";
@@ -112,7 +114,7 @@ import { getProjectFolder, getProjectRoot, projectDisplayName, depthOf, isFrontM
 import { resolveEditorialRoot, isOuvrageRoot } from "./services/editorial-roots.js";
 import { resolveReferenceContextRoot, resolveReferenceTarget } from "./services/research-reference-search.js";
 import { effectiveComposition } from "./services/ouvrage-composition.js";
-import { prepareSubmission } from "./services/courrier-integration.js";
+import { getCourrierApi, prepareSubmission, resolveCourrierPacketLetter } from "./services/courrier-integration.js";
 import { getProjectMode, getProjectType } from "./services/project-mode.js";
 import { workspaceIndentParagraphs, workspaceLabelColor, workspaceLineHeight, workspaceLiveEmptyLines, workspaceLiveHyphenation, workspaceLiveJustify, workspaceReadingFontSize, workspaceStatusColor, workspaceTextWidth, workspaceTolerance, workspaceWordGoalDefault } from "./services/folder-workspaces.js";
 import { chronologyFolderPath, getChronoFolder, getResearchRoot, researchFolderPath, migrateLegacyResearchEntries, maybeRenameResearchFile, entityMatchTags, entityMatchNames, findAppearances } from "./services/research.js";
@@ -632,7 +634,18 @@ class FeuilletsPlugin extends Plugin {
   cslCitationHost: CslCitationHost | null = null;
   /** Surface publique lue par les greffons compagnons. Nommée `api` par
    *  convention Obsidian (`app.plugins.plugins["feuillets"].api`). */
-  api: FeuilletsPublicApi = createPublicApi(this.analysisRegistry, this.citationRegistry);
+  api: FeuilletsPublicApi & { editorialPacket: EditorialPacketApi } = {
+    ...createPublicApi(this.analysisRegistry, this.citationRegistry),
+    editorialPacket: {
+      open: async (plan, options) => {
+        const courrier = getCourrierApi(this.app);
+        const outputs = preparePacketOutputs(this.app, this.settings, plan, options.letter, this.cslCitationHost,
+          path => resolveCourrierPacketLetter(this.app, path, courrier), options.expected);
+        new EditorialPacketPreview(this.app, plan.name, outputs, options).open();
+      },
+      readLetterSource: plan => readPacketLetter(this.app, this.settings, plan, path => resolveCourrierPacketLetter(this.app, path)),
+    },
+  };
 
   /** Dernière analyse effectuée, affichée par l'onglet Relecture. */
   analysisRun: AnalysisRun | null = null;

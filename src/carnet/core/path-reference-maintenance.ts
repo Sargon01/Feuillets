@@ -78,6 +78,17 @@ export function remapFeuilletsPathReferences(settings: FeuilletsSettings, oldPat
     settings.editorialDocuments = documents;
     changed = true;
   }
+  for (const packet of settings.editorialPackets ?? []) {
+    const projectRoot = remapPath(packet.projectRoot, oldPath, newPath);
+    const letterSource = remapValue(packet.letterSource, oldPath, newPath);
+    const excerpt = remapValue(packet.excerpt, oldPath, newPath);
+    const sources = packet.sources.map(path => remapPath(path, oldPath, newPath));
+    if (projectRoot !== packet.projectRoot || letterSource !== packet.letterSource || excerpt !== packet.excerpt
+      || sources.some((path, index) => path !== packet.sources[index])) {
+      Object.assign(packet, { projectRoot, letterSource, excerpt, sources });
+      changed = true;
+    }
+  }
   if (settings.orders) {
     const [nextOrders, did] = rekey(settings.orders, oldPath, newPath, "orders", conflicts); if (did && nextOrders) { settings.orders = nextOrders; changed = true; }
     const oldParent = oldPath.slice(0, oldPath.lastIndexOf("/")); const newParent = newPath.slice(0, newPath.lastIndexOf("/")); const oldName = oldPath.slice(oldPath.lastIndexOf("/") + 1); const newName = newPath.slice(newPath.lastIndexOf("/") + 1);
