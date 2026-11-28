@@ -208,9 +208,9 @@ test("Binder : Recherche et Filtres sont des actions indépendantes, sans icône
     .map((button) => button.icon);
   assert.ok(searchButton, "l'action Recherche utilise l'icône search");
   assert.ok(filterButton, "l'action Filtres utilise l'icône list-filter sans filtre actif");
-  assert.deepEqual(quickActionIcons, ["notebook", "layout-grid", "columns-2", "rows-3", "search", "list-filter"]);
+  assert.deepEqual(quickActionIcons, ["notebook", "layout-grid", "columns-2", "rows-3", "folder-cog", "search", "list-filter"]);
   assert.equal(buttons.find((button) => button.icon === "download"), undefined, "l'icône Export rapide reste retirée");
-  assert.equal(buttons.find((button) => button.icon === "folder-cog"), undefined, "l'icône Gérer les projets a quitté la barre du Binder");
+  assert.ok(buttons.find(button => button.icon === "folder-cog").classes.has("feuillets-binder-editorial-toggle"));
 
   const rootName = findElements(contentEl, (element) => element.classes.has("feuillets-folder-name"))[0];
   const rootRow = findElements(contentEl, (element) => element.classes.has("feuillets-tree-root"))[0];
@@ -333,7 +333,7 @@ test("Binder : aucun mode Coffre — aucune double vue Coffre ne subsiste", asyn
 
   await view.render(true);
 
-  assert.equal(buttons.find((button) => button.icon === "folder-cog"), undefined, "plus de bouton Projet dans la barre du Binder (§18)");
+  assert.ok(buttons.find(button => button.icon === "folder-cog").classes.has("feuillets-binder-editorial-toggle"));
   assert.equal(typeof view.isVaultMode, "undefined", "isVaultMode() a été retiré avec le prototype Coffre");
   assert.equal(typeof view.renderVaultBody, "undefined", "renderVaultBody a été retiré avec le prototype Coffre");
   assert.equal(findElements(contentEl, (el) => el.classes.has("feuillets-vault-split")).length, 0, "aucune double vue Coffre dans le DOM");

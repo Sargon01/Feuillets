@@ -7269,13 +7269,6 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   text-align: center;
 }
 
-.feuillets-submission-summary,
-.feuillets-submission-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--size-4-2);
-}
-
 .feuillets-submission-summary {
   padding: 0 var(--size-4-2) var(--size-4-3);
 }
@@ -7293,69 +7286,49 @@ body.feuillets-dim-tab-actions .feuillets-tab-btn:not(.is-active):hover {
   padding: 0 var(--size-4-2) var(--size-4-1);
 }
 
-.feuillets-submission-card {
-  padding: var(--size-4-3);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m);
-  background: var(--background-primary-alt);
+.feuillets-submission-row {
+  padding-block: var(--size-2-1);
 }
 
-.feuillets-submission-card-head,
-.feuillets-submission-dates,
-.feuillets-submission-actions {
+.feuillets-submission-row button.feuillets-submission-row-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  height: auto;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  text-align: start;
+  background: transparent;
+  box-shadow: none;
+}
+
+.feuillets-submission-row button.feuillets-submission-row-main:is(:hover, :focus) {
+  background: transparent;
+}
+
+.feuillets-submission-row-main > .feuillets-project-row-label {
+  max-width: 100%;
+}
+
+.feuillets-submission-row-details {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--size-4-2);
-}
-
-.feuillets-submission-recipient {
-  min-width: 0;
-  flex: 1;
-  font-weight: var(--font-semibold);
-}
-
-.feuillets-submission-status,
-.feuillets-submission-reminder {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
-
-.feuillets-submission-reminder.mod-due {
-  color: var(--text-warning);
-  background: rgba(var(--color-orange-rgb), 0.12);
-}
-
-.feuillets-submission-reminder.mod-late,
-.feuillets-submission-docs.mod-missing {
-  color: var(--text-error);
-}
-
-.feuillets-submission-docs,
-.feuillets-submission-dates {
-  color: var(--text-muted);
-  font-size: var(--font-ui-smaller);
-}
-
-.feuillets-submission-docs.mod-ready {
-  color: var(--text-success);
-}
-
-.feuillets-submission-actions button {
-  display: inline-flex;
-  align-items: center;
   gap: var(--size-4-1);
-  padding: 3px 7px;
+  color: var(--text-muted);
   font-size: var(--font-ui-smaller);
 }
 
-.feuillets-submission-action-icon {
+.feuillets-submission-row-warning {
   display: inline-flex;
-  width: 14px;
-  height: 14px;
+  color: var(--text-warning);
+}
+
+.feuillets-submission-row-warning > svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
 }
 
 .feuillets-submission-modal-actions {
@@ -12916,6 +12889,48 @@ body.feuillets-writing-colors .workspace-leaf-content[data-type="feuillets-scriv
 .feuillets-rewrite-chevron { margin-inline-start: auto; }
 .feuillets-rewrite-context .feuillets-rewrite-entry:first-child .feuillets-notes-sub { color: var(--text-normal); }
 
+/* Keep the Binder controls in one line at the existing sidebar width. */
+.feuillets-binder-toolbar,
+.feuillets-binder-toolbar .feuillets-actions,
+.feuillets-binder-toolbar .feuillets-binder-filters {
+  gap: 0;
+}
+
+.feuillets-binder-toolbar .feuillets-bar-sep {
+  margin-inline: 1px;
+}
+
+.workspace-leaf-content .feuillets-binder-toolbar .clickable-icon {
+  width: 26px;
+}
+
+.feuillets-editorial-navigation {
+  min-height: 0;
+  overflow: auto;
+}
+
+.feuillets-editorial-navigation .feuillets-edition-file-row.is-active {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.feuillets-editorial-navigation .feuillets-project-row-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feuillets-editorial-navigation .feuillets-editorial-tree {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: var(--size-4-2);
+}
+
+.feuillets-editorial-context-title {
+  padding: var(--size-4-2) 10px;
+  overflow-wrap: anywhere;
+}
 
 .feuillets-packet-preview {
   width: min(940px, 92vw);

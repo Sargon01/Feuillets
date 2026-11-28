@@ -1,6 +1,6 @@
 import { isRewriteHistoryPath } from "../services/rewrite-history-store.js";
 import { CarnetsContent, type CarnetsPlugin } from "../ui/carnets-content.js";
-import { ItemView, setIcon, type WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownView, Setting, TFile, setIcon, type WorkspaceLeaf } from "obsidian";
 import { VIEW_PREVIEW, VIEW_SIDEBAR_FEUILLETS } from "../constants.js";
 import { getLocale, t } from "../i18n/index.js";
 import { openSnapshotComparison } from "./comparison-view.js";
@@ -13,19 +13,21 @@ import type { BaseFeuilletsView } from "./base-feuillets-view.js";
 import { ResearchView } from "./research-view.js";
 import { TextAnalysisView } from "./text-analysis-view.js";
 import { EditionWorkspaceContent, type EditionWorkspacePlugin } from "../ui/edition-workspace-content.js";
-import type { LayoutSummaryPage } from "../ui/layout-editor.js";
-import { EditionDocsContent, type EditionDocsContentPlugin } from "../ui/edition-docs-content.js";
+import { LayoutEditor, type LayoutSummaryPage } from "../ui/layout-editor.js";
+import { asEditorialTemplate, editorialComposition, editorialTemplate, EDITORIAL_TEMPLATE_KEY, resolveEditorialDocument, updateEditorialProperties } from "../services/editorial-document.js";
+import { listExportTemplates, resolveExportTemplateV2 } from "../services/export-templates-custom.js";
+import { manuscriptPathIsProtected } from "../services/folder-structure.js";
 import { ExportPanel, type ExportPanelPlugin } from "../ui/export-panel.js";
-import { createProjectScope } from "../services/compile-scope.js";
-import { openScopeWithPreviewBesideLeaf } from "./preview-view.js";
+import { createProjectScope, type CompileScope } from "../services/compile-scope.js";
+import { openScopeWithPreviewBesideLeaf, PreviewView } from "./preview-view.js";
 
 type SidebarTab = "notes" | "research" | "journal" | "project" | "stats" | "relecture" | "carnets";
 /** Sous-page de l'onglet Édition (clé interne "project") — état purement en
- * mémoire (jamais persisté dans les réglages) : "home" affiche les trois
- * entrées de navigation (Composition, Mise en page, Dossier éditorial) ; les
+ * mémoire (jamais persisté dans les réglages) : "home" affiche les deux
+ * entrées de navigation (Composition et Mise en page) ; les
  * autres valeurs affichent la sous-page correspondante en remplacement total,
  * avec la barre Retour partagée (renderBackBar). */
-export type EditionPage = "home" | "composition" | "layout" | "documents";
+export type EditionPage = "home" | "composition" | "layout";
 /** Sous-page de l'onglet Relecture — état purement en mémoire (jamais
  * persisté dans les réglages, voir renderProofreadingTab). "home" affiche
  * les deux entrées compactes ; "analysis"/"docx" affichent l'une des deux
@@ -35,7 +37,6 @@ type RelecturePage = "home" | "native" | "analysis" | "docx";
 type SidebarPlugin =
   ConstructorParameters<typeof BaseFeuilletsView>[1]
   & EditionWorkspacePlugin
-  & EditionDocsContentPlugin
   & ExportPanelPlugin
   & CarnetsPlugin;
 type SidebarSubView = {
@@ -111,6 +112,7 @@ export class SidebarFeuilletsView extends ItemView {
   editionPage: EditionPage;
   private layoutSummaryPage: LayoutSummaryPage = "home";
   private editionContext = "";
+  private editionFilePath: string | null = null;
   private carnetsContent: CarnetsContent | null = null;
   private tabLayoutKey = "";
   subViews: SidebarSubViews;
@@ -352,51 +354,65 @@ export class SidebarFeuilletsView extends ItemView {
    * Continu/Board déjà ouvert), jamais en remplacement de celle-ci. Réutilise
    * tel quel le helper existant `openScopeWithPreviewBesideLeaf` : une
    * Preview déjà ouverte est reprise, jamais recréée. */
-  private async openPreview(): Promise<void> {
+  private async openPreview(scope?: CompileScope): Promise<void> {
     const root = this.plugin.getProjectFolder();
     if (!root) return;
     const workspace = this.app.workspace;
     if (typeof workspace.getMostRecentLeaf !== "function") return;
     const anchorLeaf = workspace.getMostRecentLeaf(workspace.rootSplit);
     if (!anchorLeaf) return;
-    await openScopeWithPreviewBesideLeaf(this.app, createProjectScope(root.path), anchorLeaf);
+    await openScopeWithPreviewBesideLeaf(this.app, scope ?? createProjectScope(root.path), anchorLeaf);
   }
 
   /** Barre globale « Aperçu / Portée / Format / Exporter » — CORRECTIF
-   * PROMPT 2/3, §1/§3/§4 : commune aux quatre pages de l'onglet Édition
-   * (accueil, Composition, Mise en page, Dossier éditorial), rendue UNE
+   * commune aux pages de l'onglet Édition (accueil, Composition et
+   * Mise en page), rendue UNE
    * seule fois par `renderProjectTab()`. Réutilise exclusivement
    * `ExportPanel.renderQuickBar()` pour portée/format/Exporter — aucun
    * select ni workflow d'export réimplémenté ici, la Sidebar ne possède que
    * le conteneur visuel. */
-  private renderEditionActionsBar(element: HTMLElement): void {
+  private renderEditionActionsBar(element: HTMLElement, scope?: CompileScope): void {
     const bar = element.createDiv({ cls: "feuillets-sidebar-edition-actions" });
 
     const previewBtn = bar.createEl("button", { cls: "clickable-icon" });
     setIcon(previewBtn, "eye");
     previewBtn.setAttr("aria-label", t("sidebar.edition.openPreview"));
     previewBtn.setAttr("title", t("sidebar.edition.openPreview"));
-    previewBtn.addEventListener("click", () => void this.openPreview());
+    previewBtn.addEventListener("click", () => void this.openPreview(scope));
 
     const exportHost = bar.createDiv({ cls: "feuillets-sidebar-edition-export-host" });
     new ExportPanel(this.app, this.plugin, exportHost, {
       onScopeChanged: () => this.refreshData(),
+      ...(scope ? { getScope: () => scope, fixedScope: true } : {}),
     }).renderQuickBar(exportHost);
   }
 
-  /* Onglet « Édition » (clé interne "project") : page d'accueil avec 3 entrées
-     (Composition, Mise en page, Dossier éditorial) ou sous-pages montées via
-     EditionWorkspaceContent ou EditionDocsContent. La barre
-     globale Aperçu/Export (renderEditionActionsBar) est rendue en tête, hors
-     du wrapper HOME/sous-page — commune aux quatre pages.
-     UN SEUL Retour visible à chaque profondeur : la barre « Retour à
-     Édition » n'est rendue que lorsque le contenu enfant est sur sa PAGE
-     RACINE (childIsAtRoot, voir setEditionChildAtRoot) — sinon seul le
-     Retour local de l'enfant reste, jamais les deux simultanément. */
   async renderProjectTab(element: HTMLElement): Promise<void> {
+    const activeFile = this.editionActiveFile();
+    const activeScope = this.plugin.getActiveEditorialScope?.();
+    const document = activeScope?.type === "file"
+      ? resolveEditorialDocument(this.app, this.plugin.settings, activeScope.path) : null;
     this.editionContext = this.getEditionContext();
-    this.renderEditionActionsBar(element);
+    const project = this.plugin.getProjectFolder();
+    if (this.editionFilePath !== (document?.path ?? null)) {
+      if (this.editionFilePath && this.layoutSummaryPage !== "home") this.layoutSummaryPage = "home";
+      this.editionFilePath = document?.path ?? null;
+    }
+    if (!document && activeFile && project && manuscriptPathIsProtected(project, activeFile.path)) {
+      element.createDiv({ cls: "feuillets-empty", text: t("editionDocs.submissionDocument") });
+      return;
+    }
+    this.renderEditionActionsBar(element, document && activeScope ? activeScope : undefined);
     const wrapper = element.createDiv({ cls: "feuillets-notes-container" });
+    if (document) {
+      wrapper.createDiv({ cls: "feuillets-notes-section-title feuillets-editorial-context-title", text: document.basename });
+      if (this.editionPage !== "home") {
+        this.editionBackHost = wrapper.createDiv({ cls: "feuillets-edition-back-host" });
+        this.renderEditionBackBar();
+        await this.renderDocumentEdition(wrapper.createDiv({ cls: "feuillets-sidebar-project" }), document);
+        return;
+      }
+    }
     if (this.editionPage !== "home") {
       this.editionBackHost = wrapper.createDiv({ cls: "feuillets-edition-back-host" });
       const backHost = this.editionBackHost;
@@ -439,16 +455,6 @@ export class SidebarFeuilletsView extends ItemView {
           }
         );
         await content.render();
-      } else if (this.editionPage === "documents") {
-        // Dossier éditorial : pas de navigation interne — le Retour global
-        // reste le seul Retour et est toujours présent.
-        this.renderEditionBackBar();
-        const content = new EditionDocsContent(
-          this.app,
-          this.plugin,
-          host
-        );
-        await content.render();
       }
       return;
     }
@@ -462,10 +468,86 @@ export class SidebarFeuilletsView extends ItemView {
       this.editionPage = "layout";
       void this.render();
     });
-    this.renderEditionNavRow(container, "folder-cog", t("sidebar.edition.editorialFolder"), () => {
-      this.editionPage = "documents";
-      void this.render();
+  }
+
+  private editionActiveFile(): TFile | null {
+    const workspace = this.app.workspace;
+    const view = workspace.getMostRecentLeaf?.(workspace.rootSplit)?.view;
+    if (view instanceof MarkdownView) return view.file;
+    if (view instanceof PreviewView && view.compileScope?.type === "file") {
+      const file = this.app.vault.getAbstractFileByPath(view.compileScope.path);
+      return file instanceof TFile ? file : null;
+    }
+    return null;
+  }
+
+  private async renderDocumentEdition(host: HTMLElement, file: TFile): Promise<void> {
+    const settings = this.plugin.settings;
+    const save = async (patch: EditorialDocumentSettings) => {
+      updateEditorialProperties(settings, file.path, patch);
+      await this.plugin.saveSettings();
+    };
+    const refreshPreview = async () => {
+      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_PREVIEW)) {
+        const view = leaf.view;
+        if (view instanceof PreviewView && view.compileScope?.type === "file" && view.compileScope.path === file.path) {
+          await view.refreshForLayoutChange();
+        }
+      }
+    };
+    if (this.editionPage === "composition") {
+      const composition = editorialComposition(settings, file);
+      new Setting(host).setName(t("editionDocs.automaticTitle")).addToggle(control =>
+        control.setValue(composition.automaticTitle).onChange(async automaticTitle => {
+          await save({ automaticTitle });
+          await refreshPreview();
+        }));
+      new Setting(host).setName(t("settings.exportFrenchTypography.name")).addToggle(control =>
+        control.setValue(composition.frenchTypography).onChange(async frenchTypography => {
+          await save({ frenchTypography });
+          await refreshPreview();
+        }));
+      return;
+    }
+    const templates = await listExportTemplates(this.app, settings);
+    const toolbarHost = host.createDiv();
+    const toolbar = toolbarHost.createDiv({ cls: "feuillets-layout-toolbar" });
+    const label = t("layoutWorkspace.activeTemplate");
+    toolbar.createSpan({ cls: "feuillets-layout-toolbar-title", text: label });
+    const select = toolbar.createEl("select", { attr: { "aria-label": label } });
+    const backHost = this.editionBackHost;
+    const layoutHost = host.createDiv();
+    const editor = new LayoutEditor(this.app, this.plugin, layoutHost, EDITORIAL_TEMPLATE_KEY, {
+      mode: "workspace",
+      workspaceNavigation: "summary",
+      templateLabel: t("editionDocs.documentTemplate"),
+      onNavigationRootChange: isRoot => {
+        toolbarHost.hidden = !isRoot;
+        if (this.editionBackHost === backHost) this.setEditionChildAtRoot(isRoot);
+      },
+      documentTemplate: {
+        load: () => editorialTemplate(settings, file),
+        save: template => save({ template: asEditorialTemplate(template) }),
+      },
+      onChange: refreshPreview,
     });
+    select.createEl("option", { value: "", text: t("editionDocs.useTemplate") });
+    select.createEl("option", { value: EDITORIAL_TEMPLATE_KEY, text: t("editionDocs.documentTemplate") });
+    for (const option of templates) {
+      if (option.key !== EDITORIAL_TEMPLATE_KEY) select.createEl("option", { value: option.key, text: option.label });
+    }
+    select.addEventListener("change", () => {
+      const key = select.value;
+      if (!key) return;
+      void (async () => {
+        const template = asEditorialTemplate(await resolveExportTemplateV2(this.app, settings, key));
+        await save({ template });
+        select.value = "";
+        await editor.load();
+        await refreshPreview();
+      })();
+    });
+    await editor.load();
   }
 
   private renderEditionNavRow(container: HTMLElement, icon: string, label: string, onClick: () => void): void {
@@ -667,7 +749,10 @@ export class SidebarFeuilletsView extends ItemView {
   private getEditionContext(): string {
     const project = this.plugin.getProjectFolder()?.path ?? null;
     const root = this.plugin.editorialRootForComposition?.()?.path ?? project;
-    return JSON.stringify([project, root]);
+    const file = this.editionActiveFile();
+    const projectFolder = this.plugin.getProjectFolder();
+    const protectedPath = file && projectFolder && manuscriptPathIsProtected(projectFolder, file.path) ? file.path : null;
+    return JSON.stringify([project, root, protectedPath, this.plugin.getActiveEditorialScope?.()]);
   }
 
   private getTabLayoutKey(): string {

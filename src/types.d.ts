@@ -686,6 +686,7 @@ declare type FeuilletsSettings = {
   tagFilter: string;
 
   binderLayout: "split" | "tree";
+  binderMode?: "binder" | "editorial";
   editorialDocuments?: Record<string, EditorialDocumentSettings>;
   editorialPackets?: import("./services/editorial-packet.js").EditorialPacket[];
   binderSelectedPath: string;

@@ -39,6 +39,7 @@ export type DefaultSettings = {
   lineHeight: number;
   textWidth: number;
   binderLayout: "split" | "tree";
+  binderMode?: "binder" | "editorial";
   binderSelectedPath: string;
   binderTreeWidth: number;
   binderTreeCollapsed: boolean;
@@ -279,6 +280,7 @@ export const DEFAULT_SETTINGS: DefaultSettings = {
      pilote maintenant réellement le rendu, la vue simple reste donc le
      comportement par défaut inchangé pour tous les vaults existants. */
   binderLayout: "tree",
+  binderMode: "binder",
   binderSelectedPath: "",
   binderTreeWidth: 170,
   binderTreeCollapsed: false,

@@ -1,3 +1,4 @@
+import { EditionDocsContent, type EditionDocsContentPlugin } from "../ui/edition-docs-content.js";
 import { copyScopeContents } from "../services/scrivenings-clipboard-source.js";
 import { VIEW_SIDEBAR, VIEW_SCRIVENINGS, BOARD_MODES } from "../constants.js";
 import { hasKnownProject } from "../services/folder-structure.js";
@@ -182,7 +183,7 @@ type SplitBodyCtx = {
    base-feuillets-view.js (this.plugin._binderMultiSelect = new Set()) —
    absent de la classe FeuilletsPlugin elle-même (main.js), donc pas
    inférable depuis son propre type. */
-type FeuilletsViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & {
+type FeuilletsViewPlugin = ConstructorParameters<typeof BaseFeuilletsView>[1] & EditionDocsContentPlugin & {
   _binderMultiSelect?: Set<string>;
   registerEditorCursorListener?: (listener: EditorCursorListener) => () => void;
 };
@@ -209,6 +210,19 @@ type AppWithSettingTab = {
 };
 
 export class FeuilletsView extends BaseFeuilletsView {
+  private editorialContent?: EditionDocsContent;
+  private binderScrollBeforeEditorial = new Map<string, ReturnType<FeuilletsView["_captureScroll"]>>();
+
+  private async setBinderMode(mode: "binder" | "editorial"): Promise<void> {
+    const settings = this.plugin.settings;
+    if (settings.binderMode === mode) return;
+    if (mode === "editorial" && settings.projectFolder) {
+      this.binderScrollBeforeEditorial.set(settings.projectFolder, this._captureScroll());
+    }
+    settings.binderMode = mode;
+    await this.plugin.saveSettings();
+  }
+
   declare plugin: FeuilletsViewPlugin;
   declare targetContainer?: HTMLElement;
   declare iconBtn: (
@@ -959,6 +973,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     );
     this.registerEvent(
       this.app.workspace.on("file-open", () => {
+        this.editorialContent?.updateActiveFile();
         this.updateActiveHighlight("file-open");
         this.refreshCurrentHeadingHighlight();
       })
@@ -988,7 +1003,7 @@ export class FeuilletsView extends BaseFeuilletsView {
        focus est bien dans le Binder (e.target), puisqu'on ne peut plus
        compter sur le simple fait d'avoir été atteints par la bulle. */
     this.registerDomEvent(window, "keydown", async (e) => {
-      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      if (this.plugin.settings.binderMode === "editorial" || (e.key !== "ArrowDown" && e.key !== "ArrowUp")) return;
       const target = e.target as Node | null;
       if (!target || !this.contentEl.contains(target)) return;
       const tag = (target as HTMLElement)?.tagName;
@@ -1536,7 +1551,12 @@ export class FeuilletsView extends BaseFeuilletsView {
        fin de reconstruction : un rafraîchissement de fond (modification dans
        le coffre, changement de fichier actif…) reconstruit tout le binder et
        renvoyait sinon la liste tout en haut alors qu'on lisait plus bas. */
-    const savedScroll = opts.resetScroll ? [] : this._captureScroll();
+    const settings = this.plugin.settings;
+    const editorialMode = settings.binderMode === "editorial";
+    const savedScroll = opts.resetScroll ? []
+      : this.contentEl.querySelector(".feuillets-edition-docs-container")
+        ? this.binderScrollBeforeEditorial.get(settings.projectFolder ?? "") ?? []
+        : this._captureScroll();
     const myGen = (this._renderGen = (this._renderGen || 0) + 1);
     container.empty();
     container.addClass("feuillets-container");
@@ -1552,7 +1572,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     const effectiveBinderCompact = this.getEffectiveBinderCompact(binderCompactScope);
     const draftsFolder = folder ? getDraftsFolder(this.app, folder) : null;
 
-    const header = container.createDiv({ cls: "feuillets-header" });
+    const header = container.createDiv({ cls: "feuillets-header feuillets-binder-toolbar" });
     const actions = header.createDiv({ cls: "feuillets-actions" });
     this.iconBtn(actions, "notebook", t("binder.notebookTooltip"), () =>
       this.plugin.generateCanvasBoard()
@@ -1645,14 +1665,24 @@ export class FeuilletsView extends BaseFeuilletsView {
       return;
     }
 
+    const editorialBtn = this.iconBtn(actions, "folder-cog", t(editorialMode ? "binder.switchToBinder" : "sidebar.edition.editorialFolder"), async () => {
+      await this.setBinderMode(editorialMode ? "binder" : "editorial");
+      await this.render(true);
+      this.contentEl.querySelector<HTMLButtonElement>(".feuillets-binder-editorial-toggle")?.focus();
+    });
+    editorialBtn.addClass("feuillets-binder-editorial-toggle");
+    editorialBtn.toggleClass("feuillets-mode-active", editorialMode);
+    editorialBtn.setAttr("aria-pressed", String(editorialMode));
+
     this.barSep(header);
     const filterBar = header.createDiv({ cls: "feuillets-binder-filters" });
 
     const searchIsOpen =
       this._binderSearchOpen || !!(S.binderSearch || "").trim();
     const searchBtn = this.iconBtn(filterBar, "search", t("binder.search.tooltip"));
-    searchBtn.addEventListener("click", () => {
-      this._binderSearchOpen = !this._binderSearchOpen;
+    searchBtn.addEventListener("click", () => { void (async () => {
+      if (editorialMode) await this.setBinderMode("binder");
+      this._binderSearchOpen = editorialMode || !this._binderSearchOpen;
       if (!this._binderSearchOpen) {
         S.binderSearch = "";
         void this.plugin.saveSettings().then(() => { void this.render(true); });
@@ -1662,7 +1692,7 @@ export class FeuilletsView extends BaseFeuilletsView {
           this.contentEl.querySelector<HTMLElement>(".feuillets-binder-search")?.focus();
         }, 50);
       }
-    });
+    })(); });
     if (searchIsOpen) searchBtn.addClass("feuillets-mode-active");
 
     /* Filtres combinés (ET logique) : statut × label × progression —
@@ -1696,6 +1726,7 @@ export class FeuilletsView extends BaseFeuilletsView {
       return v;
     };
     filterBtn.addEventListener("click", (e: MouseEvent) => {
+      const draftFiles = draftsFolder ? this.plugin.flattenFiles(draftsFolder) : [];
       const menu = new Menu();
 
       menu.addItem((item) => item.setTitle(t("binder.filter.statusHeader")).setDisabled(true));
@@ -1801,27 +1832,31 @@ export class FeuilletsView extends BaseFeuilletsView {
             })
         );
       }
-      menu.showAtMouseEvent(e);
-    });
 
-    if ((S.binderSearch || "").trim() || binderFilterIsActive()) {
-      const resetBtn = this.iconBtn(
-        filterBar,
-        "x",
-        t("binder.filter.resetSearchAndFilters")
-      );
-      resetBtn.addEventListener("click", () => {
-        void (async () => {
+      if ((S.binderSearch || "").trim() || binderFilterIsActive()) {
+        menu.addSeparator();
+        menu.addItem(item => item.setTitle(t("binder.filter.resetSearchAndFilters")).setIcon("x").onClick(async () => {
           S.binderSearch = "";
           S.binderStatusFilter = "all";
           S.binderLabelFilter = "all";
           S.binderProgressFilter = "all";
           this._binderSearchOpen = false;
           await this.plugin.saveSettings();
-          void this.render(true);
-        })();
-      });
+          await this.render(true);
+        }));
+      }
+      menu.showAtMouseEvent(e);
+    });
+
+    if (editorialMode) {
+      const host = container.createDiv({ cls: "feuillets-editorial-navigation" });
+      this.editorialContent ??= new EditionDocsContent(this.app, this.plugin, host);
+      this.editorialContent.attach(host);
+      await this.editorialContent.render();
+      return;
     }
+
+    const draftFiles = draftsFolder ? this.plugin.flattenFiles(draftsFolder) : [];
 
     /* Barre de recherche sur sa propre ligne, sous la barre d'icônes —
        plus lisible qu'un champ étriqué inséré entre les icônes. */
@@ -1890,7 +1925,7 @@ export class FeuilletsView extends BaseFeuilletsView {
     const searchTerm = foldAccents((S.binderSearch || "").trim());
     let contentIndex: Map<string, { text: string }> | null = null;
     const projectFiles = folder ? this.plugin.flattenFiles(folder) : [];
-    const draftFiles = draftsFolder ? this.plugin.flattenFiles(draftsFolder) : [];
+
     const binderFiles = [...new Map(
       [...projectFiles, ...draftFiles].map((file) => [file.path, file])
     ).values()];

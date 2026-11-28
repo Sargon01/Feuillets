@@ -5,7 +5,7 @@ const isCompiledTest = import.meta.url.includes("/.test-dist/");
 const compiledModule = (path) => new URL(`../.test-dist/${path}`, import.meta.url).href;
 const modulePath = (path) => isCompiledTest ? `../${path}` : compiledModule(path);
 
-const { Notice, TFile, TFolder, setIcon: realSetIcon } = await import(
+const { Menu, Notice, TFile, TFolder, setIcon: realSetIcon } = await import(
   isCompiledTest ? "obsidian" : compiledModule("node_modules/obsidian/index.js")
 );
 
@@ -50,6 +50,13 @@ class FakeElement {
   addEventListener(name, callback) { this.events.set(name, callback); }
   setText(text) { this.text = String(text); return this; }
   setAttr(name, value) { this.attributes[name] = value; }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  toggleClass(name, enabled) { if (enabled) this.classes.add(name); else this.classes.delete(name); }
+  querySelectorAll(selector) {
+    return selector === "[data-editorial-path]"
+      ? allElements(this).filter(element => element.attributes["data-editorial-path"])
+      : [];
+  }
   empty() { this.children = []; }
 }
 
@@ -59,6 +66,17 @@ function buttonsOf(container) { return allElements(container).filter((el) => el.
 function rowsOf(container) { return allElements(container).filter((el) => el.classes.has("feuillets-project-row")); }
 function rowWithLabel(container, label) {
   return rowsOf(container).find((row) => allElements(row).some((el) => el.text === label));
+}
+
+function submissionItems(container) {
+  const row = allElements(container).find(el => el.classes.has("feuillets-submission-row"));
+  row.events.get("contextmenu")({ type: "contextmenu", preventDefault() {} });
+  return Menu.lastShown.items;
+}
+function submissionAction(container, label) {
+  const item = submissionItems(container).find(item => item.title === label);
+  assert.ok(item, label);
+  return item.click();
 }
 
 function createView({ root = null, editionFolder = null, frontmatterByPath = {}, courrierApi = null, revealAvailable = false } = {}) {
@@ -83,6 +101,7 @@ function createView({ root = null, editionFolder = null, frontmatterByPath = {},
     },
     workspace: {
       getLeaf: () => leaf,
+      getActiveFile: () => openedFiles.at(-1) ?? null,
       setActiveLeaf: () => {},
     },
     metadataCache: {
@@ -140,11 +159,9 @@ test("EditionDocsContent : composant DOM pur — jamais de grand en-tête replia
 
   await view.render();
 
-  assert.equal(
-    allElements(contentEl).some((el) => el.classes.has("feuillets-section-head")),
-    false,
-    "pas d'en-tête repliable : le composant est toujours intégré"
-  );
+  const title = allElements(contentEl).find(el => el.classes.has("feuillets-section-head"));
+  assert.ok(title);
+  assert.equal(title.attributes["aria-expanded"], undefined, "le titre du dossier reste fixe");
   const texts = textsOf(contentEl);
   assert.ok(texts.some((t) => /Edition/i.test(t)), "invite à créer le dossier Edition");
 });
@@ -365,7 +382,8 @@ test("EditionDocsContent : synthèse une soumission sans doublon ambigu, avec st
   packageFolder.children = [letterDocx, manuscript];
   submission.children = [letter, packageFolder];
   submissions.children = [submission];
-  edition.children = [submissions];
+  const archives = new TFolder(`${edition.path}/Versions envoyées`);
+  edition.children = [submissions, archives];
 
   const calls = [];
   const courrierApi = {
@@ -376,6 +394,7 @@ test("EditionDocsContent : synthèse une soumission sans doublon ambigu, avec st
       return [
         {
           letterPath: letter.path,
+          folderPath: packageFolder.path,
           recipient: "Éditions du Vent",
           status: "Envoyé",
           sentDate: "2026-08-02",
@@ -386,10 +405,11 @@ test("EditionDocsContent : synthèse une soumission sans doublon ambigu, avec st
       ];
     },
   };
-  const { view, contentEl } = createView({
+  const { view, contentEl, revealedFiles } = createView({
     root,
     editionFolder: edition,
     courrierApi,
+    revealAvailable: true,
     frontmatterByPath: {
       [letter.path]: {
         destinataire_nom: "Éditions du Vent",
@@ -400,17 +420,20 @@ test("EditionDocsContent : synthèse une soumission sans doublon ambigu, avec st
 
   await view.render();
   const texts = textsOf(contentEl);
-  assert.ok(texts.includes("Préparer → Rédiger → Exporter → Envoyer → Relancer"));
+  assert.ok(texts.includes(fr["editionDocs.submission.tracking"]));
+  assert.equal(texts.filter(text => text === fr["editionDocs.submission.tracking"]).length, 1);
+  assert.equal(texts.includes("Soumissions"), false);
+  assert.equal(texts.includes("Versions envoyées"), false);
   assert.ok(texts.includes("Éditions du Vent"));
-  assert.ok(texts.includes("Envoyée"));
-  assert.ok(texts.includes("Documents prêts"));
-  assert.ok(texts.includes("Envoi : 2026-08-02"));
-  assert.ok(texts.includes("Relance : 2099-09-02"));
-  for (const label of ["Ouvrir la lettre", "Ouvrir le dossier", "Exporter", "Marquer comme envoyée"]) {
-    assert.equal(buttonsOf(contentEl).filter((button) => button.text === label).length, 1, `${label} affiché une seule fois`);
-  }
+  assert.ok(texts.includes("Envoyée · 2026-08-02"));
+  const dates = allElements(contentEl).find(el => el.classes.has("feuillets-submission-row-details"));
+  assert.equal(dates.getAttribute("aria-label"), "Envoyée · Envoi : 2026-08-02 · Relance : 2099-09-02");
+  assert.deepEqual(submissionItems(contentEl).map(item => item.title), ["Ouvrir la lettre", "Ouvrir le dossier", "Exporter"]);
+  assert.equal(buttonsOf(contentEl).filter(button => button.attributes["aria-label"] === "Actions de la soumission").length, 1);
+  submissionAction(contentEl, "Ouvrir le dossier");
+  assert.deepEqual(revealedFiles, [packageFolder]);
 
-  buttonsOf(contentEl).find((button) => button.text === "Exporter").events.get("click")();
+  submissionAction(contentEl, "Exporter");
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(calls, [["export", letter.path]]);
@@ -497,8 +520,8 @@ test("INT-2B: submissionLetterFile résout letterPath vers TFile ou null", async
   await view.render();
 
   // Bouton "Ouvrir la lettre" doit fonctionner
-  const openLetterBtn = buttonsOf(contentEl).find((b) => /ouvrir/i.test(b.text));
-  assert.ok(openLetterBtn, "Bouton Ouvrir la lettre trouvé");
+  const openLetterBtn = buttonsOf(contentEl).find(button => button.classes.has("feuillets-submission-row-main"));
+  assert.ok(openLetterBtn, "La ligne ouvre la lettre");
   await openLetterBtn.events.get("click")();
   assert.deepEqual(openedFiles, [letter], "letterPath résolu à TFile pour ouverture");
 });
@@ -536,8 +559,7 @@ test("INT-2B: Export appelle API Courrier avec letterPath", async () => {
   const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi });
   await view.render();
 
-  const exportBtn = buttonsOf(contentEl).find((b) => /exporter/i.test(b.text));
-  await exportBtn.events.get("click")();
+  submissionAction(contentEl, "Exporter");
   await Promise.resolve();
   await Promise.resolve();
   assert.deepEqual(apiCalls, [["export", letter.path]], "letterPath passé à exportSubmissionDocx");
@@ -576,10 +598,7 @@ test("INT-2B: Marquer comme envoyée appelle API Courrier avec letterPath et dat
   const { view, contentEl } = createView({ root, editionFolder: edition, courrierApi });
   await view.render();
 
-  // Trouver et cliquer sur "Marquer comme envoyée"
-  const markSentBtn = buttonsOf(contentEl).find((b) => /marquer/i.test(b.text));
-  // Ceci ouvre une modale, donc nous vérifions que le bouton existe et est actif
-  assert.ok(markSentBtn, "Bouton Marquer comme envoyée trouvé");
+  assert.ok(submissionItems(contentEl).some(item => item.title === "Marquer comme envoyée"));
 });
 
 test("INT-2B: letterPath absent — affiche notice d'erreur", async () => {
@@ -611,13 +630,9 @@ test("INT-2B: letterPath absent — affiche notice d'erreur", async () => {
   Notice.onCreate = (m) => notices.push(m);
   try {
     await view.render();
-    // Boutons "Ouvrir la lettre" doivent montrer une notice s'ils sont cliqués
-    const openLetterBtn = buttonsOf(contentEl).find((b) => /ouvrir/i.test(b.text));
-    if (openLetterBtn) {
-      await openLetterBtn.events.get("click")();
-      // Une notice doit avoir été créée
-      assert.ok(notices.length > 0, "Notice créée pour letterPath absent");
-    }
+    const button = buttonsOf(contentEl).find(button => button.classes.has("feuillets-submission-row-main"));
+    await button.events.get("click")();
+    assert.ok(notices.length > 0, "Notice créée pour letterPath absent");
   } finally {
     Notice.onCreate = previousNotice;
   }
@@ -655,10 +670,9 @@ test("INT-2B: renderSubmissionCard utilise uniquement les champs ProjectSubmissi
 
   const texts = textsOf(contentEl);
   assert.ok(texts.includes("Éditions Test"), "recipient utilisé");
-  assert.ok(texts.includes("Envoyée"), "status utilisé");
-  // Dates incluent le préfixe i18n (Envoi : 2026-08-15 ou Sent: 2026-08-15)
-  assert.ok(texts.some((t) => t.includes("2026-08-15")), "sentDate utilisé");
-  assert.ok(texts.some((t) => t.includes("2026-09-15")), "reminderDate utilisé");
+  assert.ok(texts.includes("Envoyée · 2026-08-15"), "statut et date d’envoi visibles");
+  const dates = allElements(contentEl).find(el => el.classes.has("feuillets-submission-row-details"));
+  assert.match(dates.getAttribute("aria-label"), /Relance : 2026-09-15/u);
 });
 
 test("INT-2B: Refresh après action — render() appelé pour mettre à jour les cartes", async () => {
@@ -700,8 +714,7 @@ test("INT-2B: Refresh après action — render() appelé pour mettre à jour les
   await view.render();
   const initialCount = originalRenderCount;
 
-  const exportBtn = buttonsOf(contentEl).find((b) => /exporter/i.test(b.text));
-  await exportBtn.events.get("click")();
+  submissionAction(contentEl, "Exporter");
   await Promise.resolve();
   await Promise.resolve();
 

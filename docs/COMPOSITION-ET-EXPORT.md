@@ -6,6 +6,23 @@
 
 Feuillets sépare l’apparence confortable de l’éditeur de la composition du document destiné à être lu, imprimé ou envoyé.
 
+## Dossier éditorial et soumissions
+
+Dans le Classeur, ouvrez **Dossier éditorial** avec l’icône de dossier et roue dentée. Ouvrez une note dans l’éditeur central. **Composition** et **Mise en page**, à droite, s’appliquent à cette note. Ses réglages sont indépendants de ceux du manuscrit et des autres notes.
+
+1. Cliquez sur **Composer le dossier**. Cochez les documents, placez-les dans l’ordre souhaité et choisissez **PDF composite**, **PDF séparés** ou **DOCX séparés**. Le manuscrit ou un extrait ainsi que l’en-tête auteur et titre sont facultatifs. Enregistrez la configuration pour la retrouver, la modifier ou la dupliquer.
+2. Utilisez **Aperçu** pour les sorties de travail. La première sortie enregistrée crée le dossier de travail. Changez le nom du fichier pour conserver les deux sorties, ou confirmez son remplacement. Un DOCX existant est copié comme pièce séparée.
+3. Avec Courrier actif, utilisez **Préparer une soumission** selon l’un de ces parcours.
+
+   - **Depuis la lettre générique.** Activez **Modèle de lettre**. Courrier reprend le texte du modèle du projet dans une nouvelle lettre à personnaliser pour le destinataire choisi.
+   - **Depuis une lettre Courrier existante.** Sélectionnez-la dans la liste des documents. Courrier conserve la mise en page et préremplit le destinataire. La confirmation crée une copie indépendante. La lettre source reste disponible pour d’autres envois. Une lettre déjà suivie ouvre sa fiche existante.
+   - **Sans lettre.** Désactivez **Modèle de lettre**, ne sélectionnez aucune lettre Courrier et ajoutez les documents voulus. Courrier crée une fiche de suivi pour le destinataire ou le portail.
+
+4. Dans **Suivi des soumissions**, cliquez sur le destinataire pour ouvrir sa fiche. Le menu donne accès à **Aperçu et export**, au dossier à envoyer et à la version archivée. Pour produire un PDF sur ordinateur, choisissez **Imprimer ou enregistrer en PDF**. Dans le dialogue natif, choisissez vous-même le nom et la destination affichés. Feuillets détecte le fichier enregistré directement dans **Dossier à envoyer**. **Intégrer un PDF** permet de sélectionner un fichier enregistré ailleurs.
+5. Après transmission des fichiers, choisissez **Marquer comme envoyée**. Courrier vérifie et copie le dossier dans **Versions envoyées**, puis enregistre la date d’envoi et la relance. **Dupliquer la soumission** réutilise la configuration pour un autre destinataire.
+
+Annuler le formulaire Courrier ramène au compositeur. Annuler le dialogue d’impression laisse le fichier en attente. Le dialogue natif contrôle l’enregistrement, la destination et les options d’impression. Pour un dossier composite, vérifiez les tailles et marges des différentes parties dans le PDF produit, car leur respect dépend du dialogue et du pilote. Une source supprimée ou déplacée hors du périmètre éditorial reste signalée dans la configuration. Restaurez-la ou retirez-la de la composition avant de la produire.
+
 ## Onglet Édition
 
 L’onglet **Édition** contient les surfaces liées à la production du document, notamment **Composition** et **Mise en page**. Il travaille avec le vrai **Aperçu** et la barre d’export.

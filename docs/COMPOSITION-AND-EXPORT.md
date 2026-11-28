@@ -6,6 +6,23 @@
 
 Feuillets separates the comfortable editor appearance from the composition of the document meant to be read, printed or sent.
 
+## Editorial folder and submissions
+
+In the Binder, open **Editorial folder** using the folder and cog icon. Open a note in the central editor. **Composition** and **Layout** on the right apply to that note. Each note has its own settings, separate from the manuscript.
+
+1. Click **Compose packet**. Select and order the documents, then choose a **Composite PDF**, **Separate PDFs**, or **Separate DOCX** files. The manuscript or an excerpt and the author and title header are optional. Save the configuration to reopen, edit, or duplicate it.
+2. Use **Preview** for working exports. Saving the first output creates the working folder. Change the filename to keep both outputs, or confirm replacement. An existing DOCX is copied as a separate attachment.
+3. With Courrier active, choose **Prepare a submission** using one of these routes.
+
+   - **From the generic letter.** Enable **Letter template**. Courrier starts a new letter with the project’s cover-letter text for you to tailor to the selected recipient.
+   - **From an existing Courrier letter.** Select it in the document list. Courrier keeps its layout and fills in the recipient. Confirm to create an independent copy. The source letter remains available for future submissions. Selecting a tracked letter opens its existing record.
+   - **Without a letter.** Turn off **Letter template**, leave Courrier letters unselected, and add the documents you need. Courrier creates a tracking record for the recipient or portal.
+
+4. In **Submission tracking**, click the recipient to open their record. The action menu opens **Preview and export**, the outgoing folder, and the archived version. On desktop, choose **Print or save as PDF** to produce a PDF. Use the native dialog to select the displayed filename and destination. Feuillets detects a file saved directly in the outgoing folder. Use **Import PDF** to select a file saved elsewhere.
+5. After sending the files, choose **Mark as sent**. Courrier checks and copies the packet into sent versions, then records the sent and follow-up dates. **Duplicate submission** reuses the configuration for another recipient.
+
+Cancelling the Courrier form returns to the composer. Cancelling the print dialog leaves the PDF pending. The native dialog controls saving, the destination, and print settings. For a composite packet, check each part’s paper size and margins in the resulting PDF because the print dialog and driver affect them. If you delete a source or move it outside the editorial area, the configuration continues to show it. Restore the source or remove it from the composition before generating the packet.
+
 ## Edition tab
 
 The **Edition** tab contains the document-production surfaces, including **Composition** and **Layout**. It works with the real **Preview** and the export bar.

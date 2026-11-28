@@ -14,6 +14,7 @@ test("Edition refresh and local interactions preserve mounted controls", async (
     stdin: { contents: `export { default as FeuilletsPlugin } from "./src/main.ts";
       export { SidebarFeuilletsView } from "./src/views/sidebar-feuillets-view.ts";
       export { PreviewView } from "./src/views/preview-view.ts";
+      export { EditionDocsContent } from "./src/ui/edition-docs-content.ts";
       export { EditionWorkspaceContent } from "./src/ui/edition-workspace-content.ts";
       export { LayoutEditor } from "./src/ui/layout-editor.ts";
       export { LayoutModal } from "./src/ui/layout-modal.ts";
@@ -584,11 +585,13 @@ test("Edition refresh and local interactions preserve mounted controls", async (
       await f.navigate("compositionSummary.beforeManuscript");
       await f.navigate("preview.export.firstPage");
       const reactivated = f.container.querySelector('input[type="text"]').value === "Title after reactivation";
-      await f.sidebar.openEditionPage("documents");
-      const create = [...f.container.querySelectorAll("button")].find((button) => button.textContent === f.api.t("editionDocs.createFolder"));
+      const editorialHost = document.createElement("div");
+      const editorial = new f.api.EditionDocsContent(f.app, f.plugin, editorialHost);
+      await editorial.render();
+      const create = [...editorialHost.querySelectorAll("button")].find((button) => button.textContent === f.api.t("editionDocs.createFolder"));
       create.click();
       await f.settle();
-      const documents = !!f.api.getEditionRoot(f.app, f.root) && !!f.container.querySelector(".feuillets-project-actions");
+      const documents = !!f.api.getEditionRoot(f.app, f.root) && !!editorialHost.querySelector(".feuillets-project-actions");
       await f.sidebar.openEditionPage("composition");
       const exportPanel = new f.api.ExportPanel(f.app, f.plugin, document.createElement("div"), { onScopeChanged: () => f.sidebar.refreshData() });
       await exportPanel.setEditionScope("ouvrage", null, f.ouvrage.path);
@@ -916,9 +919,11 @@ test("Edition refresh and local interactions preserve mounted controls", async (
   });
 
   await t.test("Local editorial folders: collapse updates only descendants and keeps navigation and scroll", async (context) => {
-    const page = await open(context, "documents");
+    const page = await open(context);
     const result = await page.evaluate(async () => {
       const f = window.fixture;
+      const editorial = new f.api.EditionDocsContent(f.app, f.plugin, f.container);
+      await editorial.render();
       const create = [...f.container.querySelectorAll("button")].find((button) => button.textContent === f.api.t("editionDocs.createFolder"));
       create.click();
       await f.settle();
@@ -926,7 +931,7 @@ test("Edition refresh and local interactions preserve mounted controls", async (
       const folder = await f.app.vault.createFolder(`${edition.path}/Local folder`);
       await f.app.vault.create(`${folder.path}/Child.md`, "Document content");
       for (let i = 0; i < 16; i++) await f.app.vault.create(`${edition.path}/Document ${i}.md`, "Editorial content");
-      await f.sidebar.render();
+      await editorial.render();
       const row = [...f.container.querySelectorAll(".feuillets-edition-folder-row")].find((node) => node.textContent === folder.name);
       const neighbors = [...f.container.querySelectorAll(".feuillets-edition-file-row")];
       const toolbar = f.container.querySelector(".feuillets-project-actions");

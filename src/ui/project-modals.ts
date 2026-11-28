@@ -643,7 +643,7 @@ export class ManageProjectsModal extends Modal {
     const detail = list.createDiv({ cls: "feuillets-project-detail feuillets-project-grid" });
     const mkField = (label: string, key: string, placeholder: string) => {
       detail.createDiv({ cls: "feuillets-notes-label" }).setText(label);
-      const fieldInput = detail.createEl("input", { type: "text", attr: { placeholder } });
+      const fieldInput = detail.createEl("input", { type: "text", attr: { "aria-label": label, placeholder } });
       fieldInput.value = (meta[key] as string) || "";
       fieldInput.addEventListener("blur", () => {
         void (async () => {

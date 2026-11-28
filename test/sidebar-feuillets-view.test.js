@@ -316,14 +316,13 @@ test("SidebarFeuilletsView : aucune seconde AnalysisView n'est créée pour Stat
 });
 
 /* PROMPT 2 — l'onglet interne "project" devient visuellement et
- * fonctionnellement ÉDITION : accueil à trois entrées (Composition/Mise en
- * page/Dossier éditorial), sous-pages montées via EditionWorkspaceContent
+ * fonctionnellement ÉDITION : accueil à deux entrées (Composition/Mise en page), sous-pages montées via EditionWorkspaceContent
  * (mode embedded) et EditionDocsContent — jamais de nouvelle leaf, jamais
  * de Board, jamais de Preview créée automatiquement. */
 
 /** Fixture d'intégration réelle (même patron que buildIntegrationFixture de
  * test/edition-workspace-content.test.js) : un vrai coffre en mémoire, pour
- * que Composition/Mise en page/Dossier éditorial se montent et rendent
+ * que les pages Composition et Mise en page se montent et rendent
  * réellement leur contenu, sans rien mocker de leur logique métier. */
 function buildEditionFixture({ withPreviewLeaf = null } = {}) {
   const volume = new TFolder("Projet");
@@ -424,7 +423,7 @@ test("SidebarFeuilletsView : le tab \"project\" a pour libellé Édition et pour
   assert.equal(button.getAttribute("aria-label"), t("sidebar.tab.edition"));
 });
 
-test("SidebarFeuilletsView : accueil Édition affiche exactement trois entrées — Composition, Mise en page, Dossier éditorial", async () => {
+test("SidebarFeuilletsView : accueil Édition affiche seulement Composition et Mise en page", async () => {
   const { sidebar } = buildEditionFixture();
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
@@ -435,7 +434,6 @@ test("SidebarFeuilletsView : accueil Édition affiche exactement trois entrées 
   assert.deepEqual(titles, [
     t("sidebar.edition.composition"),
     t("sidebar.edition.layout"),
-    t("sidebar.edition.editorialFolder"),
   ]);
 });
 
@@ -484,17 +482,7 @@ test("SidebarFeuilletsView : cliquer Mise en page ouvre une page interne avec ba
   assert.ok(container.querySelector(".feuillets-layout-toolbar"), "l'outil de gabarit Mise en page est monté");
 });
 
-test("SidebarFeuilletsView : cliquer Dossier éditorial ouvre une page interne rendant EditionDocsContent", async () => {
-  const { sidebar } = buildEditionFixture();
-  sidebar.editionPage = "documents";
-  const container = new FakeElement();
-  await sidebar.renderProjectTab(container);
-  const backBar = allElements(container).find((el) => el.classes.has("feuillets-notes-back-bar"));
-  assert.ok(backBar, "barre Retour affichée");
-  assert.ok(container.textContent.includes(t("editionDocs.title")) || allElements(container).length > 2, "EditionDocsContent a rendu du contenu");
-});
-
-test("SidebarFeuilletsView : Retour depuis une sous-page Édition revient aux trois entrées", async () => {
+test("SidebarFeuilletsView : Retour depuis une sous-page Édition revient aux deux entrées", async () => {
   const { sidebar } = buildEditionFixture();
   sidebar.editionPage = "composition";
   const container = new FakeElement();
@@ -512,12 +500,11 @@ test("SidebarFeuilletsView : Retour depuis une sous-page Édition revient aux tr
   assert.deepEqual(titles, [
     t("sidebar.edition.composition"),
     t("sidebar.edition.layout"),
-    t("sidebar.edition.editorialFolder"),
   ]);
 });
 
-test("SidebarFeuilletsView : ouvrir Composition/Mise en page/Dossier éditorial ne crée jamais de leaf ni n'active Board", async () => {
-  for (const page of ["composition", "layout", "documents"]) {
+test("SidebarFeuilletsView : ouvrir Composition ou Mise en page ne crée jamais de leaf ni n'active Board", async () => {
+  for (const page of ["composition", "layout"]) {
     const { sidebar, calls } = buildEditionFixture();
     sidebar.editionPage = page;
     const container = new FakeElement();
@@ -599,14 +586,6 @@ test("SidebarFeuilletsView : la barre globale Édition est présente dans Mise e
   const container = new FakeElement();
   await sidebar.renderProjectTab(container);
   assert.ok(actionsBarOf(container), "barre globale présente dans Mise en page");
-});
-
-test("SidebarFeuilletsView : la barre globale Édition est présente dans Dossier éditorial", async () => {
-  const { sidebar } = buildEditionFixture();
-  sidebar.editionPage = "documents";
-  const container = new FakeElement();
-  await sidebar.renderProjectTab(container);
-  assert.ok(actionsBarOf(container), "barre globale présente dans Dossier éditorial");
 });
 
 test("SidebarFeuilletsView : la quick export bar rend bien portée, format et Exporter (ExportPanel.renderQuickBar réutilisé)", async () => {
@@ -1177,15 +1156,6 @@ test("Sidebar : à chaque profondeur Layout le Retour global est coupé, seul le
     await settle();
     assert.ok(globalBackPresent(container), `retour au sommaire Mise en page après ${sub}`);
   }
-});
-
-test("Sidebar : Dossier éditorial (pas de navigation interne) garde toujours « Retour à Édition »", async () => {
-  const { sidebar } = buildEditionFixture();
-  sidebar.editionPage = "documents";
-  const container = new FakeElement();
-  await sidebar.renderProjectTab(container);
-  assert.ok(globalBackPresent(container), "Retour à Édition présent sur Dossier éditorial");
-  assert.ok(localBackTexts(container).includes("Retour à Édition"), "un seul Retour, le global, reste à la racine");
 });
 
 test("Carnets is persisted, hideable, accessible and refreshes without rebuilding its mounted inspector", async () => {
